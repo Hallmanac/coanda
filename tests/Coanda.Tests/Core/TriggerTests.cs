@@ -1,3 +1,4 @@
+using Coanda.Core.Flows;
 using Coanda.Core.Triggers;
 using Coanda.Core.Types;
 
@@ -46,5 +47,26 @@ public sealed class TriggerTests
         binding.Matches(entered).Should().BeTrue();
         binding.Matches(TriggerEvent.ParcelEntered("task", "review")).Should().BeFalse();
         binding.Matches(TriggerEvent.ParcelEntered("idea", "build")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_follow_matches_a_flight_end_with_its_outcome_and_its_flow_when_it_names_one()
+    {
+        TriggerEvent ended = TriggerEvent.FlightEnded("build", "pr-opened", "task");
+        ended.Kind.Should().Be("flight-ended");
+        ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["flow"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" });
+
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended).Should().BeTrue("a follow naming no flow takes the outcome from any flow");
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 }).Matches(ended).Should().BeFalse();
+        Trigger.ForFollow(new FlowFollow { Outcome = "report-produced", DepthCap = 1 }).Matches(ended).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_follow_never_matches_an_event_of_another_kind_carrying_the_same_fields()
+    {
+        Trigger follow = Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 });
+
+        follow.Matches(Event("pr-merged", ("flow", "build"), ("outcome", "pr-opened"), ("type", "task"))).Should().BeFalse();
     }
 }
