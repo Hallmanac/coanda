@@ -102,6 +102,13 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock)
         return await resolver.ResolveAllAsync(Tenants.RequireProject(project), DefinitionKind.Agent, cancellationToken);
     }
 
+    /// <summary>The published agent that resolution returns for the project by name, or null when it returns none.</summary>
+    public async Task<Definition?> ResolveAgentAsync(Principal principal, string project, string name, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("agent.list", principal);
+        return await resolver.ResolveAsync(Tenants.RequireProject(project), DefinitionKind.Agent, name, cancellationToken);
+    }
+
     /// <summary>
     /// Seeds the shipped definitions, whatever their kind, as published shipped-scope definitions.
     /// A definition whose content hash is already among the shipped versions of its name is

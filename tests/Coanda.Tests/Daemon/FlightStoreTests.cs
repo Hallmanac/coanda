@@ -53,8 +53,12 @@ public sealed class FlightStoreTests
         {
             Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Fly once", null, CancellationToken.None);
             parcelId = parcel.Id;
-            Flight flight = await RunToAnsweredBuildAsync(new FlightService(store, TimeProvider.System), parcelId);
+            var service = new FlightService(store, TimeProvider.System);
+            Flight flight = await RunToAnsweredBuildAsync(service, parcelId);
             flightId = flight.Id;
+
+            // Parked, so the daemon's start leaves it where it was written rather than advancing it.
+            await service.ParkAsync(Owner, Project, flightId, "Held for the read-back.", "Resume it.", CancellationToken.None);
         }
 
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
@@ -64,7 +68,7 @@ public sealed class FlightStoreTests
         shown.ParcelId.Should().Be(parcelId);
         shown.Flow.Should().Be("build");
         shown.FlowHash.Should().Be(ShippedFlows.Build.Hash);
-        shown.Status.Should().Be("running");
+        shown.Status.Should().Be("parked");
         shown.CurrentStep.Should().Be("build");
         shown.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
 
@@ -169,7 +173,7 @@ public sealed class FlightStoreTests
     }
 
     [Fact]
-    public async Task Writing_a_flight_is_open_to_people_and_reading_one_to_every_role()
+    public async Task Starting_resuming_and_stopping_a_flight_are_open_to_people_recording_its_steps_to_every_role()
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
@@ -183,8 +187,13 @@ public sealed class FlightStoreTests
             .Should().ThrowAsync<DomainException>().WithMessage("'flight.start' is not open to the Agent role.");
 
         Flight flight = await flights.StartAsync(member, Project, parcel.Id, "build", none);
-        await FluentActions.Awaiting(() => flights.RecordResultAsync(agent, Project, flight.Id, "worktree", SoftwareActions.Worktree, Json("{}"), none))
-            .Should().ThrowAsync<DomainException>().WithMessage("'flight.result' is not open to the Agent role.");
+        await flights.RecordResultAsync(agent, Project, flight.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done"}"""), none);
+        await flights.StartStepAsync(agent, Project, flight.Id, "build", none);
+        await flights.ParkAsync(agent, Project, flight.Id, "Asked a question.", "Answer it.", none);
+        await FluentActions.Awaiting(() => flights.ResumeAsync(agent, Project, flight.Id, null, none))
+            .Should().ThrowAsync<DomainException>().WithMessage("'flight.resume' is not open to the Agent role.");
+        await FluentActions.Awaiting(() => flights.StopAsync(agent, Project, flight.Id, "Done with it.", none))
+            .Should().ThrowAsync<DomainException>().WithMessage("'flight.stop' is not open to the Agent role.");
 
         IReadOnlyList<Flight> listed = await flights.ListAsync(agent, Project, parcel.Id, none);
         listed.Should().ContainSingle();

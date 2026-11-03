@@ -7,7 +7,9 @@ using Coanda.Core.Flights;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
+using Coanda.Daemon.Actions;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flights;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
@@ -37,8 +39,13 @@ public sealed class DaemonHost
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "0.0.0";
 
-    public static async Task<RunningDaemon> StartAsync(NodeHome home, int port, CancellationToken cancellationToken)
+    public static Task<RunningDaemon> StartAsync(NodeHome home, int port, CancellationToken cancellationToken) =>
+        StartAsync(home, port, new DaemonOptions(), cancellationToken);
+
+    public static async Task<RunningDaemon> StartAsync(NodeHome home, int port, DaemonOptions options, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.JudgmentLimit, TimeSpan.Zero, nameof(options));
         home.EnsureExists();
         string token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
@@ -53,6 +60,13 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<DefinitionService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
+        builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
+        builder.Services.AddSingleton(new FlightRunnerOptions(options.JudgmentLimit));
+        builder.Services.AddSingleton(services => FlowActions.Shipped(
+            services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton<FlightRunner>();
+        builder.Services.AddSingleton<IFlightAdvancer>(services => services.GetRequiredService<FlightRunner>());
+        builder.Services.AddHostedService(services => services.GetRequiredService<FlightRunner>());
         builder.Services.AddSingleton<FlightService>();
 
         WebApplication app = builder.Build();
@@ -66,6 +80,9 @@ public sealed class DaemonHost
             // or advertised: the address file is written only after this returns.
             await app.Services.GetRequiredService<DefinitionService>()
                 .SeedAsync(ShippedDefinition.All, cancellationToken);
+
+            // Every live flight that is not parked carries on from its current step.
+            await app.Services.GetRequiredService<FlightRunner>().AdvanceLiveAsync(cancellationToken);
         }
         catch
         {
@@ -155,6 +172,16 @@ public sealed class DaemonHost
             return flight is null
                 ? Results.NotFound(new ErrorView($"No flight {Ids.Short(id)} in project '{project}'."))
                 : Results.Ok(FlightView.From(project.Trim(), flight));
+        });
+
+        app.MapPost("/flights", async (HttpContext context, FlightService flights, IFlightAdvancer advancer, FlightStartRequest request, CancellationToken cancellationToken) =>
+        {
+            string project = request.Project.Trim();
+            Flight flight = await flights.StartAsync(PrincipalOf(context), project, request.ParcelId, request.Flow, cancellationToken);
+
+            // The flight advances on the daemon's own workers; the start answers without waiting for it.
+            _ = advancer.RequestAdvance(project, flight.Id);
+            return Results.Created($"/flights/{flight.Id}", FlightView.From(project, flight));
         });
 
         app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
