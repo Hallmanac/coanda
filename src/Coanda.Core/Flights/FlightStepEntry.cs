@@ -32,5 +32,13 @@ public sealed record FlightStepEntry
     /// </summary>
     public DateTimeOffset? ResumedAt { get; init; }
 
+    /// <summary>
+    /// When the judgment of this unrecorded visit counted one more spawn for the resume that
+    /// <see cref="ResumedAt"/> holds, or null when no spawn has been counted for that resume. A
+    /// resume clears it, so a restart that performs the same resumed visit again counts no second
+    /// spawn for one resume.
+    /// </summary>
+    public DateTimeOffset? RespawnedAt { get; init; }
+
     public bool IsRecorded => RecordedAt is not null;
 }

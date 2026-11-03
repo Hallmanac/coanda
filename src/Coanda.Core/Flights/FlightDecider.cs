@@ -129,6 +129,43 @@ public static class FlightDecider
         return new JudgmentAnswered(flight.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
     }
 
+    /// <summary>
+    /// Counts one more spawn for a resumed judgment step whose visit parked without an answer, which
+    /// is performed again on the same visit and adds no visit. It is counted once per resume, and
+    /// never past the flow's spawn cap; a visit's first spawn is counted when the step is entered.
+    /// </summary>
+    public static JudgmentRespawned Respawn(FlowDefinition flow, Flight flight, string step, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "spawn its judgment again");
+        FlightStepEntry current = RequireCurrent(flight, step, "a spawn");
+
+        if (current.Kind != StepKind.Judgment)
+        {
+            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step spawns an agent.");
+        }
+
+        if (current.ResumedAt is null)
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' has not been resumed since it was entered; its visit's spawn was counted when the flight entered it.");
+        }
+
+        if (current.RespawnedAt is not null)
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' already counted a spawn for its latest resume; a resume spawns its judgment again once.");
+        }
+
+        if (flight.Spawns >= flow.SpawnCap)
+        {
+            throw new DomainException(
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{current.Step}' again would spawn another agent.");
+        }
+
+        return new JudgmentRespawned(flight.Id, current.Step, current.Performer, now);
+    }
+
     public static ActionCompleted Complete(FlowDefinition flow, Flight flight, string step, string action, JsonElement result, DateTimeOffset now)
     {
         RequireFlow(flow, flight);
