@@ -30,6 +30,12 @@ CI builds and tests on ubuntu and windows for every push and pull request to mai
 
 No em dashes. Full sentences. No AI attribution in commits, pull requests, or docs.
 
+## Design
+
+`docs/design/design.md` is the design every change must fit; `docs/design/prototype-plan.md` is the
+phase plan with each phase's gate. A build session reads the sections its task names before writing
+code, and `decisions.md` in its worktree carries the binding rules.
+
 ## Layout
 
 - `src/Coanda.Core`: the meta-model (parcels, types, relations), definitions (types, flows,

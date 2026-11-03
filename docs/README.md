@@ -3,6 +3,6 @@
 - [Getting started](getting-started.md): install and run your first flow (humans).
 - [Overview for agents](overview.md): everything an agent needs to install and operate Coanda.
 - [Concepts](concepts.md): parcels, types, flows, flights, agents, actions, triggers.
+- [Design](design/design.md), [prototype plan](design/prototype-plan.md), and [naming](design/naming.md): the design this repository implements, as ruled on 2026-11-02 and 2026-11-03. Build sessions read these.
 
-The design this repository implements lives with its owner until the first release; these pages
-are its public rendering and grow with each phase.
+These pages grow with each phase.
