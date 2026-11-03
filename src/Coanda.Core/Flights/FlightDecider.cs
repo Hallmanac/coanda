@@ -68,7 +68,7 @@ public static class FlightDecider
         }
 
         bool outcomeMatches = string.Equals(parent.Outcome, follow.Outcome, StringComparison.Ordinal);
-        bool flowMatches = follow.Flow is null || string.Equals(parent.FlowName, follow.Flow, StringComparison.Ordinal);
+        bool flowMatches = follow.Flow is null || DefinitionResolution.SameName(parent.FlowName, follow.Flow);
         if (!outcomeMatches || !flowMatches)
         {
             throw new DomainException(

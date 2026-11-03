@@ -54,12 +54,24 @@ public sealed class TriggerTests
     {
         TriggerEvent ended = TriggerEvent.FlightEnded("build", "pr-opened", "task");
         ended.Kind.Should().Be("flight-ended");
-        ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["flow"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" });
+        ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["flow"] = TriggerEvent.FlowKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" });
 
         Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
         Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended).Should().BeTrue("a follow naming no flow takes the outcome from any flow");
         Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 }).Matches(ended).Should().BeFalse();
         Trigger.ForFollow(new FlowFollow { Outcome = "report-produced", DepthCap = 1 }).Matches(ended).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_follow_names_its_flow_in_any_spelling_as_flow_names_compare_without_case()
+    {
+        TriggerEvent ended = TriggerEvent.FlightEnded("build", "pr-opened", "task");
+
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 })
+            .Matches(TriggerEvent.FlightEnded("BUILD", "pr-opened", "task")).Should().BeTrue();
+        Trigger.ForFollow(new FlowFollow { Outcome = "PR-Opened", Flow = "build", DepthCap = 1 }).Matches(ended)
+            .Should().BeFalse("an outcome is a typed value and compares exactly");
     }
 
     [Fact]

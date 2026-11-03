@@ -23,7 +23,17 @@ public sealed record TriggerEvent(string Kind, IReadOnlyDictionary<string, strin
         ParcelEnteredKind,
         new Dictionary<string, string>(StringComparer.Ordinal) { [TypeField] = typeName, [StateField] = state });
 
+    /// <summary>
+    /// A flight's end. Its <c>flow</c> field carries the flow's name as <see cref="FlowKey"/> folds it,
+    /// because flow names compare without regard to case.
+    /// </summary>
     public static TriggerEvent FlightEnded(string flowName, string outcome, string typeName) => new(
         FlightEndedKind,
-        new Dictionary<string, string>(StringComparer.Ordinal) { [FlowField] = flowName, [OutcomeField] = outcome, [TypeField] = typeName });
+        new Dictionary<string, string>(StringComparer.Ordinal) { [FlowField] = FlowKey(flowName), [OutcomeField] = outcome, [TypeField] = typeName });
+
+    /// <summary>
+    /// A flow's name folded to one case, so that the exact equality a trigger compares with finds two
+    /// spellings of the same flow equal, as every other comparison of flow names does.
+    /// </summary>
+    public static string FlowKey(string flowName) => flowName.ToUpperInvariant();
 }
