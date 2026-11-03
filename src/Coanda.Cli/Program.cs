@@ -56,6 +56,13 @@ app.Configure(config =>
         flow.SetDescription("Flows are the loops that move parcels; build, discovery, and review-on-assignment ship installed.");
         flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
     });
+
+    config.AddBranch("flight", flight =>
+    {
+        flight.SetDescription("A flight is one execution of a flow on a parcel; a parcel has at most one live flight.");
+        flight.AddCommand<FlightListCommand>("list").WithDescription("List a parcel's flights, oldest first.").WithExample("flight", "list", "--parcel", "0192a3b4");
+        flight.AddCommand<FlightShowCommand>("show").WithDescription("Show one flight and the steps it entered.").WithExample("flight", "show", "0192a3b4");
+    });
 });
 
 return await app.RunAsync(args);

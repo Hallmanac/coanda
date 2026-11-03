@@ -101,6 +101,8 @@ public sealed class ParcelShowCommand : AsyncCommand<ParcelIdSettings>
             table.AddRow("Resolution", $"{parcel.Resolution}: {Markup.Escape(parcel.CloseReason ?? string.Empty)}");
         }
 
+        table.AddRow("Flight", parcel.LiveFlightId is Guid flight ? flight.ToString() : "none");
+
         AnsiConsole.Write(table);
         return 0;
     }
