@@ -317,6 +317,88 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
+    public async Task A_resume_of_a_judgment_that_parked_without_an_answer_counts_its_spawn_and_parks_at_the_cap()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2), Scripts.Answer("maybe", 3), Scripts.Answer("maybe", 4)],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowDefinition refused = await Publishing.FlowAsync(daemon, Project, new FlowDefinition
+        {
+            Name = "never-answers",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 10m,
+            SpawnCap = 2,
+            Steps = [Judge("build", "build", FlowDefinition.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unanswered", null), None);
+        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, refused.Name);
+        FlightView first = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        first.ParkReason.Should().Contain("gave no valid 'build' answer");
+        first.Spawns.Should().Be(1);
+
+        await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        FlightView second = await Flying.UntilAsync(client, Project, started.Id, "parked");
+
+        second.ParkReason.Should().Contain("gave no valid 'build' answer");
+        executor.Spawns.Should().HaveCount(2);
+        second.Spawns.Should().Be(2, "the resume spawned the judgment again and counted it");
+        second.Steps.Should().ContainSingle("the resume performed the same visit again rather than entering the step anew");
+        second.Steps[0].Answer.Should().BeNull();
+
+        await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Once more.", None);
+        FlightView capped = await Flying.UntilAsync(client, Project, started.Id, "parked");
+
+        capped.ParkReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
+        capped.Lever.Should().Be(FlightLevers.SpawnCapReached(refused.Name));
+        executor.Spawns.Should().HaveCount(2, "a resume never spawns past the flow's cap");
+        capped.Spawns.Should().Be(2);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_resume_of_a_judgment_that_parked_without_an_answer_routes_its_answer_within_a_visit_cap_of_one()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2), Scripts.Answer("done", 3)],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowDefinition once = await Publishing.FlowAsync(daemon, Project, new FlowDefinition
+        {
+            Name = "answers-late",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 10m,
+            SpawnCap = 2,
+            Steps = [Judge("build", "build", FlowDefinition.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Late answer", null), None);
+        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, once.Name);
+        await Flying.UntilAsync(client, Project, started.Id, "parked");
+        await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        FlightView ended = await Flying.UntilAsync(client, Project, started.Id, "ended");
+
+        ended.Outcome.Should().Be("built");
+        ended.Steps.Should().ContainSingle("the resume added no visit, so the visit cap of 1 still lets the answer route");
+        ended.Spawns.Should().Be(2);
+        executor.Spawns.Should().HaveCount(2);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_daemon_stop_cancels_the_judgment_in_progress_recording_nothing_and_the_next_start_carries_the_flight_on()
     {
         using var temp = new TemporaryHome();
