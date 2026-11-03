@@ -151,12 +151,13 @@ public sealed class ParcelCloseCommand : AsyncCommand<ParcelCloseSettings>
     }
 }
 
-public sealed class TypeListCommand : AsyncCommand
+public sealed class TypeListCommand : AsyncCommand<ProjectSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, CancellationToken cancellationToken)
+    protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSettings settings, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
-        List<TypeView> types = await client.GetAsync<List<TypeView>>("/types", cancellationToken);
+        string project = settings.ResolveProject();
+        List<TypeView> types = await client.GetAsync<List<TypeView>>($"/types?project={Uri.EscapeDataString(project)}", cancellationToken);
         var table = new Table().AddColumns("Type", "Hash", "States", "Resolutions");
         foreach (TypeView type in types)
         {
