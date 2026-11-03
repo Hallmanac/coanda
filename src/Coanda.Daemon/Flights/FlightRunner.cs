@@ -200,6 +200,16 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         // again as a new visit; a recording with no resume since is routed, never performed again.
         if (current.IsRecorded && current.ResumedAt is not null)
         {
+            if (step.IsJudgment && flight.Spawns >= flow.SpawnCap)
+            {
+                await ParkAsync(
+                    principal, project, flight.Id,
+                    $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{step.Name}' again would spawn another agent.",
+                    FlightLevers.SpawnCapReached(flow.Name),
+                    cancellationToken);
+                return false;
+            }
+
             await flights.StartStepAsync(principal, project, flight.Id, step.Name, cancellationToken);
             return true;
         }
@@ -252,11 +262,18 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         {
             throw;
         }
-        catch (OperationCanceledException) when (limit.IsCancellationRequested)
+        catch (Exception failure) when (limit.IsCancellationRequested)
         {
+            // Judgment.RunAsync wraps the cancellation when stopping the session failed too; the limit is still the cause.
+            string stopped = failure switch
+            {
+                OperationCanceledException => "so its session was stopped",
+                AggregateException => $"and stopping its session failed: {failure.Message}",
+                _ => $"and it failed as it was cancelled: {failure.Message}",
+            };
             await ParkAsync(
                 principal, project, flight.Id,
-                $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, so its session was stopped.",
+                $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, {stopped}.",
                 FlightLevers.PerformAgain(step.Name),
                 cancellationToken);
             return null;
@@ -278,7 +295,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
                 case JudgmentOutcome.Answered answered:
                     JsonElement answer = Parse(answered.Answer);
                     await flights.RecordAnswerAsync(
-                        principal, project, flight.Id, step.Name, agent.Name, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
+                        principal, project, flight.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
                     return answer;
                 case JudgmentOutcome.Parked parked:
                     await ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, cancellationToken);

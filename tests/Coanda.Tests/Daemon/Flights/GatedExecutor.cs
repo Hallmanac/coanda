@@ -17,6 +17,9 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     public ScriptedExecutor Inner => inner;
 
+    /// <summary>When set, every stop is recorded and then fails, as an executor that cannot end its session would.</summary>
+    public bool FailStops { get; init; }
+
     /// <summary>Completes once the first session has been spawned.</summary>
     public Task Spawned => spawned.Task;
 
@@ -59,6 +62,11 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
         lock (records)
         {
             stopTokensCancelled.Add(cancellationToken.IsCancellationRequested);
+        }
+
+        if (FailStops)
+        {
+            throw new InvalidOperationException($"Session {handle.Id} would not stop.");
         }
 
         return inner.StopAsync(handle, cancellationToken);
