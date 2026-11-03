@@ -14,12 +14,16 @@ public static class Flying
         return await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(project, parcel.Id, "build"), CancellationToken.None);
     }
 
-    /// <summary>Waits for the flight a flow binding starts on the parcel, failing if none appears or more than one does.</summary>
+    /// <summary>
+    /// Waits for the flight a flow binding starts on the parcel, failing if none appears or more than one does.
+    /// A follower of that flight is not a second bound flight: a fast flight can end and start its follower
+    /// between two reads, so only the flights with no parent count.
+    /// </summary>
     public static async Task<FlightView> BoundAsync(DaemonClient client, string project, Guid parcelId)
     {
         using var patience = new CancellationTokenSource(Patience);
-        List<FlightView> flights = await OfParcelAsync(client, project, parcelId);
-        while (flights.Count == 0)
+        List<FlightView> bound = await BoundOfParcelAsync(client, project, parcelId);
+        while (bound.Count == 0)
         {
             if (patience.IsCancellationRequested)
             {
@@ -27,11 +31,14 @@ public static class Flying
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(20), CancellationToken.None);
-            flights = await OfParcelAsync(client, project, parcelId);
+            bound = await BoundOfParcelAsync(client, project, parcelId);
         }
 
-        return flights.Should().ContainSingle("a binding starts one flight per entry").Subject;
+        return bound.Should().ContainSingle("a binding starts one flight per entry").Subject;
     }
+
+    private static async Task<List<FlightView>> BoundOfParcelAsync(DaemonClient client, string project, Guid parcelId) =>
+        [.. (await OfParcelAsync(client, project, parcelId)).Where(f => f.ParentFlightId is null)];
 
     public static Task<List<FlightView>> OfParcelAsync(DaemonClient client, string project, Guid parcelId) =>
         client.GetAsync<List<FlightView>>($"/flights?project={project}&parcel={parcelId}", CancellationToken.None);
