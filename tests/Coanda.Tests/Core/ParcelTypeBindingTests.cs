@@ -88,7 +88,7 @@ public sealed class ParcelTypeBindingTests
         ParcelType broken = ShippedTypes.Task with { GateBindings = [new GateBinding("refine", "review", "has-an-owner")] };
 
         FluentActions.Invoking(() => broken.Validate(OneGate)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a gate to the move from 'refine' to 'review', which its move table does not hold; a gate binds only to a move the table holds.");
+            .WithMessage("Parcel type 'task' binds a gate to the move from 'refine' to 'review', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live state.");
     }
 
     [Fact]
@@ -108,5 +108,36 @@ public sealed class ParcelTypeBindingTests
         FluentActions.Invoking(() => gated.Validate(NoGates)).Should().Throw<DomainException>()
             .WithMessage("Parcel type 'task' binds the gate 'has-an-owner', which is not a gate this daemon runs; a gate binding names a known gate.");
         FluentActions.Invoking(() => gated.Validate(OneGate)).Should().NotThrow();
+    }
+
+    [Fact]
+    public void A_gate_binding_on_a_close_from_a_live_state_is_accepted_and_one_from_parked_is_refused()
+    {
+        ParcelType gatedClose = ShippedTypes.Task with { GateBindings = [new GateBinding("review", "closed", "has-an-owner")] };
+        ParcelType fromParked = ShippedTypes.Task with { GateBindings = [new GateBinding("parked", "closed", "has-an-owner")] };
+
+        FluentActions.Invoking(() => gatedClose.Validate(OneGate)).Should().NotThrow();
+        FluentActions.Invoking(() => fromParked.Validate(OneGate)).Should().Throw<DomainException>()
+            .WithMessage("*which its move table does not hold*");
+    }
+
+    [Theory]
+    [InlineData("""[{"To": "build", "Gate": "has-an-owner"}]""", "[]")]
+    [InlineData("""[{"From": "refine", "To": "build"}]""", "[]")]
+    [InlineData("[null]", "[]")]
+    [InlineData("[]", """[{"Flow": "build"}]""")]
+    [InlineData("[]", "[null]")]
+    public void A_drafted_binding_missing_a_field_or_null_is_refused_quoting_the_rule(string gateBindings, string flowBindings)
+    {
+        string json = ParcelType.CanonicalJson(ShippedTypes.Task with { FlowBindings = [] });
+        json.Should().Contain("\"FlowBindings\": []").And.Contain("\"GateBindings\": []");
+        string content = json
+            .Replace("\"FlowBindings\": []", $"\"FlowBindings\": {flowBindings}", StringComparison.Ordinal)
+            .Replace("\"GateBindings\": []", $"\"GateBindings\": {gateBindings}", StringComparison.Ordinal);
+
+        ParcelType read = ParcelType.FromJson(content);
+
+        FluentActions.Invoking(() => read.Validate(OneGate)).Should().Throw<DomainException>()
+            .WithMessage("Parcel type 'task' has a * binding without *");
     }
 }

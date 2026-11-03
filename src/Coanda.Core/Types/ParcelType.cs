@@ -25,7 +25,7 @@ public sealed record ParcelType
     /// <summary>The flow started on a parcel when it enters a state; at most one per state.</summary>
     public IReadOnlyList<FlowBinding> FlowBindings { get; init; } = [];
 
-    /// <summary>The gates that must pass before a move the move table holds.</summary>
+    /// <summary>The gates that must pass before a move the move table holds, or before a close from a live state.</summary>
     public IReadOnlyList<GateBinding> GateBindings { get; init; } = [];
 
     /// <summary>Content hash of the definition, recorded on every parcel created under it.</summary>
@@ -54,6 +54,10 @@ public sealed record ParcelType
     /// <summary>Whether the move table itself holds a move, as opposed to the park, resume, and close every type allows.</summary>
     public bool HoldsMove(string from, string to) =>
         Moves.TryGetValue(from, out IReadOnlyList<string>? targets) && targets.Contains(to, StringComparer.Ordinal);
+
+    /// <summary>Whether a gate binding names a close: from a live state other than parked, to the terminal state.</summary>
+    private bool IsGatedClose(string from, string to) =>
+        IsTerminal(to) && IsState(from) && !IsTerminal(from) && !IsParked(from);
 
     /// <summary>
     /// Whether the lifecycle allows a move. Parking is allowed from any live state; resuming from
@@ -131,8 +135,14 @@ public sealed record ParcelType
 
     private void ValidateFlowBindings()
     {
-        foreach (FlowBinding binding in FlowBindings)
+        foreach (FlowBinding? binding in FlowBindings)
         {
+            // Read content can carry a null element or a missing field, whatever the annotations say.
+            if (binding?.State is null || binding.Flow is null)
+            {
+                throw new DomainException($"Parcel type '{Name}' has a flow binding without a state or a flow; each binding names both.");
+            }
+
             if (!IsState(binding.State) || IsTerminal(binding.State))
             {
                 throw new DomainException(
@@ -156,12 +166,18 @@ public sealed record ParcelType
 
     private void ValidateGateBindings(IReadOnlySet<string> knownGates)
     {
-        foreach (GateBinding binding in GateBindings)
+        foreach (GateBinding? binding in GateBindings)
         {
-            if (!HoldsMove(binding.From, binding.To))
+            // Read content can carry a null element or a missing field, whatever the annotations say.
+            if (binding?.From is null || binding.To is null || binding.Gate is null)
+            {
+                throw new DomainException($"Parcel type '{Name}' has a gate binding without a from state, a to state, or a gate; each binding names all three.");
+            }
+
+            if (!HoldsMove(binding.From, binding.To) && !IsGatedClose(binding.From, binding.To))
             {
                 throw new DomainException(
-                    $"Parcel type '{Name}' binds a gate to the move from '{binding.From}' to '{binding.To}', which its move table does not hold; a gate binds only to a move the table holds.");
+                    $"Parcel type '{Name}' binds a gate to the move from '{binding.From}' to '{binding.To}', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live state.");
             }
 
             if (!knownGates.Contains(binding.Gate))

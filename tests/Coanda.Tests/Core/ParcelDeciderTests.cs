@@ -54,10 +54,10 @@ public sealed class ParcelDeciderTests
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Idea, GateSet.None, "coanda", "lump of clay", null, "brian", Now));
 
-        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Idea, parcel, "completed", "done", "brian", Now))
+        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Idea, GateSet.None, parcel, "completed", "done", "brian", Now))
             .Should().Throw<DomainException>().WithMessage("*closes with one of split, concluded, archived*");
 
-        ParcelClosed closed = ParcelDecider.Close(ShippedTypes.Idea, parcel, "split", "Three tasks derived.", "brian", Now);
+        ParcelClosed closed = ParcelDecider.Close(ShippedTypes.Idea, GateSet.None, parcel, "split", "Three tasks derived.", "brian", Now);
         parcel.Apply(closed);
         parcel.IsClosed.Should().BeTrue();
         parcel.State.Should().Be("closed");
