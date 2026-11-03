@@ -3,6 +3,7 @@ namespace Coanda.Core.Registry;
 public static class CommandRegistry
 {
     private static readonly IReadOnlySet<Role> Everyone = new HashSet<Role> { Role.Owner, Role.Member, Role.Agent };
+    private static readonly IReadOnlySet<Role> OwnerOnly = new HashSet<Role> { Role.Owner };
     private static readonly IReadOnlySet<Role> People = new HashSet<Role> { Role.Owner, Role.Member };
 
     public static readonly IReadOnlyList<RegistryEntry> Entries =
@@ -13,6 +14,9 @@ public static class CommandRegistry
         new("parcel.move", EntryKind.Command, "Move a parcel to a state its type allows.", Everyone),
         new("parcel.close", EntryKind.Command, "Close a parcel with a resolution and a reason.", People),
         new("type.list", EntryKind.Query, "List the installed parcel types.", Everyone),
+        new("definition.draft", EntryKind.Command, "Record a draft of a parcel type, flow, or agent; a draft governs nothing.", Everyone),
+        new("definition.publish", EntryKind.Command, "Publish a draft so that it governs work.", OwnerOnly),
+        new("definition.retire", EntryKind.Command, "Retire a published definition so that it no longer governs work.", OwnerOnly),
         new("daemon.status", EntryKind.Query, "Report the daemon's state.", Everyone),
         new("daemon.stop", EntryKind.Command, "Stop the daemon.", People),
     ];
