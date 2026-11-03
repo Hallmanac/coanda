@@ -69,6 +69,31 @@ public sealed class FlightShowCommand : AsyncCommand<FlightIdSettings>
     }
 }
 
+public sealed class FlowStartSettings : ProjectSettings
+{
+    [CommandArgument(0, "<FLOW>")]
+    [Description("The published flow to start, by name.")]
+    public required string Flow { get; init; }
+
+    [CommandOption("--parcel <ID>")]
+    [Description("The parcel to start it on: its id or the short form coa parcel show accepts.")]
+    public required string Parcel { get; init; }
+}
+
+public sealed class FlowStartCommand : AsyncCommand<FlowStartSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, FlowStartSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        ParcelView parcel = await ParcelLookup.FindAsync(client, project, settings.Parcel, cancellationToken);
+        FlightView flight = await client.PostAsync<FlightView>(
+            "/flights", new FlightStartRequest(project, parcel.Id, settings.Flow), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Started flight {Ids.Short(flight.Id)} of {flight.Flow} on parcel {Ids.Short(parcel.Id)}.");
+        return 0;
+    }
+}
+
 internal static class FlightLookup
 {
     /// <summary>Accepts a full id, the short form (last eight characters), or at least four characters of either end.</summary>
