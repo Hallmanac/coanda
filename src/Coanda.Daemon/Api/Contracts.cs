@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
+using Coanda.Core.Flights;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Daemon.Api;
@@ -21,11 +23,69 @@ public sealed record ParcelView(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? Resolution,
-    string? CloseReason)
+    string? CloseReason,
+    Guid? LiveFlightId)
 {
     public static ParcelView From(Parcel parcel) => new(
         parcel.Id, parcel.Project, parcel.TypeName, parcel.TypeHash, parcel.State, parcel.Title,
-        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason);
+        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlightId);
+}
+
+/// <summary>
+/// A flight as the loopback API carries it. <see cref="Status"/> is running, parked, ended, or
+/// stopped; a running or parked flight is the live one its parcel names.
+/// </summary>
+public sealed record FlightView(
+    Guid Id,
+    string Project,
+    Guid ParcelId,
+    string Flow,
+    int FlowVersion,
+    string FlowHash,
+    string Status,
+    string CurrentStep,
+    int Spawns,
+    string StartedBy,
+    DateTimeOffset StartedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<FlightStepView> Steps,
+    string? ParkReason,
+    string? Lever,
+    string? Outcome,
+    string? StopReason)
+{
+    public static FlightView From(string project, Flight flight) => new(
+        flight.Id, project, flight.ParcelId, flight.FlowName, flight.FlowVersion, flight.FlowHash,
+        StatusName(flight.Status), flight.CurrentStep, flight.Spawns, flight.StartedBy, flight.StartedAt, flight.UpdatedAt,
+        [.. flight.Steps.Select(FlightStepView.From)], flight.ParkReason, flight.Lever, flight.Outcome, flight.StopReason);
+
+    public static string StatusName(FlightStatus status) => status switch
+    {
+        FlightStatus.Running => "running",
+        FlightStatus.Parked => "parked",
+        FlightStatus.Ended => "ended",
+        FlightStatus.Stopped => "stopped",
+        _ => status.ToString().ToLowerInvariant(),
+    };
+}
+
+/// <summary>One step a flight entered, with its answer and measurement (a judgment) or its result (an action) once recorded.</summary>
+public sealed record FlightStepView(
+    string Step,
+    string Kind,
+    string Performer,
+    DateTimeOffset StartedAt,
+    string? AgentHash,
+    ModelTriple? Model,
+    JsonElement? Answer,
+    Measurement? Measurement,
+    JsonElement? Result,
+    DateTimeOffset? RecordedAt)
+{
+    public static FlightStepView From(FlightStepEntry entry) => new(
+        entry.Step,
+        entry.Kind == StepKind.Judgment ? "judgment" : "action",
+        entry.Performer, entry.StartedAt, entry.AgentHash, entry.Model, entry.Answer, entry.Measurement, entry.Result, entry.RecordedAt);
 }
 
 public sealed record TypeView(string Name, string Hash, IReadOnlyList<string> States, IReadOnlyList<string> Resolutions);

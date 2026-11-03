@@ -3,10 +3,12 @@ using System.Reflection;
 using System.Security.Cryptography;
 using Coanda.Core;
 using Coanda.Core.Definitions;
+using Coanda.Core.Flights;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Flights;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
@@ -51,6 +53,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<DefinitionService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
+        builder.Services.AddSingleton<FlightService>();
 
         WebApplication app = builder.Build();
         MapEndpoints(app, token);
@@ -140,6 +143,20 @@ public sealed class DaemonHost
             return Results.Ok(agents.Select(AgentView.From).ToList());
         });
 
+        app.MapGet("/flights", async (HttpContext context, FlightService flights, string project, Guid? parcel, CancellationToken cancellationToken) =>
+        {
+            IReadOnlyList<Flight> list = await flights.ListAsync(PrincipalOf(context), project, parcel, cancellationToken);
+            return Results.Ok(list.Select(f => FlightView.From(project.Trim(), f)).ToList());
+        });
+
+        app.MapGet("/flights/{id:guid}", async (HttpContext context, FlightService flights, Guid id, string project, CancellationToken cancellationToken) =>
+        {
+            Flight? flight = await flights.ShowAsync(PrincipalOf(context), project, id, cancellationToken);
+            return flight is null
+                ? Results.NotFound(new ErrorView($"No flight {Ids.Short(id)} in project '{project}'."))
+                : Results.Ok(FlightView.From(project.Trim(), flight));
+        });
+
         app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
         {
             IReadOnlyList<Parcel> list = await parcels.ListAsync(PrincipalOf(context), project, cancellationToken);
@@ -196,6 +213,9 @@ public sealed class DaemonHost
 public sealed class RunningDaemon(WebApplication app, DaemonInfo info) : IAsyncDisposable
 {
     public DaemonInfo Info { get; } = info;
+
+    /// <summary>The daemon's services, so a test can write through a service no endpoint exposes yet.</summary>
+    internal IServiceProvider Services => app.Services;
 
     public Task WaitForShutdownAsync(CancellationToken cancellationToken) => app.WaitForShutdownAsync(cancellationToken);
 
