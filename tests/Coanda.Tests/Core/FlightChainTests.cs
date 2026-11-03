@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Flights;
@@ -138,6 +139,38 @@ public sealed class FlightChainTests
         flight.Apply(FlightDecider.Resume(Build, flight, null, "owner", Now));
         flight.ParkUsage.Should().BeNull("the usage belongs to the park the resume ends");
         flight.Cost.Should().Be(3.75m, "a resume spends nothing and forgets nothing spent");
+    }
+
+    [Fact]
+    public void A_follow_names_the_flow_it_follows_in_any_spelling()
+    {
+        (Flight parent, Parcel parcel) = EndedBuild();
+        FlowDefinition spelled = Follower with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 3 } };
+
+        Flight child = Flight.Create(FlightDecider.Follow(spelled, 1, parcel, parent, "follow:x", Now).Started);
+
+        child.ParentFlightId.Should().Be(parent.Id);
+    }
+
+    [Fact]
+    public void A_flight_document_from_before_chains_reads_as_its_own_root_and_counts_what_its_answers_cost()
+    {
+        Flight flight = Flight.Create(FlightDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
+        flight.Apply(FlightDecider.StartStep(Build, flight, "build", Now));
+        flight.Apply(FlightDecider.Answer(
+            Build, flight, "build", "build", "agenthash", Model, Json("""{"verdict":"done"}"""), new Measurement(10, 1.5m, 1, TimeSpan.FromSeconds(1)), Now));
+
+        JsonObject document = JsonSerializer.SerializeToNode(flight)?.AsObject()
+            ?? throw new InvalidOperationException("A flight serialized to nothing.");
+        foreach (string added in new[] { nameof(Flight.ParentFlightId), nameof(Flight.RootFlightId), nameof(Flight.Depth), nameof(Flight.ParkedCost), nameof(Flight.ParkUsage) })
+        {
+            document.Remove(added).Should().BeTrue($"the document carries {added} today");
+        }
+
+        Flight legacy = document.Deserialize<Flight>() ?? throw new InvalidOperationException("The document read as nothing.");
+
+        legacy.RootFlightId.Should().Be(flight.Id, "a flight recorded before chains has no stored root and is its own");
+        legacy.Cost.Should().Be(1.5m, "what its answers cost is read from its recorded visits");
     }
 
     [Fact]

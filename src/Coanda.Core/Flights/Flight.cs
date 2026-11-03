@@ -54,20 +54,34 @@ public sealed class Flight
     [JsonInclude]
     public Guid? ParentFlightId { get; private set; }
 
-    /// <summary>The first flight of this one's chain; a flight no follow started is its own root.</summary>
+    /// <summary>
+    /// The first flight of this one's chain; a flight no follow started is its own root. A flight
+    /// recorded before chains existed has no root stored, and reads as its own root too.
+    /// </summary>
     [JsonInclude]
-    public Guid RootFlightId { get; private set; }
+    public Guid RootFlightId
+    {
+        get => rootFlightId == Guid.Empty ? Id : rootFlightId;
+        private set => rootFlightId = value;
+    }
+
+    private Guid rootFlightId;
 
     /// <summary>How many follows lie between this flight and its root: zero for the root.</summary>
     [JsonInclude]
     public int Depth { get; private set; }
 
+    /// <summary>What the judgments that parked the flight without an answer reported spending, in US dollars.</summary>
+    [JsonInclude]
+    public decimal ParkedCost { get; private set; }
+
     /// <summary>
     /// What the flight has recorded spending, in US dollars: the cost of every answered judgment and
-    /// the usage every parked judgment reported.
+    /// the usage every parked judgment reported. It is read from the recorded visits rather than
+    /// kept as a running total, so a flight recorded before costs were totalled counts its spend too.
     /// </summary>
-    [JsonInclude]
-    public decimal Cost { get; private set; }
+    [JsonIgnore]
+    public decimal Cost => Steps.Sum(entry => entry.Measurement?.CostUsd ?? 0m) + ParkedCost;
 
     /// <summary>The usage the judgment that parked the flight reported, or null when the park was not a judgment's.</summary>
     [JsonInclude]
@@ -121,7 +135,6 @@ public sealed class Flight
             RecordedAt = answered.AnsweredAt,
             ResumedAt = null,
         });
-        Cost += answered.Measurement.CostUsd;
         UpdatedAt = answered.AnsweredAt;
     }
 
@@ -137,7 +150,7 @@ public sealed class Flight
         ParkReason = parked.Reason;
         Lever = parked.Lever;
         ParkUsage = parked.Usage;
-        Cost += parked.Usage?.CostUsd ?? 0m;
+        ParkedCost += parked.Usage?.CostUsd ?? 0m;
         UpdatedAt = parked.ParkedAt;
     }
 
