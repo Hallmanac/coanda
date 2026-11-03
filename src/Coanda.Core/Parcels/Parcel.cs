@@ -27,6 +27,9 @@ public sealed class Parcel
     public string CreatedBy { get; private set; } = string.Empty;
     [JsonInclude]
     public DateTimeOffset CreatedAt { get; private set; }
+    /// <summary>What created the parcel when a person's add did not; see <see cref="ParcelCreated.Origin"/>.</summary>
+    [JsonInclude]
+    public string? Origin { get; private set; }
     [JsonInclude]
     public DateTimeOffset UpdatedAt { get; private set; }
     [JsonInclude]
@@ -56,6 +59,7 @@ public sealed class Parcel
         Title = created.Title;
         CreatedBy = created.CreatedBy;
         CreatedAt = created.CreatedAt;
+        Origin = created.Origin;
         UpdatedAt = created.CreatedAt;
     }
 
