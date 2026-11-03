@@ -55,6 +55,7 @@ app.Configure(config =>
     {
         flow.SetDescription("Flows are the loops that move parcels; build, discovery, and review-on-assignment ship installed.");
         flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
+        flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flight of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "build", "--parcel", "0192a3b4");
     });
 
     config.AddBranch("flight", flight =>
