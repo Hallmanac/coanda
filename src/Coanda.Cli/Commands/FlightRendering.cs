@@ -32,6 +32,12 @@ internal static class FlightRendering
             Pair("Status", flight.Status),
         ];
 
+        if (flight.ParentFlightId is Guid parent)
+        {
+            lines.Add(Pair("Parent", parent.ToString()));
+            lines.Add(Pair("Depth", flight.Depth.ToString(CultureInfo.InvariantCulture)));
+        }
+
         switch (flight.Status)
         {
             case "parked":

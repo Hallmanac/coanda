@@ -1,5 +1,8 @@
 using Coanda.Core;
+using Coanda.Core.Definitions;
 using Coanda.Core.Flights;
+using Coanda.Core.Flights.Events;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
@@ -7,6 +10,7 @@ using Coanda.Core.Triggers;
 using Coanda.Core.Triggers.Events;
 using Coanda.Core.Types;
 using Coanda.Daemon.Flights;
+using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
 using Fisher;
@@ -19,9 +23,11 @@ namespace Coanda.Daemon.Triggers;
 
 /// <summary>
 /// The daemon's one trigger loop. It polls every project's record past its position, in global
-/// sequence order, for parcel creations, parcel moves, and recorded external events. A parcel
-/// entering a state its type binds a flow to starts that flow on the parcel; an external event
-/// matching a subscription in its project creates the subscription's parcel and starts its flow.
+/// sequence order, for parcel creations, parcel moves, flight ends, and recorded external events. A
+/// parcel entering a state its type binds a flow to starts that flow on the parcel; a flight's end
+/// starts, on its parcel, every published flow whose follow it matches and which accepts the
+/// parcel's type, as the next link of the ended flight's chain; an external event matching a
+/// subscription in its project creates the subscription's parcel and starts its flow.
 /// A refusal is logged with its rule and the loop goes on. A bound entry on a parcel that already
 /// has a live flight, as when a flow's own step moves its parcel into a bound state, waits for that
 /// flight's release rather than being refused.
@@ -34,14 +40,16 @@ namespace Coanda.Daemon.Triggers;
 /// start, and the replay finds the work already done: a binding's start acts as a principal whose id
 /// names the entry event, and is skipped when the parcel already has a flight started by that
 /// principal; a subscription's parcel records an origin naming the subscription and the event, and is
-/// neither created again nor given a second flight. A deferred entry is a document in the parcel's
-/// project, kept until the release that starts it has been handled, so a stop in between replays
-/// the release and starts the binding once.
+/// neither created again nor given a second flight; a follow's start acts as a principal whose id
+/// names the ended flight, and is skipped when that flight already has a follower of the flow. A
+/// deferred entry is a document in the parcel's project, kept until the release that starts it has
+/// been handled, so a stop in between replays the release and starts the binding once.
 /// </remarks>
 public sealed class TriggerLoop(
     IDocumentStore store,
     ParcelService parcels,
     FlightService flights,
+    FlowService flows,
     TriggerService triggers,
     IFlightAdvancer advancer,
     TimeProvider clock,
@@ -60,6 +68,9 @@ public sealed class TriggerLoop(
     /// <summary>The principal a binding's start acts as: the Agent role, named for the binding and the entry event.</summary>
     public static Principal PrincipalFor(string typeName, FlowBinding binding, Guid entryEventId) =>
         new($"binding:{typeName}/{binding.State}/{binding.Flow}:entry:{entryEventId}", Role.Agent);
+
+    /// <summary>The principal a follow's start acts as: the Agent role, named for the flight whose end it follows.</summary>
+    public static Principal PrincipalFor(Guid parentFlightId) => new($"follow:{parentFlightId}", Role.Agent);
 
     /// <summary>
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
@@ -139,7 +150,7 @@ public sealed class TriggerLoop(
         long to = Math.Min(position + PageSize, head);
         foreach (IEvent entry in await ReadAsync(position, to, cancellationToken))
         {
-            if (entry.Data is ParcelCreated or ParcelMoved or ParcelFlightReleased or ExternalEventRecorded)
+            if (entry.Data is ParcelCreated or ParcelMoved or ParcelFlightReleased or FlightEnded or ExternalEventRecorded)
             {
                 await HandleAsync(entry, cancellationToken);
                 await SavePositionAsync(entry.Sequence, cancellationToken);
@@ -202,6 +213,9 @@ public sealed class TriggerLoop(
                     break;
                 case ParcelFlightReleased released:
                     await ReleasedAsync(entry.TenantId, released.ParcelId, cancellationToken);
+                    break;
+                case FlightEnded ended:
+                    await EndedAsync(entry.TenantId, ended, cancellationToken);
                     break;
                 case ExternalEventRecorded external:
                     await ExternalAsync(external, cancellationToken);
@@ -338,6 +352,57 @@ public sealed class TriggerLoop(
         await using IDocumentSession session = store.LightweightSession(project);
         session.Delete<DeferredEntry>(parcelId);
         await session.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// A flight ended: read as a <c>flight-ended</c> event with its flow, its outcome, and its
+    /// parcel's type, it starts on that parcel every published flow of the project whose follow
+    /// matches it and which accepts the type. Each refusal is logged and the other followers still start.
+    /// </summary>
+    private async Task EndedAsync(string project, FlightEnded ended, CancellationToken cancellationToken)
+    {
+        Flight parent = await flights.ShowAsync(LoopPrincipal, project, ended.FlightId, cancellationToken)
+            ?? throw new DomainException($"No flight {Ids.Short(ended.FlightId)} in project '{project}'.");
+        Parcel parcel = await parcels.ShowAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken)
+            ?? throw new DomainException($"No parcel {Ids.Short(parent.ParcelId)} in project '{project}'.");
+        TriggerEvent candidate = TriggerEvent.FlightEnded(parent.FlowName, ended.Outcome, parcel.TypeName);
+
+        IReadOnlyList<Definition> published = await flows.ListAsync(LoopPrincipal, project, cancellationToken);
+        IEnumerable<FlowDefinition> followers = published
+            .Select(definition => FlowDefinition.FromJson(definition.Content))
+            .Where(flow => flow.Follow is { } follow
+                && Trigger.ForFollow(follow).Matches(candidate)
+                && flow.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)));
+
+        Principal principal = PrincipalFor(parent.Id);
+        foreach (FlowDefinition follower in followers)
+        {
+            try
+            {
+                await FollowAsync(principal, project, parent, follower, cancellationToken);
+            }
+            catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning(
+                    "Flow '{Flow}' follows the end of flight {Flight}, but its start was refused: {Rule}",
+                    follower.Name, Ids.Short(parent.Id), refused.Message);
+            }
+        }
+    }
+
+    private async Task FollowAsync(Principal principal, string project, Flight parent, FlowDefinition follower, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Flight> existing = await flights.ListAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken);
+        if (existing.Any(f => f.ParentFlightId == parent.Id && DefinitionResolution.SameName(f.FlowName, follower.Name)))
+        {
+            return;
+        }
+
+        Flight flight = await flights.FollowAsync(principal, project, parent.Id, follower.Name, cancellationToken);
+        logger.LogInformation(
+            "The end of flight {Parent} started flight {Flight} of '{Flow}' at depth {Depth} on parcel {Parcel} in project {Project}.",
+            Ids.Short(parent.Id), Ids.Short(flight.Id), follower.Name, flight.Depth, Ids.Short(parent.ParcelId), project);
+        _ = advancer.RequestAdvance(project, flight.Id);
     }
 
     /// <summary>An external event: every subscription in its project that matches it creates its parcel and starts its flow.</summary>
