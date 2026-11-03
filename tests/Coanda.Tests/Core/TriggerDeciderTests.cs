@@ -50,6 +50,11 @@ public sealed class TriggerDeciderTests
             .Should().Throw<DomainException>().WithMessage("The kind 'parcel-entered' is what a parcel's own creation and moves read as; an external event cannot use it.");
 
     [Fact]
+    public void An_external_event_of_the_flight_ended_kind_is_refused() =>
+        FluentActions.Invoking(() => Record("flight-ended", new Dictionary<string, string> { ["flow"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }))
+            .Should().Throw<DomainException>().WithMessage("The kind 'flight-ended' is what a flight's own end reads as; an external event cannot use it.");
+
+    [Fact]
     public void An_external_event_with_a_field_name_that_is_not_plain_is_refused() =>
         FluentActions.Invoking(() => Record("pr-assigned", new Dictionary<string, string> { ["assigned to"] = "brian" }))
             .Should().Throw<DomainException>().WithMessage("An external event's field names are plain names (letters, digits, hyphens, and underscores); 'assigned to' is not.");
@@ -77,6 +82,11 @@ public sealed class TriggerDeciderTests
     public void A_subscription_on_the_parcel_entered_kind_is_refused() =>
         FluentActions.Invoking(() => Subscribe(kind: "parcel-entered"))
             .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'parcel-entered', which a parcel's own creation and moves read as.");
+
+    [Fact]
+    public void A_subscription_on_the_flight_ended_kind_is_refused() =>
+        FluentActions.Invoking(() => Subscribe(kind: "flight-ended", filters: new Dictionary<string, string> { ["outcome"] = "pr-opened" }))
+            .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'flight-ended', which a flight's own end reads as.");
 
     [Fact]
     public void A_subscription_with_a_filter_name_that_is_not_plain_is_refused() =>
