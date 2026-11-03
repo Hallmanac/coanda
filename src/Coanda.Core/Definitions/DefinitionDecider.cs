@@ -1,3 +1,4 @@
+using Coanda.Core.Agents;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Software;
@@ -124,14 +125,17 @@ public static class DefinitionDecider
             throw new DomainException($"A definition needs content and a content hash; '{trimmedName}' lacks one.");
         }
 
-        if (kind == DefinitionKind.ParcelType)
+        switch (kind)
         {
-            RequireParcelType(trimmedName, content, contentHash);
-        }
-
-        if (kind == DefinitionKind.Flow)
-        {
-            RequireFlow(trimmedName, content, contentHash);
+            case DefinitionKind.ParcelType:
+                RequireParcelType(trimmedName, content, contentHash);
+                break;
+            case DefinitionKind.Flow:
+                RequireFlow(trimmedName, content, contentHash);
+                break;
+            case DefinitionKind.Agent:
+                RequireAgent(trimmedName, content, contentHash);
+                break;
         }
 
         return new DefinitionDrafted(
@@ -169,6 +173,23 @@ public static class DefinitionDecider
         {
             throw new DomainException(
                 $"The content hash '{contentHash}' differs from the flow's hash '{flow.Hash}'.");
+        }
+    }
+
+    private static void RequireAgent(string name, string content, string contentHash)
+    {
+        AgentDefinition agent = AgentDefinition.FromJson(content);
+        agent.Validate();
+
+        if (!string.Equals(agent.Name, name, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainException($"An agent definition is named for its agent; '{name}' holds the agent '{agent.Name}'.");
+        }
+
+        if (!string.Equals(agent.Hash, contentHash, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"The content hash '{contentHash}' differs from the agent's hash '{agent.Hash}'.");
         }
     }
 
