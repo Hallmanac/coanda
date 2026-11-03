@@ -1,4 +1,3 @@
-using System.Runtime.ExceptionServices;
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flights;
@@ -29,11 +28,13 @@ namespace Coanda.Daemon.Triggers;
 /// starts, on its parcel, every published flow whose follow it matches and which accepts the
 /// parcel's type, as the next link of the ended flight's chain; an external event matching a
 /// subscription in its project creates the subscription's parcel and starts its flow.
-/// A refusal is logged with its rule and the loop goes on. A bound entry on a parcel that already
-/// has a live flight, as when a flow's own step moves its parcel into a bound state, waits for that
-/// flight's release rather than being refused. So does a follow, as when several flows follow the
-/// same end: a parcel holds one live flight at a time, so its followers start one after another,
-/// each on the release of the flight before it.
+/// A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
+/// a live flight, as when a flow's own step moves its parcel into a bound state, is refused and
+/// starts nothing, then or later; whether the parcel had one is read from the parcel as it stood at
+/// the entry, never as it stands when the loop gets to it, so the outcome does not depend on timing.
+/// A follow is not a state entry: when several flows follow the same end, a parcel holds one live
+/// flight at a time, so its followers start one after another, each on the release of the flight
+/// before it.
 /// </summary>
 /// <remarks>
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
@@ -45,10 +46,10 @@ namespace Coanda.Daemon.Triggers;
 /// principal; a subscription's parcel records an origin naming the subscription and the event, and is
 /// neither created again nor given a second flight; a follow's start acts as a principal whose id
 /// names the ended flight, and is skipped when that flight already has a follower of the flow. A
-/// deferred entry is a document in the parcel's project, kept until the release that starts it has
-/// been handled, so a stop in between replays the release and starts the binding once. Deferred
-/// follows are one document per parcel in the same way, and a follow leaves it only once its start
-/// has been written or refused, so a replay finds the follower already started and drops it.
+/// replayed entry that was refused is refused again, since the parcel's state at the entry does not
+/// change. Deferred follows are one document per parcel in the parcel's project, and a follow
+/// leaves it only once its start has been written or refused, so a replay finds the follower
+/// already started and drops it.
 /// </remarks>
 public sealed class TriggerLoop(
     IDocumentStore store,
@@ -211,13 +212,15 @@ public sealed class TriggerLoop(
             switch (entry.Data)
             {
                 case ParcelCreated created:
-                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.State, entry.Id, cancellationToken);
+                    // A parcel being created has had no flight yet, so nothing was live at this entry.
+                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.State, entry.Id, null, cancellationToken);
                     break;
                 case ParcelMoved moved:
-                    await MovedAsync(entry.TenantId, moved, entry.Id, cancellationToken);
+                    await MovedAsync(entry.TenantId, moved, entry, cancellationToken);
                     break;
                 case ParcelFlightReleased released:
-                    await ReleasedAsync(entry.TenantId, released.ParcelId, cancellationToken);
+                    // A release starts the follows waiting on it and never a state entry.
+                    await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, cancellationToken);
                     break;
                 case FlightEnded ended:
                     await EndedAsync(entry.TenantId, ended, cancellationToken);
@@ -241,146 +244,60 @@ public sealed class TriggerLoop(
         }
     }
 
-    private async Task MovedAsync(string project, ParcelMoved moved, Guid entryId, CancellationToken cancellationToken)
+    /// <summary>
+    /// A parcel moved: the entry is weighed against the parcel as it stood just before the move,
+    /// folded from its stream up to the move's version, so a flight live then refuses the entry
+    /// even if it has ended by the time the loop reads the move.
+    /// </summary>
+    private async Task MovedAsync(string project, ParcelMoved moved, IEvent entry, CancellationToken cancellationToken)
     {
-        Parcel parcel = await parcels.ShowAsync(LoopPrincipal, project, moved.ParcelId, cancellationToken)
+        Parcel before = await parcels.ShowAtAsync(LoopPrincipal, project, moved.ParcelId, entry.Version - 1, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(moved.ParcelId)} in project '{project}'.");
-        await EnteredAsync(project, parcel.Id, parcel.TypeName, moved.ToState, entryId, cancellationToken);
+
+        await EnteredAsync(project, before.Id, before.TypeName, moved.ToState, entry.Id, before.LiveFlightId, cancellationToken);
     }
 
     /// <summary>
     /// A parcel entered a state: start the flow its type, as resolution returns it by name, binds
-    /// there. When the parcel already has a live flight the entry is deferred to that flight's
-    /// release; true when it was.
+    /// there. An entry made while the parcel had a live flight, <paramref name="liveAtEntry"/>, is
+    /// refused with a rule naming that flight; a start the flight service refuses throws its rule.
+    /// Either refusal reaches the loop's warning log, and nothing is kept to start it later.
     /// </summary>
-    private async Task<bool> EnteredAsync(string project, Guid parcelId, string typeName, string state, Guid entryId, CancellationToken cancellationToken)
+    private async Task EnteredAsync(string project, Guid parcelId, string typeName, string state, Guid entryId, Guid? liveAtEntry, CancellationToken cancellationToken)
     {
         ParcelType? type = await parcels.ResolveTypeAsync(LoopPrincipal, project, typeName, cancellationToken);
         if (type is null)
         {
-            return false;
+            return;
         }
 
         TriggerEvent entered = TriggerEvent.ParcelEntered(type.Name, state);
         FlowBinding? binding = type.FlowBindings.FirstOrDefault(b => Trigger.ForBinding(type, b).Matches(entered));
         if (binding is null)
         {
-            return false;
+            return;
         }
 
         Principal principal = PrincipalFor(type.Name, binding, entryId);
         IReadOnlyList<Flight> existing = await flights.ListAsync(LoopPrincipal, project, parcelId, cancellationToken);
         if (existing.Any(f => string.Equals(f.StartedBy, principal.Id, StringComparison.Ordinal)))
         {
-            return false;
+            return;
         }
 
-        if (await HasLiveFlightAsync(project, parcelId, cancellationToken))
+        if (liveAtEntry is Guid live)
         {
-            await DeferAsync(project, parcelId, type.Name, state, entryId, cancellationToken);
-            return true;
+            throw new DomainException(
+                $"A parcel has at most one live flight; parcel {Ids.Short(parcelId)} had flight {Ids.Short(live)} live when it entered '{state}', so binding {type.Name}/{binding.State} starts nothing for that entry.");
         }
 
-        try
-        {
-            await StartAsync(principal, project, parcelId, binding.Flow, $"binding {type.Name}/{binding.State}", cancellationToken);
-            return false;
-        }
-        catch (DomainException) when (!cancellationToken.IsCancellationRequested)
-        {
-            // A flight started on the parcel between the check and the start: wait for its release too.
-            if (!await HasLiveFlightAsync(project, parcelId, cancellationToken))
-            {
-                throw;
-            }
-
-            await DeferAsync(project, parcelId, type.Name, state, entryId, cancellationToken);
-            return true;
-        }
+        await StartAsync(principal, project, parcelId, binding.Flow, $"binding {type.Name}/{binding.State}", cancellationToken);
     }
 
     private async Task<bool> HasLiveFlightAsync(string project, Guid parcelId, CancellationToken cancellationToken)
     {
         Parcel? parcel = await parcels.ShowAsync(LoopPrincipal, project, parcelId, cancellationToken);
         return parcel?.LiveFlightId is not null;
-    }
-
-    private async Task DeferAsync(string project, Guid parcelId, string typeName, string state, Guid entryId, CancellationToken cancellationToken)
-    {
-        await using IDocumentSession session = store.LightweightSession(project);
-        session.Store(new DeferredEntry { Id = parcelId, TypeName = typeName, State = state, EntryId = entryId });
-        await session.SaveChangesAsync(cancellationToken);
-        logger.LogInformation(
-            "The entry of parcel {Parcel} into '{State}' waits for the parcel's live flight to be released before its bound flow starts.",
-            Ids.Short(parcelId), state);
-    }
-
-    /// <summary>
-    /// A parcel's live flight was released: start the entry deferred to it, then the oldest follow
-    /// deferred to it. Whichever starts first holds the parcel, and the other waits for its release.
-    /// </summary>
-    private async Task ReleasedAsync(string project, Guid parcelId, CancellationToken cancellationToken)
-    {
-        Exception? entryFailure = null;
-        try
-        {
-            await StartDeferredEntryAsync(project, parcelId, cancellationToken);
-        }
-        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
-        {
-            // The deferred follows still get their turn; the entry's failure is reported after them.
-            entryFailure = failure;
-        }
-
-        await StartDeferredFollowsAsync(project, parcelId, cancellationToken);
-        if (entryFailure is not null)
-        {
-            ExceptionDispatchInfo.Throw(entryFailure);
-        }
-    }
-
-    /// <summary>
-    /// Starts the entry deferred to the parcel's release, if the parcel still sits in the state it
-    /// entered, then forgets the entry unless it was deferred again.
-    /// </summary>
-    private async Task StartDeferredEntryAsync(string project, Guid parcelId, CancellationToken cancellationToken)
-    {
-        DeferredEntry? deferred;
-        await using (IQuerySession session = store.QuerySession(project))
-        {
-            deferred = await session.LoadAsync<DeferredEntry>(parcelId, cancellationToken);
-        }
-
-        if (deferred is null)
-        {
-            return;
-        }
-
-        bool deferredAgain;
-        try
-        {
-            Parcel? parcel = await parcels.ShowAsync(LoopPrincipal, project, parcelId, cancellationToken);
-            deferredAgain = parcel is { IsClosed: false }
-                && string.Equals(parcel.State, deferred.State, StringComparison.Ordinal)
-                && await EnteredAsync(project, parcelId, deferred.TypeName, deferred.State, deferred.EntryId, cancellationToken);
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            await ForgetAsync(project, parcelId, cancellationToken);
-            throw;
-        }
-
-        if (!deferredAgain)
-        {
-            await ForgetAsync(project, parcelId, cancellationToken);
-        }
-    }
-
-    private async Task ForgetAsync(string project, Guid parcelId, CancellationToken cancellationToken)
-    {
-        await using IDocumentSession session = store.LightweightSession(project);
-        session.Delete<DeferredEntry>(parcelId);
-        await session.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
