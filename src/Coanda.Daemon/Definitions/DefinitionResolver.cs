@@ -32,24 +32,33 @@ public sealed class DefinitionResolver(IDocumentStore store)
     }
 
     /// <summary>
-    /// The parcel type a parcel was created under: the definition of this project, owner, or shipped
-    /// scope whose content hash the parcel recorded. A version retired since is still returned, so
-    /// a parcel keeps the rules it was created under; a draft never is, as no parcel was created
-    /// under one. Null when no held definition has that hash.
+    /// The parcel type a parcel was created under: the definition whose content hash the parcel
+    /// recorded (see <see cref="ResolveByHashAsync"/>). Null when no held definition has that hash.
     /// </summary>
     public async Task<ParcelType?> ResolveParcelTypeByHashAsync(string project, string contentHash, CancellationToken cancellationToken)
     {
+        Definition? found = await ResolveByHashAsync(project, DefinitionKind.ParcelType, contentHash, cancellationToken);
+        return found is null ? null : ParcelType.FromJson(found.Content);
+    }
+
+    /// <summary>
+    /// The definition of the kind, in this project, owner, or shipped scope, whose content hash a
+    /// record kept: a parcel its type's, a flight its flow's. A version retired since is still
+    /// returned, so a record keeps the rules it began under; a draft never is, as nothing began
+    /// under one. Null when no held definition has that hash.
+    /// </summary>
+    public async Task<Definition?> ResolveByHashAsync(string project, DefinitionKind kind, string contentHash, CancellationToken cancellationToken)
+    {
         Tenants.RequireProject(project);
 
-        IReadOnlyList<Definition> fromProject = await HeldInAsync(project, DefinitionKind.ParcelType, cancellationToken);
-        IReadOnlyList<Definition> fromNode = await HeldInAsync(Tenants.Node, DefinitionKind.ParcelType, cancellationToken);
+        IReadOnlyList<Definition> fromProject = await HeldInAsync(project, kind, cancellationToken);
+        IReadOnlyList<Definition> fromNode = await HeldInAsync(Tenants.Node, kind, cancellationToken);
         Definition[] visible =
         [
             .. fromProject.Where(d => d.Scope == DefinitionScope.Project && string.Equals(d.Project, project, StringComparison.Ordinal)),
             .. fromNode.Where(d => d.Scope != DefinitionScope.Project),
         ];
-        Definition? found = visible.FirstOrDefault(d => string.Equals(d.ContentHash, contentHash, StringComparison.Ordinal));
-        return found is null ? null : ParcelType.FromJson(found.Content);
+        return visible.FirstOrDefault(d => string.Equals(d.ContentHash, contentHash, StringComparison.Ordinal));
     }
 
     public async Task<IReadOnlyList<ParcelType>> ResolveParcelTypesAsync(string project, CancellationToken cancellationToken)
