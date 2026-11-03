@@ -31,6 +31,27 @@ public sealed class DefinitionResolver(IDocumentStore store)
         return definition is null ? null : ParcelType.FromJson(definition.Content);
     }
 
+    /// <summary>
+    /// The parcel type a parcel was created under: the definition of this project, owner, or shipped
+    /// scope whose content hash the parcel recorded. A version retired since is still returned, so
+    /// a parcel keeps the rules it was created under; a draft never is, as no parcel was created
+    /// under one. Null when no held definition has that hash.
+    /// </summary>
+    public async Task<ParcelType?> ResolveParcelTypeByHashAsync(string project, string contentHash, CancellationToken cancellationToken)
+    {
+        Tenants.RequireProject(project);
+
+        IReadOnlyList<Definition> fromProject = await HeldInAsync(project, DefinitionKind.ParcelType, cancellationToken);
+        IReadOnlyList<Definition> fromNode = await HeldInAsync(Tenants.Node, DefinitionKind.ParcelType, cancellationToken);
+        Definition[] visible =
+        [
+            .. fromProject.Where(d => d.Scope == DefinitionScope.Project && string.Equals(d.Project, project, StringComparison.Ordinal)),
+            .. fromNode.Where(d => d.Scope != DefinitionScope.Project),
+        ];
+        Definition? found = visible.FirstOrDefault(d => string.Equals(d.ContentHash, contentHash, StringComparison.Ordinal));
+        return found is null ? null : ParcelType.FromJson(found.Content);
+    }
+
     public async Task<IReadOnlyList<ParcelType>> ResolveParcelTypesAsync(string project, CancellationToken cancellationToken)
     {
         IReadOnlyList<Definition> resolved = await ResolveAllAsync(project, DefinitionKind.ParcelType, cancellationToken);
@@ -48,10 +69,17 @@ public sealed class DefinitionResolver(IDocumentStore store)
 
     private async Task<IReadOnlyList<Definition>> PublishedInAsync(string tenant, DefinitionKind kind, CancellationToken cancellationToken)
     {
+        IReadOnlyList<Definition> held = await HeldInAsync(tenant, kind, cancellationToken);
+        return [.. held.Where(d => d.Status == DefinitionStatus.Published)];
+    }
+
+    /// <summary>Every published or retired definition of the kind in the tenant; drafts were never in force.</summary>
+    private async Task<IReadOnlyList<Definition>> HeldInAsync(string tenant, DefinitionKind kind, CancellationToken cancellationToken)
+    {
         // Filtered here rather than in the query: Fisher's SQLite LINQ does not match a
         // string-stored enum against an enum constant, and a node holds few definitions.
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(cancellationToken);
-        return [.. all.Where(d => d.Kind == kind && d.Status == DefinitionStatus.Published)];
+        return [.. all.Where(d => d.Kind == kind && d.Status != DefinitionStatus.Draft)];
     }
 }

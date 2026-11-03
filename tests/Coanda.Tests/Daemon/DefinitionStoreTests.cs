@@ -280,4 +280,54 @@ public sealed class DefinitionStoreTests
         await FluentActions.Awaiting(() => parcels.AddAsync(Principal.LocalOwner, "alpha", "epic", "x", null, CancellationToken.None))
             .Should().ThrowAsync<DomainException>().WithMessage("'epic' is not an installed parcel type; installed: idea, task.");
     }
+
+    [Fact]
+    public async Task A_parcel_keeps_the_type_version_it_was_created_under_when_a_newer_one_is_published()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var parcels = new ParcelService(store, TimeProvider.System);
+        Parcel inReview = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "In flight", null, CancellationToken.None);
+        await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
+        await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "review", CancellationToken.None);
+
+        ParcelType withoutReview = ShippedTypes.Task with
+        {
+            States = ["refine", "build", ShippedTypes.Parked, ShippedTypes.Closed],
+            Resolutions = ["shipped"],
+            Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["build"] },
+        };
+        await PublishedProjectTypeAsync(Definitions(store), "alpha", withoutReview);
+
+        Parcel moved = await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
+        moved.State.Should().Be("build");
+        moved.TypeHash.Should().Be(ShippedTypes.Task.Hash);
+        (await parcels.CloseAsync(Principal.LocalOwner, "alpha", inReview.Id, "completed", "Done.", CancellationToken.None))
+            .Resolution.Should().Be("completed");
+
+        Parcel fresh = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "New", null, CancellationToken.None);
+        fresh.TypeHash.Should().Be(withoutReview.Hash);
+        await FluentActions.Awaiting(() => parcels.CloseAsync(Principal.LocalOwner, "alpha", fresh.Id, "completed", "Done.", CancellationToken.None))
+            .Should().ThrowAsync<DomainException>().WithMessage("*closes with one of shipped*");
+    }
+
+    [Fact]
+    public async Task A_parcel_survives_a_differently_cased_type_name_and_the_retiring_of_its_version()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var parcels = new ParcelService(store, TimeProvider.System);
+        DefinitionService definitions = Definitions(store);
+        Parcel original = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Before", null, CancellationToken.None);
+
+        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", ShippedTypes.Task with { Name = "Task", EntryStates = ["refine", "build"] });
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "build", CancellationToken.None)).State.Should().Be("build");
+
+        Parcel underCased = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "After", "build", CancellationToken.None);
+        underCased.TypeName.Should().Be("Task");
+        await definitions.RetireAsync(Principal.LocalOwner, "alpha", cased.Id, CancellationToken.None);
+
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", underCased.Id, "review", CancellationToken.None)).State.Should().Be("review");
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "review", CancellationToken.None)).State.Should().Be("review");
+    }
 }

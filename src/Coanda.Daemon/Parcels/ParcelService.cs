@@ -12,8 +12,9 @@ namespace Coanda.Daemon.Parcels;
 
 /// <summary>
 /// The daemon's side of every parcel command and query: open a session for the project (the
-/// tenant), ask the decider, append, save. The registry check is the caller's first line. A
-/// parcel's type is whatever <see cref="DefinitionResolver"/> returns for its project.
+/// tenant), ask the decider, append, save. The registry check is the caller's first line. A new
+/// parcel's type is whatever <see cref="DefinitionResolver"/> resolves for its project; an existing
+/// parcel keeps the version whose hash it recorded.
 /// </summary>
 public sealed class ParcelService(IDocumentStore store, TimeProvider clock)
 {
@@ -41,7 +42,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock)
         await using IDocumentSession session = store.LightweightSession(tenant);
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
-        ParcelType type = await RequireTypeAsync(tenant, parcel.TypeName, cancellationToken);
+        ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelMoved moved = ParcelDecider.Move(type, parcel, to, principal.Id, clock.GetUtcNow());
         stream.AppendOne(moved);
         await session.SaveChangesAsync(cancellationToken);
@@ -58,7 +59,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock)
         await using IDocumentSession session = store.LightweightSession(tenant);
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
-        ParcelType type = await RequireTypeAsync(tenant, parcel.TypeName, cancellationToken);
+        ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelClosed closed = ParcelDecider.Close(type, parcel, resolution, reason, principal.Id, clock.GetUtcNow());
         stream.AppendOne(closed);
         await session.SaveChangesAsync(cancellationToken);
@@ -103,6 +104,14 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock)
 
         IReadOnlyList<ParcelType> installed = await definitions.ResolveParcelTypesAsync(project, cancellationToken);
         throw new DomainException($"'{name}' is not an installed parcel type; installed: {string.Join(", ", installed.Select(t => t.Name))}.");
+    }
+
+    /// <summary>A parcel keeps the type version it was created under; a newer version applies to new parcels only.</summary>
+    private async Task<ParcelType> RequireCreatedUnderTypeAsync(string project, Parcel parcel, CancellationToken cancellationToken)
+    {
+        ParcelType? type = await definitions.ResolveParcelTypeByHashAsync(project, parcel.TypeHash, cancellationToken);
+        return type
+            ?? throw new DomainException($"The '{parcel.TypeName}' type version {parcel.TypeHash} that parcel {Ids.Short(parcel.Id)} was created under is no longer held.");
     }
 
     private static DomainException NotFound(Guid parcelId, string project) =>
