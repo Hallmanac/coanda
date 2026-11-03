@@ -89,6 +89,14 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
             (flight, started) => flight.Apply(started),
             cancellationToken);
 
+    /// <summary>Counts one more spawn for the resumed judgment <paramref name="step"/>, on its current visit.</summary>
+    public Task<Flight> RespawnAsync(Principal principal, string project, Guid flightId, string step, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flight.respawn", principal, project, flightId,
+            (flow, flight) => FlightDecider.Respawn(flow, flight, step, clock.GetUtcNow()),
+            (flight, respawned) => flight.Apply(respawned),
+            cancellationToken);
+
     public Task<Flight> RecordAnswerAsync(
         Principal principal,
         string project,

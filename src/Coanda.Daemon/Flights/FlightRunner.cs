@@ -26,6 +26,8 @@ namespace Coanda.Daemon.Flights;
 /// flow's follow allows parks; before a judgment, a flight whose recorded cost has reached its flow's
 /// budget, or whose chain's recorded cost has reached the budget of the flow its root runs, parks.
 /// Both checks run on every pass, so a resume of such a park parks again rather than overriding it.
+/// A resumed judgment step spawns another agent, so it parks once the flight's spawns reach its
+/// flow's spawn cap, whether the visit resumed had recorded an answer or parked without one.
 /// </summary>
 /// <remarks>
 /// Every write is made as the flight's own principal, of the Agent role, through a flight service
@@ -209,20 +211,24 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             return false;
         }
 
+        // A resumed judgment spawns another agent, whether its visit recorded or not, unless this
+        // resume's spawn is already counted (a restart performing the resumed visit again). A
+        // judgment the interpreter entered within the cap is performed once, so it is not checked.
+        bool spawnsAgain = step.IsJudgment && current.ResumedAt is not null && current.RespawnedAt is null;
+        if (spawnsAgain && flight.Spawns >= flow.SpawnCap)
+        {
+            await ParkAsync(
+                principal, project, flight.Id,
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{step.Name}' again would spawn another agent.",
+                FlightLevers.SpawnCapReached(flow.Name),
+                cancellationToken);
+            return false;
+        }
+
         // A resume after this visit recorded (a park the interpreter decided) performs the step
         // again as a new visit; a recording with no resume since is routed, never performed again.
         if (current.IsRecorded && current.ResumedAt is not null)
         {
-            if (step.IsJudgment && flight.Spawns >= flow.SpawnCap)
-            {
-                await ParkAsync(
-                    principal, project, flight.Id,
-                    $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{step.Name}' again would spawn another agent.",
-                    FlightLevers.SpawnCapReached(flow.Name),
-                    cancellationToken);
-                return false;
-            }
-
             await flights.StartStepAsync(principal, project, flight.Id, step.Name, cancellationToken);
             return true;
         }
@@ -230,22 +236,33 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         JsonElement? recorded = current.IsRecorded
             ? current.Answer ?? current.Result
             : step.IsJudgment
-                ? await JudgeAsync(principal, project, flight, flow, step, cancellationToken)
+                ? await JudgeAsync(principal, project, flight, flow, step, spawnsAgain, cancellationToken)
                 : await ActAsync(principal, project, flight, flow, step, current.ResumedAt is not null, cancellationToken);
 
         return recorded is JsonElement document
             && await RouteAsync(principal, project, flight, flow, step, document, cancellationToken);
     }
 
-    /// <summary>Runs the step's judgment and records its answer, or parks; null when the flight parked.</summary>
+    /// <summary>
+    /// Runs the step's judgment and records its answer, or parks; null when the flight parked. When
+    /// <paramref name="spawnsAgain"/>, a resume performs a visit that parked without an answer again,
+    /// so one more spawn is counted on that visit once the budget checks have passed, before anything
+    /// that spawns. A park after the count and before the spawn (an agent that does not resolve, a
+    /// refused answer schema) leaves the count one ahead of the spawns, erring on the side of the cap.
+    /// </summary>
     private async Task<JsonElement?> JudgeAsync(
-        Principal principal, string project, Flight flight, FlowDefinition flow, FlowStep step, CancellationToken cancellationToken)
+        Principal principal, string project, Flight flight, FlowDefinition flow, FlowStep step, bool spawnsAgain, CancellationToken cancellationToken)
     {
         string? spent = await BudgetSpentAsync(principal, project, flight, flow, cancellationToken);
         if (spent is not null)
         {
             await ParkAsync(principal, project, flight.Id, spent, FlightLevers.BudgetReached(), cancellationToken);
             return null;
+        }
+
+        if (spawnsAgain)
+        {
+            await flights.RespawnAsync(principal, project, flight.Id, step.Name, cancellationToken);
         }
 
         string agentName = step.Agent ?? string.Empty;
