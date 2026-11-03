@@ -39,6 +39,12 @@ app.Configure(config =>
         parcel.AddCommand<ParcelCloseCommand>("close").WithDescription("Close a parcel with a resolution and a reason.").WithExample("parcel", "close", "0192a3b4", "-r", "completed", "--reason", "\"Merged\"");
     });
 
+    config.AddBranch("agent", agent =>
+    {
+        agent.SetDescription("Agents are the personas that do the judging; five ship installed.");
+        agent.AddCommand<AgentListCommand>("list").WithDescription("List the agents that govern a project.").WithExample("agent", "list");
+    });
+
     config.AddBranch("type", type =>
     {
         type.SetDescription("Parcel types define a lifecycle; idea and task ship installed.");
