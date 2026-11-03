@@ -1,6 +1,7 @@
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
+using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Store;
@@ -13,9 +14,10 @@ namespace Coanda.Daemon.Definitions;
 /// The daemon's side of every definition command: pass the registry, ask the decider, append,
 /// save. Project-scope definitions live in their project's tenant; owner-scope and shipped-scope
 /// definitions live in the node tenant (<see cref="Tenants.Node"/>). Writes are serialized so that
-/// two drafts of one name cannot be handed the same version.
+/// two drafts of one name cannot be handed the same version. A drafted parcel type is validated
+/// against the names of the gates the daemon runs, none when it is given none.
 /// </summary>
-public sealed class DefinitionService(IDocumentStore store, TimeProvider clock)
+public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null)
 {
     /// <summary>
     /// The principal seeding acts as: the daemon itself, in the Owner role, because seeding is the
@@ -51,7 +53,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock)
             IReadOnlyList<Definition> existing = await session.Query<Definition>().ToListAsync(cancellationToken);
             int latest = LatestVersion(existing, kind, scope, project, name);
             DefinitionDrafted drafted = DefinitionDecider.Draft(
-                kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow());
+                kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(), (gates ?? GateSet.None).Names);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);

@@ -56,6 +56,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
+        builder.Services.AddSingleton(new GateSet(options.Gates));
         builder.Services.AddSingleton<DefinitionService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();

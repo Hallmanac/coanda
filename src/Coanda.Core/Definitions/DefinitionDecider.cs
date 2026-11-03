@@ -1,6 +1,7 @@
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.Flows;
+using Coanda.Core.Parcels;
 using Coanda.Core.Software;
 using Coanda.Core.Types;
 
@@ -23,7 +24,8 @@ public static class DefinitionDecider
     /// <summary>
     /// Drafts the next version of a definition. <paramref name="latestVersion"/> is the highest
     /// version already recorded for the same kind, scope, and name (and project, in project
-    /// scope), or 0 when there is none.
+    /// scope), or 0 when there is none. <paramref name="knownGates"/> is every gate name the
+    /// daemon runs, which a parcel type's gate bindings are validated against; none when null.
     /// </summary>
     public static DefinitionDrafted Draft(
         DefinitionKind kind,
@@ -35,7 +37,8 @@ public static class DefinitionDecider
         string contentHash,
         ForkBase? forkBase,
         string draftedBy,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        IReadOnlySet<string>? knownGates = null)
     {
         if (scope == DefinitionScope.Shipped)
         {
@@ -43,7 +46,7 @@ public static class DefinitionDecider
                 "A definition cannot be drafted into shipped scope; shipped definitions enter the store only by seeding.");
         }
 
-        return Build(kind, name, scope, project, latestVersion, content, contentHash, forkBase, draftedBy, now);
+        return Build(kind, name, scope, project, latestVersion, content, contentHash, forkBase, knownGates ?? GateSet.None.Names, draftedBy, now);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -76,14 +79,15 @@ public static class DefinitionDecider
 
     /// <summary>
     /// Seeds a shipped definition: the drafted and published events together, in shipped scope.
-    /// The only road into that scope.
+    /// The only road into that scope. The shipped gate set is empty, so a shipped parcel type is
+    /// validated against no gate names and binds none.
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published) Seed(
         ShippedDefinition shipped, int latestVersion, string seededBy, DateTimeOffset now)
     {
         DefinitionDrafted drafted = Build(
             shipped.Kind, shipped.Name, DefinitionScope.Shipped, null, latestVersion,
-            shipped.Content, shipped.ContentHash, null, seededBy, now);
+            shipped.Content, shipped.ContentHash, null, GateSet.None.Names, seededBy, now);
         return (drafted, new DefinitionPublished(drafted.DefinitionId, seededBy, now));
     }
 
@@ -96,6 +100,7 @@ public static class DefinitionDecider
         string content,
         string contentHash,
         ForkBase? forkBase,
+        IReadOnlySet<string> knownGates,
         string draftedBy,
         DateTimeOffset now)
     {
@@ -128,7 +133,7 @@ public static class DefinitionDecider
         switch (kind)
         {
             case DefinitionKind.ParcelType:
-                RequireParcelType(trimmedName, content, contentHash);
+                RequireParcelType(trimmedName, content, contentHash, knownGates);
                 break;
             case DefinitionKind.Flow:
                 RequireFlow(trimmedName, content, contentHash);
@@ -142,10 +147,10 @@ public static class DefinitionDecider
             Ids.New(), kind, trimmedName, scope, trimmedProject, latestVersion + 1, content, contentHash, forkBase, draftedBy, now);
     }
 
-    private static void RequireParcelType(string name, string content, string contentHash)
+    private static void RequireParcelType(string name, string content, string contentHash, IReadOnlySet<string> knownGates)
     {
         ParcelType type = ParcelType.FromJson(content);
-        type.Validate();
+        type.Validate(knownGates);
 
         if (!string.Equals(type.Name, name, StringComparison.OrdinalIgnoreCase))
         {

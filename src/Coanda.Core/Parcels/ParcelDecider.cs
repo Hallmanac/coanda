@@ -6,13 +6,14 @@ namespace Coanda.Core.Parcels;
 /// <summary>
 /// The rules of a parcel's lifecycle, as pure decisions: given the type, the current parcel, and
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
+/// The decider is given the gates the daemon runs; a move runs every gate its type binds to it.
 /// </summary>
 public static class ParcelDecider
 {
     public static ParcelCreated Create(
-        ParcelType type, string project, string title, string? entryState, string createdBy, DateTimeOffset now)
+        ParcelType type, GateSet gates, string project, string title, string? entryState, string createdBy, DateTimeOffset now)
     {
-        type.Validate();
+        type.Validate(gates.Names);
 
         if (string.IsNullOrWhiteSpace(project))
         {
@@ -34,7 +35,7 @@ public static class ParcelDecider
         return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, state, title.Trim(), createdBy, now);
     }
 
-    public static ParcelMoved Move(ParcelType type, Parcel parcel, string toState, string movedBy, DateTimeOffset now)
+    public static ParcelMoved Move(ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now)
     {
         RequireOpen(parcel);
         RequireType(type, parcel);
@@ -48,6 +49,11 @@ public static class ParcelDecider
         {
             throw new DomainException(
                 $"Parcel type '{type.Name}' does not allow a move from '{parcel.State}' to '{toState}'.");
+        }
+
+        foreach (GateBinding binding in type.GatesOn(parcel.State, toState))
+        {
+            RequirePasses(binding, gates, parcel, toState);
         }
 
         return new ParcelMoved(parcel.Id, parcel.State, toState, movedBy, now);
@@ -71,6 +77,18 @@ public static class ParcelDecider
         }
 
         return new ParcelClosed(parcel.Id, parcel.State, type.TerminalState, resolution, reason.Trim(), closedBy, now);
+    }
+
+    private static void RequirePasses(GateBinding binding, GateSet gates, Parcel parcel, string toState)
+    {
+        IGate gate = gates.Find(binding.Gate)
+            ?? throw new DomainException(
+                $"The gate '{binding.Gate}' bound to the move to '{toState}' is not a gate this daemon runs, so the move is refused.");
+
+        if (gate.Check(parcel, parcel.State, toState) is GateVerdict.Failed failed)
+        {
+            throw new DomainException($"The gate '{binding.Gate}' refused the move from '{parcel.State}' to '{toState}': {failed.Reason}");
+        }
     }
 
     private static void RequireOpen(Parcel parcel)
