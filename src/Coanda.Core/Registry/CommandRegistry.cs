@@ -18,7 +18,7 @@ public static class CommandRegistry
         new("agent.list", EntryKind.Query, "List the agents that resolution returns for a project.", Everyone),
         new("flight.list", EntryKind.Query, "List the flights of a project or of one parcel.", Everyone),
         new("flight.show", EntryKind.Query, "Show one flight with its steps.", Everyone),
-        new("flight.start", EntryKind.Command, "Start a flight of a flow on a parcel.", People),
+        new("flight.start", EntryKind.Command, "Start a flight of a flow on a parcel.", Everyone),
         new("flight.step", EntryKind.Command, "Record a flight entering a step.", Everyone),
         new("flight.answer", EntryKind.Command, "Record a judgment's answer and its measurement.", Everyone),
         new("flight.result", EntryKind.Command, "Record an action's result.", Everyone),

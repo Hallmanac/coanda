@@ -29,7 +29,7 @@ public sealed class FlightRunnerTests
     ];
 
     [Fact]
-    public async Task A_flight_started_through_the_endpoint_runs_the_build_flows_clean_path_to_its_end()
+    public async Task A_task_moved_to_build_runs_the_build_flows_clean_path_to_its_end_with_no_flow_start()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
@@ -37,10 +37,12 @@ public sealed class FlightRunnerTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Fly the clean path");
 
-        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
         FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "ended");
 
         flight.Outcome.Should().Be("pr-opened");
+        flight.Flow.Should().Be("build");
+        (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().ContainSingle("the binding starts one flight for the one entry to build");
         flight.Steps.Select(s => s.Step).Should().Equal(CleanPath, "each go-to records the step it enters");
         flight.Steps.Should().OnlyContain(s => s.RecordedAt != null);
         ExpectJudgment(flight.Steps[1], ShippedAgents.Build, 1);
@@ -71,7 +73,7 @@ public sealed class FlightRunnerTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Who moved it");
 
-        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
         await Flying.UntilAsync(client, Project, started.Id, "ended");
 
         await using IQuerySession session = daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Project);
@@ -96,7 +98,7 @@ public sealed class FlightRunnerTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never clean");
 
-        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
         FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
 
         flight.CurrentStep.Should().Be("adversarial-review");
@@ -167,7 +169,7 @@ public sealed class FlightRunnerTests
         IFlightAdvancer advancer = daemon.Services.GetRequiredService<IFlightAdvancer>();
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Only once");
 
-        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
         await executor.Spawned.WaitAsync(TimeSpan.FromSeconds(15));
         Task joined = advancer.RequestAdvance(Project, started.Id);
         Task again = advancer.RequestAdvance(Project, started.Id);
@@ -189,10 +191,11 @@ public sealed class FlightRunnerTests
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Think first", null), None);
+        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, idea.Id, "discovery"), None);
         ParcelView task = await Flying.TaskAtBuildAsync(client, Project, "Build anyway");
 
-        FlightView discovery = await Flying.StartAsync(client, Project, idea.Id, "discovery");
-        FlightView build = await Flying.StartAsync(client, Project, task.Id, "build");
+        FlightView discovery = await Flying.BoundAsync(client, Project, idea.Id);
+        FlightView build = await Flying.BoundAsync(client, Project, task.Id);
 
         FlightView parked = await Flying.UntilAsync(client, Project, discovery.Id, "parked");
         parked.ParkReason.Should().StartWith("Step 'discover' got no judgment from agent 'discovery':").And.Contain("agent 'discovery'");
@@ -213,7 +216,7 @@ public sealed class FlightRunnerTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Too slow");
 
-        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
         FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
 
         flight.ParkReason.Should().Be("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, so its session was stopped.");
@@ -236,7 +239,7 @@ public sealed class FlightRunnerTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Too slow to stop");
 
-        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
         FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
 
         flight.ParkReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, and stopping its session failed:");
@@ -323,7 +326,7 @@ public sealed class FlightRunnerTests
         {
             using var client = new DaemonClient(temp.Home);
             ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Interrupted");
-            flightId = (await Flying.StartAsync(client, Project, parcel.Id, "build")).Id;
+            flightId = (await Flying.BoundAsync(client, Project, parcel.Id)).Id;
             await stalled.Spawned.WaitAsync(TimeSpan.FromSeconds(15));
             await first.StopAsync(None);
         }
@@ -396,14 +399,14 @@ public sealed class FlightRunnerTests
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
         ParcelView first = await Flying.TaskAtBuildAsync(client, Project, "Called off");
 
-        FlightView doomed = await Flying.StartAsync(client, Project, first.Id, "build");
+        FlightView doomed = await Flying.BoundAsync(client, Project, first.Id);
         await executor.Spawned.WaitAsync(TimeSpan.FromSeconds(15));
         await flights.StopAsync(Principal.LocalOwner, Project, doomed.Id, "Not needed any more.", None);
         executor.Open();
         await Flying.UntilAsync(() => executor.Inner.Stops.Count == 1, "the stopped flight's session is ended");
 
         ParcelView second = await Flying.TaskAtBuildAsync(client, Project, "Still wanted");
-        FlightView other = await Flying.StartAsync(client, Project, second.Id, "build");
+        FlightView other = await Flying.BoundAsync(client, Project, second.Id);
         (await Flying.UntilAsync(client, Project, other.Id, "ended")).Outcome.Should().Be("pr-opened");
 
         FlightView stopped = await Flying.ShowAsync(client, Project, doomed.Id);
