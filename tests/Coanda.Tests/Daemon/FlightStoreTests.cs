@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Coanda.Cli;
+using Coanda.Cli.Commands;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
@@ -189,5 +190,38 @@ public sealed class FlightStoreTests
         listed.Should().ContainSingle();
         Flight? shown = await flights.ShowAsync(agent, Project, flight.Id, none);
         shown.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Flight_show_prints_the_flow_the_parcel_the_status_each_step_and_the_park()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        using var client = new DaemonClient(temp.Home);
+        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
+        CancellationToken none = CancellationToken.None;
+
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Show me", null), none);
+        Flight flight = await RunToAnsweredBuildAsync(flights, parcel.Id);
+        await flights.ParkAsync(Owner, Project, flight.Id, "The build agent asked a question.", "Answer it in the journal.", none);
+
+        FlightView view = await FlightLookup.FindAsync(client, Project, Ids.Short(flight.Id), none);
+        IReadOnlyList<string> lines = FlightRendering.Show(view);
+
+        lines.Should().Contain($"Flow    build v1 ({ShippedFlows.Build.Hash})");
+        lines.Should().Contain($"Parcel  {parcel.Id}");
+        lines.Should().Contain("Status  parked");
+        lines.Should().Contain("Reason  The build agent asked a question.");
+        lines.Should().Contain("Lever   Answer it in the journal.");
+        int steps = lines.ToList().IndexOf("Steps");
+        lines.Skip(steps + 1).Should().Equal(
+            "  worktree  action worktree  verdict=done  path=/tmp/wt  reused=false",
+            "  build  judgment build  verdict=done  files=3  tokens 1200, cost $0.42, 63s");
+
+        List<FlightView> listed = await client.GetAsync<List<FlightView>>($"/flights?project={Project}&parcel={parcel.Id}", none);
+        FlightView row = listed.Should().ContainSingle().Subject;
+        FlightRendering.ListRow(row).Take(4).Should().Equal(Ids.Short(flight.Id), "build v1", "parked", "build");
+
+        await daemon.StopAsync(none);
     }
 }
