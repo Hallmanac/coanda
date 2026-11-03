@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flights;
@@ -30,7 +31,9 @@ namespace Coanda.Daemon.Triggers;
 /// subscription in its project creates the subscription's parcel and starts its flow.
 /// A refusal is logged with its rule and the loop goes on. A bound entry on a parcel that already
 /// has a live flight, as when a flow's own step moves its parcel into a bound state, waits for that
-/// flight's release rather than being refused.
+/// flight's release rather than being refused. So does a follow, as when several flows follow the
+/// same end: a parcel holds one live flight at a time, so its followers start one after another,
+/// each on the release of the flight before it.
 /// </summary>
 /// <remarks>
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
@@ -43,7 +46,9 @@ namespace Coanda.Daemon.Triggers;
 /// neither created again nor given a second flight; a follow's start acts as a principal whose id
 /// names the ended flight, and is skipped when that flight already has a follower of the flow. A
 /// deferred entry is a document in the parcel's project, kept until the release that starts it has
-/// been handled, so a stop in between replays the release and starts the binding once.
+/// been handled, so a stop in between replays the release and starts the binding once. Deferred
+/// follows are one document per parcel in the same way, and a follow leaves it only once its start
+/// has been written or refused, so a replay finds the follower already started and drops it.
 /// </remarks>
 public sealed class TriggerLoop(
     IDocumentStore store,
@@ -311,10 +316,34 @@ public sealed class TriggerLoop(
     }
 
     /// <summary>
-    /// A parcel's live flight was released: start the entry deferred to it, if the parcel still sits
-    /// in the state it entered, then forget the entry unless it was deferred again.
+    /// A parcel's live flight was released: start the entry deferred to it, then the oldest follow
+    /// deferred to it. Whichever starts first holds the parcel, and the other waits for its release.
     /// </summary>
     private async Task ReleasedAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    {
+        Exception? entryFailure = null;
+        try
+        {
+            await StartDeferredEntryAsync(project, parcelId, cancellationToken);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The deferred follows still get their turn; the entry's failure is reported after them.
+            entryFailure = failure;
+        }
+
+        await StartDeferredFollowsAsync(project, parcelId, cancellationToken);
+        if (entryFailure is not null)
+        {
+            ExceptionDispatchInfo.Throw(entryFailure);
+        }
+    }
+
+    /// <summary>
+    /// Starts the entry deferred to the parcel's release, if the parcel still sits in the state it
+    /// entered, then forgets the entry unless it was deferred again.
+    /// </summary>
+    private async Task StartDeferredEntryAsync(string project, Guid parcelId, CancellationToken cancellationToken)
     {
         DeferredEntry? deferred;
         await using (IQuerySession session = store.QuerySession(project))
@@ -357,7 +386,9 @@ public sealed class TriggerLoop(
     /// <summary>
     /// A flight ended: read as a <c>flight-ended</c> event with its flow, its outcome, and its
     /// parcel's type, it starts on that parcel every published flow of the project whose follow
-    /// matches it and which accepts the type. Each refusal is logged and the other followers still start.
+    /// matches it and which accepts the type. The first starts now; the parcel then holds a live
+    /// flight, so each of the others waits for a release, in name order. Each refusal is logged and
+    /// the other followers still start.
     /// </summary>
     private async Task EndedAsync(string project, FlightEnded ended, CancellationToken cancellationToken)
     {
@@ -374,36 +405,140 @@ public sealed class TriggerLoop(
                 && Trigger.ForFollow(follow).Matches(candidate)
                 && flow.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)));
 
-        Principal principal = PrincipalFor(parent.Id);
+        List<PendingFollow> waiting = [];
         foreach (FlowDefinition follower in followers)
         {
             try
             {
-                await FollowAsync(principal, project, parent, follower, cancellationToken);
+                if (await FollowAsync(project, parent, follower.Name, cancellationToken))
+                {
+                    waiting.Add(new PendingFollow(parent.Id, follower.Name));
+                }
             }
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogWarning(
-                    "Flow '{Flow}' follows the end of flight {Flight}, but its start was refused: {Rule}",
-                    follower.Name, Ids.Short(parent.Id), refused.Message);
+                LogFollowRefused(follower.Name, parent.Id, refused);
             }
+        }
+
+        if (waiting.Count > 0)
+        {
+            await DeferFollowsAsync(project, parent.ParcelId, waiting, cancellationToken);
         }
     }
 
-    private async Task FollowAsync(Principal principal, string project, Flight parent, FlowDefinition follower, CancellationToken cancellationToken)
+    /// <summary>
+    /// Starts <paramref name="flowName"/> as a follower of <paramref name="parent"/>, unless that
+    /// flight already has a follower of the flow. True when the parcel holds a live flight, so the
+    /// follow has to wait for its release.
+    /// </summary>
+    private async Task<bool> FollowAsync(string project, Flight parent, string flowName, CancellationToken cancellationToken)
     {
         IReadOnlyList<Flight> existing = await flights.ListAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken);
-        if (existing.Any(f => f.ParentFlightId == parent.Id && DefinitionResolution.SameName(f.FlowName, follower.Name)))
+        if (existing.Any(f => f.ParentFlightId == parent.Id && DefinitionResolution.SameName(f.FlowName, flowName)))
+        {
+            return false;
+        }
+
+        if (await HasLiveFlightAsync(project, parent.ParcelId, cancellationToken))
+        {
+            return true;
+        }
+
+        Flight flight;
+        try
+        {
+            flight = await flights.FollowAsync(PrincipalFor(parent.Id), project, parent.Id, flowName, cancellationToken);
+        }
+        catch (DomainException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A flight started on the parcel between the check and the start: wait for its release too.
+            if (!await HasLiveFlightAsync(project, parent.ParcelId, cancellationToken))
+            {
+                throw;
+            }
+
+            return true;
+        }
+
+        logger.LogInformation(
+            "The end of flight {Parent} started flight {Flight} of '{Flow}' at depth {Depth} on parcel {Parcel} in project {Project}.",
+            Ids.Short(parent.Id), Ids.Short(flight.Id), flowName, flight.Depth, Ids.Short(parent.ParcelId), project);
+        _ = advancer.RequestAdvance(project, flight.Id);
+        return false;
+    }
+
+    /// <summary>Adds follows to the ones waiting on the parcel, after those already waiting and without repeating one.</summary>
+    private async Task DeferFollowsAsync(string project, Guid parcelId, IReadOnlyList<PendingFollow> follows, CancellationToken cancellationToken)
+    {
+        await using IDocumentSession session = store.LightweightSession(project);
+        DeferredFollows deferred = await session.LoadAsync<DeferredFollows>(parcelId, cancellationToken)
+            ?? new DeferredFollows { Id = parcelId };
+        deferred.Pending = [.. deferred.Pending.Union(follows)];
+        session.Store(deferred);
+        await session.SaveChangesAsync(cancellationToken);
+        logger.LogInformation(
+            "{Count} follow(s) of parcel {Parcel} wait for the parcel's live flight to be released before they start, one at a time.",
+            follows.Count, Ids.Short(parcelId));
+    }
+
+    /// <summary>
+    /// Starts the follows waiting on the parcel, oldest first, until one has to wait for a release
+    /// again, which the first one started makes the next do. A follow leaves the list once it has
+    /// started, was already started, or was refused.
+    /// </summary>
+    private async Task StartDeferredFollowsAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    {
+        DeferredFollows? deferred;
+        await using (IQuerySession session = store.QuerySession(project))
+        {
+            deferred = await session.LoadAsync<DeferredFollows>(parcelId, cancellationToken);
+        }
+
+        if (deferred is null)
         {
             return;
         }
 
-        Flight flight = await flights.FollowAsync(principal, project, parent.Id, follower.Name, cancellationToken);
-        logger.LogInformation(
-            "The end of flight {Parent} started flight {Flight} of '{Flow}' at depth {Depth} on parcel {Parcel} in project {Project}.",
-            Ids.Short(parent.Id), Ids.Short(flight.Id), follower.Name, flight.Depth, Ids.Short(parent.ParcelId), project);
-        _ = advancer.RequestAdvance(project, flight.Id);
+        List<PendingFollow> remaining = [.. deferred.Pending];
+        while (remaining.Count > 0)
+        {
+            PendingFollow next = remaining[0];
+            try
+            {
+                Flight parent = await flights.ShowAsync(LoopPrincipal, project, next.ParentFlightId, cancellationToken)
+                    ?? throw new DomainException($"No flight {Ids.Short(next.ParentFlightId)} in project '{project}'.");
+                if (await FollowAsync(project, parent, next.Flow, cancellationToken))
+                {
+                    break;
+                }
+            }
+            catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogFollowRefused(next.Flow, next.ParentFlightId, refused);
+            }
+
+            remaining.RemoveAt(0);
+        }
+
+        await using IDocumentSession write = store.LightweightSession(project);
+        if (remaining.Count == 0)
+        {
+            write.Delete<DeferredFollows>(parcelId);
+        }
+        else
+        {
+            deferred.Pending = remaining;
+            write.Store(deferred);
+        }
+
+        await write.SaveChangesAsync(cancellationToken);
     }
+
+    private void LogFollowRefused(string flowName, Guid parentId, DomainException refused) =>
+        logger.LogWarning(
+            "Flow '{Flow}' follows the end of flight {Flight}, but its start was refused: {Rule}",
+            flowName, Ids.Short(parentId), refused.Message);
 
     /// <summary>An external event: every subscription in its project that matches it creates its parcel and starts its flow.</summary>
     private async Task ExternalAsync(ExternalEventRecorded external, CancellationToken cancellationToken)

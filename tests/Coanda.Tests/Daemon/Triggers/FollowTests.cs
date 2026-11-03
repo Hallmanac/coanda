@@ -16,6 +16,9 @@ public sealed class FollowTests
     /// <summary>A flow that follows the build flow's outcome and ends on one placeholder action, spawning nothing.</summary>
     private static readonly FlowDefinition AfterBuild = Ending("after-build", new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 });
 
+    /// <summary>A second follower of the same end, naming the build flow in another spelling.</summary>
+    private static readonly FlowDefinition AlsoAfterBuild = Ending("also-after-build", new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 1 });
+
     /// <summary>A flow that follows an outcome no flow declares.</summary>
     private static readonly FlowDefinition AfterNothing = Ending("after-nothing", new FlowFollow { Outcome = "nobody-produces-this", DepthCap = 1 });
 
@@ -91,6 +94,35 @@ public sealed class FollowTests
             .Should().Equal(["build", AfterBuild.Name], "a restart starts no second follower of an end already followed");
 
         await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task Every_flow_following_the_same_end_starts_on_the_parcel_one_after_another()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        using var client = new DaemonClient(temp.Home);
+        await Publishing.FlowAsync(daemon, Project, AfterBuild);
+        await Publishing.FlowAsync(daemon, Project, AlsoAfterBuild);
+        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Build, then follow twice");
+
+        FlightView build = await Flying.BoundAsync(client, Project, parcel.Id);
+        await Flying.UntilAsync(client, Project, build.Id, "ended");
+        List<FlightView> followers = [];
+        await Flying.UntilAsync(
+            async () =>
+            {
+                List<FlightView> flights = await Flying.OfParcelAsync(client, Project, parcel.Id);
+                followers = [.. flights.Where(f => f.ParentFlightId == build.Id && f.Status == "ended")];
+                return followers.Count == 2;
+            },
+            $"both followers of flight {build.Id} end");
+
+        followers.Select(f => f.Flow).Should().BeEquivalentTo([AfterBuild.Name, AlsoAfterBuild.Name]);
+        followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlightId == build.Id && f.Outcome == "followed");
+        (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(3, "each follower starts once");
+
+        await daemon.StopAsync(None);
     }
 
     /// <summary>Waits for the flight a follow starts on the parcel from the end of <paramref name="parentId"/>.</summary>
