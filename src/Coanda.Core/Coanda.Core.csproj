@@ -6,6 +6,9 @@
 
   <ItemGroup>
     <PackageReference Include="UUIDNext" />
+    <!-- The event store dispatches Apply methods through this compile-time generator; the aggregate lives here, so the generator runs here. -->
+    <PackageReference Include="JasperFx.Events" />
+    <PackageReference Include="JasperFx.Events.SourceGenerator" />
   </ItemGroup>
 
   <ItemGroup>

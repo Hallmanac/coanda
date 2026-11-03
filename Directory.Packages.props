@@ -1,7 +1,8 @@
 <Project>
   <ItemGroup>
     <PackageVersion Include="Fisher" Version="1.27.0" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageVersion Include="JasperFx.Events" Version="2.98.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.98.0" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
     <PackageVersion Include="UUIDNext" Version="4.2.3" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
