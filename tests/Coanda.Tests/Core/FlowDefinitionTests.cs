@@ -79,6 +79,12 @@ public sealed class FlowDefinitionTests
         { "a blank answer field", WithFirstStep(s => s with { Transitions = [new FlowTransition { Value = FlowValue.Of("x"), VisitCap = 1, Target = "act" }] }), "an answer field is plain" },
         { "an object value", WithFirstStep(s => s with { Transitions = [new FlowTransition { Field = "verdict", Value = Json("{}"), VisitCap = 1, Target = "act" }] }), "needs a value that is a JSON string, number, or boolean" },
         { "a null value", WithFirstStep(s => s with { Transitions = [new FlowTransition { Field = "verdict", Value = Json("null"), VisitCap = 1, Target = "act" }] }), "needs a value that is a JSON string, number, or boolean" },
+        { "a follow with a blank outcome", Valid() with { Follow = new FlowFollow { Outcome = " ", DepthCap = 2 } }, "its follow needs the outcome's name" },
+        { "a follow with no outcome", Valid() with { Follow = new FlowFollow { DepthCap = 2 } }, "its follow needs the outcome's name" },
+        { "a follow naming a flow that is not plain", Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build or fix", DepthCap = 2 } }, "a followed flow's name is plain" },
+        { "a follow naming a blank flow", Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "", DepthCap = 2 } }, "a followed flow's name is plain" },
+        { "a follow with no depth cap", Valid() with { Follow = new FlowFollow { Outcome = "pr-opened" } }, "its follow needs a depth cap greater than zero" },
+        { "a follow with a negative depth cap", Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", DepthCap = -1 } }, "its follow needs a depth cap greater than zero" },
         { "a missing value", WithFirstStep(s => s with { Transitions = [new FlowTransition { Field = "verdict", VisitCap = 1, Target = "act" }] }), "needs a value that is a JSON string, number, or boolean" },
     };
 
@@ -182,6 +188,37 @@ public sealed class FlowDefinitionTests
         {
             Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("build"), ["count"] = FlowValue.Of(2) },
         }).Hash.Should().NotBe(baseline);
+    }
+
+    [Fact]
+    public void A_valid_follow_passes_and_round_trips_with_its_hash()
+    {
+        FlowDefinition follower = Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 2 } };
+
+        FluentActions.Invoking(() => follower.Validate(Known)).Should().NotThrow();
+        (Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", DepthCap = 1 } }).Validate(Known);
+        FlowDefinition read = FlowDefinition.FromJson(FlowDefinition.CanonicalJson(follower));
+        read.Follow.Should().Be(follower.Follow);
+        read.Hash.Should().Be(follower.Hash);
+    }
+
+    [Fact]
+    public void Adding_a_follow_or_changing_its_depth_cap_changes_the_hash()
+    {
+        string baseline = Valid().Hash;
+        var follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 2 };
+        FlowDefinition follower = Valid() with { Follow = follow };
+
+        follower.Hash.Should().NotBe(baseline);
+        (Valid() with { Follow = follow with { DepthCap = 3 } }).Hash.Should().NotBe(follower.Hash);
+        (Valid() with { Follow = follow with { Flow = null } }).Hash.Should().NotBe(follower.Hash);
+        (Valid() with { Follow = follow with { Outcome = "report-produced" } }).Hash.Should().NotBe(follower.Hash);
+    }
+
+    [Fact]
+    public void A_flow_without_a_follow_writes_no_follow_into_its_content()
+    {
+        FlowDefinition.CanonicalJson(Valid()).Should().NotContain("Follow");
     }
 
     [Fact]

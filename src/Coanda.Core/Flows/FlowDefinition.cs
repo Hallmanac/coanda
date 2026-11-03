@@ -1,15 +1,16 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Coanda.Core.Flows;
 
 /// <summary>
 /// A flow as validated data: the parcel types it accepts, the outcome it declares, a budget and a
-/// spawn cap, and an ordered list of named steps, the first of which is where a flight starts. It
-/// routes on an answer field equalling a value and a visit count and never computes. Validation
-/// takes the set of known action names as an input, so this type holds no action catalog and
-/// nothing software-specific.
+/// spawn cap, an optional follow, and an ordered list of named steps, the first of which is where a
+/// flight starts. It routes on an answer field equalling a value and a visit count and never
+/// computes. Validation takes the set of known action names as an input, so this type holds no
+/// action catalog and nothing software-specific.
 /// </summary>
 public sealed record FlowDefinition
 {
@@ -28,6 +29,14 @@ public sealed record FlowDefinition
 
     /// <summary>The most agents a flight may spawn.</summary>
     public int SpawnCap { get; init; }
+
+    /// <summary>
+    /// The outcome this flow follows, with its depth cap, or null when the flow starts only by a
+    /// binding, a subscription, or a person. Left out of the content when null, so a flow without
+    /// one reads and hashes as it did before follows existed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FlowFollow? Follow { get; init; }
 
     public IReadOnlyList<FlowStep> Steps { get; init; } = [];
 
@@ -76,6 +85,11 @@ public sealed record FlowDefinition
             throw new DomainException($"Flow '{Name}' needs a spawn cap greater than zero; every flow declares one.");
         }
 
+        if (Follow is not null)
+        {
+            ValidateFollow(Follow);
+        }
+
         if (Steps.Count == 0)
         {
             throw new DomainException($"Flow '{Name}' needs at least one step.");
@@ -85,6 +99,26 @@ public sealed record FlowDefinition
         foreach (FlowStep step in Steps)
         {
             ValidateStep(step, knownActions);
+        }
+    }
+
+    private void ValidateFollow(FlowFollow follow)
+    {
+        if (string.IsNullOrWhiteSpace(follow.Outcome))
+        {
+            throw new DomainException($"Flow '{Name}' follows an outcome, so its follow needs the outcome's name.");
+        }
+
+        if (follow.Flow is not null && !IsPlainName(follow.Flow))
+        {
+            throw new DomainException(
+                $"Flow '{Name}' follows the flow '{follow.Flow}'; a followed flow's name is plain: letters, digits, hyphens, and underscores.");
+        }
+
+        if (follow.DepthCap <= 0)
+        {
+            throw new DomainException(
+                $"Flow '{Name}' follows an outcome, so its follow needs a depth cap greater than zero; every composition declares one.");
         }
     }
 
@@ -222,7 +256,15 @@ public sealed record FlowDefinition
                 transitions = step.Transitions.Select(t => new { field = t.Field, value = t.Value, visitCap = t.VisitCap, target = t.Target }),
             }),
         };
-        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(canonical);
+        // A flow without a follow hashes exactly as it did before follows existed.
+        JsonNode node = JsonSerializer.SerializeToNode(canonical)
+            ?? throw new InvalidOperationException("A flow's canonical form serialized to nothing.");
+        if (Follow is not null)
+        {
+            node["follow"] = JsonSerializer.SerializeToNode(new { outcome = Follow.Outcome, flow = Follow.Flow, depthCap = Follow.DepthCap });
+        }
+
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(node);
         return Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
     }
 
