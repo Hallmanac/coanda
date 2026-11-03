@@ -83,9 +83,15 @@ public static class ParcelDecider
 
     private static void RequireType(ParcelType type, Parcel parcel)
     {
-        if (!string.Equals(type.Name, parcel.TypeName, StringComparison.Ordinal))
+        if (!string.Equals(type.Name, parcel.TypeName, StringComparison.OrdinalIgnoreCase))
         {
             throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is a '{parcel.TypeName}', not a '{type.Name}'.");
+        }
+
+        if (!string.Equals(type.Hash, parcel.TypeHash, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcel.Id)} was created under '{parcel.TypeName}@{parcel.TypeHash}', not '{type.Name}@{type.Hash}'.");
         }
     }
 }

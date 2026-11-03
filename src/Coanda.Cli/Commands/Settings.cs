@@ -6,7 +6,7 @@ namespace Coanda.Cli.Commands;
 public class ProjectSettings : CommandSettings
 {
     [CommandOption("-p|--project <NAME>")]
-    [Description("The project the parcel belongs to. Defaults to COANDA_PROJECT, then the current directory's name.")]
+    [Description("The project to work in. Defaults to COANDA_PROJECT, then the current directory's name.")]
     public string? Project { get; init; }
 
     public string ResolveProject()
