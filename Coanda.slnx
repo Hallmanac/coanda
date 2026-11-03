@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Coanda.Cli/Coanda.Cli.csproj" />
+    <Project Path="src/Coanda.Core/Coanda.Core.csproj" />
+    <Project Path="src/Coanda.Daemon/Coanda.Daemon.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Coanda.Tests/Coanda.Tests.csproj" />
+  </Folder>
+</Solution>
