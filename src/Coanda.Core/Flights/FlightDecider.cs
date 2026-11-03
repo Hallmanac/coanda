@@ -44,6 +44,41 @@ public static class FlightDecider
         return (started, new ParcelFlightAttached(parcel.Id, flightId, now));
     }
 
+    /// <summary>
+    /// Starts the next link of a chain: a flight of a flow whose follow matches the ended
+    /// <paramref name="parent"/>, on the parent's parcel, recording the parent, the chain's root,
+    /// and a depth one greater than the parent's. Every rule of <see cref="Start"/> holds too.
+    /// </summary>
+    public static (FlightStarted Started, ParcelFlightAttached Attached) Follow(
+        FlowDefinition flow, int flowVersion, Parcel parcel, Flight parent, string startedBy, DateTimeOffset now)
+    {
+        FlowFollow follow = flow.Follow
+            ?? throw new DomainException($"Flow '{flow.Name}' declares no follow, so no flight's end starts it.");
+
+        if (parent.Status != FlightStatus.Ended)
+        {
+            throw new DomainException(
+                $"Flight {Ids.Short(parent.Id)} {Describe(parent.Status)}; a follow starts only from a flight that reached its end.");
+        }
+
+        if (parent.ParcelId != parcel.Id)
+        {
+            throw new DomainException(
+                $"Flight {Ids.Short(parent.Id)} ran on parcel {Ids.Short(parent.ParcelId)}; a follow runs on the parcel of the flight it follows, not {Ids.Short(parcel.Id)}.");
+        }
+
+        bool outcomeMatches = string.Equals(parent.Outcome, follow.Outcome, StringComparison.Ordinal);
+        bool flowMatches = follow.Flow is null || string.Equals(parent.FlowName, follow.Flow, StringComparison.Ordinal);
+        if (!outcomeMatches || !flowMatches)
+        {
+            throw new DomainException(
+                $"Flow '{flow.Name}' follows the outcome '{follow.Outcome}'{(follow.Flow is null ? string.Empty : $" of flow '{follow.Flow}'")}; flight {Ids.Short(parent.Id)} of flow '{parent.FlowName}' ended with '{parent.Outcome}'.");
+        }
+
+        (FlightStarted started, ParcelFlightAttached attached) = Start(flow, flowVersion, parcel, startedBy, now);
+        return (started with { ParentFlightId = parent.Id, RootFlightId = parent.RootFlightId, Depth = parent.Depth + 1 }, attached);
+    }
+
     public static StepStarted StartStep(FlowDefinition flow, Flight flight, string step, DateTimeOffset now)
     {
         RequireFlow(flow, flight);
@@ -89,10 +124,7 @@ public static class FlightDecider
             throw new DomainException("An answer records the model triple it ran on: a vendor, a model, and an effort.");
         }
 
-        if (measurement.Tokens < 0 || measurement.CostUsd < 0 || measurement.Turns < 0 || measurement.Duration < TimeSpan.Zero)
-        {
-            throw new DomainException("A measurement is never negative: tokens, cost, turns, and duration are zero or more.");
-        }
+        RequireMeasurement(measurement);
 
         return new JudgmentAnswered(flight.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
     }
@@ -116,7 +148,9 @@ public static class FlightDecider
         return new ActionCompleted(flight.Id, current.Step, action, result.Clone(), now);
     }
 
-    public static FlightParked Park(FlowDefinition flow, Flight flight, string reason, string lever, string parkedBy, DateTimeOffset now)
+    /// <summary>Parks a running flight; <paramref name="usage"/> is what a judgment that parked without an answer reported.</summary>
+    public static FlightParked Park(
+        FlowDefinition flow, Flight flight, string reason, string lever, string parkedBy, DateTimeOffset now, Measurement? usage = null)
     {
         RequireFlow(flow, flight);
         RequireRunning(flight, "park it");
@@ -131,7 +165,12 @@ public static class FlightDecider
             throw new DomainException("A park records the lever a person acts on to resume the flight; give a lever.");
         }
 
-        return new FlightParked(flight.Id, reason.Trim(), lever.Trim(), parkedBy, now);
+        if (usage is not null)
+        {
+            RequireMeasurement(usage);
+        }
+
+        return new FlightParked(flight.Id, reason.Trim(), lever.Trim(), parkedBy, now, usage);
     }
 
     public static FlightResumed Resume(FlowDefinition flow, Flight flight, string? note, string resumedBy, DateTimeOffset now)
@@ -174,6 +213,14 @@ public static class FlightDecider
         }
 
         return (new FlightStopped(flight.Id, stoppedBy, reason.Trim(), now), new ParcelFlightReleased(flight.ParcelId, flight.Id, now));
+    }
+
+    private static void RequireMeasurement(Measurement measurement)
+    {
+        if (measurement.Tokens < 0 || measurement.CostUsd < 0 || measurement.Turns < 0 || measurement.Duration < TimeSpan.Zero)
+        {
+            throw new DomainException("A measurement is never negative: tokens, cost, turns, and duration are zero or more.");
+        }
     }
 
     private static void RequireFlow(FlowDefinition flow, Flight flight)

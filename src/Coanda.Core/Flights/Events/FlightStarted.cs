@@ -14,4 +14,7 @@ public sealed record FlightStarted(
     string FirstStep,
     StepKind FirstStepKind,
     string FirstStepPerformer,
-    DateTimeOffset StartedAt);
+    DateTimeOffset StartedAt,
+    Guid? ParentFlightId = null,
+    Guid? RootFlightId = null,
+    int Depth = 0);
