@@ -1,7 +1,6 @@
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Parcels;
-using Coanda.Daemon.Store;
 using Fisher;
 
 namespace Coanda.Tests.Daemon;
@@ -14,7 +13,7 @@ public sealed class StoreRoundTripTests
         using var temp = new TemporaryHome();
         Guid id;
 
-        await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath))
         {
             var service = new ParcelService(store, TimeProvider.System);
             Parcel created = await service.AddAsync(Principal.LocalOwner, "alpha", "task", "Survive a restart", null, CancellationToken.None);
@@ -23,7 +22,7 @@ public sealed class StoreRoundTripTests
             moved.State.Should().Be("build");
         }
 
-        await using (IDocumentStore reopened = StoreConfiguration.Open(temp.Home.DatabasePath))
+        await using (IDocumentStore reopened = await SeededStore.OpenAsync(temp.Home.DatabasePath))
         {
             var service = new ParcelService(reopened, TimeProvider.System);
 
@@ -47,7 +46,7 @@ public sealed class StoreRoundTripTests
     public async Task The_registry_refuses_a_role_the_entry_does_not_allow()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var service = new ParcelService(store, TimeProvider.System);
         var agent = new Principal("build-session", Role.Agent);
 

@@ -3,8 +3,11 @@ using System.Reflection;
 using System.Security.Cryptography;
 using Coanda.Core;
 using Coanda.Core.Parcels;
+using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
+using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Parcels;
+using Coanda.Core.Types;
 using Coanda.Daemon.Store;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -44,12 +47,26 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
+        builder.Services.AddSingleton<DefinitionService>();
         builder.Services.AddSingleton<ParcelService>();
 
         WebApplication app = builder.Build();
         MapEndpoints(app, token);
 
         await app.StartAsync(cancellationToken);
+
+        try
+        {
+            // Types come from the store, so the shipped ones are in it before anything is served
+            // or advertised: the address file is written only after this returns.
+            await app.Services.GetRequiredService<DefinitionService>()
+                .SeedAsync(ShippedDefinition.ShippedParcelTypes, cancellationToken);
+        }
+        catch
+        {
+            await app.DisposeAsync();
+            throw;
+        }
 
         int boundPort = BoundPort(app);
         var info = new DaemonInfo(Environment.ProcessId, boundPort, token, startedAt, Version);
@@ -103,10 +120,11 @@ public sealed class DaemonHost
             return Results.Ok(new { stopping = true });
         });
 
-        app.MapGet("/types", (HttpContext context) =>
-            Results.Ok(ParcelService.Types(PrincipalOf(context))
-                .Select(t => new TypeView(t.Name, t.Hash, t.States, t.Resolutions))
-                .ToList()));
+        app.MapGet("/types", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
+        {
+            IReadOnlyList<ParcelType> types = await parcels.TypesAsync(PrincipalOf(context), project, cancellationToken);
+            return Results.Ok(types.Select(t => new TypeView(t.Name, t.Hash, t.States, t.Resolutions)).ToList());
+        });
 
         app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
         {

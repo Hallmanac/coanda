@@ -1,3 +1,4 @@
+using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Fisher;
 using JasperFx.MultiTenancy;
@@ -28,5 +29,6 @@ public static class StoreConfiguration
         options.Events.TenancyStyle = TenancyStyle.Conjoined;
         options.Policies.AllDocumentsAreMultiTenanted();
         options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
+        options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
     }
 }
