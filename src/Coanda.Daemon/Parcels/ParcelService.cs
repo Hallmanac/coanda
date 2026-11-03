@@ -94,6 +94,19 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         return await session.LoadAsync<Parcel>(parcelId, cancellationToken);
     }
 
+    /// <summary>
+    /// The parcel as it stood at <paramref name="version"/> of its stream, folded from its events up to
+    /// and including that version, or null when the project holds no such parcel.
+    /// </summary>
+    public async Task<Parcel?> ShowAtAsync(Principal principal, string project, Guid parcelId, long version, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("parcel.show", principal);
+        string tenant = Tenants.RequireProject(project);
+
+        await using IQuerySession session = store.QuerySession(tenant);
+        return await session.Events.AggregateStreamAsync<Parcel>(parcelId, version, token: cancellationToken);
+    }
+
     /// <summary>The parcel in the project whose creation recorded <paramref name="origin"/>, or null when there is none.</summary>
     public async Task<Parcel?> FindByOriginAsync(Principal principal, string project, string origin, CancellationToken cancellationToken)
     {

@@ -157,7 +157,7 @@ public sealed class TriggerLoopTests
     }
 
     [Fact]
-    public async Task An_entry_on_a_parcel_whose_flight_is_still_live_starts_its_bound_flow_when_that_flight_is_released()
+    public async Task An_entry_made_while_the_parcel_has_a_live_flight_starts_nothing_then_or_later()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
@@ -165,49 +165,36 @@ public sealed class TriggerLoopTests
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
 
         // A flight the service starts is not advanced, so it stays live on the parcel while the parcel moves,
-        // the way a flight whose own step moves its parcel is still live when the loop reads the move.
-        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Moved under a live flight", null), None);
-        Flight holding = await flights.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
-        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None);
+        // the way a flight whose own step moves its parcel is still live at that move.
+        ParcelView held = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Moved under a live flight", null), None);
+        Flight holding = await flights.StartAsync(Principal.LocalOwner, Project, held.Id, "build", None);
+        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "build"), None);
 
-        // The loop handles entries in order, so once a later entry has its flight, the move was handled.
-        ParcelView later = await Flying.TaskAtBuildAsync(client, Project, "Moved after it");
-        await Flying.BoundAsync(client, Project, later.Id);
-        (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
+        // This flight is stopped before the loop can be counted on to have read the move, so only the
+        // parcel's state at the move, not at handling, refuses the entry.
+        ParcelView released = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Released before the loop looked", null), None);
+        Flight brief = await flights.StartAsync(Principal.LocalOwner, Project, released.Id, "build", None);
+        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, released.Id, "build"), None);
+        await flights.StopAsync(Principal.LocalOwner, Project, brief.Id, "gone before the loop read the move", None);
 
-        await flights.StopAsync(Principal.LocalOwner, Project, holding.Id, "make way for the binding", None);
+        // The loop handles entries in order, so once a later entry has its flight, both moves were handled.
+        await Flying.BoundAsync(client, Project, (await Flying.TaskAtBuildAsync(client, Project, "Marks the moves handled")).Id);
+        (await Flying.OfParcelAsync(client, Project, held.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
+        (await BoundToBuildAsync(client, released.Id)).Should().BeEmpty("the parcel had a live flight when it entered build");
 
-        await Flying.UntilAsync(
-            async () => (await Flying.OfParcelAsync(client, Project, parcel.Id)).Any(f => f.StartedBy.StartsWith("binding:task/build/build:entry:", StringComparison.Ordinal)),
-            "the deferred binding started its flight");
-        (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(2, "the binding starts once, after the release");
+        await flights.StopAsync(Principal.LocalOwner, Project, holding.Id, "nothing waits on this release", None);
+        await Flying.BoundAsync(client, Project, (await Flying.TaskAtBuildAsync(client, Project, "Marks the release handled")).Id);
+        (await Flying.OfParcelAsync(client, Project, held.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
 
-        await daemon.StopAsync(None);
-    }
-
-    [Fact]
-    public async Task A_deferred_entry_starts_nothing_when_the_parcel_left_the_state_before_the_release()
-    {
-        using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
-        using var client = new DaemonClient(temp.Home);
-        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
-
-        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Passed through build", null), None);
-        Flight holding = await flights.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
-        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None);
-
-        // Wait until the loop has deferred the entry, so the release below is what it is weighed against.
-        ParcelView between = await Flying.TaskAtBuildAsync(client, Project, "Moved between");
-        await Flying.BoundAsync(client, Project, between.Id);
-
-        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "review"), None);
-        await flights.StopAsync(Principal.LocalOwner, Project, holding.Id, "done by hand", None);
-
-        ParcelView later = await Flying.TaskAtBuildAsync(client, Project, "Moved after it");
-        await Flying.BoundAsync(client, Project, later.Id);
-        (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
+        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "review"), None);
+        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "build"), None);
+        await Flying.BoundAsync(client, Project, (await Flying.TaskAtBuildAsync(client, Project, "Marks the re-entry handled")).Id);
+        (await BoundToBuildAsync(client, held.Id)).Should().ContainSingle("an entry made with no live flight starts the bound flow once");
 
         await daemon.StopAsync(None);
     }
+
+    /// <summary>The parcel's flights the build binding started, known by their principal.</summary>
+    private static async Task<List<FlightView>> BoundToBuildAsync(DaemonClient client, Guid parcelId) =>
+        [.. (await Flying.OfParcelAsync(client, Project, parcelId)).Where(f => f.StartedBy.StartsWith("binding:task/build/build:entry:", StringComparison.Ordinal))];
 }
