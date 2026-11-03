@@ -21,14 +21,16 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
 
     /// <summary>
     /// The trigger a follow is: a flight ending with the followed outcome, from the followed flow
-    /// when the follow names one. Like every filter, each compares for exact equality.
+    /// when the follow names one. Like every filter, each compares for exact equality; the flow's
+    /// name is folded as <see cref="TriggerEvent.FlightEnded"/> folds it, so any spelling of the
+    /// followed flow's name matches it.
     /// </summary>
     public static Trigger ForFollow(FlowFollow follow)
     {
         var filters = new Dictionary<string, string>(StringComparer.Ordinal) { [TriggerEvent.OutcomeField] = follow.Outcome };
         if (follow.Flow is not null)
         {
-            filters[TriggerEvent.FlowField] = follow.Flow;
+            filters[TriggerEvent.FlowField] = TriggerEvent.FlowKey(follow.Flow);
         }
 
         return new Trigger(TriggerEvent.FlightEndedKind, filters);
