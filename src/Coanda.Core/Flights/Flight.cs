@@ -50,6 +50,29 @@ public sealed class Flight
     [JsonInclude]
     public string? StopReason { get; private set; }
 
+    /// <summary>The flight whose end started this one, or null when nothing did.</summary>
+    [JsonInclude]
+    public Guid? ParentFlightId { get; private set; }
+
+    /// <summary>The first flight of this one's chain; a flight no follow started is its own root.</summary>
+    [JsonInclude]
+    public Guid RootFlightId { get; private set; }
+
+    /// <summary>How many follows lie between this flight and its root: zero for the root.</summary>
+    [JsonInclude]
+    public int Depth { get; private set; }
+
+    /// <summary>
+    /// What the flight has recorded spending, in US dollars: the cost of every answered judgment and
+    /// the usage every parked judgment reported.
+    /// </summary>
+    [JsonInclude]
+    public decimal Cost { get; private set; }
+
+    /// <summary>The usage the judgment that parked the flight reported, or null when the park was not a judgment's.</summary>
+    [JsonInclude]
+    public Measurement? ParkUsage { get; private set; }
+
     /// <summary>Running or parked: the flight still holds its parcel.</summary>
     public bool IsLive => Status is FlightStatus.Running or FlightStatus.Parked;
 
@@ -77,6 +100,9 @@ public sealed class Flight
         FlowHash = started.FlowHash;
         StartedBy = started.StartedBy;
         StartedAt = started.StartedAt;
+        ParentFlightId = started.ParentFlightId;
+        RootFlightId = started.RootFlightId ?? started.FlightId;
+        Depth = started.Depth;
         Status = FlightStatus.Running;
         Enter(started.FirstStep, started.FirstStepKind, started.FirstStepPerformer, started.StartedAt);
     }
@@ -95,6 +121,7 @@ public sealed class Flight
             RecordedAt = answered.AnsweredAt,
             ResumedAt = null,
         });
+        Cost += answered.Measurement.CostUsd;
         UpdatedAt = answered.AnsweredAt;
     }
 
@@ -109,6 +136,8 @@ public sealed class Flight
         Status = FlightStatus.Parked;
         ParkReason = parked.Reason;
         Lever = parked.Lever;
+        ParkUsage = parked.Usage;
+        Cost += parked.Usage?.CostUsd ?? 0m;
         UpdatedAt = parked.ParkedAt;
     }
 
@@ -117,6 +146,7 @@ public sealed class Flight
         Status = FlightStatus.Running;
         ParkReason = null;
         Lever = null;
+        ParkUsage = null;
         Record(entry => entry with { ResumedAt = resumed.ResumedAt });
         UpdatedAt = resumed.ResumedAt;
     }
