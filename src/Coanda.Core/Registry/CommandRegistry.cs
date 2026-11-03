@@ -21,6 +21,7 @@ public static class CommandRegistry
         new("flight.start", EntryKind.Command, "Start a flight of a flow on a parcel.", Everyone),
         new("flight.step", EntryKind.Command, "Record a flight entering a step.", Everyone),
         new("flight.respawn", EntryKind.Command, "Record a resumed judgment spawning its agent again on the same visit.", Everyone),
+        new("flight.spawn", EntryKind.Command, "Record a judgment launching its agent on the spawn its visit counted.", Everyone),
         new("flight.answer", EntryKind.Command, "Record a judgment's answer and its measurement.", Everyone),
         new("flight.result", EntryKind.Command, "Record an action's result.", Everyone),
         new("flight.park", EntryKind.Command, "Park a flight with a reason and a lever.", Everyone),

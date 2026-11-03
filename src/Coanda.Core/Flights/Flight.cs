@@ -145,8 +145,18 @@ public sealed class Flight
     public void Apply(JudgmentRespawned respawned)
     {
         Spawns += 1;
-        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt });
+        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt, SpawnedAt = null });
         UpdatedAt = respawned.RespawnedAt;
+    }
+
+    /// <summary>
+    /// The current visit launched its agent on the spawn it last counted; nothing more is counted.
+    /// The launch performs the resume the visit held, so a restart that launches it again is not a resume.
+    /// </summary>
+    public void Apply(JudgmentSpawned spawned)
+    {
+        Record(entry => entry with { SpawnedAt = spawned.SpawnedAt, ResumedAt = null });
+        UpdatedAt = spawned.SpawnedAt;
     }
 
     public void Apply(ActionCompleted completed)

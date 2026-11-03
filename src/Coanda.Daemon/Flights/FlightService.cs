@@ -97,6 +97,14 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
             (flight, respawned) => flight.Apply(respawned),
             cancellationToken);
 
+    /// <summary>Records that the judgment <paramref name="step"/> launched its agent on the spawn its visit last counted.</summary>
+    public Task<Flight> SpawnedAsync(Principal principal, string project, Guid flightId, string step, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flight.spawn", principal, project, flightId,
+            (flow, flight) => FlightDecider.Spawn(flow, flight, step, clock.GetUtcNow()),
+            (flight, spawned) => flight.Apply(spawned),
+            cancellationToken);
+
     public Task<Flight> RecordAnswerAsync(
         Principal principal,
         string project,

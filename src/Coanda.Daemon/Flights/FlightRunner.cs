@@ -211,10 +211,11 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             return false;
         }
 
-        // A resumed judgment spawns another agent, whether its visit recorded or not, unless this
+        // A resumed judgment spawns another agent, whether its visit recorded or not, once its
+        // counted spawn is used: not when the visit parked before it launched, and not when this
         // resume's spawn is already counted (a restart performing the resumed visit again). A
         // judgment the interpreter entered within the cap is performed once, so it is not checked.
-        bool spawnsAgain = step.IsJudgment && current.ResumedAt is not null && current.RespawnedAt is null;
+        bool spawnsAgain = current.SpawnsAgainOnResume;
         if (spawnsAgain && flight.Spawns >= flow.SpawnCap)
         {
             await ParkAsync(
@@ -233,24 +234,29 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             return true;
         }
 
-        JsonElement? recorded = current.IsRecorded
-            ? current.Answer ?? current.Result
+        Recording? recorded = current.IsRecorded
+            ? (current.Answer ?? current.Result) is JsonElement held ? new Recording(flight, held) : null
             : step.IsJudgment
                 ? await JudgeAsync(principal, project, flight, flow, step, spawnsAgain, cancellationToken)
                 : await ActAsync(principal, project, flight, flow, step, current.ResumedAt is not null, cancellationToken);
 
-        return recorded is JsonElement document
-            && await RouteAsync(principal, project, flight, flow, step, document, cancellationToken);
+        // Routed against the flight as the recording left it, so a spawn counted on this pass is in the position.
+        return recorded is Recording recording
+            && await RouteAsync(principal, project, recording.Flight, flow, step, recording.Value, cancellationToken);
     }
+
+    /// <summary>What a step recorded, with the flight as that recording left it.</summary>
+    private readonly record struct Recording(Flight Flight, JsonElement Value);
 
     /// <summary>
     /// Runs the step's judgment and records its answer, or parks; null when the flight parked. When
-    /// <paramref name="spawnsAgain"/>, a resume performs a visit that parked without an answer again,
-    /// so one more spawn is counted on that visit once the budget checks have passed, before anything
-    /// that spawns. A park after the count and before the spawn (an agent that does not resolve, a
-    /// refused answer schema) leaves the count one ahead of the spawns, erring on the side of the cap.
+    /// <paramref name="spawnsAgain"/>, a resume performs again a visit that launched and parked
+    /// without an answer, so one more spawn is counted on that visit once the budget checks have
+    /// passed. The launch itself is recorded just before the agent runs, so a park after the count
+    /// and before the launch (an agent that does not resolve, a parcel that does not load) leaves
+    /// that spawn unused, and the next resume uses it rather than counting another.
     /// </summary>
-    private async Task<JsonElement?> JudgeAsync(
+    private async Task<Recording?> JudgeAsync(
         Principal principal, string project, Flight flight, FlowDefinition flow, FlowStep step, bool spawnsAgain, CancellationToken cancellationToken)
     {
         string? spent = await BudgetSpentAsync(principal, project, flight, flow, cancellationToken);
@@ -262,7 +268,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
 
         if (spawnsAgain)
         {
-            await flights.RespawnAsync(principal, project, flight.Id, step.Name, cancellationToken);
+            flight = await flights.RespawnAsync(principal, project, flight.Id, step.Name, cancellationToken);
         }
 
         string agentName = step.Agent ?? string.Empty;
@@ -288,6 +294,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             step.AnswerSchema ?? string.Empty,
             CredentialProfile: null);
 
+        flight = await flights.SpawnedAsync(principal, project, flight.Id, step.Name, cancellationToken);
         using var limit = new CancellationTokenSource(judgmentLimit, clock);
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token);
         JudgmentOutcome outcome;
@@ -331,9 +338,9 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             {
                 case JudgmentOutcome.Answered answered:
                     JsonElement answer = Parse(answered.Answer);
-                    await flights.RecordAnswerAsync(
+                    Flight recorded = await flights.RecordAnswerAsync(
                         principal, project, flight.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
-                    return answer;
+                    return new Recording(recorded, answer);
                 case JudgmentOutcome.Parked parked:
                     await flights.ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, parked.Usage, cancellationToken);
                     return null;
@@ -380,7 +387,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
     private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
 
     /// <summary>Performs the step's action and records its result, or parks; null when the flight parked.</summary>
-    private async Task<JsonElement?> ActAsync(
+    private async Task<Recording?> ActAsync(
         Principal principal, string project, Flight flight, FlowDefinition flow, FlowStep step, bool resumed, CancellationToken cancellationToken)
     {
         var request = new ActionRequest(principal, project, flight.Id, flight.ParcelId, flow, step, resumed);
@@ -403,8 +410,8 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         switch (outcome)
         {
             case ActionOutcome.Done done:
-                await flights.RecordResultAsync(principal, project, flight.Id, step.Name, step.Action ?? string.Empty, done.Result, cancellationToken);
-                return done.Result;
+                Flight recorded = await flights.RecordResultAsync(principal, project, flight.Id, step.Name, step.Action ?? string.Empty, done.Result, cancellationToken);
+                return new Recording(recorded, done.Result);
             case ActionOutcome.Parked parked:
                 await ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, cancellationToken);
                 return null;

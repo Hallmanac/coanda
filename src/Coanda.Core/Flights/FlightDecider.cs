@@ -157,6 +157,12 @@ public static class FlightDecider
                 $"Step '{current.Step}' already counted a spawn for its latest resume; a resume spawns its judgment again once.");
         }
 
+        if (current.SpawnedAt is null)
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' has not launched its agent on the spawn it last counted; a resume uses that spawn before it counts another.");
+        }
+
         if (flight.Spawns >= flow.SpawnCap)
         {
             throw new DomainException(
@@ -164,6 +170,21 @@ public static class FlightDecider
         }
 
         return new JudgmentRespawned(flight.Id, current.Step, current.Performer, now);
+    }
+
+    /// <summary>
+    /// Records that the current judgment step launched its agent on the spawn its visit last
+    /// counted. A restart that launches the same visit again records it again, counting nothing.
+    /// </summary>
+    public static JudgmentSpawned Spawn(FlowDefinition flow, Flight flight, string step, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "launch its judgment");
+        FlightStepEntry current = RequireCurrent(flight, step, "a launch");
+
+        return current.Kind == StepKind.Judgment
+            ? new JudgmentSpawned(flight.Id, current.Step, current.Performer, now)
+            : throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step spawns an agent.");
     }
 
     public static ActionCompleted Complete(FlowDefinition flow, Flight flight, string step, string action, JsonElement result, DateTimeOffset now)
