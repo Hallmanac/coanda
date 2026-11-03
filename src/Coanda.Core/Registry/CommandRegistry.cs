@@ -15,6 +15,7 @@ public static class CommandRegistry
         new("parcel.close", EntryKind.Command, "Close a parcel with a resolution and a reason.", People),
         new("type.list", EntryKind.Query, "List the installed parcel types.", Everyone),
         new("flow.list", EntryKind.Query, "List the flows that govern a project.", Everyone),
+        new("agent.list", EntryKind.Query, "List the agents that resolution returns for a project.", Everyone),
         new("definition.draft", EntryKind.Command, "Record a draft of a parcel type, flow, or agent; a draft governs nothing.", Everyone),
         new("definition.publish", EntryKind.Command, "Publish a draft so that it governs work.", OwnerOnly),
         new("definition.retire", EntryKind.Command, "Retire a published definition so that it no longer governs work.", OwnerOnly),

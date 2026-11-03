@@ -24,6 +24,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock)
     public static readonly Principal SeedPrincipal = new("coanda-seed", Role.Owner);
 
     private readonly SemaphoreSlim writes = new(1, 1);
+    private readonly DefinitionResolver resolver = new(store);
 
     public Task<Definition> DraftParcelTypeAsync(
         Principal principal, DefinitionScope scope, string? project, ParcelType type, ForkBase? forkBase, CancellationToken cancellationToken) =>
@@ -92,6 +93,13 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock)
 
         definition.Apply(retired);
         return definition;
+    }
+
+    /// <summary>The agent definitions that resolution returns for the project, ordered by name.</summary>
+    public async Task<IReadOnlyList<Definition>> ListAgentsAsync(Principal principal, string project, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("agent.list", principal);
+        return await resolver.ResolveAllAsync(Tenants.RequireProject(project), DefinitionKind.Agent, cancellationToken);
     }
 
     /// <summary>

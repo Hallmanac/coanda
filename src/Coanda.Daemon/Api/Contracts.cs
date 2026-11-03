@@ -1,3 +1,5 @@
+using Coanda.Core.Agents;
+using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Daemon.Api;
@@ -29,6 +31,12 @@ public sealed record ParcelView(
 public sealed record TypeView(string Name, string Hash, IReadOnlyList<string> States, IReadOnlyList<string> Resolutions);
 
 public sealed record FlowView(string Name, int Version, string Hash);
+
+public sealed record AgentView(string Name, int Version, ModelTriple Model, string Hash)
+{
+    public static AgentView From(Definition definition) => new(
+        definition.Name, definition.VersionNumber, AgentDefinition.FromJson(definition.Content).Model, definition.ContentHash);
+}
 
 public sealed record DaemonStatusView(int Pid, int Port, DateTimeOffset StartedAt, string Version, string Home, string Database);
 

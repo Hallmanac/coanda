@@ -134,6 +134,12 @@ public sealed class DaemonHost
             return Results.Ok(resolved.Select(d => new FlowView(d.Name, d.VersionNumber, d.ContentHash)).ToList());
         });
 
+        app.MapGet("/agents", async (HttpContext context, DefinitionService definitions, string project, CancellationToken cancellationToken) =>
+        {
+            IReadOnlyList<Definition> agents = await definitions.ListAgentsAsync(PrincipalOf(context), project, cancellationToken);
+            return Results.Ok(agents.Select(AgentView.From).ToList());
+        });
+
         app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
         {
             IReadOnlyList<Parcel> list = await parcels.ListAsync(PrincipalOf(context), project, cancellationToken);
