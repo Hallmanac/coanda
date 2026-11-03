@@ -28,8 +28,10 @@ namespace Coanda.Daemon.Flights;
 /// flight stream, through <c>FetchForWriting</c>, so the parcel stream's expected version guards it.
 /// The loser of a race fails the version check, its flight stream is never written, and it is
 /// refused with the rule. Ending and stopping append <see cref="ParcelFlightReleased"/> the same way.
+/// A resume hands the flight to the <see cref="IFlightAdvancer"/>, when the service has one, so a
+/// resumed flight advances with no further command.
 /// </remarks>
-public sealed class FlightService(IDocumentStore store, TimeProvider clock)
+public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFlightAdvancer? advancer = null)
 {
     private readonly DefinitionResolver definitions = new(store);
 
@@ -92,12 +94,18 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock)
             (flight, parked) => flight.Apply(parked),
             cancellationToken);
 
-    public Task<Flight> ResumeAsync(Principal principal, string project, Guid flightId, string? note, CancellationToken cancellationToken) =>
-        WriteAsync(
+    public async Task<Flight> ResumeAsync(Principal principal, string project, Guid flightId, string? note, CancellationToken cancellationToken)
+    {
+        Flight resumed = await WriteAsync(
             "flight.resume", principal, project, flightId,
             (flow, flight) => FlightDecider.Resume(flow, flight, note, principal.Id, clock.GetUtcNow()),
-            (flight, resumed) => flight.Apply(resumed),
+            (flight, recorded) => flight.Apply(recorded),
             cancellationToken);
+
+        // The advance runs on the daemon's own workers; the resume does not wait for it.
+        _ = advancer?.RequestAdvance(project.Trim(), resumed.Id);
+        return resumed;
+    }
 
     public async Task<Flight> EndAsync(Principal principal, string project, Guid flightId, string outcome, CancellationToken cancellationToken)
     {
@@ -153,6 +161,28 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock)
 
         await using IQuerySession session = store.QuerySession(tenant);
         return await session.LoadAsync<Flight>(flightId, cancellationToken);
+    }
+
+    /// <summary>The flow version the flight started under, which is the one it keeps.</summary>
+    public async Task<FlowDefinition> FlowOfAsync(Principal principal, string project, Flight flight, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flight.show", principal);
+        return await RequireStartedUnderFlowAsync(Tenants.RequireProject(project), flight, cancellationToken);
+    }
+
+    /// <summary>
+    /// Every live flight on the node, in every project, as the project and the flight id: the
+    /// flight each parcel names as its live one.
+    /// </summary>
+    public async Task<IReadOnlyList<(string Project, Guid FlightId)>> ListLiveAsync(Principal principal, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flight.list", principal);
+
+        await using IQuerySession session = store.QuerySession(Tenants.Node);
+        IReadOnlyList<Parcel> parcels = await session.Query<Parcel>().AnyTenant().ToListAsync(cancellationToken);
+        return [.. parcels
+            .Where(p => p.LiveFlightId is not null)
+            .Select(p => (p.Project, p.LiveFlightId.GetValueOrDefault()))];
     }
 
     private async Task<Flight> WriteAsync<TEvent>(

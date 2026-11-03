@@ -13,6 +13,10 @@ public sealed record NodeHome(string Path)
     public string DaemonInfoPath => System.IO.Path.Combine(Path, "daemon.json");
     public string LogPath => System.IO.Path.Combine(Path, "coanda.log");
 
+    /// <summary>Where a flight's judgments work: <c>work/&lt;project&gt;/&lt;flight id&gt;</c> under the home.</summary>
+    public string FlightWorkPath(string project, Guid flightId) =>
+        System.IO.Path.Combine(Path, "work", project, flightId.ToString());
+
     public static NodeHome Resolve()
     {
         string? overridden = Environment.GetEnvironmentVariable(EnvironmentVariable);

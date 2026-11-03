@@ -12,6 +12,8 @@ public sealed record ParcelMoveRequest(string Project, Guid ParcelId, string To)
 
 public sealed record ParcelCloseRequest(string Project, Guid ParcelId, string Resolution, string Reason);
 
+public sealed record FlightStartRequest(string Project, Guid ParcelId, string Flow);
+
 public sealed record ParcelView(
     Guid Id,
     string Project,
