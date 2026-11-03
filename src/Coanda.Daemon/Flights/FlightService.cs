@@ -55,6 +55,33 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
         return Flight.Create(started);
     }
 
+    /// <summary>
+    /// Starts the flow resolution returns for the project by <paramref name="flowName"/> as the next
+    /// link of <paramref name="parentFlightId"/>'s chain, on the parent's parcel. The flow's follow
+    /// must match how the parent ended, and every rule of a start holds too.
+    /// </summary>
+    public async Task<Flight> FollowAsync(
+        Principal principal, string project, Guid parentFlightId, string flowName, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flight.start", principal);
+        string tenant = Tenants.RequireProject(project);
+        Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Flow, flowName, cancellationToken)
+            ?? throw new DomainException($"'{flowName}' is not a published flow of project '{tenant}'; coa flow list names the ones that are.");
+        FlowDefinition flow = FlowDefinition.FromJson(published.Content);
+
+        await using IDocumentSession session = store.LightweightSession(tenant);
+        Flight parent = await session.LoadAsync<Flight>(parentFlightId, cancellationToken) ?? throw FlightNotFound(parentFlightId, tenant);
+        var parcelStream = await session.Events.FetchForWriting<Parcel>(parent.ParcelId, cancellationToken);
+        Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parent.ParcelId, tenant);
+        (FlightStarted started, ParcelFlightAttached attached) =
+            FlightDecider.Follow(flow, published.VersionNumber, parcel, parent, principal.Id, clock.GetUtcNow());
+        parcelStream.AppendOne(attached);
+        session.Events.StartStream<Flight>(started.FlightId, started);
+        await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
+
+        return Flight.Create(started);
+    }
+
     public Task<Flight> StartStepAsync(Principal principal, string project, Guid flightId, string step, CancellationToken cancellationToken) =>
         WriteAsync(
             "flight.step", principal, project, flightId,
@@ -88,9 +115,14 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
             cancellationToken);
 
     public Task<Flight> ParkAsync(Principal principal, string project, Guid flightId, string reason, string lever, CancellationToken cancellationToken) =>
+        ParkAsync(principal, project, flightId, reason, lever, usage: null, cancellationToken);
+
+    /// <summary>Parks a flight, recording the <paramref name="usage"/> a judgment that parked without an answer reported.</summary>
+    public Task<Flight> ParkAsync(
+        Principal principal, string project, Guid flightId, string reason, string lever, Measurement? usage, CancellationToken cancellationToken) =>
         WriteAsync(
             "flight.park", principal, project, flightId,
-            (flow, flight) => FlightDecider.Park(flow, flight, reason, lever, principal.Id, clock.GetUtcNow()),
+            (flow, flight) => FlightDecider.Park(flow, flight, reason, lever, principal.Id, clock.GetUtcNow(), usage),
             (flight, parked) => flight.Apply(parked),
             cancellationToken);
 
@@ -161,6 +193,16 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
 
         await using IQuerySession session = store.QuerySession(tenant);
         return await session.LoadAsync<Flight>(flightId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Every flight of <paramref name="member"/>'s chain, the root and the member included, oldest
+    /// first. A chain runs on one parcel, so it is read from that parcel's flights.
+    /// </summary>
+    public async Task<IReadOnlyList<Flight>> ChainOfAsync(Principal principal, string project, Flight member, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Flight> onParcel = await ListAsync(principal, project, member.ParcelId, cancellationToken);
+        return [.. onParcel.Where(f => f.RootFlightId == member.RootFlightId)];
     }
 
     /// <summary>The flow version the flight started under, which is the one it keeps.</summary>
