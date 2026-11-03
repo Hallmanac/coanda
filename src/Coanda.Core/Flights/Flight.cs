@@ -93,13 +93,14 @@ public sealed class Flight
             Answer = answered.Answer,
             Measurement = answered.Measurement,
             RecordedAt = answered.AnsweredAt,
+            ResumedAt = null,
         });
         UpdatedAt = answered.AnsweredAt;
     }
 
     public void Apply(ActionCompleted completed)
     {
-        Record(entry => entry with { Result = completed.Result, RecordedAt = completed.CompletedAt });
+        Record(entry => entry with { Result = completed.Result, RecordedAt = completed.CompletedAt, ResumedAt = null });
         UpdatedAt = completed.CompletedAt;
     }
 
@@ -116,6 +117,7 @@ public sealed class Flight
         Status = FlightStatus.Running;
         ParkReason = null;
         Lever = null;
+        Record(entry => entry with { ResumedAt = resumed.ResumedAt });
         UpdatedAt = resumed.ResumedAt;
     }
 
