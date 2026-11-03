@@ -67,7 +67,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
-        ParcelClosed closed = ParcelDecider.Close(type, parcel, resolution, reason, principal.Id, clock.GetUtcNow());
+        ParcelClosed closed = ParcelDecider.Close(type, gates, parcel, resolution, reason, principal.Id, clock.GetUtcNow());
         stream.AppendOne(closed);
         await session.SaveChangesAsync(cancellationToken);
 

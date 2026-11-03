@@ -84,4 +84,57 @@ public sealed class ParcelGateTests
         FluentActions.Invoking(() => new GateSet([new StandInGate(), new StandInGate()]))
             .Should().Throw<InvalidOperationException>().WithMessage("*'stand-in' is given twice*");
     }
+
+    private static readonly ParcelType GatedClose = ShippedTypes.Task with
+    {
+        GateBindings = [new GateBinding("review", ShippedTypes.Closed, StandInGate.DefaultName)],
+    };
+
+    private static Parcel InReview(ParcelType type, GateSet gates)
+    {
+        Parcel parcel = Parcel.Create(ParcelDecider.Create(type, gates, "coanda", "unready reviewed work", null, "brian", Now));
+        parcel.Apply(ParcelDecider.Move(type, gates, parcel, "build", "brian", Now));
+        parcel.Apply(ParcelDecider.Move(type, gates, parcel, "review", "brian", Now));
+        return parcel;
+    }
+
+    [Fact]
+    public void A_gate_bound_to_the_close_refuses_the_close_naming_the_gate_and_quoting_its_reason()
+    {
+        var gate = new StandInGate();
+        var gates = new GateSet([gate]);
+        Parcel parcel = InReview(GatedClose, gates);
+
+        FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "QA has not passed", "brian", Now))
+            .Should().Throw<DomainException>()
+            .WithMessage($"The gate 'stand-in' refused the move from 'review' to 'closed': {StandInGate.Reason}");
+        gate.Checks.Should().Equal(("review", "closed"));
+    }
+
+    [Fact]
+    public void A_close_out_of_parked_runs_the_gate_bound_to_the_close_and_a_close_from_another_state_does_not()
+    {
+        var gate = new StandInGate();
+        var gates = new GateSet([gate]);
+        Parcel parcel = InReview(GatedClose, gates);
+        parcel.Apply(ParcelDecider.Move(GatedClose, gates, parcel, "parked", "brian", Now));
+
+        FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "done", "brian", Now))
+            .Should().Throw<DomainException>().WithMessage("The gate 'stand-in' refused*");
+
+        Parcel fresh = Parcel.Create(ParcelDecider.Create(GatedClose, gates, "coanda", "abandoned early", null, "brian", Now));
+        gate.Checks.Clear();
+        ParcelDecider.Close(GatedClose, gates, fresh, "abandoned", "not needed", "brian", Now).TerminalState.Should().Be("closed");
+        gate.Checks.Should().BeEmpty("the gate is bound to the close from review, not from refine");
+    }
+
+    [Fact]
+    public void A_gate_bound_to_the_close_that_the_decider_is_not_given_refuses_the_close()
+    {
+        Parcel parcel = InReview(GatedClose, new GateSet([new StandInGate()]));
+
+        FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, GateSet.None, parcel, "completed", "done", "brian", Now))
+            .Should().Throw<DomainException>()
+            .WithMessage("The gate 'stand-in' bound to the move to 'closed' is not a gate this daemon runs, so the move is refused.");
+    }
 }

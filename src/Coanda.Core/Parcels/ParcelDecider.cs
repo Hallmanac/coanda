@@ -6,7 +6,7 @@ namespace Coanda.Core.Parcels;
 /// <summary>
 /// The rules of a parcel's lifecycle, as pure decisions: given the type, the current parcel, and
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
-/// The decider is given the gates the daemon runs; a move runs every gate its type binds to it.
+/// The decider is given the gates the daemon runs; a move or a close runs every gate its type binds to it.
 /// </summary>
 public static class ParcelDecider
 {
@@ -60,7 +60,7 @@ public static class ParcelDecider
     }
 
     public static ParcelClosed Close(
-        ParcelType type, Parcel parcel, string resolution, string reason, string closedBy, DateTimeOffset now)
+        ParcelType type, GateSet gates, Parcel parcel, string resolution, string reason, string closedBy, DateTimeOffset now)
     {
         RequireOpen(parcel);
         RequireType(type, parcel);
@@ -74,6 +74,11 @@ public static class ParcelDecider
         if (string.IsNullOrWhiteSpace(reason))
         {
             throw new DomainException("Closing a parcel records why; give a reason.");
+        }
+
+        foreach (GateBinding binding in type.GatesOn(parcel.State, type.TerminalState))
+        {
+            RequirePasses(binding, gates, parcel, type.TerminalState);
         }
 
         return new ParcelClosed(parcel.Id, parcel.State, type.TerminalState, resolution, reason.Trim(), closedBy, now);
