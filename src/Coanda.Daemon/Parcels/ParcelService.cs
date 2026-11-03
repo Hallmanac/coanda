@@ -14,18 +14,20 @@ namespace Coanda.Daemon.Parcels;
 /// The daemon's side of every parcel command and query: open a session for the project (the
 /// tenant), ask the decider, append, save. The registry check is the caller's first line. A new
 /// parcel's type is whatever <see cref="DefinitionResolver"/> resolves for its project; an existing
-/// parcel keeps the version whose hash it recorded.
+/// parcel keeps the version whose hash it recorded. Every move runs the gates its type binds to
+/// it, from the daemon's gates, none when it is given none.
 /// </summary>
-public sealed class ParcelService(IDocumentStore store, TimeProvider clock)
+public sealed class ParcelService(IDocumentStore store, TimeProvider clock, GateSet? gates = null)
 {
     private readonly DefinitionResolver definitions = new(store);
+    private readonly GateSet gates = gates ?? GateSet.None;
 
     public async Task<Parcel> AddAsync(Principal principal, string project, string typeName, string title, string? state, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.add", principal);
         string tenant = Tenants.RequireProject(project);
         ParcelType type = await RequireTypeAsync(tenant, typeName, cancellationToken);
-        ParcelCreated created = ParcelDecider.Create(type, tenant, title, state, principal.Id, clock.GetUtcNow());
+        ParcelCreated created = ParcelDecider.Create(type, gates, tenant, title, state, principal.Id, clock.GetUtcNow());
 
         await using IDocumentSession session = store.LightweightSession(created.Project);
         session.Events.StartStream<Parcel>(created.ParcelId, created);
@@ -43,7 +45,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock)
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
-        ParcelMoved moved = ParcelDecider.Move(type, parcel, to, principal.Id, clock.GetUtcNow());
+        ParcelMoved moved = ParcelDecider.Move(type, gates, parcel, to, principal.Id, clock.GetUtcNow());
         stream.AppendOne(moved);
         await session.SaveChangesAsync(cancellationToken);
 

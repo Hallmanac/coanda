@@ -1,3 +1,4 @@
+using Coanda.Core.Parcels;
 using Coanda.Daemon.Executors;
 
 namespace Coanda.Daemon.Api;
@@ -12,6 +13,12 @@ public sealed record DaemonOptions
 
     /// <summary>The executor judgments run through; null runs them through a scripted executor with no entries, so every judgment parks.</summary>
     public IAgentExecutor? Executor { get; init; }
+
+    /// <summary>
+    /// The gates the daemon runs, which moves pass through and drafted parcel types are validated
+    /// against; none when none is given, which is the shipped gate set.
+    /// </summary>
+    public IReadOnlyList<IGate> Gates { get; init; } = [];
 
     /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flight parks.</summary>
     public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;

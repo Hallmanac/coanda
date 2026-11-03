@@ -262,4 +262,20 @@ public sealed class DefinitionDeciderTests
         drafted.ContentHash.Should().Be(ShippedFlows.Discovery.Hash);
         published.DefinitionId.Should().Be(drafted.DefinitionId);
     }
+
+    [Fact]
+    public void A_drafted_parcel_type_is_validated_against_the_gate_names_it_is_given()
+    {
+        ParcelType gated = ShippedTypes.Task with { GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
+        string content = ParcelType.CanonicalJson(gated);
+
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0, content, gated.Hash, null, "brian", Now))
+            .Should().Throw<DomainException>().WithMessage("*binds the gate 'has-an-owner', which is not a gate this daemon runs*");
+
+        DefinitionDrafted drafted = DefinitionDecider.Draft(
+            DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0, content, gated.Hash, null, "brian", Now,
+            new HashSet<string>(StringComparer.Ordinal) { "has-an-owner" });
+        drafted.ContentHash.Should().Be(gated.Hash);
+    }
 }
