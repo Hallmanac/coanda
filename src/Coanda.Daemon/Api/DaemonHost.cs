@@ -13,6 +13,7 @@ using Coanda.Daemon.Flights;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Triggers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
@@ -68,6 +69,11 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<IFlightAdvancer>(services => services.GetRequiredService<FlightRunner>());
         builder.Services.AddHostedService(services => services.GetRequiredService<FlightRunner>());
         builder.Services.AddSingleton<FlightService>();
+        builder.Services.AddSingleton<TriggerService>();
+        builder.Services.AddSingleton<TriggerLoop>();
+
+        // Registered after the runner, so it stops first: a start it makes while stopping is advanced on the next start.
+        builder.Services.AddHostedService(services => services.GetRequiredService<TriggerLoop>());
 
         WebApplication app = builder.Build();
         MapEndpoints(app, token);
@@ -83,6 +89,12 @@ public sealed class DaemonHost
 
             // Every live flight that is not parked carries on from its current step.
             await app.Services.GetRequiredService<FlightRunner>().AdvanceLiveAsync(cancellationToken);
+
+            // The trigger loop's position is fixed before the address is advertised, so nothing
+            // recorded through the API can land before the point it reads from.
+            TriggerLoop triggers = app.Services.GetRequiredService<TriggerLoop>();
+            await triggers.FixPositionAsync(cancellationToken);
+            triggers.Begin();
         }
         catch
         {

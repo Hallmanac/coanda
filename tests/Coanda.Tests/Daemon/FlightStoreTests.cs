@@ -173,20 +173,21 @@ public sealed class FlightStoreTests
     }
 
     [Fact]
-    public async Task Starting_resuming_and_stopping_a_flight_are_open_to_people_recording_its_steps_to_every_role()
+    public async Task Resuming_and_stopping_a_flight_are_open_to_people_starting_it_and_recording_its_steps_to_every_role()
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
         var flights = new FlightService(store, TimeProvider.System);
+        var parcels = new ParcelService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
-        Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Roles", null, none);
+        Parcel parcel = await parcels.AddAsync(Owner, Project, "task", "Roles", null, none);
+        Parcel bySomeone = await parcels.AddAsync(Owner, Project, "task", "Started by a person", null, none);
         var agent = new Principal("build-session", Role.Agent);
         var member = new Principal("teammate", Role.Member);
 
-        await FluentActions.Awaiting(() => flights.StartAsync(agent, Project, parcel.Id, "build", none))
-            .Should().ThrowAsync<DomainException>().WithMessage("'flight.start' is not open to the Agent role.");
-
-        Flight flight = await flights.StartAsync(member, Project, parcel.Id, "build", none);
+        // A flow binding's start acts in the Agent role, so starting is open to it as well as to people.
+        await flights.StartAsync(member, Project, bySomeone.Id, "build", none);
+        Flight flight = await flights.StartAsync(agent, Project, parcel.Id, "build", none);
         await flights.RecordResultAsync(agent, Project, flight.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done"}"""), none);
         await flights.StartStepAsync(agent, Project, flight.Id, "build", none);
         await flights.ParkAsync(agent, Project, flight.Id, "Asked a question.", "Answer it.", none);

@@ -14,6 +14,28 @@ public static class Flying
         return await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(project, parcel.Id, "build"), CancellationToken.None);
     }
 
+    /// <summary>Waits for the flight a flow binding starts on the parcel, failing if none appears or more than one does.</summary>
+    public static async Task<FlightView> BoundAsync(DaemonClient client, string project, Guid parcelId)
+    {
+        using var patience = new CancellationTokenSource(Patience);
+        List<FlightView> flights = await OfParcelAsync(client, project, parcelId);
+        while (flights.Count == 0)
+        {
+            if (patience.IsCancellationRequested)
+            {
+                throw new TimeoutException($"No flight started on parcel {parcelId}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20), CancellationToken.None);
+            flights = await OfParcelAsync(client, project, parcelId);
+        }
+
+        return flights.Should().ContainSingle("a binding starts one flight per entry").Subject;
+    }
+
+    public static Task<List<FlightView>> OfParcelAsync(DaemonClient client, string project, Guid parcelId) =>
+        client.GetAsync<List<FlightView>>($"/flights?project={project}&parcel={parcelId}", CancellationToken.None);
+
     public static Task<FlightView> StartAsync(DaemonClient client, string project, Guid parcelId, string flow) =>
         client.PostAsync<FlightView>("/flights", new FlightStartRequest(project, parcelId, flow), CancellationToken.None);
 
@@ -41,10 +63,14 @@ public static class Flying
     }
 
     /// <summary>Waits until <paramref name="condition"/> holds, failing after the same patience.</summary>
-    public static async Task UntilAsync(Func<bool> condition, string what)
+    public static Task UntilAsync(Func<bool> condition, string what) =>
+        UntilAsync(() => Task.FromResult(condition()), what);
+
+    /// <summary>Waits until the asynchronous <paramref name="condition"/> holds, failing after the same patience.</summary>
+    public static async Task UntilAsync(Func<Task<bool>> condition, string what)
     {
         using var patience = new CancellationTokenSource(Patience);
-        while (!condition())
+        while (!await condition())
         {
             if (patience.IsCancellationRequested)
             {
