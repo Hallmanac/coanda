@@ -22,7 +22,10 @@ namespace Coanda.Daemon.Flights;
 /// executor or an action, records its result on the flight, asks the interpreter for the next
 /// move, and applies it, until the flight ends, parks, or stops. At most one worker advances a
 /// flight; a request for a flight already being advanced is folded into that worker, which reads
-/// the flight once more before it finishes.
+/// the flight once more before it finishes. Before any step, a flight deeper in its chain than its
+/// flow's follow allows parks; before a judgment, a flight whose recorded cost has reached its flow's
+/// budget, or whose chain's recorded cost has reached the budget of the flow its root runs, parks.
+/// Both checks run on every pass, so a resume of such a park parks again rather than overriding it.
 /// </summary>
 /// <remarks>
 /// Every write is made as the flight's own principal, of the Agent role, through a flight service
@@ -196,6 +199,16 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         FlowStep step = flow.Step(current.Step)
             ?? throw new DomainException($"Flow '{flow.Name}' has no step '{current.Step}', so flight {Ids.Short(flight.Id)} cannot perform it.");
 
+        if (flow.Follow is { } follow && flight.Depth > follow.DepthCap)
+        {
+            await ParkAsync(
+                principal, project, flight.Id,
+                $"Flight {Ids.Short(flight.Id)} is at depth {flight.Depth} of its chain, past the depth cap of {follow.DepthCap} on the follow of flow '{flow.Name}'; a flight deeper than its follow's depth cap performs no step.",
+                FlightLevers.DepthCapReached(flow.Name),
+                cancellationToken);
+            return false;
+        }
+
         // A resume after this visit recorded (a park the interpreter decided) performs the step
         // again as a new visit; a recording with no resume since is routed, never performed again.
         if (current.IsRecorded && current.ResumedAt is not null)
@@ -228,6 +241,13 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
     private async Task<JsonElement?> JudgeAsync(
         Principal principal, string project, Flight flight, FlowDefinition flow, FlowStep step, CancellationToken cancellationToken)
     {
+        string? spent = await BudgetSpentAsync(principal, project, flight, flow, cancellationToken);
+        if (spent is not null)
+        {
+            await ParkAsync(principal, project, flight.Id, spent, FlightLevers.BudgetReached(), cancellationToken);
+            return null;
+        }
+
         string agentName = step.Agent ?? string.Empty;
         Definition? published = await definitions.ResolveAgentAsync(principal, project, agentName, cancellationToken);
         if (published is null)
@@ -298,7 +318,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
                         principal, project, flight.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
                     return answer;
                 case JudgmentOutcome.Parked parked:
-                    await ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, cancellationToken);
+                    await flights.ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, parked.Usage, cancellationToken);
                     return null;
                 default:
                     throw new InvalidOperationException($"A judgment ended in an outcome the runner does not know: {outcome.GetType().Name}.");
@@ -309,6 +329,38 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             await StopSessionAsync(outcome.Session);
         }
     }
+
+    /// <summary>
+    /// The reason a judgment may not be performed because a budget is spent, or null when none is:
+    /// the flight's own recorded cost against its flow's budget, then the recorded cost of every
+    /// flight of its chain against the budget of the flow its root flight runs. The chain is summed
+    /// by reading its flights, which all run on this flight's parcel.
+    /// </summary>
+    private async Task<string?> BudgetSpentAsync(
+        Principal principal, string project, Flight flight, FlowDefinition flow, CancellationToken cancellationToken)
+    {
+        if (flight.Cost >= flow.Budget)
+        {
+            return $"Flight {Ids.Short(flight.Id)} has recorded a cost of {Dollars(flight.Cost)}, which reaches the budget of {Dollars(flow.Budget)} of flow '{flow.Name}'; a flight performs no judgment once its recorded cost reaches its flow's budget.";
+        }
+
+        // A flight with no parent is its own chain, already held to its own flow's budget above.
+        if (flight.ParentFlightId is null)
+        {
+            return null;
+        }
+
+        IReadOnlyList<Flight> chain = await flights.ChainOfAsync(principal, project, flight, cancellationToken);
+        Flight root = chain.FirstOrDefault(f => f.Id == flight.RootFlightId)
+            ?? throw new DomainException($"Flight {Ids.Short(flight.Id)} names flight {Ids.Short(flight.RootFlightId)} as the root of its chain, which its parcel does not hold.");
+        FlowDefinition rootFlow = await flights.FlowOfAsync(principal, project, root, cancellationToken);
+        decimal chainCost = chain.Sum(f => f.Cost);
+        return chainCost >= rootFlow.Budget
+            ? $"The chain of flight {Ids.Short(flight.Id)}, rooted at flight {Ids.Short(root.Id)}, has recorded a cost of {Dollars(chainCost)} across its flights, which reaches the budget of {Dollars(rootFlow.Budget)} of flow '{rootFlow.Name}' that its root flight runs; a chain performs no judgment once its recorded cost reaches that budget."
+            : null;
+    }
+
+    private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
 
     /// <summary>Performs the step's action and records its result, or parks; null when the flight parked.</summary>
     private async Task<JsonElement?> ActAsync(
