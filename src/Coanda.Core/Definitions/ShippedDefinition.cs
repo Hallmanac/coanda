@@ -1,3 +1,4 @@
+using Coanda.Core.Agents;
 using Coanda.Core.Flows;
 using Coanda.Core.Software;
 using Coanda.Core.Types;
@@ -16,12 +17,18 @@ public sealed record ShippedDefinition(DefinitionKind Kind, string Name, string 
     public static ShippedDefinition FromFlow(FlowDefinition flow) =>
         new(DefinitionKind.Flow, flow.Name, FlowDefinition.CanonicalJson(flow), flow.Hash);
 
+    public static ShippedDefinition FromAgent(AgentDefinition agent) =>
+        new(DefinitionKind.Agent, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash);
+
     /// <summary>The parcel types the binary carries, as definitions.</summary>
     public static IReadOnlyList<ShippedDefinition> ShippedParcelTypes { get; } = [.. ShippedTypes.All.Select(FromParcelType)];
 
     /// <summary>The flows the binary carries, as definitions.</summary>
     public static IReadOnlyList<ShippedDefinition> ShippedFlowDefinitions { get; } = [.. ShippedFlows.All.Select(FromFlow)];
 
-    /// <summary>Everything the binary carries, in the order the daemon seeds it.</summary>
-    public static IReadOnlyList<ShippedDefinition> All { get; } = [.. ShippedParcelTypes, .. ShippedFlowDefinitions];
+    /// <summary>The agents the binary carries, as definitions.</summary>
+    public static IReadOnlyList<ShippedDefinition> ShippedAgentDefinitions { get; } = [.. ShippedAgents.All.Select(FromAgent)];
+
+    /// <summary>Every definition the binary carries, in the order the daemon seeds it.</summary>
+    public static IReadOnlyList<ShippedDefinition> All { get; } = [.. ShippedParcelTypes, .. ShippedFlowDefinitions, .. ShippedAgentDefinitions];
 }

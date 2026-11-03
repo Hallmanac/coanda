@@ -96,7 +96,7 @@ public sealed class DaemonSeedingTests
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
         int afterFirst = await StreamCountAsync(temp.Home);
-        afterFirst.Should().Be((ShippedTypes.All.Count + ShippedFlows.All.Count) * 2);
+        afterFirst.Should().Be(ShippedDefinition.All.Count * 2);
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
