@@ -9,8 +9,11 @@ namespace Coanda.Core.Flights;
 /// One execution of a flow on a parcel. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="FlightDecider"/>. Replaying the events alone, without the flow, yields the same
 /// <see cref="Position"/> the interpreter's start and apply produce, because every step entered
-/// carries its kind. The store snapshots this class inline, so it is also the document the list
-/// and show queries read.
+/// carries its kind. The one exception is <see cref="JudgmentRespawned"/>: a resumed judgment that
+/// parked without an answer spawns again on the same visit, a position the interpreter never
+/// produces, so the spawns count one more than the interpreter's entries alone would while the
+/// visits stay as they were. The store snapshots this class inline, so it is also the document the
+/// list and show queries read.
 /// </summary>
 public sealed class Flight
 {
@@ -138,6 +141,14 @@ public sealed class Flight
         UpdatedAt = answered.AnsweredAt;
     }
 
+    /// <summary>One more spawn on the current visit, and no visit, since the step was not entered again.</summary>
+    public void Apply(JudgmentRespawned respawned)
+    {
+        Spawns += 1;
+        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt });
+        UpdatedAt = respawned.RespawnedAt;
+    }
+
     public void Apply(ActionCompleted completed)
     {
         Record(entry => entry with { Result = completed.Result, RecordedAt = completed.CompletedAt, ResumedAt = null });
@@ -160,7 +171,7 @@ public sealed class Flight
         ParkReason = null;
         Lever = null;
         ParkUsage = null;
-        Record(entry => entry with { ResumedAt = resumed.ResumedAt });
+        Record(entry => entry with { ResumedAt = resumed.ResumedAt, RespawnedAt = null });
         UpdatedAt = resumed.ResumedAt;
     }
 

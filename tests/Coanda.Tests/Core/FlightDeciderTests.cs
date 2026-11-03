@@ -345,4 +345,54 @@ public sealed class FlightDeciderTests
 
         step.Should().Throw<DomainException>().WithMessage("*a flight keeps the flow it started under.");
     }
+
+    /// <summary>A flight of <paramref name="flow"/> at its judgment step 'build', parked without an answer and resumed.</summary>
+    private static Flight ResumedUnanswered(FlowDefinition flow)
+    {
+        Flight flight = Started(flow);
+        flight.Apply(FlightDecider.StartStep(flow, flight, "build", Now));
+        flight.Apply(FlightDecider.Park(flow, flight, "no valid answer", "perform it again", "flight", Now, Spend));
+        flight.Apply(FlightDecider.Resume(flow, flight, "try again", "owner", Now.AddMinutes(1)));
+        return flight;
+    }
+
+    [Fact]
+    public void A_respawn_of_a_resumed_unanswered_judgment_counts_one_spawn_and_no_visit_once_per_resume()
+    {
+        Flight flight = ResumedUnanswered(Build);
+        int spawns = flight.Spawns;
+        int visits = flight.Position.VisitsTo("build");
+
+        flight.Apply(FlightDecider.Respawn(Build, flight, "build", Now.AddMinutes(2)));
+
+        flight.Spawns.Should().Be(spawns + 1);
+        flight.Position.Spawns.Should().Be(spawns + 1);
+        flight.Position.VisitsTo("build").Should().Be(visits, "the visit is performed again, not entered again");
+        flight.Steps.Should().HaveCount(2);
+        FluentActions.Invoking(() => FlightDecider.Respawn(Build, flight, "build", Now.AddMinutes(3)))
+            .Should().Throw<DomainException>().WithMessage("*already counted a spawn for its latest resume*");
+
+        flight.Apply(FlightDecider.Park(Build, flight, "no valid answer", "perform it again", "flight", Now.AddMinutes(4), Spend));
+        flight.Apply(FlightDecider.Resume(Build, flight, "once more", "owner", Now.AddMinutes(5)));
+        flight.Apply(FlightDecider.Respawn(Build, flight, "build", Now.AddMinutes(6)));
+        flight.Spawns.Should().Be(spawns + 2, "each resume counts its own spawn");
+    }
+
+    [Fact]
+    public void A_respawn_is_refused_at_the_spawn_cap_before_a_resume_and_for_an_action_step()
+    {
+        FlowDefinition capped = Build with { SpawnCap = 1 };
+        FluentActions.Invoking(() => FlightDecider.Respawn(capped, ResumedUnanswered(capped), "build", Now))
+            .Should().Throw<DomainException>()
+            .WithMessage("Flow 'build' reached its spawn cap of 1; performing judgment step 'build' again would spawn another agent.");
+
+        FluentActions.Invoking(() => FlightDecider.Respawn(Build, AtJudgment(), "build", Now))
+            .Should().Throw<DomainException>().WithMessage("*has not been resumed since it was entered*");
+
+        Flight atAction = Started();
+        atAction.Apply(FlightDecider.Park(Build, atAction, "waiting", "lever", "owner", Now));
+        atAction.Apply(FlightDecider.Resume(Build, atAction, "go on", "owner", Now));
+        FluentActions.Invoking(() => FlightDecider.Respawn(Build, atAction, "worktree", Now))
+            .Should().Throw<DomainException>().WithMessage("*only a judgment step spawns an agent*");
+    }
 }
