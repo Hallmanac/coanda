@@ -33,6 +33,9 @@ public sealed class Parcel
     public string? Resolution { get; private set; }
     [JsonInclude]
     public string? CloseReason { get; private set; }
+    /// <summary>The flight running or parked on this parcel, or null when it has none. A parcel has at most one.</summary>
+    [JsonInclude]
+    public Guid? LiveFlightId { get; private set; }
 
     public bool IsClosed => Resolution is not null;
 
@@ -68,5 +71,17 @@ public sealed class Parcel
         Resolution = closed.Resolution;
         CloseReason = closed.Reason;
         UpdatedAt = closed.ClosedAt;
+    }
+
+    public void Apply(ParcelFlightAttached attached)
+    {
+        LiveFlightId = attached.FlightId;
+        UpdatedAt = attached.AttachedAt;
+    }
+
+    public void Apply(ParcelFlightReleased released)
+    {
+        LiveFlightId = null;
+        UpdatedAt = released.ReleasedAt;
     }
 }

@@ -1,0 +1,229 @@
+using System.Text.Json;
+using Coanda.Core.Agents;
+using Coanda.Core.Definitions;
+using Coanda.Core.Flights.Events;
+using Coanda.Core.Flows;
+using Coanda.Core.Parcels;
+using Coanda.Core.Parcels.Events;
+
+namespace Coanda.Core.Flights;
+
+/// <summary>
+/// The rules of a flight's record, as pure decisions: given the flow, the flight (or the parcel, to
+/// start one), and an intent, either the events that record it or a <see cref="DomainException"/>
+/// quoting the rule. A flight is live while it runs or is parked, and a parcel has at most one live
+/// flight; starting, ending, and stopping therefore also decide the parcel event that records it.
+/// </summary>
+public static class FlightDecider
+{
+    public static (FlightStarted Started, ParcelFlightAttached Attached) Start(
+        FlowDefinition flow, int flowVersion, Parcel parcel, string startedBy, DateTimeOffset now)
+    {
+        if (parcel.IsClosed)
+        {
+            throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is closed ({parcel.Resolution}); a flight starts only on an open parcel.");
+        }
+
+        if (!flow.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)))
+        {
+            throw new DomainException(
+                $"Flow '{flow.Name}' accepts parcels of type {string.Join(", ", flow.Accepts)}, not '{parcel.TypeName}'.");
+        }
+
+        if (parcel.LiveFlightId is Guid live)
+        {
+            throw new DomainException(
+                $"A parcel has at most one live flight; parcel {Ids.Short(parcel.Id)} already has flight {Ids.Short(live)}, which must end or be stopped first.");
+        }
+
+        FlowStep first = flow.First
+            ?? throw new DomainException($"Flow '{flow.Name}' has no steps, so a flight has nowhere to start.");
+        Guid flightId = Ids.New();
+        var started = new FlightStarted(
+            flightId, parcel.Id, flow.Name, flowVersion, flow.Hash, startedBy, first.Name, KindOf(first), PerformerOf(first), now);
+        return (started, new ParcelFlightAttached(parcel.Id, flightId, now));
+    }
+
+    public static StepStarted StartStep(FlowDefinition flow, Flight flight, string step, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "start a step");
+
+        FlowStep entered = flow.Step(step)
+            ?? throw new DomainException($"Flow '{flow.Name}' has no step '{step}'; a flight enters only a step its flow has.");
+        return new StepStarted(flight.Id, entered.Name, KindOf(entered), PerformerOf(entered), now);
+    }
+
+    public static JudgmentAnswered Answer(
+        FlowDefinition flow,
+        Flight flight,
+        string step,
+        string agent,
+        string agentHash,
+        ModelTriple model,
+        JsonElement answer,
+        Measurement measurement,
+        DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "record an answer");
+        FlightStepEntry current = RequireCurrent(flight, step, "an answer");
+
+        if (current.Kind != StepKind.Judgment)
+        {
+            throw new DomainException($"Step '{current.Step}' is an action step; it takes a result, not an answer.");
+        }
+
+        if (!string.Equals(current.Performer, agent, StringComparison.Ordinal))
+        {
+            throw new DomainException($"Step '{current.Step}' names the agent '{current.Performer}'; an answer from '{agent}' is not its answer.");
+        }
+
+        if (string.IsNullOrWhiteSpace(agentHash))
+        {
+            throw new DomainException("An answer records the content hash of the agent that gave it; none was given.");
+        }
+
+        if (string.IsNullOrWhiteSpace(model.Vendor) || string.IsNullOrWhiteSpace(model.Model) || string.IsNullOrWhiteSpace(model.Effort))
+        {
+            throw new DomainException("An answer records the model triple it ran on: a vendor, a model, and an effort.");
+        }
+
+        if (measurement.Tokens < 0 || measurement.CostUsd < 0 || measurement.Turns < 0 || measurement.Duration < TimeSpan.Zero)
+        {
+            throw new DomainException("A measurement is never negative: tokens, cost, turns, and duration are zero or more.");
+        }
+
+        return new JudgmentAnswered(flight.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
+    }
+
+    public static ActionCompleted Complete(FlowDefinition flow, Flight flight, string step, string action, JsonElement result, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "record a result");
+        FlightStepEntry current = RequireCurrent(flight, step, "a result");
+
+        if (current.Kind != StepKind.Action)
+        {
+            throw new DomainException($"Step '{current.Step}' is a judgment step; it takes an answer, not a result.");
+        }
+
+        if (!string.Equals(current.Performer, action, StringComparison.Ordinal))
+        {
+            throw new DomainException($"Step '{current.Step}' names the action '{current.Performer}'; a result from '{action}' is not its result.");
+        }
+
+        return new ActionCompleted(flight.Id, current.Step, action, result.Clone(), now);
+    }
+
+    public static FlightParked Park(FlowDefinition flow, Flight flight, string reason, string lever, string parkedBy, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "park it");
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new DomainException("A park records why the flight stopped; give a reason.");
+        }
+
+        if (string.IsNullOrWhiteSpace(lever))
+        {
+            throw new DomainException("A park records the lever a person acts on to resume the flight; give a lever.");
+        }
+
+        return new FlightParked(flight.Id, reason.Trim(), lever.Trim(), parkedBy, now);
+    }
+
+    public static FlightResumed Resume(FlowDefinition flow, Flight flight, string? note, string resumedBy, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+
+        if (flight.Status != FlightStatus.Parked)
+        {
+            throw new DomainException($"Flight {Ids.Short(flight.Id)} {Describe(flight.Status)}; only a parked flight resumes.");
+        }
+
+        return new FlightResumed(flight.Id, resumedBy, note?.Trim() ?? string.Empty, now);
+    }
+
+    public static (FlightEnded Ended, ParcelFlightReleased Released) End(
+        FlowDefinition flow, Flight flight, string outcome, string endedBy, DateTimeOffset now)
+    {
+        RequireFlow(flow, flight);
+        RequireRunning(flight, "end it");
+
+        if (!string.Equals(outcome, flow.Outcome, StringComparison.Ordinal))
+        {
+            throw new DomainException($"Flow '{flow.Name}' ends with its declared outcome '{flow.Outcome}', not '{outcome}'.");
+        }
+
+        return (new FlightEnded(flight.Id, outcome, endedBy, now), new ParcelFlightReleased(flight.ParcelId, flight.Id, now));
+    }
+
+    /// <summary>Stops a live flight, running or parked, so that a park nobody resumes does not hold its parcel forever.</summary>
+    public static (FlightStopped Stopped, ParcelFlightReleased Released) Stop(Flight flight, string reason, string stoppedBy, DateTimeOffset now)
+    {
+        if (!flight.IsLive)
+        {
+            throw new DomainException($"Flight {Ids.Short(flight.Id)} {Describe(flight.Status)}; only a live flight stops.");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new DomainException("Stopping a flight records why; give a reason.");
+        }
+
+        return (new FlightStopped(flight.Id, stoppedBy, reason.Trim(), now), new ParcelFlightReleased(flight.ParcelId, flight.Id, now));
+    }
+
+    private static void RequireFlow(FlowDefinition flow, Flight flight)
+    {
+        if (!string.Equals(flow.Hash, flight.FlowHash, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"Flight {Ids.Short(flight.Id)} runs '{flight.FlowName}@{flight.FlowHash}', not '{flow.Name}@{flow.Hash}'; a flight keeps the flow it started under.");
+        }
+    }
+
+    private static void RequireRunning(Flight flight, string intent)
+    {
+        if (flight.Status != FlightStatus.Running)
+        {
+            throw new DomainException(
+                $"Flight {Ids.Short(flight.Id)} {Describe(flight.Status)}; only a running flight can {intent}.");
+        }
+    }
+
+    private static FlightStepEntry RequireCurrent(Flight flight, string step, string what)
+    {
+        FlightStepEntry current = flight.Current
+            ?? throw new DomainException($"Flight {Ids.Short(flight.Id)} has entered no step, so {what} has nowhere to go.");
+
+        if (!string.Equals(current.Step, step, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"Flight {Ids.Short(flight.Id)} is at step '{current.Step}'; {what} is recorded only for the current step, not '{step}'.");
+        }
+
+        if (current.IsRecorded)
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' already holds what this visit recorded; the flight enters the step again before it records another.");
+        }
+
+        return current;
+    }
+
+    private static string Describe(FlightStatus status) => status switch
+    {
+        FlightStatus.Running => "is running",
+        FlightStatus.Parked => "is parked",
+        FlightStatus.Ended => "has ended",
+        FlightStatus.Stopped => "has been stopped",
+        _ => $"is {status}",
+    };
+
+    private static StepKind KindOf(FlowStep step) => step.IsJudgment ? StepKind.Judgment : StepKind.Action;
+
+    private static string PerformerOf(FlowStep step) => (step.IsJudgment ? step.Agent : step.Action) ?? string.Empty;
+}
