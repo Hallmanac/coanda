@@ -1,3 +1,5 @@
+using Coanda.Core;
+
 namespace Coanda.Daemon;
 
 /// <summary>
@@ -13,9 +15,19 @@ public sealed record NodeHome(string Path)
     public string DaemonInfoPath => System.IO.Path.Combine(Path, "daemon.json");
     public string LogPath => System.IO.Path.Combine(Path, "coanda.log");
 
-    /// <summary>Where a flight's judgments work: <c>work/&lt;project&gt;/&lt;flight id&gt;</c> under the home.</summary>
-    public string FlightWorkPath(string project, Guid flightId) =>
-        System.IO.Path.Combine(Path, "work", project, flightId.ToString());
+    /// <summary>
+    /// Where a flight's judgments work: <c>work/&lt;project&gt;/&lt;flight id&gt;</c> under the home.
+    /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
+    /// </summary>
+    public string FlightWorkPath(string project, Guid flightId)
+    {
+        bool plain = project is not ("" or "." or "..")
+            && project.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0
+            && project.IndexOfAny(['/', '\\']) < 0;
+        return plain
+            ? System.IO.Path.Combine(Path, "work", project, flightId.ToString())
+            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flights have no working directory under the node home.");
+    }
 
     public static NodeHome Resolve()
     {
