@@ -1,0 +1,192 @@
+using Coanda.Core;
+using Coanda.Core.Definitions;
+using Coanda.Core.Definitions.Events;
+using Coanda.Core.Registry;
+using Coanda.Core.Types;
+
+namespace Coanda.Tests.Core;
+
+public sealed class DefinitionDeciderTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
+
+    private static DefinitionDrafted DraftTask(ParcelType? type = null, DefinitionScope scope = DefinitionScope.Project, string? project = "alpha", int latest = 0)
+    {
+        ParcelType task = type ?? ShippedTypes.Task;
+        return DefinitionDecider.Draft(
+            DefinitionKind.ParcelType, task.Name, scope, scope == DefinitionScope.Project ? project : null, latest,
+            ParcelType.CanonicalJson(task), task.Hash, null, "brian", Now);
+    }
+
+    private static Definition Draft(int latest = 0, DefinitionScope scope = DefinitionScope.Project) =>
+        Definition.Create(DraftTask(scope: scope, latest: latest));
+
+    [Fact]
+    public void Draft_records_every_field_and_the_next_version()
+    {
+        ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
+        DefinitionDrafted drafted = DefinitionDecider.Draft(
+            DefinitionKind.ParcelType, "task", DefinitionScope.Project, " alpha ", 2,
+            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now);
+
+        Definition definition = Definition.Create(drafted);
+        definition.Kind.Should().Be(DefinitionKind.ParcelType);
+        definition.Name.Should().Be("task");
+        definition.Scope.Should().Be(DefinitionScope.Project);
+        definition.Project.Should().Be("alpha");
+        definition.VersionNumber.Should().Be(3);
+        definition.ContentHash.Should().Be(fork.Hash);
+        definition.Content.Should().Be(ParcelType.CanonicalJson(fork));
+        definition.ForkBase.Should().Be(new ForkBase("task", 1));
+        definition.Status.Should().Be(DefinitionStatus.Draft);
+    }
+
+    [Fact]
+    public void Content_round_trips_to_a_parcel_type_with_the_same_hash()
+    {
+        foreach (ParcelType type in ShippedTypes.All)
+        {
+            ParcelType.FromJson(ParcelType.CanonicalJson(type)).Hash.Should().Be(type.Hash);
+        }
+    }
+
+    [Fact]
+    public void Apply_moves_a_definition_through_draft_published_retired()
+    {
+        Definition definition = Draft();
+        definition.Apply(DefinitionDecider.Publish(definition, "owner", Now));
+        definition.Status.Should().Be(DefinitionStatus.Published);
+        definition.Apply(DefinitionDecider.Retire(definition, "owner", Now));
+        definition.Status.Should().Be(DefinitionStatus.Retired);
+    }
+
+    [Fact]
+    public void Publishing_a_definition_that_is_not_a_draft_is_refused()
+    {
+        Definition definition = Draft();
+        definition.Apply(DefinitionDecider.Publish(definition, "owner", Now));
+
+        FluentActions.Invoking(() => DefinitionDecider.Publish(definition, "owner", Now))
+            .Should().Throw<DomainException>().WithMessage("Only a draft can be published*is published*");
+
+        definition.Apply(DefinitionDecider.Retire(definition, "owner", Now));
+        FluentActions.Invoking(() => DefinitionDecider.Publish(definition, "owner", Now))
+            .Should().Throw<DomainException>().WithMessage("Only a draft can be published*is retired*");
+    }
+
+    [Fact]
+    public void Retiring_a_definition_that_is_not_published_is_refused()
+    {
+        Definition definition = Draft();
+        FluentActions.Invoking(() => DefinitionDecider.Retire(definition, "owner", Now))
+            .Should().Throw<DomainException>().WithMessage("Only a published definition can be retired*is a draft*");
+    }
+
+    [Fact]
+    public void Retiring_a_shipped_definition_is_refused()
+    {
+        (DefinitionDrafted drafted, DefinitionPublished published) =
+            DefinitionDecider.Seed(ShippedDefinition.FromParcelType(ShippedTypes.Task), 0, "seed", Now);
+        Definition shipped = Definition.Create(drafted);
+        shipped.Apply(published);
+
+        FluentActions.Invoking(() => DefinitionDecider.Retire(shipped, "owner", Now))
+            .Should().Throw<DomainException>().WithMessage("A shipped definition cannot be retired*");
+    }
+
+    [Fact]
+    public void Drafting_into_shipped_scope_is_refused()
+    {
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Shipped, null, 0,
+                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Task.Hash, null, "brian", Now))
+            .Should().Throw<DomainException>().WithMessage("A definition cannot be drafted into shipped scope*");
+    }
+
+    [Fact]
+    public void Seeding_produces_the_drafted_and_published_events_together_in_shipped_scope()
+    {
+        ShippedDefinition shipped = ShippedDefinition.FromParcelType(ShippedTypes.Idea);
+
+        (DefinitionDrafted drafted, DefinitionPublished published) = DefinitionDecider.Seed(shipped, 1, "seed", Now);
+
+        drafted.Scope.Should().Be(DefinitionScope.Shipped);
+        drafted.Project.Should().BeNull();
+        drafted.Version.Should().Be(2);
+        drafted.ContentHash.Should().Be(ShippedTypes.Idea.Hash);
+        published.DefinitionId.Should().Be(drafted.DefinitionId);
+
+        Definition definition = Definition.Create(drafted);
+        definition.Apply(published);
+        definition.Status.Should().Be(DefinitionStatus.Published);
+    }
+
+    [Fact]
+    public void A_parcel_type_whose_content_cannot_be_read_is_refused()
+    {
+        foreach (string content in new[] { "not json", "{}", "null", """{"Name":"task","States":null}""" })
+        {
+            FluentActions.Invoking(() => DefinitionDecider.Draft(
+                    DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0, content, "abc", null, "brian", Now))
+                .Should().Throw<DomainException>().WithMessage("The content*parcel type*");
+        }
+    }
+
+    [Fact]
+    public void A_parcel_type_that_fails_validation_is_refused()
+    {
+        ParcelType broken = ShippedTypes.Task with { TerminalState = "finished" };
+
+        FluentActions.Invoking(() => DraftTask(broken))
+            .Should().Throw<DomainException>().WithMessage("*terminal state*");
+    }
+
+    [Fact]
+    public void A_parcel_type_whose_content_hash_differs_is_refused()
+    {
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
+                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Idea.Hash, null, "brian", Now))
+            .Should().Throw<DomainException>().WithMessage($"The content hash '{ShippedTypes.Idea.Hash}' differs from the parcel type's hash*");
+    }
+
+    [Fact]
+    public void A_definition_named_for_a_different_type_is_refused()
+    {
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "bug", DefinitionScope.Project, "alpha", 0,
+                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Task.Hash, null, "brian", Now))
+            .Should().Throw<DomainException>().WithMessage("A parcel-type definition is named for its type*");
+    }
+
+    [Fact]
+    public void Scope_and_project_must_agree()
+    {
+        FluentActions.Invoking(() => DraftTask(project: " "))
+            .Should().Throw<DomainException>().WithMessage("A project-scope definition belongs to a project*");
+
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Owner, "alpha", 0,
+                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Task.Hash, null, "brian", Now))
+            .Should().Throw<DomainException>().WithMessage("Only a project-scope definition belongs to a project*");
+    }
+
+    [Fact]
+    public void Publish_and_retire_are_open_only_to_the_owner_and_draft_to_everyone()
+    {
+        var member = new Principal("pat", Role.Member);
+        var agent = new Principal("build-session", Role.Agent);
+
+        foreach (Principal principal in new[] { member, agent })
+        {
+            CommandRegistry.Require("definition.draft", principal).Should().NotBeNull();
+            FluentActions.Invoking(() => CommandRegistry.Require("definition.publish", principal))
+                .Should().Throw<DomainException>().WithMessage($"'definition.publish' is not open to the {principal.Role} role.");
+            FluentActions.Invoking(() => CommandRegistry.Require("definition.retire", principal))
+                .Should().Throw<DomainException>().WithMessage($"'definition.retire' is not open to the {principal.Role} role.");
+        }
+
+        CommandRegistry.Require("definition.publish", Principal.LocalOwner).Should().NotBeNull();
+        CommandRegistry.Require("definition.retire", Principal.LocalOwner).Should().NotBeNull();
+    }
+}

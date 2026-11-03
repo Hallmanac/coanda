@@ -117,7 +117,25 @@ public sealed record ParcelType
         return Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
     }
 
-    public static string CanonicalJson(ParcelType type) => JsonSerializer.Serialize(type, new JsonSerializerOptions { WriteIndented = true });
+    private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
+
+    private static readonly JsonSerializerOptions ReadOptions = new() { RespectNullableAnnotations = true };
+
+    public static string CanonicalJson(ParcelType type) => JsonSerializer.Serialize(type, WriteOptions);
+
+    /// <summary>Reads a type from the JSON <see cref="CanonicalJson"/> writes; anything else is a rule broken.</summary>
+    public static ParcelType FromJson(string content)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<ParcelType>(content, ReadOptions)
+                ?? throw new DomainException("The content is empty; it cannot be read as a parcel type.");
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            throw new DomainException($"The content cannot be read as a parcel type: {exception.Message}");
+        }
+    }
 
     public override string ToString() => $"{Name}@{Hash}";
 
