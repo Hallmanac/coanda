@@ -28,6 +28,8 @@ public sealed record ParcelView(
 
 public sealed record TypeView(string Name, string Hash, IReadOnlyList<string> States, IReadOnlyList<string> Resolutions);
 
+public sealed record FlowView(string Name, int Version, string Hash);
+
 public sealed record DaemonStatusView(int Pid, int Port, DateTimeOffset StartedAt, string Version, string Home, string Database);
 
 public sealed record ErrorView(string Error);

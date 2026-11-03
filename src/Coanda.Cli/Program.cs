@@ -44,6 +44,12 @@ app.Configure(config =>
         type.SetDescription("Parcel types define a lifecycle; idea and task ship installed.");
         type.AddCommand<TypeListCommand>("list").WithDescription("List the installed parcel types.").WithExample("type", "list");
     });
+
+    config.AddBranch("flow", flow =>
+    {
+        flow.SetDescription("Flows are the loops that move parcels; build, discovery, and review-on-assignment ship installed.");
+        flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
+    });
 });
 
 return await app.RunAsync(args);

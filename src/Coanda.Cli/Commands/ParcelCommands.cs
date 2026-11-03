@@ -169,6 +169,24 @@ public sealed class TypeListCommand : AsyncCommand<ProjectSettings>
     }
 }
 
+public sealed class FlowListCommand : AsyncCommand<ProjectSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        List<FlowView> flows = await client.GetAsync<List<FlowView>>($"/flows?project={Uri.EscapeDataString(project)}", cancellationToken);
+        var table = new Table().AddColumns("Flow", "Version", "Hash");
+        foreach (FlowView flow in flows)
+        {
+            table.AddRow(flow.Name, flow.Version.ToString(), flow.Hash);
+        }
+
+        AnsiConsole.Write(table);
+        return 0;
+    }
+}
+
 internal static class ParcelLookup
 {
     /// <summary>Accepts a full id, the short form (last eight characters), or at least four characters of either end.</summary>
