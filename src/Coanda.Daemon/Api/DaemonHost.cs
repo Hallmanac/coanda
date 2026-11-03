@@ -7,6 +7,7 @@ using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
 using Microsoft.AspNetCore.Builder;
@@ -49,6 +50,7 @@ public sealed class DaemonHost
         builder.Services.AddCoandaStore(home);
         builder.Services.AddSingleton<DefinitionService>();
         builder.Services.AddSingleton<ParcelService>();
+        builder.Services.AddSingleton<FlowService>();
 
         WebApplication app = builder.Build();
         MapEndpoints(app, token);
@@ -60,7 +62,7 @@ public sealed class DaemonHost
             // Types come from the store, so the shipped ones are in it before anything is served
             // or advertised: the address file is written only after this returns.
             await app.Services.GetRequiredService<DefinitionService>()
-                .SeedAsync(ShippedDefinition.ShippedParcelTypes, cancellationToken);
+                .SeedAsync(ShippedDefinition.All, cancellationToken);
         }
         catch
         {
@@ -124,6 +126,12 @@ public sealed class DaemonHost
         {
             IReadOnlyList<ParcelType> types = await parcels.TypesAsync(PrincipalOf(context), project, cancellationToken);
             return Results.Ok(types.Select(t => new TypeView(t.Name, t.Hash, t.States, t.Resolutions)).ToList());
+        });
+
+        app.MapGet("/flows", async (HttpContext context, FlowService flows, string project, CancellationToken cancellationToken) =>
+        {
+            IReadOnlyList<Definition> resolved = await flows.ListAsync(PrincipalOf(context), project, cancellationToken);
+            return Results.Ok(resolved.Select(d => new FlowView(d.Name, d.VersionNumber, d.ContentHash)).ToList());
         });
 
         app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
