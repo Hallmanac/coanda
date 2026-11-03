@@ -17,6 +17,9 @@ public static class Judgment
 {
     public const string NoAnswerFound = "no answer document was found";
 
+    /// <summary>How long stopping a session after a failure may take before it is given up.</summary>
+    public static readonly TimeSpan StopGrace = TimeSpan.FromSeconds(30);
+
     public static Task<JudgmentOutcome> RunAsync(
         IAgentExecutor executor,
         JudgmentRequest request,
@@ -105,14 +108,18 @@ public static class Judgment
     }
 
     /// <summary>
-    /// Stops a session the judgment can no longer hand back. The stop runs uncancelled, since the
-    /// failure may itself be a cancellation; a stop that also fails is reported alongside the failure.
+    /// Stops a session the judgment can no longer hand back. The failure may itself be the
+    /// cancellation of the caller's token, so the stop takes a short, bounded token of its own
+    /// rather than that one: an executor that honours its token still stops the session, and a
+    /// stop that hangs gives up after <see cref="StopGrace"/>. This is the one place the judgment
+    /// does not pass the caller's token on. A stop that also fails is reported alongside the failure.
     /// </summary>
     private static async Task StopAfterFailureAsync(IAgentExecutor executor, SessionHandle handle, Exception failure)
     {
         try
         {
-            await executor.StopAsync(handle, CancellationToken.None);
+            using var bounded = new CancellationTokenSource(StopGrace);
+            await executor.StopAsync(handle, bounded.Token);
         }
         catch (Exception stopFailure)
         {
