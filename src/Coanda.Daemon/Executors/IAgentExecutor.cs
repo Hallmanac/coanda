@@ -1,0 +1,42 @@
+using Coanda.Core.Agents;
+
+namespace Coanda.Daemon.Executors;
+
+/// <summary>
+/// The one seam through which the daemon reaches an agent, whatever vendor runs it. An adapter
+/// renders the agent definition into its vendor's invocation; the per-parcel context arrives as a
+/// separate value and is never folded into the definition.
+/// </summary>
+public interface IAgentExecutor
+{
+    /// <summary>Starts a session for the agent and returns its handle.</summary>
+    ValueTask<SessionHandle> SpawnAsync(
+        AgentDefinition agent,
+        string context,
+        string workingDirectory,
+        SpawnCaps caps,
+        string answerSchema,
+        string? credentialProfile,
+        CancellationToken cancellationToken);
+
+    /// <summary>Reads the session's latest answer, its transcript path, and its usage.</summary>
+    ValueTask<CollectedAnswer> CollectAsync(SessionHandle handle, CancellationToken cancellationToken);
+
+    /// <summary>Continues the session with a message, leaving a new answer to collect.</summary>
+    ValueTask ResumeAsync(SessionHandle handle, string message, CancellationToken cancellationToken);
+
+    /// <summary>Delivers a message into a live session without expecting an answer.</summary>
+    ValueTask SendAsync(SessionHandle handle, string message, CancellationToken cancellationToken);
+
+    /// <summary>Ends the session.</summary>
+    ValueTask StopAsync(SessionHandle handle, CancellationToken cancellationToken);
+
+    /// <summary>The handles of the sessions this executor holds that have not been stopped.</summary>
+    ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes a handle issued before a daemon restart and returns it when its session is still held
+    /// and not stopped, or null when the session is gone.
+    /// </summary>
+    ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken);
+}
