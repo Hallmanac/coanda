@@ -11,7 +11,7 @@ namespace Coanda.Core.Parcels;
 public static class ParcelDecider
 {
     public static ParcelCreated Create(
-        ParcelType type, GateSet gates, string project, string title, string? entryState, string createdBy, DateTimeOffset now)
+        ParcelType type, GateSet gates, string project, string title, string? entryState, string createdBy, DateTimeOffset now, string? origin = null)
     {
         type.Validate(gates.Names);
 
@@ -32,7 +32,7 @@ public static class ParcelDecider
                 $"Parcel type '{type.Name}' cannot start at '{state}'; its entry states are {string.Join(", ", type.EntryStates)}.");
         }
 
-        return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, state, title.Trim(), createdBy, now);
+        return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, state, title.Trim(), createdBy, now, origin);
     }
 
     public static ParcelMoved Move(ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now)

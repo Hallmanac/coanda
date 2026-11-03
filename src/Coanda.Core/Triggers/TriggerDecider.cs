@@ -1,0 +1,104 @@
+using Coanda.Core.Flows;
+using Coanda.Core.Registry;
+using Coanda.Core.Triggers.Events;
+
+namespace Coanda.Core.Triggers;
+
+/// <summary>
+/// The rules for recording an external event and a subscription, as pure decisions: the event that
+/// records the intent, or a <see cref="DomainException"/> quoting the rule. Neither may use
+/// <see cref="TriggerEvent.ParcelEnteredKind"/>: a subscription that created parcels from parcel
+/// entries could feed itself.
+/// </summary>
+public static class TriggerDecider
+{
+    public static ExternalEventRecorded RecordExternalEvent(
+        string project, string kind, IReadOnlyDictionary<string, string> fields, string recordedBy, DateTimeOffset now)
+    {
+        string trimmedProject = RequireProject(project);
+
+        if (!FlowDefinition.IsPlainName(kind))
+        {
+            throw new DomainException(
+                $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores); '{kind}' is not.");
+        }
+
+        if (string.Equals(kind, TriggerEvent.ParcelEnteredKind, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"The kind '{TriggerEvent.ParcelEnteredKind}' is what a parcel's own creation and moves read as; an external event cannot use it.");
+        }
+
+        string? notPlain = fields.Keys.FirstOrDefault(name => !FlowDefinition.IsPlainName(name));
+        if (notPlain is not null)
+        {
+            throw new DomainException(
+                $"An external event's field names are plain names (letters, digits, hyphens, and underscores); '{notPlain}' is not.");
+        }
+
+        return new ExternalEventRecorded(
+            Ids.New(), trimmedProject, kind, new Dictionary<string, string>(fields, StringComparer.Ordinal), recordedBy, now);
+    }
+
+    public static SubscriptionRecorded RecordSubscription(
+        string project,
+        Trigger trigger,
+        string parcelType,
+        string titleField,
+        string flow,
+        Principal recordedBy,
+        DateTimeOffset now)
+    {
+        string trimmedProject = RequireProject(project);
+
+        if (string.IsNullOrWhiteSpace(trigger.EventKind))
+        {
+            throw new DomainException("A subscription's trigger needs an event kind.");
+        }
+
+        if (string.Equals(trigger.EventKind, TriggerEvent.ParcelEnteredKind, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.ParcelEnteredKind}', which a parcel's own creation and moves read as.");
+        }
+
+        string? notPlain = trigger.Filters.Keys.FirstOrDefault(name => !FlowDefinition.IsPlainName(name));
+        if (notPlain is not null)
+        {
+            throw new DomainException(
+                $"A subscription's filters name event fields, which are plain names (letters, digits, hyphens, and underscores); '{notPlain}' is not.");
+        }
+
+        if (string.IsNullOrWhiteSpace(parcelType))
+        {
+            throw new DomainException("A subscription names the parcel type it creates; none was given.");
+        }
+
+        if (string.IsNullOrWhiteSpace(titleField))
+        {
+            throw new DomainException("A subscription names the event field whose value titles the parcel it creates; none was given.");
+        }
+
+        if (string.IsNullOrWhiteSpace(flow))
+        {
+            throw new DomainException("A subscription names the flow it starts on the parcel it creates; none was given.");
+        }
+
+        return new SubscriptionRecorded(
+            Ids.New(),
+            trimmedProject,
+            trigger.EventKind,
+            new Dictionary<string, string>(trigger.Filters, StringComparer.Ordinal),
+            parcelType.Trim(),
+            titleField.Trim(),
+            flow.Trim(),
+            recordedBy.Id,
+            recordedBy.Role,
+            now);
+    }
+
+    private static string RequireProject(string project) =>
+        string.IsNullOrWhiteSpace(project)
+            ? throw new DomainException("An external event or a subscription belongs to a project; none was given.")
+            : project.Trim();
+}
