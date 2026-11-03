@@ -227,6 +227,93 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
+    public async Task A_judgment_past_the_wall_clock_limit_whose_session_will_not_stop_still_parks_naming_the_limit()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { FailStops = true };
+        var options = new DaemonOptions { Executor = executor, JudgmentLimit = TimeSpan.FromMilliseconds(300) };
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, options, None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Too slow to stop");
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, "build");
+        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
+
+        flight.ParkReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, and stopping its session failed:");
+        flight.Lever.Should().Be(FlightLevers.PerformAgain("build"));
+        flight.Steps[^1].Answer.Should().BeNull();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_judgment_step_naming_its_agent_in_another_case_records_the_answer_under_the_steps_name()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("done", 1)] });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowDefinition shouted = await PublishAsync(daemon, new FlowDefinition
+        {
+            Name = "shouted-agent",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 1m,
+            SpawnCap = 1,
+            Steps = [Judge("build", "BUILD", FlowDefinition.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Loud", null), None);
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, shouted.Name);
+        FlightView ended = await Flying.UntilAsync(client, Project, started.Id, "ended");
+
+        ended.Outcome.Should().Be("built");
+        FlightStepView build = ended.Steps.Should().ContainSingle().Subject;
+        build.Performer.Should().Be("BUILD");
+        build.AgentHash.Should().Be(ShippedAgents.Build.Hash);
+        executor.Spawns.Should().ContainSingle();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_resume_after_a_spawn_cap_park_parks_again_without_spawning_past_the_cap()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("done", 1), Scripts.Answer("done", 2)],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowDefinition capped = await PublishAsync(daemon, new FlowDefinition
+        {
+            Name = "one-spawn",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 1m,
+            SpawnCap = 1,
+            Steps = [Judge("first", "build", "second"), Judge("second", "build", FlowDefinition.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Capped", null), None);
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, capped.Name);
+        FlightView parked = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        parked.ParkReason.Should().Contain("reached its spawn cap of 1");
+
+        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
+        await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        FlightView after = await Flying.UntilAsync(client, Project, started.Id, "parked");
+
+        after.ParkReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
+        after.Lever.Should().Be(FlightLevers.SpawnCapReached(capped.Name));
+        executor.Spawns.Should().ContainSingle("a resume never spawns past the flow's cap");
+        after.Steps.Should().ContainSingle();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_daemon_stop_cancels_the_judgment_in_progress_recording_nothing_and_the_next_start_carries_the_flight_on()
     {
         using var temp = new TemporaryHome();
@@ -339,6 +426,23 @@ public sealed class FlightRunnerTests
             .Should().ThrowAsync<DomainException>().WithMessage("Flow 'build' accepts parcels of type task, not 'idea'.");
 
         await daemon.StopAsync(None);
+    }
+
+    private static FlowStep Judge(string name, string agent, string target) => new()
+    {
+        Name = name,
+        Agent = agent,
+        AnswerSchema = "build",
+        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = target }],
+    };
+
+    private static async Task<FlowDefinition> PublishAsync(RunningDaemon daemon, FlowDefinition flow)
+    {
+        DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
+        Definition draft = await definitions.DraftAsync(
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, flow.Name, FlowDefinition.CanonicalJson(flow), flow.Hash, null, None);
+        await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
+        return flow;
     }
 
     private static void ExpectJudgment(FlightStepView step, AgentDefinition agent, int ordinal)
