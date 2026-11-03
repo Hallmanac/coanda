@@ -399,6 +399,83 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
+    public async Task A_resumed_judgment_that_answers_after_counting_its_spawn_routes_against_that_count_and_parks_at_the_cap()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2), Scripts.Answer("done", 3), Scripts.Answer("done", 4)],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowDefinition chained = await Publishing.FlowAsync(daemon, Project, new FlowDefinition
+        {
+            Name = "two-judgments",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 10m,
+            SpawnCap = 2,
+            Steps = [Judge("a", "build", "b"), Judge("b", "build", FlowDefinition.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Chained", null), None);
+        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, chained.Name);
+        await Flying.UntilAsync(client, Project, started.Id, "parked");
+        await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        FlightView capped = await Flying.UntilAsync(client, Project, started.Id, "parked");
+
+        capped.ParkReason.Should().Contain("spawn cap of 2", "the answer is routed against the spawn the resume counted");
+        capped.Steps.Select(s => s.Step).Should().Equal(["a"], "step 'b' would spawn a third agent");
+        capped.Spawns.Should().Be(2);
+        executor.Spawns.Should().HaveCount(2);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_resume_of_a_judgment_that_parked_before_its_agent_launched_performs_it_without_counting_another_spawn()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["late-builder"] = [Scripts.Answer("done", 1)],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowDefinition late = await Publishing.FlowAsync(daemon, Project, new FlowDefinition
+        {
+            Name = "agent-published-late",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 10m,
+            SpawnCap = 1,
+            Steps = [Judge("build", "late-builder", FlowDefinition.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "No agent yet", null), None);
+        FlightService flights = daemon.Services.GetRequiredService<FlightService>();
+
+        FlightView started = await Flying.StartAsync(client, Project, parcel.Id, late.Name);
+        FlightView parked = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        parked.ParkReason.Should().Contain("names the agent 'late-builder'");
+        parked.Spawns.Should().Be(1);
+
+        AgentDefinition agent = ShippedAgents.Build with { Name = "late-builder" };
+        DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
+        Definition draft = await definitions.DraftAsync(
+            Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash, null, None);
+        await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
+        await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "The agent is published now.", None);
+        FlightView ended = await Flying.UntilAsync(client, Project, started.Id, "ended");
+
+        ended.Outcome.Should().Be("built");
+        ended.Spawns.Should().Be(1, "the spawn counted when the step was entered was the one the resume used");
+        executor.Spawns.Should().ContainSingle();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_daemon_stop_cancels_the_judgment_in_progress_recording_nothing_and_the_next_start_carries_the_flight_on()
     {
         using var temp = new TemporaryHome();

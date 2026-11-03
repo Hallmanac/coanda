@@ -346,11 +346,16 @@ public sealed class FlightDeciderTests
         step.Should().Throw<DomainException>().WithMessage("*a flight keeps the flow it started under.");
     }
 
-    /// <summary>A flight of <paramref name="flow"/> at its judgment step 'build', parked without an answer and resumed.</summary>
-    private static Flight ResumedUnanswered(FlowDefinition flow)
+    /// <summary>A flight of <paramref name="flow"/> at its judgment step 'build', launched, parked without an answer and resumed.</summary>
+    private static Flight ResumedUnanswered(FlowDefinition flow, bool launched = true)
     {
         Flight flight = Started(flow);
         flight.Apply(FlightDecider.StartStep(flow, flight, "build", Now));
+        if (launched)
+        {
+            flight.Apply(FlightDecider.Spawn(flow, flight, "build", Now));
+        }
+
         flight.Apply(FlightDecider.Park(flow, flight, "no valid answer", "perform it again", "flight", Now, Spend));
         flight.Apply(FlightDecider.Resume(flow, flight, "try again", "owner", Now.AddMinutes(1)));
         return flight;
@@ -372,10 +377,27 @@ public sealed class FlightDeciderTests
         FluentActions.Invoking(() => FlightDecider.Respawn(Build, flight, "build", Now.AddMinutes(3)))
             .Should().Throw<DomainException>().WithMessage("*already counted a spawn for its latest resume*");
 
+        flight.Apply(FlightDecider.Spawn(Build, flight, "build", Now.AddMinutes(3)));
         flight.Apply(FlightDecider.Park(Build, flight, "no valid answer", "perform it again", "flight", Now.AddMinutes(4), Spend));
         flight.Apply(FlightDecider.Resume(Build, flight, "once more", "owner", Now.AddMinutes(5)));
         flight.Apply(FlightDecider.Respawn(Build, flight, "build", Now.AddMinutes(6)));
         flight.Spawns.Should().Be(spawns + 2, "each resume counts its own spawn");
+    }
+
+    [Fact]
+    public void A_resumed_judgment_that_parked_before_it_launched_uses_its_counted_spawn_rather_than_counting_another()
+    {
+        FlowDefinition capped = Build with { SpawnCap = 1 };
+        Flight flight = ResumedUnanswered(capped, launched: false);
+
+        flight.Current.Should().NotBeNull();
+        flight.Current?.SpawnsAgainOnResume.Should().BeFalse("the spawn counted when the step was entered was never used");
+        FluentActions.Invoking(() => FlightDecider.Respawn(capped, flight, "build", Now.AddMinutes(2)))
+            .Should().Throw<DomainException>().WithMessage("*has not launched its agent on the spawn it last counted*");
+
+        flight.Apply(FlightDecider.Spawn(capped, flight, "build", Now.AddMinutes(2)));
+        flight.Spawns.Should().Be(1, "a launch counts nothing itself");
+        flight.Current?.SpawnsAgainOnResume.Should().BeFalse("no resume has followed the launch");
     }
 
     [Fact]
