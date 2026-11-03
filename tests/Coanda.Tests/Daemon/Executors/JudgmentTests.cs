@@ -1,3 +1,4 @@
+using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Flights;
 using Coanda.Daemon.Executors;
@@ -32,8 +33,8 @@ public sealed class JudgmentTests
 
         JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request, CancellationToken.None);
 
-        outcome.Should().Be(new JudgmentOutcome.Answered(Valid, "/t/1.jsonl", FirstUsage));
-        executor.Spawns.Should().ContainSingle();
+        SessionHandle session = executor.Spawns.Should().ContainSingle().Subject.Handle;
+        outcome.Should().Be(new JudgmentOutcome.Answered(session, Valid, "/t/1.jsonl", FirstUsage));
         executor.Resumes.Should().BeEmpty();
     }
 
@@ -47,8 +48,8 @@ public sealed class JudgmentTests
 
         JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request, CancellationToken.None);
 
-        outcome.Should().Be(new JudgmentOutcome.Answered(Valid, "/t/2.jsonl", Summed));
         executor.Spawns.Should().ContainSingle();
+        outcome.Should().Be(new JudgmentOutcome.Answered(executor.Spawns[0].Handle, Valid, "/t/2.jsonl", Summed));
         ScriptedMessage resume = executor.Resumes.Should().ContainSingle().Subject;
         resume.Handle.Should().Be(executor.Spawns[0].Handle);
         resume.Message.Should().Contain("'review'").And.Contain(failure);
@@ -104,5 +105,117 @@ public sealed class JudgmentTests
 
         outcome.Should().BeOfType<JudgmentOutcome.Parked>()
             .Which.Reason.Should().Contain(Judgment.NoAnswerFound);
+    }
+
+    [Fact]
+    public async Task Either_outcome_hands_back_the_session_it_ran_in_and_leaves_it_open()
+    {
+        ScriptedExecutor executor = Executor(
+            new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
+            new ScriptEntry(InvalidAgain, "/t/2.jsonl", SecondUsage));
+
+        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request, CancellationToken.None);
+
+        outcome.Should().BeOfType<JudgmentOutcome.Parked>();
+        outcome.Session.Should().Be(executor.Spawns.Should().ContainSingle().Subject.Handle);
+        executor.Stops.Should().BeEmpty();
+        (await executor.ListAsync(CancellationToken.None)).Should().Equal(outcome.Session);
+    }
+
+    [Fact]
+    public async Task The_spawned_handle_reaches_the_caller_before_the_first_collect()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+        SessionHandle? received = null;
+        int spawnsSeen = -1;
+        int resumesSeen = -1;
+
+        JudgmentOutcome outcome = await Judgment.RunAsync(
+            executor,
+            Request,
+            (handle, _) =>
+            {
+                received = handle;
+                spawnsSeen = executor.Spawns.Count;
+                resumesSeen = executor.Resumes.Count;
+                return ValueTask.CompletedTask;
+            },
+            CancellationToken.None);
+
+        received.Should().Be(outcome.Session);
+        spawnsSeen.Should().Be(1);
+        resumesSeen.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_failure_after_the_spawn_stops_the_session_and_rethrows()
+    {
+        ScriptedExecutor executor = Executor();
+
+        Func<Task> run = () => Judgment.RunAsync(executor, Request, CancellationToken.None);
+
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
+        executor.Stops.Should().Equal(executor.Spawns.Should().ContainSingle().Subject.Handle);
+        (await executor.ListAsync(CancellationToken.None)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_cancellation_after_the_caller_took_the_handle_leaves_the_session_for_a_reattach()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+        using var cancellation = new CancellationTokenSource();
+        SessionHandle? received = null;
+
+        Func<Task> run = () => Judgment.RunAsync(
+            executor,
+            Request,
+            async (handle, _) =>
+            {
+                received = handle;
+                await cancellation.CancelAsync();
+            },
+            cancellation.Token);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        executor.Stops.Should().BeEmpty();
+        SessionHandle taken = received.Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
+        (await executor.ReattachAsync(taken, CancellationToken.None)).Should().Be(taken);
+    }
+
+    [Fact]
+    public async Task A_cancellation_before_the_caller_took_the_handle_stops_the_session()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+
+        Func<Task> run = () => Judgment.RunAsync(
+            executor,
+            Request,
+            (_, _) => throw new OperationCanceledException(),
+            CancellationToken.None);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        executor.Stops.Should().Equal(executor.Spawns.Should().ContainSingle().Subject.Handle);
+    }
+
+    [Fact]
+    public async Task An_unknown_schema_is_refused_before_anything_is_spawned()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+
+        Func<Task> run = () => Judgment.RunAsync(executor, Request with { AnswerSchema = "reveiw" }, CancellationToken.None);
+
+        await run.Should().ThrowAsync<DomainException>().WithMessage("*'reveiw'*");
+        executor.Spawns.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_schema_other_than_the_agents_own_is_refused_before_anything_is_spawned()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+
+        Func<Task> run = () => Judgment.RunAsync(executor, Request with { AnswerSchema = AnswerSchemas.Build }, CancellationToken.None);
+
+        await run.Should().ThrowAsync<DomainException>().WithMessage($"*'{AnswerSchemas.Build}'*'{Agent}'*'{AnswerSchemas.Review}'*");
+        executor.Spawns.Should().BeEmpty();
     }
 }
