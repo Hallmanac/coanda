@@ -1,4 +1,6 @@
 using Coanda.Core.Definitions.Events;
+using Coanda.Core.Flows;
+using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Definitions;
@@ -10,6 +12,13 @@ namespace Coanda.Core.Definitions;
 /// </summary>
 public static class DefinitionDecider
 {
+    /// <summary>
+    /// Every action name a flow may use: the core catalog and the software catalog. The flow's own
+    /// validation takes the names as an input and knows neither catalog.
+    /// </summary>
+    public static readonly IReadOnlySet<string> KnownActions =
+        new HashSet<string>([.. CoreActions.All, .. SoftwareActions.All], StringComparer.Ordinal);
+
     /// <summary>
     /// Drafts the next version of a definition. <paramref name="latestVersion"/> is the highest
     /// version already recorded for the same kind, scope, and name (and project, in project
@@ -120,6 +129,11 @@ public static class DefinitionDecider
             RequireParcelType(trimmedName, content, contentHash);
         }
 
+        if (kind == DefinitionKind.Flow)
+        {
+            RequireFlow(trimmedName, content, contentHash);
+        }
+
         return new DefinitionDrafted(
             Ids.New(), kind, trimmedName, scope, trimmedProject, latestVersion + 1, content, contentHash, forkBase, draftedBy, now);
     }
@@ -138,6 +152,23 @@ public static class DefinitionDecider
         {
             throw new DomainException(
                 $"The content hash '{contentHash}' differs from the parcel type's hash '{type.Hash}'.");
+        }
+    }
+
+    private static void RequireFlow(string name, string content, string contentHash)
+    {
+        FlowDefinition flow = FlowDefinition.FromJson(content);
+        flow.Validate(KnownActions);
+
+        if (!string.Equals(flow.Name, name, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainException($"A flow definition is named for its flow; '{name}' holds the flow '{flow.Name}'.");
+        }
+
+        if (!string.Equals(flow.Hash, contentHash, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"The content hash '{contentHash}' differs from the flow's hash '{flow.Hash}'.");
         }
     }
 
