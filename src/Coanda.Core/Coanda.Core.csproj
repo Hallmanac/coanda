@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <PackageReference Include="UUIDNext" />
+    <!-- MIT. Validates an agent's answer against a shipped JSON Schema; no store dependency. -->
+    <PackageReference Include="NJsonSchema" />
     <!-- The event store dispatches Apply methods through this compile-time generator; the aggregate lives here, so the generator runs here. -->
     <PackageReference Include="JasperFx.Events" />
     <PackageReference Include="JasperFx.Events.SourceGenerator" />
