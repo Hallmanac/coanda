@@ -192,7 +192,9 @@ public sealed class ScriptedCommandRunner : ICommandRunner
                 case ["for-each-ref", _, string reference] when reference.StartsWith("refs/heads/", StringComparison.Ordinal):
                     return Ok(clone.Branches.TryGetValue(reference["refs/heads/".Length..], out string? tip) ? tip + "\n" : string.Empty);
                 case ["for-each-ref", _, string reference]:
-                    return Ok(clone.TrackingRefs.TryGetValue(reference, out string? tracked) ? tracked + "\n" : string.Empty);
+                    return Ok(clone.TrackingRefs.TryGetValue(reference, out string? tracked)
+                        ? tracked + "\n"
+                        : string.Empty);
                 case ["update-ref", string reference, string head]:
                     clone.TrackingRefs[reference] = head;
                     return Ok();

@@ -41,8 +41,12 @@ public sealed class GitHubToken(ICommandRunner runner, NodeHome home)
         if (!result.Succeeded)
         {
             IReadOnlyList<string> lines = OutputText.LastLines(result.StandardError, QuotedLines);
-            string ended = result.TimedOut ? $"was still running after {Durations.Describe(Limit)} and was ended" : $"exited with code {result.ExitCode}";
-            string quoted = lines.Count == 0 ? "it wrote no error output." : $"its error output ends:\n{string.Join('\n', lines)}";
+            string ended = result.TimedOut
+                ? $"was still running after {Durations.Describe(Limit)} and was ended"
+                : $"exited with code {result.ExitCode}";
+            string quoted = lines.Count == 0
+                ? "it wrote no error output."
+                : $"its error output ends:\n{string.Join('\n', lines)}";
             throw new GitHubTokenUnavailableException(OutputText.Redact($"gh auth token --hostname {GitHubClient.Host} {ended}; {quoted}"));
         }
 

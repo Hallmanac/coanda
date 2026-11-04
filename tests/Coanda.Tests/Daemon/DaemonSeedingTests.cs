@@ -10,10 +10,9 @@ using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
+using Coanda.Tests.Core;
 using Fisher;
 using JasperFx.Events.Documents;
-
-using Coanda.Tests.Core;
 
 namespace Coanda.Tests.Daemon;
 

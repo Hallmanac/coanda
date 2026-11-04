@@ -51,9 +51,13 @@ public sealed partial record GitHubRepository
     public static string Redact(string remote)
     {
         int scheme = remote.IndexOf("://", StringComparison.Ordinal);
-        int start = scheme < 0 ? 0 : scheme + 3;
+        int start = scheme < 0
+            ? 0
+            : scheme + 3;
         int at = remote.LastIndexOf('@');
-        string kept = at < start ? remote : remote[..start] + remote[(at + 1)..];
+        string kept = at < start
+            ? remote
+            : remote[..start] + remote[(at + 1)..];
         return OutputText.Redact(kept);
     }
 

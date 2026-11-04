@@ -181,7 +181,9 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
 
         using Held held = await LockAsync(clone, cancellationToken);
         string status = await git.RunAsync(Git.In(workPath, "status", "--porcelain", "--untracked-files=all"), cancellationToken);
-        string[] changes = [.. Lines(status).Select(l => l.Length > 3 ? l[3..] : l)];
+        string[] changes = [.. Lines(status).Select(l => l.Length > 3
+            ? l[3..]
+            : l)];
         if (changes.Length > 0)
         {
             return new Push.Unclean(changes);
