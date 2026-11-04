@@ -850,11 +850,12 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     [Fact]
     public async Task Stopping_a_session_whose_process_already_answered_succeeds_and_reports_nothing_in_progress()
     {
-        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
+        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m, waitFor: "release"));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         (await executor.ListAsync(None)).Should().Equal(handle);
         (await executor.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle));
+        fake.Release();
         await executor.CollectAsync(handle, None);
 
         (await executor.StopAsync(handle, None)).Should().BeNull();
