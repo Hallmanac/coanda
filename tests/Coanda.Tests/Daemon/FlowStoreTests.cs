@@ -10,6 +10,7 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Fisher;

@@ -1,5 +1,5 @@
 using Coanda.Cli;
-using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 
 namespace Coanda.Tests.Daemon.Flows;
 

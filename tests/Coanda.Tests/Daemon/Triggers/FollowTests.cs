@@ -3,6 +3,7 @@ using Coanda.Cli.Commands;
 using Coanda.Core.Contours;
 using Coanda.Core.Software;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.Flows;
 

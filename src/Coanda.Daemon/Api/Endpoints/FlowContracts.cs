@@ -1,37 +1,10 @@
 using System.Text.Json;
 using Coanda.Core.Agents;
-using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
-using Coanda.Core.Parcels;
 
-namespace Coanda.Daemon.Api;
-
-public sealed record ParcelAddRequest(string Project, string Type, string Title, string? State);
-
-public sealed record ParcelMoveRequest(string Project, Guid ParcelId, string To);
-
-public sealed record ParcelCloseRequest(string Project, Guid ParcelId, string Resolution, string Reason);
+namespace Coanda.Daemon.Api.Endpoints;
 
 public sealed record FlowStartRequest(string Project, Guid ParcelId, string Contour);
-
-public sealed record ParcelView(
-    Guid Id,
-    string Project,
-    string Type,
-    string TypeHash,
-    string State,
-    string Title,
-    string CreatedBy,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt,
-    string? Resolution,
-    string? CloseReason,
-    Guid? LiveFlowId)
-{
-    public static ParcelView From(Parcel parcel) => new(
-        parcel.Id, parcel.Project, parcel.TypeName, parcel.TypeHash, parcel.State, parcel.Title,
-        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlowId);
-}
 
 /// <summary>
 /// A flow as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or
@@ -97,17 +70,3 @@ public sealed record FlowStepView(
         entry.Kind == StepKind.Judgment ? "judgment" : "action",
         entry.Performer, entry.StartedAt, entry.AgentHash, entry.Model, entry.Answer, entry.Measurement, entry.Result, entry.RecordedAt);
 }
-
-public sealed record TypeView(string Name, string Hash, IReadOnlyList<string> States, IReadOnlyList<string> Resolutions);
-
-public sealed record ContourView(string Name, int Version, string Hash);
-
-public sealed record AgentView(string Name, int Version, ModelSpec Model, string Hash)
-{
-    public static AgentView From(Definition definition) => new(
-        definition.Name, definition.VersionNumber, AgentDefinition.FromJson(definition.Content).Model, definition.ContentHash);
-}
-
-public sealed record DaemonStatusView(int Pid, int Port, DateTimeOffset StartedAt, string Version, string Home, string Database);
-
-public sealed record ErrorView(string Error);
