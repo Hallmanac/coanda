@@ -131,7 +131,6 @@ public sealed class FlowRunnerTests
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
 
         FlowView started = await Flowing.BoundAsync(client, Project, parcel.Id);
@@ -140,7 +139,7 @@ public sealed class FlowRunnerTests
         int spawnsAtFirst = executor.Spawns.Count;
 
         // The clean transition is capped at 5, so a fifth visit could still route, and the resume performs it.
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "One more look.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "One more look.");
         FlowView second = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         executor.Spawns.Should().HaveCount(spawnsAtFirst + 1);
@@ -150,7 +149,7 @@ public sealed class FlowRunnerTests
         List<ScriptedSpawn> spawnsAtSecond = [.. executor.Spawns];
 
         // No transition out of the step allows a sixth visit, so the resume pauses before entering it.
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "And another.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "And another.");
         FlowView third = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         third.Lever.Should().Be(FlowLevers.VisitCapsSpent("adversarial-review"));
@@ -160,7 +159,7 @@ public sealed class FlowRunnerTests
         third.Spawns.Should().Be(second.Spawns);
 
         // Resuming that pause pauses the same way, still performing nothing.
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Once more.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Once more.");
         FlowView fourth = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         fourth.Lever.Should().Be(FlowLevers.VisitCapsSpent("adversarial-review"));
@@ -172,7 +171,7 @@ public sealed class FlowRunnerTests
     }
 
     [Fact]
-    public async Task A_wait_for_human_step_pauses_with_its_lever_and_a_resume_through_the_flow_service_carries_the_flow_to_its_end()
+    public async Task A_wait_for_human_step_pauses_with_its_lever_and_a_resume_through_the_api_carries_the_flow_to_its_end()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
@@ -207,7 +206,7 @@ public sealed class FlowRunnerTests
         paused.Lever.Should().Be("Read the task and resume to approve it.");
         paused.PauseReason.Should().Contain("Step 'approve'");
 
-        await daemon.Services.GetRequiredService<FlowService>().ResumeAsync(Principal.LocalOwner, Project, started.Id, "Approved.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Approved.");
         FlowView ended = await Flowing.UntilAsync(client, Project, started.Id, "ended");
 
         ended.Outcome.Should().Be("approved");
@@ -368,8 +367,7 @@ public sealed class FlowRunnerTests
         FlowView paused = await Flowing.UntilAsync(client, Project, started.Id, "paused");
         paused.PauseReason.Should().Contain("reached its spawn cap of 1");
 
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowView after = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         after.PauseReason.Should().Be("Contour 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
@@ -401,14 +399,13 @@ public sealed class FlowRunnerTests
             Steps = [Judge("build", "build", Contour.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unanswered", null), None);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
 
         FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, refused.Name);
         FlowView first = await Flowing.UntilAsync(client, Project, started.Id, "paused");
         first.PauseReason.Should().Contain("gave no valid 'build' answer");
         first.Spawns.Should().Be(1);
 
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowView second = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         second.PauseReason.Should().Contain("gave no valid 'build' answer");
@@ -417,7 +414,7 @@ public sealed class FlowRunnerTests
         second.Steps.Should().ContainSingle("the resume performed the same visit again rather than entering the step anew");
         second.Steps[0].Answer.Should().BeNull();
 
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Once more.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Once more.");
         FlowView capped = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         capped.PauseReason.Should().Be("Contour 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
@@ -449,11 +446,10 @@ public sealed class FlowRunnerTests
             Steps = [Judge("build", "build", Contour.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Late answer", null), None);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
 
         FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, once.Name);
         await Flowing.UntilAsync(client, Project, started.Id, "paused");
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowView ended = await Flowing.UntilAsync(client, Project, started.Id, "ended");
 
         ended.Outcome.Should().Be("built");
@@ -485,11 +481,10 @@ public sealed class FlowRunnerTests
             Steps = [Judge("a", "build", "b"), Judge("b", "build", Contour.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Chained", null), None);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
 
         FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, chained.Name);
         await Flowing.UntilAsync(client, Project, started.Id, "paused");
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowView capped = await Flowing.UntilAsync(client, Project, started.Id, "paused");
 
         capped.PauseReason.Should().Contain("spawn cap of 2", "the answer is routed against the spawn the resume counted");
@@ -521,7 +516,6 @@ public sealed class FlowRunnerTests
             Steps = [Judge("build", "late-builder", Contour.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "No agent yet", null), None);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
 
         FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, late.Name);
         FlowView paused = await Flowing.UntilAsync(client, Project, started.Id, "paused");
@@ -533,7 +527,7 @@ public sealed class FlowRunnerTests
         Definition draft = await definitions.DraftAsync(
             Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "The agent is published now.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "The agent is published now.");
         FlowView ended = await Flowing.UntilAsync(client, Project, started.Id, "ended");
 
         ended.Outcome.Should().Be("built");
@@ -641,7 +635,7 @@ public sealed class FlowRunnerTests
         failed.Current?.SessionId.Should().BeNull("the spawn returned no session");
         executor.Inner.Spawns.Should().BeEmpty();
 
-        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try the launch again.", None);
+        await Flowing.ResumeAsync(client, Project, started.Id, "Try the launch again.");
         FlowView ended = await Flowing.UntilAsync(client, Project, started.Id, "ended");
 
         ended.Outcome.Should().Be("built");
@@ -848,7 +842,6 @@ public sealed class FlowRunnerTests
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
         ParcelView first = await Flowing.TaskAtBuildAsync(client, Project, "Called off");
 
         FlowView doomed = await Flowing.BoundAsync(client, Project, first.Id);
@@ -856,7 +849,7 @@ public sealed class FlowRunnerTests
         // Collecting, not Spawned: the session id is recorded on the flow after the spawn returns,
         // and a stop that lands before it is refused as a concurrent change.
         await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
-        await flows.StopAsync(Principal.LocalOwner, Project, doomed.Id, "Not needed any more.", None);
+        await Flowing.StopAsync(client, Project, doomed.Id, "Not needed any more.");
         executor.Open();
         await Flowing.UntilAsync(() => executor.Inner.Stops.Count == 1, "the stopped flow's session is ended");
 

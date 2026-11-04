@@ -14,7 +14,6 @@ using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
 using Coanda.Tests.Daemon.Flows;
 using Fisher;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
 
@@ -144,8 +143,7 @@ public sealed class PhaseOneGateTests
         first.Result.Should().BeNull();
         executor.Spawns.Should().HaveCount(3, "only the flows at depths 0, 1, and 2 spawned");
 
-        FlowService service = daemon.Services.GetRequiredService<FlowService>();
-        Flow resumed = await service.ResumeAsync(Principal.LocalOwner, Project, capped.Id, "Go on anyway.", None);
+        FlowView resumed = await Flowing.ResumeAsync(client, Project, capped.Id, "Go on anyway.");
         FlowView again = await PausedAfterAsync(client, capped.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(capped.PauseReason, "a resume is no override of the depth cap");
@@ -231,7 +229,7 @@ public sealed class PhaseOneGateTests
         paused.PauseUsage.Should().Be(new Measurement(1000, 25m, 5, TimeSpan.FromSeconds(60)), "the pause records both attempts' usage");
         paused.Cost.Should().Be(25m);
 
-        Flow resumed = await daemon.Services.GetRequiredService<FlowService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Try once more.", None);
+        FlowView resumed = await Flowing.ResumeAsync(client, Project, paused.Id, "Try once more.");
         FlowView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(
