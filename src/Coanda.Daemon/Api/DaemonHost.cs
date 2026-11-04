@@ -75,6 +75,8 @@ public sealed class DaemonHost
         // Registered after the runner, so it stops first: a start it makes while stopping is advanced on the next start.
         builder.Services.AddHostedService(services => services.GetRequiredService<TriggerLoop>());
 
+        builder.Services.AddOpenApi();
+
         WebApplication app = builder.Build();
 
         // The token check runs first for everything but /health; the DomainException mapping sits
@@ -88,6 +90,9 @@ public sealed class DaemonHost
         app.MapAgentEndpoints();
         app.MapFlowEndpoints();
         app.MapParcelEndpoints();
+
+        // Served in every environment: the slim builder's environment is Production unless set.
+        app.MapOpenApi();
 
         await app.StartAsync(cancellationToken);
 
