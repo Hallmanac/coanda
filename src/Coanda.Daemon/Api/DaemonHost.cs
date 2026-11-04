@@ -10,6 +10,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
 using Fisher;
@@ -67,6 +68,7 @@ public sealed class DaemonHost
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<GateSet>(),
             services.GetRequiredService<FlowActions>().Names));
+        builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<ContourService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
@@ -97,6 +99,7 @@ public sealed class DaemonHost
         app.MapContourEndpoints();
         app.MapAgentEndpoints();
         app.MapFlowEndpoints();
+        app.MapProjectEndpoints();
         app.MapParcelEndpoints();
 
         // Served in every environment: the slim builder's environment is Production unless set.

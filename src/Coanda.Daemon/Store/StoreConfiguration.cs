@@ -1,6 +1,7 @@
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
+using Coanda.Core.Projects;
 using Coanda.Core.Triggers;
 using Fisher;
 using JasperFx.MultiTenancy;
@@ -30,6 +31,7 @@ public static class StoreConfiguration
         options.Connection($"Data Source={databasePath}");
         options.Events.TenancyStyle = TenancyStyle.Conjoined;
         options.Policies.AllDocumentsAreMultiTenanted();
+        options.Projections.Snapshot<Project>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Flow>(SnapshotLifecycle.Inline);
