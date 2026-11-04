@@ -310,7 +310,13 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("cd alpha ${x:- #} && cat daemon.json")]
     [InlineData("ls (#i)x; cd alpha . && cat daemon.json")]
     [InlineData("cd alpha \\#x && cat daemon.json")]
-    public void A_cd_given_two_directories_which_zsh_reads_as_a_replacement_is_refused(string command) =>
+    [InlineData("pushd alpha . && cat daemon.json")]
+    [InlineData("pushd -q alpha . && cat daemon.json")]
+    [InlineData("pushd -- alpha . && cat daemon.json")]
+    [InlineData("pushd alpha 12>x && cat daemon.json")]
+    [InlineData("pushd +1 . && cat daemon.json")]
+    [InlineData("builtin pushd alpha . && cat daemon.json")]
+    public void A_cd_or_pushd_given_two_directories_which_zsh_reads_as_a_replacement_is_refused(string command) =>
         RefusedUnknowable(Guard(Call("Bash", new { command })));
 
     [Theory]
