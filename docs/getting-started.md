@@ -66,8 +66,9 @@ again.
 
 When the build flow ends, the merge contour follows it on the same task with no step taken by hand.
 It inspects the pull request and merges it through GitHub's API, never through auto-merge, and only
-when the pull request is open against the primary branch, its head is the commit the build pushed,
-that head is not behind the primary branch, GitHub reports it mergeable, and every check the
+when the pull request is open against the primary branch, its head is the commit last pushed for
+the task (by the build, or by a later rebase lap, after which it is the rebased commit), that head
+is not behind the primary branch, GitHub reports it mergeable, and every check the
 project names has succeeded with no other check failed or still running. The merge then closes the
 task as completed. While checks are still running it waits a minute and looks again, for
 twenty-three minutes in all, less a minute for each rebase it made, and then pauses. A resume after
@@ -84,7 +85,7 @@ The checks given replace the project's list, and `coa project show` prints them.
 
 When the head is behind the primary branch, the merge rebases it rather than land a tree CI never
 ran, whatever its checks report. It checks the branch out in a worktree of its own, rebases the
-commit the build pushed onto the primary branch as a fresh fetch brings it, and pushes the result
+commit last pushed for the task onto the primary branch as a fresh fetch brings it, and pushes the result
 with a lease that expects that commit on the remote. Then it waits a minute and inspects the pull
 request again, holding it to the rebased commit and waiting for the checks on it, as it did on the
 commit before. No review runs again: a rebase that applies cleanly is not a code change anyone
