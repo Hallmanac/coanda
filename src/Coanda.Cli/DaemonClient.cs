@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Store;
 
 namespace Coanda.Cli;
 
@@ -44,6 +45,8 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
             return running;
         }
 
+        // Said here as well as by the daemon, which reports it only to its log.
+        PreRenameStore.ThrowIfFound(Home);
         DaemonInfo.Delete(Home);
         StartDetached();
 

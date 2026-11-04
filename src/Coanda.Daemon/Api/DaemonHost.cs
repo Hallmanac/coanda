@@ -47,6 +47,9 @@ public sealed class DaemonHost
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.JudgmentLimit, TimeSpan.Zero, nameof(options));
         home.EnsureExists();
+
+        // Before the store is configured, which would add this build's tables to an old record.
+        PreRenameStore.ThrowIfFound(home);
         string token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
 

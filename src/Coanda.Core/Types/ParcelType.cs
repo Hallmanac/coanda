@@ -189,8 +189,10 @@ public sealed record ParcelType
     }
 
     /// <summary>
-    /// The bindings join the hashed shape only when the type has some, so a type that binds nothing
-    /// keeps the hash it had before bindings existed and the parcels created under it still resolve.
+    /// The bindings join the hashed shape only when the type has some, so adding bindings to the
+    /// shape left the hash of a type that binds nothing as it was. That holds for bindings alone: a
+    /// change to the lifecycle's own keys or states (the paused state of 2026-11-03, for one) changes
+    /// every type's hash, and a record written before such a change is not read across it.
     /// </summary>
     private string ComputeHash()
     {

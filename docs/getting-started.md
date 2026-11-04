@@ -9,3 +9,8 @@ coa parcel list
 ```
 
 Nothing here needs configuring. The software engineering lifecycle is installed by default.
+
+If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
+when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
+flows also changed: `coa contour start <contour> --parcel <id>` starts a flow, and `coa flow list`
+and `coa flow show` read them. [The overview](overview.md#operating) has the full list.
