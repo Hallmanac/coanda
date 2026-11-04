@@ -14,7 +14,9 @@ namespace Coanda.Cli;
 public sealed class DaemonClient(NodeHome home) : IDisposable
 {
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
-    private readonly HttpClient http = new();
+
+    // One client for the process, so a long-running command never exhausts sockets by making one per call.
+    private static readonly HttpClient Http = new();
 
     public NodeHome Home { get; } = home;
 
@@ -28,7 +30,7 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
 
         try
         {
-            using HttpResponseMessage response = await http.GetAsync($"{info.BaseAddress}/health", cancellationToken);
+            using HttpResponseMessage response = await Http.GetAsync($"{info.BaseAddress}/health", cancellationToken);
             return response.IsSuccessStatusCode ? info : null;
         }
         catch (HttpRequestException)
@@ -84,7 +86,7 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
     {
         DaemonInfo info = await EnsureRunningAsync(cancellationToken);
         using HttpRequestMessage request = Request(HttpMethod.Get, info, path);
-        using HttpResponseMessage response = await http.SendAsync(request, cancellationToken);
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
         return await ReadAsync<T>(response, cancellationToken);
     }
 
@@ -93,7 +95,7 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
         DaemonInfo info = await EnsureRunningAsync(cancellationToken);
         using HttpRequestMessage request = Request(HttpMethod.Post, info, path);
         request.Content = JsonContent.Create(body ?? new { });
-        using HttpResponseMessage response = await http.SendAsync(request, cancellationToken);
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
         return await ReadAsync<T>(response, cancellationToken);
     }
 
@@ -107,7 +109,7 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
 
         using HttpRequestMessage request = Request(HttpMethod.Post, info, "/stop");
         request.Content = JsonContent.Create(new { });
-        using HttpResponseMessage response = await http.SendAsync(request, cancellationToken);
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -139,5 +141,11 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
         throw new DomainException(error?.Error ?? $"The daemon answered {(int)response.StatusCode}.");
     }
 
-    public void Dispose() => http.Dispose();
+    /// <summary>
+    /// Kept so every caller's <c>using</c> still reads naturally; the shared client outlives every
+    /// instance, so there is nothing of this instance's own to release.
+    /// </summary>
+    public void Dispose()
+    {
+    }
 }
