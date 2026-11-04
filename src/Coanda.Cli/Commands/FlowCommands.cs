@@ -46,7 +46,7 @@ public sealed class FlowListCommand : AsyncCommand<FlowListSettings>
     }
 }
 
-public sealed class FlowIdSettings : ProjectSettings
+public class FlowIdSettings : ProjectSettings
 {
     [CommandArgument(0, "<ID>")]
     [Description("The flow's id or its short form, the last eight characters.")]
@@ -65,6 +65,48 @@ public sealed class FlowShowCommand : AsyncCommand<FlowIdSettings>
             AnsiConsole.WriteLine(line);
         }
 
+        return 0;
+    }
+}
+
+public sealed class FlowStopSettings : FlowIdSettings
+{
+    [CommandOption("--reason <REASON>")]
+    [Description("Why the flow stops, in a sentence.")]
+    public required string Reason { get; init; }
+}
+
+public sealed class FlowStopCommand : AsyncCommand<FlowStopSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, FlowStopSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        FlowView found = await FlowLookup.FindAsync(client, project, settings.Id, cancellationToken);
+        FlowView flow = await client.PostAsync<FlowView>(
+            $"/flows/{found.Id}/stop", new FlowStopRequest(project, settings.Reason), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Stopped flow {Ids.Short(flow.Id)}; parcel {Ids.Short(flow.ParcelId)} is free to move or close.");
+        return 0;
+    }
+}
+
+public sealed class FlowResumeSettings : FlowIdSettings
+{
+    [CommandOption("--note <NOTE>")]
+    [Description("What changed since the pause, for the flow's record.")]
+    public string? Note { get; init; }
+}
+
+public sealed class FlowResumeCommand : AsyncCommand<FlowResumeSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, FlowResumeSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        FlowView found = await FlowLookup.FindAsync(client, project, settings.Id, cancellationToken);
+        FlowView flow = await client.PostAsync<FlowView>(
+            $"/flows/{found.Id}/resume", new FlowResumeRequest(project, settings.Note), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Resumed flow {Ids.Short(flow.Id)} at {flow.CurrentStep}; the daemon advances it from there.");
         return 0;
     }
 }

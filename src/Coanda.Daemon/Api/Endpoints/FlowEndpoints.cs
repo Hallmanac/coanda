@@ -42,6 +42,23 @@ public static class FlowEndpoints
             })
             .Produces<FlowView>(StatusCodes.Status201Created);
 
+        group.MapPost("/{id:guid}/stop", async (HttpContext context, FlowService flows, Guid id, FlowStopRequest request, CancellationToken cancellationToken) =>
+            {
+                string project = request.Project.Trim();
+                Flow flow = await flows.StopAsync(RequestPrincipal.PrincipalOf(context), project, id, request.Reason, cancellationToken);
+                return Results.Ok(FlowView.From(project, flow));
+            })
+            .Produces<FlowView>();
+
+        group.MapPost("/{id:guid}/resume", async (HttpContext context, FlowService flows, Guid id, FlowResumeRequest request, CancellationToken cancellationToken) =>
+            {
+                // The service hands a resumed flow to the daemon's workers; the resume answers without waiting for it.
+                string project = request.Project.Trim();
+                Flow flow = await flows.ResumeAsync(RequestPrincipal.PrincipalOf(context), project, id, request.Note, cancellationToken);
+                return Results.Ok(FlowView.From(project, flow));
+            })
+            .Produces<FlowView>();
+
         return routes;
     }
 }

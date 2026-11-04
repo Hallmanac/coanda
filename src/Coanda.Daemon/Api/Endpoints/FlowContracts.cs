@@ -6,6 +6,10 @@ namespace Coanda.Daemon.Api.Endpoints;
 
 public sealed record FlowStartRequest(string Project, Guid ParcelId, string Contour);
 
+public sealed record FlowStopRequest(string Project, string Reason);
+
+public sealed record FlowResumeRequest(string Project, string? Note);
+
 /// <summary>
 /// A flow as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or
 /// stopped; a running or paused flow is the live one its parcel names. A flow a follow started

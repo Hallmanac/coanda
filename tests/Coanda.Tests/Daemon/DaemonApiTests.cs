@@ -89,6 +89,45 @@ public sealed class DaemonApiTests
         await daemon.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task A_person_resumes_or_stops_the_flow_that_holds_a_parcel_through_the_api_and_a_stop_frees_the_parcel()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        using var client = new DaemonClient(temp.Home);
+        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+
+        ParcelView parcel = await client.PostAsync<ParcelView>(
+            "/parcels", new ParcelAddRequest("coanda", "task", "Held, then let go", null), CancellationToken.None);
+        Flow flow = await flows.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
+        await flows.PauseAsync(Principal.LocalOwner, "coanda", flow.Id, "Waiting on a person.", "resume", CancellationToken.None);
+
+        FlowView resumed = await client.PostAsync<FlowView>(
+            $"/flows/{flow.Id}/resume", new FlowResumeRequest("coanda", "Carry on."), CancellationToken.None);
+        resumed.Status.Should().Be("running");
+
+        await FluentActions.Awaiting(() => client.PostAsync<FlowView>(
+                $"/flows/{flow.Id}/stop", new FlowStopRequest("coanda", " "), CancellationToken.None))
+            .Should().ThrowAsync<DomainException>().WithMessage("Stopping a flow records why; give a reason.");
+
+        FlowView stopped = await client.PostAsync<FlowView>(
+            $"/flows/{flow.Id}/stop", new FlowStopRequest("coanda", "Taking this by hand."), CancellationToken.None);
+        stopped.Status.Should().Be("stopped");
+        stopped.StopReason.Should().Be("Taking this by hand.");
+
+        ParcelView freed = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
+        freed.LiveFlowId.Should().BeNull("a stopped flow releases its parcel");
+        ParcelView closed = await client.PostAsync<ParcelView>(
+            "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "abandoned", "Done by hand."), CancellationToken.None);
+        closed.Resolution.Should().Be("abandoned");
+
+        await FluentActions.Awaiting(() => client.PostAsync<FlowView>(
+                $"/flows/{flow.Id}/resume", new FlowResumeRequest("coanda", null), CancellationToken.None))
+            .Should().ThrowAsync<DomainException>().WithMessage("*only a paused flow resumes.");
+
+        await daemon.StopAsync(CancellationToken.None);
+    }
+
     private static async Task RefusedAsync(HttpClient http, RunningDaemon daemon, string path, object body, string principal, string message)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body, body.GetType()) };
