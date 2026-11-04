@@ -32,10 +32,20 @@ public static class AnswerValidator
         ICollection<ValidationError> failures = Compiled.Value[schema.Name].Validate(text);
         return failures.Count == 0
             ? AnswerValidation.Valid
-            : new AnswerValidation([.. failures.Select(Describe)]);
+            : new AnswerValidation([.. failures.SelectMany(Describe)]);
     }
 
-    private static string Describe(ValidationError error) => $"{error.Kind} at {error.Path ?? "#"}";
+    // An error inside an array item or a subschema arrives as a ChildSchemaValidationError whose
+    // children hold the actual cause. Each child's path is already the full path from the root, so
+    // the enclosing line is kept and every child is listed after it, recursively.
+    private static IEnumerable<string> Describe(ValidationError error) => error switch
+    {
+        ChildSchemaValidationError child =>
+            [Line(error), .. child.Errors.Values.SelectMany(errors => errors).SelectMany(Describe)],
+        _ => [Line(error)],
+    };
+
+    private static string Line(ValidationError error) => $"{error.Kind} at {error.Path ?? "#"}";
 
     private static JsonSchema Compile(AnswerSchema schema) =>
         // The schema text is in memory, so this completes synchronously; there is nothing to cancel.

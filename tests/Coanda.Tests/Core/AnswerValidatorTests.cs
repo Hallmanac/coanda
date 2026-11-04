@@ -94,6 +94,33 @@ public sealed class AnswerValidatorTests
     }
 
     [Fact]
+    public void A_finding_missing_its_title_is_named_with_its_kind_and_full_path()
+    {
+        AnswerValidation outcome = AnswerValidator.Validate("review", """{"verdict":"not-clean","findings":[{"detail":"no title"}]}""");
+
+        outcome.Failures.Should().Contain(f => f.Contains("PropertyRequired") && f.Contains("#/findings[0].title"));
+    }
+
+    [Fact]
+    public void Each_wrongly_typed_property_inside_a_finding_gets_its_own_line()
+    {
+        AnswerValidation outcome = AnswerValidator.Validate(
+            "review", """{"verdict":"not-clean","findings":[{"title":"ok"},{"title":3,"detail":4}]}""");
+
+        outcome.Failures.Should().Contain(f => f.Contains("StringExpected") && f.Contains("#/findings[1].title"));
+        outcome.Failures.Should().Contain(f => f.Contains("StringExpected") && f.Contains("#/findings[1].detail"));
+    }
+
+    [Fact]
+    public void A_top_level_failure_keeps_its_text_alongside_a_nested_one()
+    {
+        AnswerValidation outcome = AnswerValidator.Validate("review", """{"verdict":"maybe","findings":[{"detail":"x"}]}""");
+
+        outcome.Failures.Should().Contain("NotInEnumeration at #/verdict");
+        outcome.Failures.Should().Contain(f => f.Contains("#/findings[0].title"));
+    }
+
+    [Fact]
     public void An_unknown_schema_name_is_refused()
     {
         FluentActions.Invoking(() => AnswerValidator.Validate("essay", """{"verdict":"done"}"""))
