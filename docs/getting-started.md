@@ -38,6 +38,20 @@ in `~/.ssh/config` instead, which still applies. For an https remote, a credenti
 holds the credential works. When any of these is missing, the flow pauses at its worktree step and
 the pause quotes git's own error.
 
+A build flow ends once its pull request is open. Its open-pr step pushes the flow's branch to the
+remote with git's own credentials, opens a pull request from it against the primary branch (or
+reuses the open one that already has that branch as its head), records it in the task's
+pull-request field, and moves the task to review; the merge is a contour of its own. So the remote
+has to be a github.com repository, written as `https://github.com/<owner>/<repo>`,
+`git@github.com:<owner>/<repo>`, or `ssh://git@github.com/<owner>/<repo>` (with or without `.git`),
+and the GitHub CLI has to be on the daemon's PATH and signed in, because the daemon calls GitHub's
+API with the token `gh auth token --hostname github.com` prints. Running `gh auth login` and then
+`gh auth setup-git` covers both the token and the push. The push is guarded by a lease on what the
+node last pushed, so a branch someone else updated on the remote is never overwritten: the flow
+pauses instead, and the way out is to stop it. Every other failure (changes left in the worktree,
+a remote in another form, no token, a push or a request GitHub refuses) pauses the flow at its
+open-pr step with the reason, and a resume performs the step again.
+
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
 Judgments run on Claude Code. With no configuration at all, the daemon runs each judgment as a
@@ -51,9 +65,10 @@ principal bound to its own flow; [how a session talks back](node-configuration.m
 names the variables it is given. The repository's Rider run
 configurations use `.coanda-dev` as their node home, and its checked-in `node.json` names the
 `scripted` executor, so a judgment run from them pauses at no cost instead of starting a Claude Code
-session; change that file to `claude-code` to run real sessions there. The worktree and gates steps
-are real even there: a build flow fetches from the project's remote and runs its build and test
-commands, so the prerequisites above apply to that home too.
+session; change that file to `claude-code` to run real sessions there. The worktree, gates, and
+open-pr steps are real even there: a build flow fetches from the project's remote, runs its build and
+test commands, and pushes and opens its pull request on GitHub, so the prerequisites above apply to
+that home too.
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
