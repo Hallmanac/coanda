@@ -1,19 +1,20 @@
 # Coanda: the system we would build today
 
-Written 2026-11-03 11:21 EST by the start-over exploration session, from the rulings Brian gave at the
-terminal on 2026-11-02 and 2026-11-03. The journal beside this file records each ruling with its
+Written 2026-11-03 11:21 EST by the start-over exploration session, from the rulings Brian gave at
+the terminal on 2026-11-02 and 2026-11-03. The journal beside this file records each ruling with its
 time; this document is the consolidated design. The previous version is kept as `design.md.*.prev`.
 Working name: Coanda (from the Coanda effect). Path command: `coa`.
 
 ## 1. The answer in one paragraph
 
-Coanda is a local-first work system whose product is flows: agentic workflows a user composes from
-agents and actions, started by triggers, run by a daemon, acting on units of work called parcels
-that move through user-definable lifecycles. It ships with a software engineering lifecycle
-(ideas through discovery, tasks through refine, build, review, closed) that a new project gets with
-nothing configured. It replaces hall9k at parity and then goes past it, because hall9k's engines
-become data, its store becomes one SQLite file per node, its transport becomes one signed event
-stream per node, and its vocabulary is reduced to parcel, type, flow, agent, action, trigger.
+Coanda is a local-first work system whose product is contours: agentic loops a user composes from
+agents and actions, each followed by flows that triggers start and a daemon runs, acting on units of
+work called parcels that move through user-definable lifecycles. It ships with a software
+engineering lifecycle (ideas through discovery, tasks through refine, build, review, closed) that a
+new project gets with nothing configured. It replaces hall9k at parity and then goes past it,
+because hall9k's engines become data, its store becomes one SQLite file per node, its transport
+becomes one signed event stream per node, and its vocabulary is reduced to parcel, type, contour,
+flow, agent, action, trigger.
 
 ## 2. What it is, and what it refuses
 
@@ -23,7 +24,7 @@ adapters fed from it and feeding into it.
 
 It refuses to be a programming language. Definitions route; they do not compute. If a decision
 needs reasoning, it is an agent (a judgment). If it needs a deterministic effect, it is an action in
-C#. Nothing else exists. Customization lives at exactly three seams, parcel types, flows, and
+C#. Nothing else exists. Customization lives at exactly three seams, parcel types, contours, and
 agents, each a validated table the daemon loads, never code the daemon runs. A need beyond those
 three is a new core action, not a fourth seam.
 
@@ -39,7 +40,7 @@ and both are seams.
 
 Everything hall9k learned carries over; what changes is where it lives and how it is expressed.
 Kept as kernel behaviour: hash arbitration for claims, the generation fence (local to a node),
-worktree per build, adopt-on-restart, park with a lever, two-lens fresh-context review, the
+worktree per build, adopt-on-restart, pause with a lever, two-lens fresh-context review, the
 pre-approved gated merge with the head-commit guard, the decisions and lessons record, two-tier
 identity with three replication scopes, vouches, revocation, and succession by ranked keys.
 Kept as doctrine: prescriptive lifecycle and permissive judgment, now raised one level (section 8);
@@ -57,8 +58,8 @@ original ids and dates.
 1. The store: one SQLite database per node, Marten's API through Fisher, the daemon as sole writer.
 2. The kernel: the meta-model for parcels, relations, claims, placement, budget, identity, and the
    core actions.
-3. Definitions: parcel types, flows, agents, as aggregates in the store, with scopes and forks.
-4. The interpreter: a pure function from a flow definition, the current position, and the last
+3. Definitions: parcel types, contours, agents, as aggregates in the store, with scopes and forks.
+4. The interpreter: a pure function from a contour, the current position, and the last
    answer to the next move.
 5. The executor seam: one interface to vendor agent runtimes, with a Claude Code adapter and a
    scripted test adapter.
@@ -80,7 +81,7 @@ second-writer problem Fisher's guidance warns about and removes store and code g
 CLI, which becomes thin.
 
 Conditions carried from the Fisher evaluation: pin the Fisher version; async projections carry
-version constants; write ceremony (optimistic concurrency) only on the parcel, the flow instance,
+version constants; write ceremony (optimistic concurrency) only on the parcel, the flow,
 and arbitration streams. hall9k uses none of the Marten features Fisher lacks (no compiled
 queries, no Newtonsoft, no child-collection LINQ, no bus); the 32 raw Postgres JSON path strings
 are rewritten.
@@ -133,72 +134,87 @@ pure pass-through or an encrypted store-and-forward buffer it cannot read is sti
 There are no locks or leases. Contention is settled by hash arbitration; the publish-and-fetch seam
 and the generation fence stay local to a node.
 
-## 7. Flows, triggers, and the interpreter
+## 7. Contours, flows, triggers, and the interpreter
 
-A flow is a sequence of steps. A judgment step names an agent and an answer schema; the daemon
-spawns the agent and validates its answer. An action step names something only the daemon does:
-spawn, wait for a human, wait for an external event, timer, emit outcome, move a parcel (the core,
-domain-free set); worktree, gates, open PR, gated merge, rebase (the software set). Each step has
-transitions: a table of answer field equals value, visited fewer than N times, go to step, else
-park. Caps are mandatory per transition and per flow (budget, spawns); the daemon refuses to load a
-flow without them. hall9k's task run is one flow: build, three reviews, fix, two reviews, fix, until
-clean or capped. Its plan run is a second. Idea discovery is a third. A flow may be one step.
+A contour is a sequence of steps, and a flow is one execution of a contour on a parcel: the flow
+follows the contour the way a Coanda flow follows the contour of a surface. A judgment step names an
+agent and an answer schema; the daemon spawns the agent and validates its answer. An action step
+names something only the daemon does: spawn, wait for a human, wait for an external event, timer,
+emit outcome, move a parcel (the core, domain-free set); worktree, gates, open PR, gated merge,
+rebase (the software set). Each step has transitions: a table of answer field equals value, visited
+fewer than N times, go to step, else pause. Caps are mandatory per transition and per contour
+(budget, spawns); the daemon refuses to load a contour without them. hall9k's task run is one
+contour: build, three reviews, fix, two reviews, fix, until clean or capped. Its plan run is a
+second. Idea discovery is a third. A contour may be one step. A flow pauses when it waits for a
+person or an external event, or when a cap or its budget is reached; a paused flow is live and is
+resumed or stopped, and a stopped flow is final.
 
 A trigger is an event subscription: an event kind plus equality filters, nothing more. A parcel
 entering a state on this node, a PR opened by a flow, a PR assigned to a person, a schedule tick, a
-manual start, another flow's typed outcome. A person may own a trigger (a subscription), which is
-what hall9k's personas become. If matching needs judgment, the flow starts with a judgment step
-that may answer "not for me".
+manual start, another flow's typed outcome. A trigger starts a flow of the contour it names. A
+person may own a trigger (a subscription), which is what hall9k's personas become. If matching
+needs judgment, the contour starts with a judgment step that may answer "not for me".
 
-Flows compose: a flow declares a typed outcome (PR opened, report produced, parcels derived), the
-next flow triggers on it, with a depth cap and a budget the chain shares.
+Contours compose: a contour declares a typed outcome (PR opened, report produced, parcels
+derived), and the next contour follows it, so a flow ending with that outcome starts a flow of the
+next contour on the same parcel, with a depth cap and a budget the chain shares.
 
-The interpreter is a pure function: given the flow, the position, and the answer just returned, it
-returns the next move (go to, park, end). Every flow instance records the content hash of the flow
-and of each agent it ran, so "did the new review flow help" is a query.
+The interpreter is a pure function: given the contour, the position, and the answer just
+returned, it returns the next move (go to, pause, end). Every flow records the content hash of its
+contour and of each agent it ran, so "did the new review contour help" is a query.
 
-One execution of a flow on a parcel is a flight (Brian, 2026-11-03 11:34 EST). "Run" is retired.
+Brian ruled on these words on 2026-11-03: a contour is the stored definition; a flow is one
+execution of a contour on a parcel, and it pauses and is resumed or stopped; an agent runs on a
+model spec. naming.md records the words they replace, and "run" stays retired.
 
 ## 8. Parcels and types
 
-A parcel is the unit of work a flow acts on and the place its state, record, park lever, and board
-row live. A parcel has exactly one type and one state. A parcel type is a definition declaring the
-lifecycle (states, allowed moves, entry states, exactly one terminal state with a resolution set),
-the fields, and the bindings: a gate before a transition and a flow after it. Those two extension
-points are the whole middleware story.
+A parcel is the unit of work a flow acts on and the place its state, record, and board row live; a
+pause and its lever live on the parcel's flow, and the paused state of the lifecycle is a person's
+pause of the parcel itself. A parcel has exactly one type and one state. A parcel type is a
+definition declaring the lifecycle (states, allowed moves, entry states, exactly one terminal state
+with a resolution set), the fields, and the bindings: a gate before a transition and a contour after
+it. Those two extension points are the whole middleware story.
 
 The kernel fixes the meta-model and nothing below it: identity and provenance, claim with hash
 arbitration, placement on a node, budget, and generic relations (derived-from, blocked-by,
 stacked-on, member-of). An epic is member-of with a name. A type declares which types it may
-derive. Relations stay within a project for now; crossing projects is parked until a real
+derive. Relations stay within a project for now; crossing projects waits until a real
 dependency between separately owned projects appears.
 
-The software bundle is two types. Idea, with a discovery lifecycle: open, discovery, parked, closed
+The software bundle is two types. Idea, with a discovery lifecycle: open, discovery, paused, closed
 (resolution split, concluded, or archived). Task, with a build lifecycle: refine, build, review,
-parked, closed (resolution completed, abandoned, superseded, duplicate). Discovery either carries
+paused, closed (resolution completed, abandoned, superseded, duplicate). Discovery either carries
 the idea forward or derives task parcels and closes the idea as split; each derived task starts at
 refine, as does a task created directly. Fields are gated: an objective and criteria to leave
-refine, a PR to leave build. QA is a flow bound to review; whether the PR waits on it is a gate on
-the move to closed. The words idea and task survive as type names; nobody relearns hall9k's
-vocabulary. Nothing software-specific (branch, worktree, gate, PR) leaks into the meta-model or
-the interpreter; those are fields of the software types and the software actions.
+refine, a PR to leave build. The build contour ends when its pull request opens: it opens the PR,
+moves the task to review, and ends with the outcome pr-opened. The merge is its own contour that
+follows, performing the gated merge with the head-commit guard and closing the task as completed as
+its ending act. QA is a contour that follows the build contour's pr-opened outcome on the same
+parcel, with its own depth cap and the chain's budget, and the merge contour follows QA's passing
+outcome where a project runs QA, or pr-opened where it does not, so the PR waits on QA by chaining.
+A contour bound to review starts only when a person moves the parcel there, never when the build
+flow's own step does, because a bound entry on a parcel with a live flow starts nothing and is never
+saved for later. The words idea and task survive as type names; nobody relearns hall9k's vocabulary.
+Nothing software-specific (branch, worktree, gate, PR) leaks into the meta-model or the interpreter;
+those are fields of the software types and the software actions.
 
 hall9k's task types map by one rule: a new parcel type when the lifecycle or the ending differs
-(review, spike), a new flow when only the work differs (content), a field when only the prompt
+(review, spike), a new contour when only the work differs (content), a field when only the prompt
 varies.
 
 Type versioning: a parcel records the content hash of its type at creation; a new type version
-applies to new parcels; an explicit migrate command moves an in-flight parcel only when its current
+applies to new parcels; an explicit migrate command moves an existing parcel only when its current
 state exists by name in the new version.
 
 ## 9. Definitions, scopes, and forks
 
-Parcel types, flows, and agents are aggregates in the store, created and changed by commands with a
-role-checked principal, replicated like any record. Files appear only for export, import, and an
+Parcel types, contours, and agents are aggregates in the store, created and changed by commands with
+a role-checked principal, replicated like any record. Files appear only for export, import, and an
 editing round-trip. Decisive reason: a project outside software has no git repo to hold files.
 
 Definitions carry a kernel-hardwired status: draft, published, retired. Only published governs
-work; publishing needs an owner-role principal. This is how an agent proposes a flow change (a
+work; publishing needs an owner-role principal. This is how an agent proposes a contour change (a
 draft) without it taking effect until a person publishes it. It is not a parcel lifecycle and is not
 called one.
 
@@ -218,13 +234,15 @@ by name. Credentials are per node, never in the store.
 
 ## 10. The executor seam
 
-One interface: spawn, collect, resume, send into a live session, stop, list, reattach after a
-daemon restart. An adapter per vendor renders an agent definition into the vendor's invocation:
-persona to system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config,
-skills to tier paths, model spec to flags; caps passed natively where the vendor has them, with
-the daemon's timer authoritative. Every judgment ends in one JSON document validated against the
-step's schema; invalid or missing is retried once, then the parcel parks with the transcript as the
-lever. hall9k's fifteen marker-line grammars do not exist.
+One interface: spawn, collect, resume, send into a live session, stop, list, reattach after a daemon
+restart. An adapter per vendor renders an agent definition into the vendor's invocation: persona to
+system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config, skills to
+tier paths, model spec to flags; caps passed natively where the vendor has them, with the daemon's
+timer authoritative. Every judgment ends in one JSON document validated against the step's schema;
+invalid or missing is retried once by resuming the same session, then the flow pauses with the
+transcript as the lever. The parcel keeps its state; its live flow is where the pause and the lever
+are found, and a resume performs the step again with a new spawn. hall9k's fifteen marker-line
+grammars do not exist.
 
 Spawn takes a credential profile. A node holds named profiles per vendor; a project carries a
 node-local, never-replicated setting naming its profile; a binding may override per agent. For
@@ -233,11 +251,11 @@ spawned process, documented for multiple accounts) or an API key helper. Subscri
 cannot use bare mode; the Agent SDK may not use subscription logins at all, which confirms the CLI
 adapter as primary.
 
-Measurement on every spawn, as events on the parcel: flow hash, agent hash, model spec, tokens,
+Measurement on every spawn, as events on the parcel: contour hash, agent hash, model spec, tokens,
 cost, turns, duration, answer.
 
 Two adapters in the box: Claude Code headless, and a scripted adapter returning canned answers so
-flows and the interpreter are tested without a vendor or a network.
+contours and the interpreter are tested without a vendor or a network.
 
 ## 11. Surfaces
 
@@ -246,15 +264,15 @@ side-effect flag. Every surface is a rendering of it, role-scoped.
 
 The window: an interactive session in the project home holding the owner principal, the operator's
 primary surface. It reads, rules, and starts; it never drives a lifecycle a flow is driving, and it
-spawns nothing itself (discovery, challenge, walks are flows the daemon runs). Its recipe is a
-stored agent definition: a hand edit is a draft and a publish, a regeneration is a draft to diff.
-The courier is a trigger on feed events bound to a deliver-to-window action, pushing into the
-window's live session through the vendor's inbound channel, with the batching wait and the bypass
-list as binding parameters.
+spawns nothing itself (discovery, challenge, walks are contours whose flows the daemon runs). Its
+recipe is a stored agent definition: a hand edit is a draft and a publish, a regeneration is a draft
+to diff. The courier is a trigger on feed events bound to a deliver-to-window action, pushing into
+the window's live session through the vendor's inbound channel, with the batching wait and the
+bypass list as binding parameters.
 
-The CLI, `coa`: noun-first (parcel, flow, agent, project, node), thin, calls the daemon and starts
-it when needed; verbs follow the registry. Sessions talk back through it, with their principal in
-a token the adapter places in the environment.
+The CLI, `coa`: noun-first (parcel, contour, flow, agent, project, node), thin, calls the daemon and
+starts it when needed; verbs follow the registry. Sessions talk back through it, with their
+principal in a token the adapter places in the environment.
 
 Rendered files (task.md, prompt.md, decisions.md, lessons.md) are projections written at spawn,
 never truth, never edited.
@@ -279,7 +297,7 @@ after the last inspection.
 
 One self-contained binary per platform; the daemon and the CLI are one executable. Install is
 download and run; the SQLite file is created on first start in the node home. Update fetches the
-next GitHub release and restarts when nothing is mid-flight, reattaching live sessions. Doctor
+next GitHub release and restarts when no step is in progress, reattaching live sessions. Doctor
 checks git, gh, the agent CLI, and the node key. The daemon runs as a user process started on
 demand; service registration is later. Windows through the same process-manager seam. One local-
 time daemon log per node, plus the measurement events, which are what gets queried.
@@ -299,16 +317,16 @@ derive and split, definitions as aggregates with status and scopes and the fork-
 interpreter with caps, triggers, typed outcomes with depth and budget caps, executor seam with both
 adapters, resume and reattach, measurement events, rendered files, signed JSONL export and import
 with the hash chain, arbitration, join, identity event shapes including succession, window with
-stored recipe, discovery and build and review-on-assignment flows, gated merge, operations
+stored recipe, discovery and build and review-on-assignment contours, gated merge, operations
 (binary, install, update, doctor), Windows in the last week, per-project ledger home setting,
 multi-repo project fields, credential profile field.
 
 Fold-in (after the box, in order): Jira and Linear, succession commands, portal, ledger move and
 forwarding ref, credential profile commands, fork notices and three-way diff, courier binding,
-challenge and walk flows, export and import of definitions, type migrate command, service
+challenge and walk contours, export and import of definitions, type migrate command, service
 registration, MCP.
 
-Park: cross-project relations, relay (and its encryption question), template sharing between
+Deferred: cross-project relations, relay (and its encryption question), template sharing between
 people, other vendors, out-of-process adapters, user-authored skills in the store, business
 lifecycles, offline heir key.
 
