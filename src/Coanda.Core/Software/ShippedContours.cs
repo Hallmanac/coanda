@@ -11,8 +11,7 @@ namespace Coanda.Core.Software;
 /// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
 /// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
 /// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
-/// sources, so it is handed the latest result and findings that routed it there and none an earlier
-/// fix visit already acted on.
+/// sources, so it is handed the latest result and findings that routed it there.
 /// </summary>
 public static class ShippedContours
 {

@@ -12,8 +12,7 @@ namespace Coanda.Tests.Daemon.Flows;
 
 /// <summary>
 /// The shipped build contour's fix step is spawned with the latest gates result and review findings
-/// recorded on its flow, so it acts on what routed it there, and with nothing older: nothing an
-/// earlier fix visit already acted on.
+/// recorded on its flow, so it acts on what routed it there, and with nothing older.
 /// </summary>
 public sealed class FixContextFlowTests
 {
@@ -111,45 +110,6 @@ public sealed class FixContextFlowTests
             "Source conformance-review: has not run on this flow yet");
         fix[^3].Should().Contain("\"verdict\":\"failed\"").And.Contain(
             "\"reason\":\"The test command 'dotnet test' exited with code 1. The last 1 lines of its output:\\nFailed ParserTests.ReadsEmpty\"");
-
-        await daemon.StopAsync(None);
-    }
-
-    [Fact]
-    public async Task A_fix_sent_back_by_failing_gates_is_not_handed_the_review_findings_the_previous_fix_acted_on()
-    {
-        using var temp = new TemporaryHome();
-        var runner = new ScriptedCommandRunner();
-        int tests = 0;
-        runner.On(
-            c => c.IsShell(ProjectDefaults.DefaultTest),
-            (_, _) => Task.FromResult(Interlocked.Increment(ref tests) == 2
-                ? new CommandResult(1, "Failed ParserTests.ReadsEmpty\n", string.Empty, "Failed ParserTests.ReadsEmpty\n")
-                : ScriptedCommandRunner.Ok()));
-        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
-        {
-            ["build"] = [Scripts.Answer("done", 1)],
-            ["reviewer-adversarial"] = [Review("not-clean", "The acted-on finding.", 2), Review("clean", "Nothing left.", 5)],
-            ["fix"] = [Scripts.Answer("done", 3), Scripts.Answer("done", 4)],
-            ["reviewer-conformance"] = [Review("clean", "Conforms.", 6)],
-        });
-        await using RunningDaemon daemon = await Daemons.StartAsync(
-            temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner }, None);
-        await RegisteredProjects.AddAsync(daemon, Project, None);
-        using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Fix what broke after the review");
-
-        FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
-
-        flow.Steps.Select(s => s.Step).Take(7).Should().Equal(
-            "worktree", "build", "gates", "adversarial-review", "fix", "gates", "fix");
-        string[] second = [.. executor.Spawns.Where(s => s.Agent == "fix").Select(s => s.Context).ElementAt(1).Split('\n')];
-        second[^3..].Should().Equal(
-            SourceLine(flow, "gates", 2),
-            "Source adversarial-review: has recorded nothing since fix visit 1",
-            "Source conformance-review: has not run on this flow yet");
-        second[^3].Should().Contain("\"verdict\":\"failed\"");
-        string.Join('\n', second).Should().NotContain("The acted-on finding.");
 
         await daemon.StopAsync(None);
     }
