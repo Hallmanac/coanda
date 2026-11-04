@@ -197,6 +197,64 @@ public sealed class ClaudeCodeFlowRunTests
         fake.Starts.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task A_spawn_whose_cli_skipped_its_settings_document_is_stopped_while_it_runs_and_its_agent_step_pauses_saying_so()
+    {
+        using var temp = new TemporaryHome();
+        using var fake = new FakeClaude(new { settings = "skipped", version = "2.1.400", result = "hang" });
+        await using RunningDaemon daemon = await StartAsync(temp, fake);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unguarded spawn", null), None);
+
+        FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
+
+        paused.PauseReason.Should().StartWith(NotApplied("2.1.400"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
+        paused.PauseUsage.Should().NotBeNull("the stop reports what a process stopped while it ran may have spent");
+        int pid = fake.Starts.Should().ContainSingle().Subject.Pid;
+        await FlowRunDriver.UntilAsync(() => !FakeClaude.Running(pid), "the session's process was stopped, though the fake would have run on");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_resume_whose_cli_skipped_its_settings_document_is_stopped_while_it_runs_and_its_agent_step_pauses_saying_so()
+    {
+        using var temp = new TemporaryHome();
+        using var fake = new FakeClaude(Answer("I am not sure.", cost: 0.2m), new { settings = "skipped", result = "hang" });
+        await using RunningDaemon daemon = await StartAsync(temp, fake);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unguarded resume", null), None);
+
+        FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
+
+        paused.PauseReason.Should().StartWith(NotApplied("2.1.318"));
+        paused.PauseUsage?.CostUsd.Should().Be(0.2m, "the spawn's collected attempt still counts");
+        fake.Starts.Should().HaveCount(2);
+        fake.Starts[1].After("--resume").Should().Be(fake.Starts[0].After("--session-id"));
+        await FlowRunDriver.UntilAsync(() => !FakeClaude.Running(fake.Starts[1].Pid), "the resumed process was stopped, though the fake would have run on");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_session_the_next_daemon_reattaches_whose_cli_skipped_its_settings_document_is_stopped_and_its_agent_step_pauses_saying_so()
+    {
+        using var temp = new TemporaryHome();
+        using var fake = new FakeClaude(new { settings = "skipped", holdInit = "release", result = "hang" });
+        (Guid flowRunId, int pid) = await StopWhileRunningAsync(temp, fake);
+
+        FakeClaude.Running(pid).Should().BeTrue("the first daemon saw no init event, so it left the session running for a reattach");
+        fake.Release();
+        FlowRunView paused = await RestartUntilAsync(temp, fake, flowRunId, "paused");
+
+        paused.PauseReason.Should().StartWith(NotApplied("2.1.318"));
+        fake.Starts.Should().ContainSingle();
+        await FlowRunDriver.UntilAsync(() => FakeClaude.Finished(pid), "the reattached process was stopped, though the fake would have run on");
+    }
+
     [Theory]
     [InlineData("codex", "gpt-5", "high", "Agent 'outsider' names the vendor 'codex', and this executor runs only agents of the vendor 'claude-code'.")]
     [InlineData("claude-code", "--dangerously-skip-permissions", "high", "Agent 'outsider' names the model '--dangerously-skip-permissions', which is not a plain token")]
@@ -234,6 +292,10 @@ public sealed class ClaudeCodeFlowRunTests
         sinceLast = new Dictionary<string, object> { ["claude-sonnet-5-5"] = new { input = 10, output = 20, cacheCreation = 30, cacheRead = 40, cost } },
         rewrite,
     };
+
+    private static string NotApplied(string version) =>
+        $"Step 'build' got no judgment from agent 'build': The session's settings document, and with it its tool guard, was not applied by claude CLI {version}: "
+        + "its init event came without the evidence the document's SessionStart hook prints, so its process was stopped and no answer was collected from it.";
 
     /// <summary>The context a prompt opens with: everything before the paragraph that names the files.</summary>
     private static string ContextOf(string prompt) => prompt[..prompt.IndexOf("\n\nThe task's record is in", StringComparison.Ordinal)];

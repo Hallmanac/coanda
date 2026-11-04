@@ -19,6 +19,10 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// for the process to end and reads its result from the transcript. Every process carries the
 /// session's tool guard in its settings document, so its tools cannot reach the node home or a
 /// Claude Code config directory outside the session's own work and conversation directories.
+/// Collecting first reads the transcript every <see cref="SettingsCheckInterval"/> until it shows
+/// whether the CLI applied that document (<see cref="SettingsEvidence"/>): a process whose init
+/// event came without the evidence, or that ended printing neither, has no answer collected from it,
+/// and one still running is stopped there and then.
 /// </summary>
 /// <remarks>
 /// Each process carries a spend cap, <c>--max-budget-usd</c>: the spawn's cost ceiling for the
@@ -43,6 +47,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     /// <summary>How much of the process's error output, and of an error result's text, a failure quotes.</summary>
     public const int QuotedLength = 500;
+
+    /// <summary>How often a collect reads the transcript while it waits to see whether the CLI applied the session's settings document.</summary>
+    public static readonly TimeSpan SettingsCheckInterval = TimeSpan.FromMilliseconds(50);
 
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly JsonSerializerOptions RecordFormat = new(JsonSerializerDefaults.Web);
@@ -195,6 +202,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             return already;
         }
 
+        await RequireSettingsAppliedAsync(session, attempt, cancellationToken);
         await attempt.Process.WaitForExitAsync(cancellationToken);
         ClaudeStream stream = ReadStream(session, attempt);
         CollectedAnswer answer;
@@ -230,6 +238,60 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         Save(session);
         return answer;
+    }
+
+    /// <summary>
+    /// Reads the attempt's output as it is written, every <see cref="SettingsCheckInterval"/>, until it
+    /// shows whether the CLI applied the session's settings document, and returns once it shows the
+    /// evidence. An init event without it, or a process that ended printing neither, is a failure
+    /// that collects no answer, and a process still running then is stopped before it is thrown; the
+    /// attempt stays in progress, so the stop the agent step makes after the failure reports its usage.
+    /// </summary>
+    private static async Task RequireSettingsAppliedAsync(Session session, Attempt attempt, CancellationToken cancellationToken)
+    {
+        if (attempt.SettingsApplied)
+        {
+            return;
+        }
+
+        if (attempt.SettingsRefusal is { } refused)
+        {
+            throw new InvalidOperationException(refused);
+        }
+
+        var tail = new TranscriptTail(session.TranscriptPath, attempt.TranscriptOffset);
+        var stream = new ClaudeStream();
+        while (true)
+        {
+            // Whether it had exited is read before the output, so an exited process's output is read whole.
+            bool exited = attempt.Process.HasExited;
+            tail.ReadInto(stream, toEnd: exited);
+            switch (stream.SettingsApplied)
+            {
+                case true:
+                    attempt.SettingsApplied = true;
+                    return;
+                case false:
+                    throw Refuse(attempt, NotApplied(stream.CliVersion, running: !exited), running: !exited);
+                case null when exited:
+                    throw Refuse(attempt, NoInit(attempt), running: false);
+            }
+
+            await Task.Delay(SettingsCheckInterval, cancellationToken);
+        }
+    }
+
+    /// <summary>Records why the attempt was refused, stopping its process first when it is still <paramref name="running"/>, and returns the failure to throw.</summary>
+    private static InvalidOperationException Refuse(Attempt attempt, string reason, bool running)
+    {
+        if (running)
+        {
+            attempt.StoppedRunning = true;
+            attempt.Process.KillTree();
+        }
+
+        attempt.SettingsRefusal = reason;
+        return new InvalidOperationException(reason);
     }
 
     public ValueTask ResumeAsync(SessionHandle handle, string message, CancellationToken cancellationToken)
@@ -345,7 +407,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             }
 
             // A process still running when it is killed may have been billed for a turn it had not printed yet.
-            bool killedRunning = !attempt.Process.HasExited;
+            bool killedRunning = !attempt.Process.HasExited || attempt.StoppedRunning;
             attempt.Process.KillTree();
             await attempt.Process.WaitForExitAsync(cancellationToken);
             ClaudeStream stream = ReadStream(session, attempt);
@@ -672,6 +734,22 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             : $"The claude process exited {exit} without a result and printed no error output.";
     }
 
+    private static string NotApplied(string? version, bool running)
+    {
+        string cli = version is null ? "the claude CLI, whose init event names no version," : $"claude CLI {version}";
+        string outcome = running ? "so its process was stopped and no answer was collected from it" : "so no answer was collected from its process";
+        return $"The session's settings document, and with it its tool guard, was not applied by {cli}: its init event came without the evidence the document's {SettingsEvidence.HookEvent} hook prints, {outcome}.";
+    }
+
+    private static string NoInit(Attempt attempt)
+    {
+        string exit = attempt.Process.ExitCode is { } code ? $"with code {code}" : "with no exit code";
+        string preface = $"The session's settings document, and with it its tool guard, was not applied: the claude process exited {exit} without printing its init event or the evidence the document's {SettingsEvidence.HookEvent} hook prints";
+        return attempt.LastErrorLine() is { } line
+            ? $"{preface}; the last line of its error output was: {Quoted(line)}"
+            : $"{preface}, and printed no error output.";
+    }
+
     private static string Quoted(string text) => text.Length <= QuotedLength ? text : text[..QuotedLength];
 
     private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
@@ -774,6 +852,15 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         /// <summary>Whether a collect, in this daemon or one before it, has counted the attempt's cost against the session.</summary>
         public bool Counted { get; set; }
+
+        /// <summary>Whether a collect in this daemon has seen the evidence that the CLI applied the session's settings document.</summary>
+        public bool SettingsApplied { get; set; }
+
+        /// <summary>Why a collect in this daemon refused the attempt for not applying the settings document, or null.</summary>
+        public string? SettingsRefusal { get; set; }
+
+        /// <summary>Whether this daemon stopped the process while it was still running, before any stop of the session.</summary>
+        public bool StoppedRunning { get; set; }
 
         /// <summary>How long the process ran, up to when its exit was first seen, or up to now while it runs.</summary>
         public TimeSpan Elapsed

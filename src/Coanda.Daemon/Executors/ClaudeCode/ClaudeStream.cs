@@ -8,7 +8,9 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// usage of every assistant message, counted once per message id at the last figure printed for
 /// it, and the result event, when the process printed one. A line that is not a JSON object is
 /// passed over, since the transcript keeps it either way, and a figure that is not a JSON number,
-/// such as a null token count, reads as zero.
+/// such as a null token count, reads as zero. It also reads whether the process printed its init
+/// event, the CLI version that event names, and whether the <see cref="SettingsEvidence"/> came
+/// before it.
 /// </summary>
 /// <remarks>
 /// An assistant event's usage is a snapshot that can be printed before the message's output is
@@ -21,6 +23,9 @@ public sealed class ClaudeStream
     private readonly Lock gate = new();
     private readonly Dictionary<string, long> messages = new(StringComparer.Ordinal);
     private ClaudeResult? result;
+    private bool initialized;
+    private bool evidence;
+    private string? version;
 
     public ClaudeResult? Result
     {
@@ -29,6 +34,47 @@ public sealed class ClaudeStream
             lock (gate)
             {
                 return result;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the CLI applied the session's settings document: true once a <c>hook_response</c> to
+    /// the document's <c>SessionStart</c> hook has quoted the <see cref="SettingsEvidence.Marker"/> on
+    /// its standard error before the init event, false once the init event came without it, and null
+    /// while the stream holds neither. Evidence printed after the init event does not count.
+    /// </summary>
+    public bool? SettingsApplied
+    {
+        get
+        {
+            lock (gate)
+            {
+                return evidence ? true : initialized ? false : null;
+            }
+        }
+    }
+
+    /// <summary>Whether the stream holds the process's init event.</summary>
+    public bool Initialized
+    {
+        get
+        {
+            lock (gate)
+            {
+                return initialized;
+            }
+        }
+    }
+
+    /// <summary>The <c>claude_code_version</c> the init event names, or null before it or when it names none.</summary>
+    public string? CliVersion
+    {
+        get
+        {
+            lock (gate)
+            {
+                return version;
             }
         }
     }
@@ -82,6 +128,23 @@ public sealed class ClaudeStream
                     lock (gate)
                     {
                         messages[id] = Tokens(usage, "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens");
+                    }
+
+                    break;
+                case "system" when Text(root, "subtype") == "init":
+                    lock (gate)
+                    {
+                        initialized = true;
+                        version ??= Text(root, "claude_code_version");
+                    }
+
+                    break;
+                case "system" when Text(root, "subtype") == "hook_response"
+                    && Text(root, "hook_event") == SettingsEvidence.HookEvent
+                    && SettingsEvidence.Holds(Text(root, "stderr")):
+                    lock (gate)
+                    {
+                        evidence |= !initialized;
                     }
 
                     break;

@@ -34,7 +34,8 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// validation is not loaded at all. It sets no <c>includeCoAuthoredBy</c>, which that schema marks
 /// as deprecated, and no <c>sessionUrl</c>, which applies only to web and Remote Control sessions.
 /// Managed settings rank above the document here too, so an operator's managed policy can turn
-/// attribution back on.
+/// attribution back on. The document also registers the <see cref="SettingsEvidence"/> hook, whose
+/// output on the process's stream shows that the CLI applied it.
 /// </remarks>
 public static partial class ClaudeCodeInvocation
 {
@@ -157,9 +158,9 @@ public static partial class ClaudeCodeInvocation
     /// The settings document every process of a session receives through <c>--settings</c>: automatic
     /// memory off, no attribution on commits or pull requests, a helper profile's API key helper,
     /// permission rules that pre-approve each of <paramref name="tools"/> (none when it is empty),
-    /// hooks left on, and the tool guard registered before every call to the six tools it judges, run
-    /// as <paramref name="coaExecutable"/> with the <paramref name="guard"/>'s arguments and no shell,
-    /// blocking the call when it cannot run.
+    /// hooks left on, the <see cref="SettingsEvidence"/> hook registered for every session start, and
+    /// the tool guard registered before every call to the six tools it judges. Both hooks run as
+    /// <paramref name="coaExecutable"/> with their arguments and no shell, and block when they cannot run.
     /// </summary>
     public static string Settings(CredentialProfile? profile, ToolGuardRules guard, string coaExecutable, IReadOnlyList<string> tools)
     {
@@ -184,6 +185,10 @@ public static partial class ClaudeCodeInvocation
         settings[DisableAllHooksSetting] = false;
         settings["hooks"] = new JsonObject
         {
+            [SettingsEvidence.HookEvent] = new JsonArray(new JsonObject
+            {
+                ["hooks"] = new JsonArray(Hook(coaExecutable, SettingsEvidence.Arguments)),
+            }),
             ["PreToolUse"] = new JsonArray(new JsonObject
             {
                 ["matcher"] = string.Join('|', ToolGuard.GuardedTools),
@@ -277,7 +282,7 @@ public static partial class ClaudeCodeInvocation
     /// The arguments every process of a session carries, spawn and resume alike, since the CLI keeps
     /// none of them with the session: the persona file, the model and effort, the tools, the
     /// permission mode, no MCP servers, no setting sources, and the settings document, which carries
-    /// the tools' pre-approval and the session's tool guard.
+    /// the tools' pre-approval, the evidence that it was applied, and the session's tool guard.
     /// </summary>
     public static IReadOnlyList<string> SessionArguments(AgentDefinition agent, CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
     {
