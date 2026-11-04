@@ -99,37 +99,37 @@ public sealed class FlowTests
             Steps = [Judge() with { Transitions = [On("done", "act"), On("stuck", Flow.Pause), On("skip", Flow.End)] }, Act()],
         };
 
-        FluentActions.Invoking(() => flow.Validate(Known)).Should().NotThrow();
-        flow.First!.Name.Should().Be("judge");
-        flow.Step("act").Should().NotBeNull();
+        flow.Validate(Known);
+        Assert.Equal("judge", flow.First!.Name);
+        Assert.NotNull(flow.Step("act"));
     }
 
     [Theory]
     [MemberData(nameof(Refusals))]
     public void A_flow_that_breaks_a_rule_is_refused_quoting_it(string rule, Flow flow, string message)
     {
-        rule.Should().NotBeNullOrEmpty();
-        FluentActions.Invoking(() => flow.Validate(Known))
-            .Should().Throw<DomainException>().WithMessage($"*{message}*");
+        Assert.False(string.IsNullOrEmpty(rule));
+        DomainException exception = Assert.Throws<DomainException>(() => flow.Validate(Known));
+        Assert.Contains(message, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Validation_takes_the_known_system_steps_as_an_input()
     {
-        FluentActions.Invoking(() => Valid().Validate(new HashSet<string> { "other" }))
-            .Should().Throw<DomainException>().WithMessage("*names the system step 'do-thing'*");
+        DomainException exception = Assert.Throws<DomainException>(() => Valid().Validate(new HashSet<string> { "other" }));
+        Assert.Contains("names the system step 'do-thing'", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Plain_names_are_letters_digits_hyphens_and_underscores()
     {
-        Flow.IsPlainName("verdict").Should().BeTrue();
-        Flow.IsPlainName("Not-Clean_2").Should().BeTrue();
-        Flow.IsPlainName("").Should().BeFalse();
-        Flow.IsPlainName(null).Should().BeFalse();
-        Flow.IsPlainName("a b").Should().BeFalse();
-        Flow.IsPlainName("a.b").Should().BeFalse();
-        Flow.IsPlainName("a==b").Should().BeFalse();
+        Assert.True(Flow.IsPlainName("verdict"));
+        Assert.True(Flow.IsPlainName("Not-Clean_2"));
+        Assert.False(Flow.IsPlainName(""));
+        Assert.False(Flow.IsPlainName(null));
+        Assert.False(Flow.IsPlainName("a b"));
+        Assert.False(Flow.IsPlainName("a.b"));
+        Assert.False(Flow.IsPlainName("a==b"));
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class FlowTests
 
         Flow read = Flow.FromJson(Flow.CanonicalJson(flow));
 
-        read.Hash.Should().Be(flow.Hash);
+        Assert.Equal(flow.Hash, read.Hash);
         read.Validate(Known);
     }
 
@@ -149,8 +149,8 @@ public sealed class FlowTests
     [InlineData("""{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Retries":3,"Steps":[]}""", "Retries")]
     public void Content_carrying_a_property_the_shape_does_not_define_is_refused_naming_it(string content, string property)
     {
-        FluentActions.Invoking(() => Flow.FromJson(content))
-            .Should().Throw<DomainException>().WithMessage($"The content cannot be read as a flow*{property}*");
+        DomainException exception = Assert.Throws<DomainException>(() => Flow.FromJson(content));
+        Assert.Matches(WildcardPattern.ToRegex($"The content cannot be read as a flow*{property}*"), exception.Message);
     }
 
     [Theory]
@@ -158,8 +158,8 @@ public sealed class FlowTests
     [InlineData("null")]
     public void Content_that_is_not_a_flow_is_refused(string content)
     {
-        FluentActions.Invoking(() => Flow.FromJson(content))
-            .Should().Throw<DomainException>().WithMessage("The content*flow*");
+        DomainException exception = Assert.Throws<DomainException>(() => Flow.FromJson(content));
+        Assert.Matches(@"(?s)^The content.*flow.*$", exception.Message);
     }
 
     [Fact]
@@ -168,8 +168,8 @@ public sealed class FlowTests
         Flow read = Flow.FromJson(
             """{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Steps":[null]}""");
 
-        FluentActions.Invoking(() => read.Validate(Known))
-            .Should().Throw<DomainException>().WithMessage("Flow 'sample' has a step that is null*");
+        DomainException exception = Assert.Throws<DomainException>(() => read.Validate(Known));
+        Assert.StartsWith("Flow 'sample' has a step that is null", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -178,8 +178,8 @@ public sealed class FlowTests
         Flow read = Flow.FromJson(
             """{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Steps":[{"Name":"s","Agent":"a","AnswerSchema":"b","Transitions":[null]}]}""");
 
-        FluentActions.Invoking(() => read.Validate(Known))
-            .Should().Throw<DomainException>().WithMessage("Step 's' of flow 'sample' has a transition that is null*");
+        DomainException exception = Assert.Throws<DomainException>(() => read.Validate(Known));
+        Assert.StartsWith("Step 's' of flow 'sample' has a transition that is null", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -187,15 +187,15 @@ public sealed class FlowTests
     {
         Flow read = Flow.FromJson("{}");
 
-        FluentActions.Invoking(() => read.Validate(Known))
-            .Should().Throw<DomainException>().WithMessage("A flow needs a name.");
+        DomainException exception = Assert.Throws<DomainException>(() => read.Validate(Known));
+        Assert.Equal("A flow needs a name.", exception.Message);
     }
 
     [Fact]
     public void Two_flows_built_separately_from_the_same_data_hash_equal()
     {
-        Valid().Hash.Should().Be(Valid().Hash);
-        Valid().Hash.Should().HaveLength(16);
+        Assert.Equal(Valid().Hash, Valid().Hash);
+        Assert.Equal(16, Valid().Hash.Length);
     }
 
     [Fact]
@@ -203,14 +203,14 @@ public sealed class FlowTests
     {
         string baseline = Valid().Hash;
 
-        (Valid() with { Budget = 5m }).Hash.Should().NotBe(baseline);
-        (Valid() with { SpawnCap = 7 }).Hash.Should().NotBe(baseline);
-        WithFirstStep(s => s with { Transitions = [On("done", "act", 3)] }).Hash.Should().NotBe(baseline);
-        WithActStep(s => s with { Transitions = [On("done", Flow.Pause), On("failed", "judge")] }).Hash.Should().NotBe(baseline);
-        WithActStep(s => s with
+        Assert.NotEqual(baseline, (Valid() with { Budget = 5m }).Hash);
+        Assert.NotEqual(baseline, (Valid() with { SpawnCap = 7 }).Hash);
+        Assert.NotEqual(baseline, WithFirstStep(s => s with { Transitions = [On("done", "act", 3)] }).Hash);
+        Assert.NotEqual(baseline, WithActStep(s => s with { Transitions = [On("done", Flow.Pause), On("failed", "judge")] }).Hash);
+        Assert.NotEqual(baseline, WithActStep(s => s with
         {
             Arguments = new Dictionary<string, JsonElement> { ["stage"] = FlowValue.Of("build"), ["count"] = FlowValue.Of(2) },
-        }).Hash.Should().NotBe(baseline);
+        }).Hash);
     }
 
     [Fact]
@@ -218,11 +218,11 @@ public sealed class FlowTests
     {
         Flow follower = Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 2 } };
 
-        FluentActions.Invoking(() => follower.Validate(Known)).Should().NotThrow();
+        follower.Validate(Known);
         (Valid() with { Follow = new FlowFollow { Outcome = "pr-opened", DepthCap = 1 } }).Validate(Known);
         Flow read = Flow.FromJson(Flow.CanonicalJson(follower));
-        read.Follow.Should().Be(follower.Follow);
-        read.Hash.Should().Be(follower.Hash);
+        Assert.Equal(follower.Follow, read.Follow);
+        Assert.Equal(follower.Hash, read.Hash);
     }
 
     [Fact]
@@ -232,10 +232,10 @@ public sealed class FlowTests
         var follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 2 };
         Flow follower = Valid() with { Follow = follow };
 
-        follower.Hash.Should().NotBe(baseline);
-        (Valid() with { Follow = follow with { DepthCap = 3 } }).Hash.Should().NotBe(follower.Hash);
-        (Valid() with { Follow = follow with { Flow = null } }).Hash.Should().NotBe(follower.Hash);
-        (Valid() with { Follow = follow with { Outcome = "report-produced" } }).Hash.Should().NotBe(follower.Hash);
+        Assert.NotEqual(baseline, follower.Hash);
+        Assert.NotEqual(follower.Hash, (Valid() with { Follow = follow with { DepthCap = 3 } }).Hash);
+        Assert.NotEqual(follower.Hash, (Valid() with { Follow = follow with { Flow = null } }).Hash);
+        Assert.NotEqual(follower.Hash, (Valid() with { Follow = follow with { Outcome = "report-produced" } }).Hash);
     }
 
     [Fact]
@@ -243,12 +243,12 @@ public sealed class FlowTests
     {
         Flow closing = Valid() with { Closes = "completed" };
 
-        FluentActions.Invoking(() => closing.Validate(Known)).Should().NotThrow();
+        closing.Validate(Known);
         Flow read = Flow.FromJson(Flow.CanonicalJson(closing));
-        read.Closes.Should().Be("completed");
-        read.Hash.Should().Be(closing.Hash);
-        closing.Hash.Should().NotBe(Valid().Hash);
-        (Valid() with { Closes = "abandoned" }).Hash.Should().NotBe(closing.Hash);
+        Assert.Equal("completed", read.Closes);
+        Assert.Equal(closing.Hash, read.Hash);
+        Assert.NotEqual(Valid().Hash, closing.Hash);
+        Assert.NotEqual(closing.Hash, (Valid() with { Closes = "abandoned" }).Hash);
     }
 
     [Fact]
@@ -256,17 +256,17 @@ public sealed class FlowTests
     {
         string content = Flow.CanonicalJson(Valid());
 
-        content.Should().NotContain("Closes");
+        Assert.DoesNotContain("Closes", content, StringComparison.Ordinal);
         Flow read = Flow.FromJson(content);
-        read.Closes.Should().BeNull();
-        read.Hash.Should().Be(Valid().Hash);
-        Flow.CanonicalJson(read).Should().Be(content);
+        Assert.Null(read.Closes);
+        Assert.Equal(Valid().Hash, read.Hash);
+        Assert.Equal(content, Flow.CanonicalJson(read));
     }
 
     [Fact]
     public void A_flow_without_a_follow_writes_no_follow_into_its_content()
     {
-        Flow.CanonicalJson(Valid()).Should().NotContain("Follow");
+        Assert.DoesNotContain("Follow", Flow.CanonicalJson(Valid()), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -277,7 +277,7 @@ public sealed class FlowTests
             Arguments = new Dictionary<string, JsonElement> { ["count"] = FlowValue.Of(2), ["stage"] = FlowValue.Of("review") },
         });
 
-        reordered.Hash.Should().Be(Valid().Hash);
+        Assert.Equal(Valid().Hash, reordered.Hash);
     }
 
     [Fact]
@@ -302,7 +302,7 @@ public sealed class FlowTests
             ],
         };
 
-        flow.Hash.Should().Be("c7d6781a3fc6c3ff");
+        Assert.Equal("c7d6781a3fc6c3ff", flow.Hash);
     }
 
     [Fact]
@@ -312,7 +312,7 @@ public sealed class FlowTests
 
         foreach (string software in new[] { "worktree", "gates", "open-pr", "gated-merge", "rebase", "SoftwareSystemSteps" })
         {
-            source.Should().NotContain(software);
+            Assert.DoesNotContain(software, source, StringComparison.Ordinal);
         }
     }
 

@@ -37,7 +37,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_four_shipped_flows_pass_validation_with_the_known_system_step_names()
     {
-        ShippedFlows.All.Select(f => f.Name).Should().Equal("build", "merge", "discovery", "review-on-assignment");
+        Assert.Equal(["build", "merge", "discovery", "review-on-assignment"], ShippedFlows.All.Select(f => f.Name));
         foreach (Flow flow in ShippedFlows.All)
         {
             flow.Validate(ShippedSystemSteps.Names);
@@ -47,11 +47,12 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_shipped_system_steps_are_the_core_catalog_and_the_software_catalog()
     {
-        ShippedSystemSteps.Names.Should().BeEquivalentTo(
+        string[] expected =
         [
             "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
             "worktree", "gates", "open-pr", "gated-merge", "rebase",
-        ]);
+        ];
+        Assert.Equivalent(expected, ShippedSystemSteps.Names, strict: true);
     }
 
     [Fact]
@@ -68,16 +69,16 @@ public sealed class ShippedFlowsTests
         foreach ((string name, string accepts, string outcome) in expected)
         {
             Flow flow = ShippedFlows.Find(name)!;
-            flow.Accepts.Should().Equal(accepts);
-            flow.Outcome.Should().Be(outcome);
-            ShippedTypes.Find(accepts).Should().NotBeNull();
+            Assert.Equal([accepts], flow.Accepts);
+            Assert.Equal(outcome, flow.Outcome);
+            Assert.NotNull(ShippedTypes.Find(accepts));
         }
     }
 
     [Fact]
     public void No_shipped_flow_holds_an_emit_outcome_step()
     {
-        ShippedFlows.All.SelectMany(f => f.Steps).Should().NotContain(s => s.SystemStep == CoreSystemSteps.EmitOutcome);
+        Assert.DoesNotContain(ShippedFlows.All.SelectMany(f => f.Steps), s => s.SystemStep == CoreSystemSteps.EmitOutcome);
     }
 
     [Fact]
@@ -93,15 +94,16 @@ public sealed class ShippedFlowsTests
         });
 
         List<string> systemSteps = [.. visited.Select(name => build.Step(name)!.SystemStep ?? build.Step(name)!.Agent!)];
-        systemSteps.Should().Equal("worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel");
-        build.Steps.Should().NotContain(s => s.SystemStep == SoftwareSystemSteps.GatedMerge, "the merge is a flow of its own that follows pr-opened");
-        build.First!.Name.Should().Be("worktree");
-        build.Steps.Count(s => s.SystemStep == CoreSystemSteps.MoveParcel).Should().Be(1);
+        Assert.Equal(["worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel"], systemSteps);
+        // the merge is a flow of its own that follows pr-opened
+        Assert.DoesNotContain(build.Steps, s => s.SystemStep == SoftwareSystemSteps.GatedMerge);
+        Assert.Equal("worktree", build.First!.Name);
+        Assert.Equal(1, build.Steps.Count(s => s.SystemStep == CoreSystemSteps.MoveParcel));
 
         FlowStep move = build.Step(visited[^1])!;
-        move.Arguments.Should().ContainSingle().Which.Key.Should().Be("stage");
-        move.Arguments["stage"].GetString().Should().Be("review");
-        ShippedTypes.Task.AllowsMove("build", "review").Should().BeTrue();
+        Assert.Equal("stage", Assert.Single(move.Arguments).Key);
+        Assert.Equal("review", move.Arguments["stage"].GetString());
+        Assert.True(ShippedTypes.Task.AllowsMove("build", "review"));
     }
 
     [Fact]
@@ -109,18 +111,18 @@ public sealed class ShippedFlowsTests
     {
         Flow build = ShippedFlows.Build;
 
-        Next(build, "adversarial-review", "not-clean").Should().Be("fix");
-        Next(build, "conformance-review", "not-clean").Should().Be("fix");
-        Next(build, "gates", "failed").Should().Be("fix");
-        Next(build, "fix", "done").Should().Be("gates");
-        Next(build, "adversarial-review", "clean").Should().Be("conformance-review");
+        Assert.Equal("fix", Next(build, "adversarial-review", "not-clean"));
+        Assert.Equal("fix", Next(build, "conformance-review", "not-clean"));
+        Assert.Equal("fix", Next(build, "gates", "failed"));
+        Assert.Equal("gates", Next(build, "fix", "done"));
+        Assert.Equal("conformance-review", Next(build, "adversarial-review", "clean"));
     }
 
     [Fact]
     public void In_the_build_flow_blocked_answers_pause()
     {
-        Next(ShippedFlows.Build, "build", "blocked").Should().Be(Flow.Pause);
-        Next(ShippedFlows.Build, "fix", "blocked").Should().Be(Flow.Pause);
+        Assert.Equal(Flow.Pause, Next(ShippedFlows.Build, "build", "blocked"));
+        Assert.Equal(Flow.Pause, Next(ShippedFlows.Build, "fix", "blocked"));
     }
 
     [Fact]
@@ -134,7 +136,8 @@ public sealed class ShippedFlowsTests
             foreach (FlowTransition transition in step.Transitions)
             {
                 int expected = reviews.Contains(step.Name) && transition.Target == "fix" ? 3 : 5;
-                transition.VisitCap.Should().Be(expected, $"{step.Name} on {transition.Value} goes to {transition.Target}");
+                // {step.Name} on {transition.Value} goes to {transition.Target}
+                Assert.Equal(expected, transition.VisitCap);
             }
         }
     }
@@ -142,11 +145,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_flow_names_the_agents_and_schemas_the_agent_definitions_seed()
     {
-        ShippedFlows.Build.Steps.Where(s => s.IsAgentStep).Select(s => (s.Name, s.Agent, s.AnswerSchema)).Should().Equal(
-            ("build", "build", "build"),
-            ("adversarial-review", "reviewer-adversarial", "review"),
-            ("conformance-review", "reviewer-conformance", "review"),
-            ("fix", "fix", "fix"));
+        Assert.Equal([("build", "build", "build"), ("adversarial-review", "reviewer-adversarial", "review"), ("conformance-review", "reviewer-conformance", "review"), ("fix", "fix", "fix")], ShippedFlows.Build.Steps.Where(s => s.IsAgentStep).Select(s => (s.Name, s.Agent, s.AnswerSchema)));
     }
 
     [Fact]
@@ -154,15 +153,15 @@ public sealed class ShippedFlowsTests
     {
         Flow discovery = ShippedFlows.Discovery;
 
-        discovery.Steps.Count(s => s.IsAgentStep).Should().Be(1);
+        Assert.Equal(1, discovery.Steps.Count(s => s.IsAgentStep));
         FlowStep agentStep = discovery.First!;
-        agentStep.Agent.Should().Be("discovery");
-        agentStep.AnswerSchema.Should().Be("discovery");
+        Assert.Equal("discovery", agentStep.Agent);
+        Assert.Equal("discovery", agentStep.AnswerSchema);
 
         string derive = Next(discovery, agentStep.Name, "derive");
-        discovery.Step(derive)!.SystemStep.Should().Be(CoreSystemSteps.DeriveParcels);
-        Next(discovery, derive, "done").Should().Be(Flow.End);
-        Next(discovery, agentStep.Name, "carry-forward").Should().Be(Flow.End);
+        Assert.Equal(CoreSystemSteps.DeriveParcels, discovery.Step(derive)!.SystemStep);
+        Assert.Equal(Flow.End, Next(discovery, derive, "done"));
+        Assert.Equal(Flow.End, Next(discovery, agentStep.Name, "carry-forward"));
     }
 
     [Fact]
@@ -170,13 +169,13 @@ public sealed class ShippedFlowsTests
     {
         Flow merge = ShippedFlows.Merge;
 
-        merge.Follow.Should().BeEquivalentTo(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = merge.Follow!.DepthCap });
-        merge.Follow.DepthCap.Should().BePositive();
-        merge.Closes.Should().Be("completed");
-        ShippedTypes.Task.IsResolution(merge.Closes!).Should().BeTrue();
-        merge.Steps.SelectMany(s => s.Transitions).Should().OnlyContain(t => t.VisitCap > 0);
-        merge.First!.SystemStep.Should().Be(SoftwareSystemSteps.GatedMerge);
-        Next(merge, "gated-merge", "merged").Should().Be(Flow.End);
+        Assert.Equal(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = merge.Follow!.DepthCap }, merge.Follow);
+        Assert.True(merge.Follow.DepthCap > 0, $"Expected a positive depth cap, but found {merge.Follow.DepthCap}.");
+        Assert.Equal("completed", merge.Closes);
+        Assert.True(ShippedTypes.Task.IsResolution(merge.Closes!));
+        Assert.All(merge.Steps.SelectMany(s => s.Transitions), t => Assert.True(t.VisitCap > 0));
+        Assert.Equal(SoftwareSystemSteps.GatedMerge, merge.First!.SystemStep);
+        Assert.Equal(Flow.End, Next(merge, "gated-merge", "merged"));
     }
 
     [Fact]
@@ -187,16 +186,17 @@ public sealed class ShippedFlowsTests
         FlowTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
         FlowTransition merged = gated.Transitions.Single(t => t.Value.GetString() == "merged");
         FlowStep timer = merge.Step(pending.Target)!;
-        FlowTransition back = timer.Transitions.Should().ContainSingle().Subject;
+        FlowTransition back = Assert.Single(timer.Transitions);
         FlowTransition rebaseLaps = RebaseLapCap(merge);
 
-        timer.SystemStep.Should().Be(CoreSystemSteps.Timer);
-        back.Target.Should().Be("gated-merge");
+        Assert.Equal(CoreSystemSteps.Timer, timer.SystemStep);
+        Assert.Equal("gated-merge", back.Target);
         double seconds = timer.Arguments["seconds"].GetDouble();
-        (seconds * (pending.VisitCap - rebaseLaps.VisitCap)).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all once the rebase laps' visits are taken out");
-        back.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap, "the timer never pauses the lap before the pending cap does");
-        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 100, "a merge on the lap's last visit or on any of a hundred resumes still ends the flow run");
-        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 5);
+        double waited = seconds * (pending.VisitCap - rebaseLaps.VisitCap);
+        Assert.True(waited >= 1200, $"Expected at least 1200 seconds, but found {waited}: the lap waits at least twenty minutes in all once the rebase laps' visits are taken out.");
+        Assert.True(back.VisitCap >= pending.VisitCap, $"Expected at least {pending.VisitCap}, but found {back.VisitCap}: the timer never pauses the lap before the pending cap does.");
+        Assert.True(merged.VisitCap >= pending.VisitCap + 100, $"Expected at least {pending.VisitCap + 100}, but found {merged.VisitCap}: a merge on the lap's last visit or on any of a hundred resumes still ends the flow run.");
+        Assert.True(merged.VisitCap >= pending.VisitCap + 5, $"Expected at least {pending.VisitCap + 5}, but found {merged.VisitCap}.");
     }
 
     [Fact]
@@ -207,19 +207,23 @@ public sealed class ShippedFlowsTests
         FlowTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
         FlowTransition behind = gated.Transitions.Single(t => t.Value.GetString() == "behind");
         FlowStep worktree = merge.Step(behind.Target)!;
-        FlowTransition checkedOut = worktree.Transitions.Should().ContainSingle().Subject;
+        FlowTransition checkedOut = Assert.Single(worktree.Transitions);
         FlowStep rebase = merge.Step(checkedOut.Target)!;
-        FlowTransition rebased = rebase.Transitions.Should().ContainSingle().Subject;
+        FlowTransition rebased = Assert.Single(rebase.Transitions);
 
-        worktree.SystemStep.Should().Be(SoftwareSystemSteps.Worktree);
-        checkedOut.Value.GetString().Should().Be("done");
-        rebase.SystemStep.Should().Be(SoftwareSystemSteps.Rebase);
-        rebased.Value.GetString().Should().Be("done");
-        rebased.Target.Should().Be(pending.Target, "the rebase waits one timer period before the pull request is inspected again");
-        merge.Steps.Should().NotContain(s => s.IsAgentStep, "the lap runs no agent step and re-runs no review");
-        behind.VisitCap.Should().Be(pending.VisitCap, "a head is rebased on any visit the pending cap still allows");
-        checkedOut.VisitCap.Should().BeGreaterThanOrEqualTo(1).And.BeLessThan(pending.VisitCap);
-        rebased.VisitCap.Should().BeGreaterThanOrEqualTo(checkedOut.VisitCap);
+        Assert.Equal(SoftwareSystemSteps.Worktree, worktree.SystemStep);
+        Assert.Equal("done", checkedOut.Value.GetString());
+        Assert.Equal(SoftwareSystemSteps.Rebase, rebase.SystemStep);
+        Assert.Equal("done", rebased.Value.GetString());
+        // the rebase waits one timer period before the pull request is inspected again
+        Assert.Equal(pending.Target, rebased.Target);
+        // the lap runs no agent step and re-runs no review
+        Assert.DoesNotContain(merge.Steps, s => s.IsAgentStep);
+        // a head is rebased on any visit the pending cap still allows
+        Assert.Equal(pending.VisitCap, behind.VisitCap);
+        Assert.True(checkedOut.VisitCap >= 1, $"Expected at least 1, but found {checkedOut.VisitCap}.");
+        Assert.True(checkedOut.VisitCap < pending.VisitCap, $"Expected less than {pending.VisitCap}, but found {checkedOut.VisitCap}.");
+        Assert.True(rebased.VisitCap >= checkedOut.VisitCap, $"Expected at least {checkedOut.VisitCap}, but found {rebased.VisitCap}.");
     }
 
     [Fact]
@@ -240,13 +244,12 @@ public sealed class ShippedFlowsTests
         }
 
         position = Go(position, behind, "worktree");
-        Interpreter.Decide(merge, position, done).Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Be($"Step 'worktree' reached the visit cap of {laps} on its transition to 'rebase'.");
+        Assert.Equal($"Step 'worktree' reached the visit cap of {laps} on its transition to 'rebase'.", Assert.IsType<FlowRunMove.Pause>(Interpreter.Decide(merge, position, done)).Reason);
 
         FlowRunPosition Go(FlowRunPosition from, JsonDocument answer, string step)
         {
             FlowRunMove move = Interpreter.Decide(merge, from, answer);
-            move.Should().Be(new FlowRunMove.GoTo(step));
+            Assert.Equal(new FlowRunMove.GoTo(step), move);
             return Interpreter.Apply(merge, from, (FlowRunMove.GoTo)move);
         }
     }
@@ -254,16 +257,16 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_discovery_and_review_on_assignment_flows_hash_to_literals()
     {
-        ShippedFlows.Build.Hash.Should().Be("dcbfd639e88354c7");
-        ShippedFlows.Discovery.Hash.Should().Be("c8b01e99a6cc7916");
-        ShippedFlows.ReviewOnAssignment.Hash.Should().Be("fabaabb2eb82ff10");
+        Assert.Equal("dcbfd639e88354c7", ShippedFlows.Build.Hash);
+        Assert.Equal("c8b01e99a6cc7916", ShippedFlows.Discovery.Hash);
+        Assert.Equal("fabaabb2eb82ff10", ShippedFlows.ReviewOnAssignment.Hash);
     }
 
     /// <summary>The visit cap on the merge's worktree step's transition to the rebase, which bounds the rebase laps.</summary>
     private static FlowTransition RebaseLapCap(Flow merge)
     {
         FlowTransition behind = merge.Step("gated-merge")!.Transitions.Single(t => t.Value.GetString() == "behind");
-        return merge.Step(behind.Target)!.Transitions.Should().ContainSingle().Subject;
+        return Assert.Single(merge.Step(behind.Target)!.Transitions);
     }
 
     [Fact]
@@ -278,17 +281,18 @@ public sealed class ShippedFlowsTests
         for (int lap = 1; lap <= cap; lap++)
         {
             FlowRunMove wait = Interpreter.Decide(merge, position, pending);
-            wait.Should().Be(new FlowRunMove.GoTo("wait-for-checks"), $"lap {lap} is within the pending cap");
+            // lap {lap} is within the pending cap
+            Assert.Equal(new FlowRunMove.GoTo("wait-for-checks"), wait);
             position = Interpreter.Apply(merge, position, (FlowRunMove.GoTo)wait);
             FlowRunMove again = Interpreter.Decide(merge, position, done);
-            again.Should().Be(new FlowRunMove.GoTo("gated-merge"));
+            Assert.Equal(new FlowRunMove.GoTo("gated-merge"), again);
             position = Interpreter.Apply(merge, position, (FlowRunMove.GoTo)again);
         }
 
-        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain($"visit cap of {cap}");
+        Assert.Contains($"visit cap of {cap}", Assert.IsType<FlowRunMove.Pause>(Interpreter.Decide(merge, position, pending)).Reason, StringComparison.Ordinal);
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
-        Interpreter.Decide(merge, position, merged).Should().Be(new FlowRunMove.End("merged"), "a merge on the lap's last visit ends the flow run");
+        // a merge on the lap's last visit ends the flow run
+        Assert.Equal(new FlowRunMove.End("merged"), Interpreter.Decide(merge, position, merged));
     }
 
     [Fact]
@@ -305,9 +309,10 @@ public sealed class ShippedFlowsTests
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
 
-        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowRunMove.Pause>("a resume past the lap looks once and pauses while checks still run");
-        Interpreter.Decide(merge, position, merged).Should().Be(new FlowRunMove.End("merged"));
-        Interpreter.CanFireAtNextVisit(merge.Step("gated-merge")!, visits - 1).Should().BeTrue();
+        // a resume past the lap looks once and pauses while checks still run
+        Assert.IsType<FlowRunMove.Pause>(Interpreter.Decide(merge, position, pending));
+        Assert.Equal(new FlowRunMove.End("merged"), Interpreter.Decide(merge, position, merged));
+        Assert.True(Interpreter.CanFireAtNextVisit(merge.Step("gated-merge")!, visits - 1));
     }
 
     [Fact]
@@ -315,20 +320,20 @@ public sealed class ShippedFlowsTests
     {
         Flow review = ShippedFlows.ReviewOnAssignment;
 
-        review.Steps.Should().ContainSingle();
+        Assert.Single(review.Steps);
         FlowStep step = review.First!;
-        step.Agent.Should().Be("reviewer-adversarial");
-        step.AnswerSchema.Should().Be("review");
-        Next(review, step.Name, "clean").Should().Be(Flow.End);
-        Next(review, step.Name, "not-clean").Should().Be(Flow.End);
+        Assert.Equal("reviewer-adversarial", step.Agent);
+        Assert.Equal("review", step.AnswerSchema);
+        Assert.Equal(Flow.End, Next(review, step.Name, "clean"));
+        Assert.Equal(Flow.End, Next(review, step.Name, "not-clean"));
     }
 
     [Fact]
     public void Every_shipped_flow_declares_a_budget_and_a_spawn_cap_and_hashes_distinctly()
     {
-        ShippedFlows.All.Should().OnlyContain(f => f.Budget > 0 && f.SpawnCap > 0);
-        ShippedFlows.All.Select(f => f.Hash).Distinct().Should().HaveCount(4);
-        ShippedDefinitions.Flows.Select(d => d.ContentHash).Should().Equal(ShippedFlows.All.Select(f => f.Hash));
+        Assert.All(ShippedFlows.All, f => Assert.True(f.Budget > 0 && f.SpawnCap > 0));
+        Assert.Equal(4, ShippedFlows.All.Select(f => f.Hash).Distinct().Count());
+        Assert.Equal(ShippedFlows.All.Select(f => f.Hash), ShippedDefinitions.Flows.Select(d => d.ContentHash));
     }
 
     [Fact]
@@ -336,8 +341,8 @@ public sealed class ShippedFlowsTests
     {
         foreach (ShippedDefinition shipped in ShippedDefinitions.Flows)
         {
-            shipped.Kind.Should().Be(DefinitionKind.Flow);
-            Flow.FromJson(shipped.Content).Hash.Should().Be(shipped.ContentHash);
+            Assert.Equal(DefinitionKind.Flow, shipped.Kind);
+            Assert.Equal(shipped.ContentHash, Flow.FromJson(shipped.Content).Hash);
         }
     }
 }

@@ -70,10 +70,10 @@ public sealed class BuildFlowInterpreterTests
 
         (List<string> visited, FlowRunMove final, _) = Walk((step, _) => Success(step));
 
-        final.Should().Be(new FlowRunMove.End(Build.Outcome));
-        visited[0].Should().Be(Build.First?.Name);
-        visited.Should().NotContain(toFix.Target);
-        visited.Should().OnlyHaveUniqueItems();
+        Assert.Equal(new FlowRunMove.End(Build.Outcome), final);
+        Assert.Equal(Build.First?.Name, visited[0]);
+        Assert.DoesNotContain(toFix.Target, visited);
+        Assert.Distinct(visited);
     }
 
     [Fact]
@@ -85,10 +85,10 @@ public sealed class BuildFlowInterpreterTests
             Walk((step, visit) => step == review && visit <= toFix.VisitCap ? toFix : Success(step));
 
         // With the shipped caps the spawn cap is not reached first; this asserts it rather than assuming it.
-        last.Spawns.Should().BeLessThanOrEqualTo(Build.SpawnCap);
-        final.Should().Be(new FlowRunMove.End(Build.Outcome));
-        visited.Count(s => s == toFix.Target).Should().Be(toFix.VisitCap);
-        visited.Count(s => s == review).Should().Be(toFix.VisitCap + 1);
+        Assert.True(last.Spawns <= Build.SpawnCap, $"Expected at most {Build.SpawnCap} spawns, but found {last.Spawns}.");
+        Assert.Equal(new FlowRunMove.End(Build.Outcome), final);
+        Assert.Equal(toFix.VisitCap, visited.Count(s => s == toFix.Target));
+        Assert.Equal(toFix.VisitCap + 1, visited.Count(s => s == review));
     }
 
     [Fact]
@@ -99,22 +99,23 @@ public sealed class BuildFlowInterpreterTests
         (List<string> visited, FlowRunMove final, FlowRunPosition last) =
             Walk((step, visit) => step == review && visit <= toFix.VisitCap + 1 ? toFix : Success(step));
 
-        last.Step.Should().Be(review);
-        last.Spawns.Should().BeLessThan(Build.SpawnCap);
-        visited.Count(s => s == toFix.Target).Should().Be(toFix.VisitCap);
-        final.Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain($"'{review}'").And.Contain($"visit cap of {toFix.VisitCap}");
+        Assert.Equal(review, last.Step);
+        Assert.True(last.Spawns < Build.SpawnCap, $"Expected fewer than {Build.SpawnCap} spawns, but found {last.Spawns}.");
+        Assert.Equal(toFix.VisitCap, visited.Count(s => s == toFix.Target));
+        FlowRunMove.Pause pause = Assert.IsType<FlowRunMove.Pause>(final);
+        Assert.Contains($"'{review}'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains($"visit cap of {toFix.VisitCap}", pause.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
     public void An_answer_whose_value_no_transition_holds_pauses_naming_the_step()
     {
         FlowTransition unheard = Success(Build.First?.Name ?? "") with { Value = FlowValue.Of("unheard-of") };
-        Build.Steps.SelectMany(s => s.Transitions).Should().NotContain(t => t.Value.ToString() == "unheard-of");
+        Assert.DoesNotContain(Build.Steps.SelectMany(s => s.Transitions), t => t.Value.ToString() == "unheard-of");
 
         (List<string> visited, FlowRunMove final, _) = Walk((_, _) => unheard);
 
-        visited.Should().Equal(Build.First?.Name);
-        final.Should().BeOfType<FlowRunMove.Pause>().Which.Reason.Should().Contain($"'{Build.First?.Name}'");
+        Assert.Equal<string?>([Build.First?.Name], visited);
+        Assert.Contains($"'{Build.First?.Name}'", Assert.IsType<FlowRunMove.Pause>(final).Reason, StringComparison.Ordinal);
     }
 }

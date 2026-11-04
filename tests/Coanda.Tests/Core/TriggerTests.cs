@@ -14,52 +14,52 @@ public sealed class TriggerTests
     [Fact]
     public void A_trigger_matches_an_event_of_its_kind_whose_fields_equal_every_filter()
     {
-        Assigned.Matches(Event("pr-assigned", ("assignee", "brian"), ("repo", "coanda"), ("title", "Fix it"))).Should().BeTrue();
+        Assert.True(Assigned.Matches(Event("pr-assigned", ("assignee", "brian"), ("repo", "coanda"), ("title", "Fix it"))));
     }
 
     [Fact]
     public void A_trigger_does_not_match_when_one_filter_value_differs()
     {
-        Assigned.Matches(Event("pr-assigned", ("assignee", "someone-else"), ("repo", "coanda"))).Should().BeFalse();
-        Assigned.Matches(Event("pr-assigned", ("assignee", "Brian"), ("repo", "coanda"))).Should().BeFalse("equality is exact");
+        Assert.False(Assigned.Matches(Event("pr-assigned", ("assignee", "someone-else"), ("repo", "coanda"))));
+        Assert.False(Assigned.Matches(Event("pr-assigned", ("assignee", "Brian"), ("repo", "coanda"))), "equality is exact");
     }
 
     [Fact]
     public void A_trigger_does_not_match_when_the_event_lacks_a_filtered_field()
     {
-        Assigned.Matches(Event("pr-assigned", ("assignee", "brian"))).Should().BeFalse();
+        Assert.False(Assigned.Matches(Event("pr-assigned", ("assignee", "brian"))));
     }
 
     [Fact]
     public void A_trigger_does_not_match_an_event_of_another_kind()
     {
-        Assigned.Matches(Event("pr-opened", ("assignee", "brian"), ("repo", "coanda"))).Should().BeFalse();
+        Assert.False(Assigned.Matches(Event("pr-opened", ("assignee", "brian"), ("repo", "coanda"))));
     }
 
     [Fact]
     public void A_parcel_entry_reads_as_parcel_entered_with_its_type_and_stage_and_a_binding_is_that_trigger()
     {
         TriggerEvent entered = TriggerEvent.ParcelEntered("task", "build");
-        entered.Kind.Should().Be("parcel-entered");
-        entered.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["type"] = "task", ["stage"] = "build" });
+        Assert.Equal("parcel-entered", entered.Kind);
+        Assert.Equivalent(new Dictionary<string, string> { ["type"] = "task", ["stage"] = "build" }, entered.Fields, strict: true);
 
         Trigger binding = Trigger.ForBinding(ShippedTypes.Task, ShippedTypes.Task.FlowBindings[0]);
-        binding.Matches(entered).Should().BeTrue();
-        binding.Matches(TriggerEvent.ParcelEntered("task", "review")).Should().BeFalse();
-        binding.Matches(TriggerEvent.ParcelEntered("idea", "build")).Should().BeFalse();
+        Assert.True(binding.Matches(entered));
+        Assert.False(binding.Matches(TriggerEvent.ParcelEntered("task", "review")));
+        Assert.False(binding.Matches(TriggerEvent.ParcelEntered("idea", "build")));
     }
 
     [Fact]
     public void A_follow_matches_a_flow_run_end_with_its_outcome_and_its_flow_when_it_names_one()
     {
         TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
-        ended.Kind.Should().Be("flow-run-ended");
-        ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["flow"] = TriggerEvent.FlowKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" });
+        Assert.Equal("flow-run-ended", ended.Kind);
+        Assert.Equivalent(new Dictionary<string, string> { ["flow"] = TriggerEvent.FlowKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" }, ended.Fields, strict: true);
 
-        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
-        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended).Should().BeTrue("a follow naming no flow takes the outcome from any flow");
-        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 }).Matches(ended).Should().BeFalse();
-        Trigger.ForFollow(new FlowFollow { Outcome = "report-produced", DepthCap = 1 }).Matches(ended).Should().BeFalse();
+        Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 }).Matches(ended));
+        Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended), "a follow naming no flow takes the outcome from any flow");
+        Assert.False(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 }).Matches(ended));
+        Assert.False(Trigger.ForFollow(new FlowFollow { Outcome = "report-produced", DepthCap = 1 }).Matches(ended));
     }
 
     [Fact]
@@ -67,11 +67,10 @@ public sealed class TriggerTests
     {
         TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
 
-        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
-        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 })
-            .Matches(TriggerEvent.FlowRunEnded("BUILD", "pr-opened", "task")).Should().BeTrue();
-        Trigger.ForFollow(new FlowFollow { Outcome = "PR-Opened", Flow = "build", DepthCap = 1 }).Matches(ended)
-            .Should().BeFalse("an outcome is a typed value and compares exactly");
+        Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 1 }).Matches(ended));
+        Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 })
+            .Matches(TriggerEvent.FlowRunEnded("BUILD", "pr-opened", "task")));
+        Assert.False(Trigger.ForFollow(new FlowFollow { Outcome = "PR-Opened", Flow = "build", DepthCap = 1 }).Matches(ended), "an outcome is a typed value and compares exactly");
     }
 
     [Fact]
@@ -79,6 +78,6 @@ public sealed class TriggerTests
     {
         Trigger follow = Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 });
 
-        follow.Matches(Event("pr-merged", ("flow", "build"), ("outcome", "pr-opened"), ("type", "task"))).Should().BeFalse();
+        Assert.False(follow.Matches(Event("pr-merged", ("flow", "build"), ("outcome", "pr-opened"), ("type", "task"))));
     }
 }

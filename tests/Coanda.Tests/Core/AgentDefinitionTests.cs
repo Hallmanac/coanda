@@ -17,13 +17,16 @@ public sealed class AgentDefinitionTests
         AnswerSchema = "build",
     };
 
-    private static void Refused(AgentDefinition agent, string message) =>
-        FluentActions.Invoking(agent.Validate).Should().Throw<DomainException>().WithMessage(message);
+    private static void Refused(AgentDefinition agent, string message)
+    {
+        DomainException exception = Assert.Throws<DomainException>(agent.Validate);
+        Assert.Matches(WildcardPattern.ToRegex(message), exception.Message);
+    }
 
     [Fact]
     public void A_complete_agent_is_valid()
     {
-        FluentActions.Invoking(Agent().Validate).Should().NotThrow();
+        Agent().Validate();
     }
 
     [Theory]
@@ -109,7 +112,7 @@ public sealed class AgentDefinitionTests
     [Fact]
     public void Two_agents_built_separately_from_the_same_data_hash_equal()
     {
-        Agent().Hash.Should().Be(Agent().Hash);
+        Assert.Equal(Agent().Hash, Agent().Hash);
     }
 
     [Fact]
@@ -122,7 +125,7 @@ public sealed class AgentDefinitionTests
             McpServers = ["tracker", "docs"],
         };
 
-        reordered.Hash.Should().Be(Agent().Hash);
+        Assert.Equal(Agent().Hash, reordered.Hash);
     }
 
     [Fact]
@@ -146,7 +149,9 @@ public sealed class AgentDefinitionTests
             agent with { AnswerSchema = "review" },
         ];
 
-        changed.Select(a => a.Hash).Should().OnlyHaveUniqueItems().And.NotContain(agent.Hash);
+        IEnumerable<string> actual = changed.Select(a => a.Hash);
+        Assert.Distinct(actual);
+        Assert.DoesNotContain(agent.Hash, actual);
     }
 
     [Fact]
@@ -163,7 +168,7 @@ public sealed class AgentDefinitionTests
             AnswerSchema = "fix",
         };
 
-        agent.Hash.Should().Be("bf46e78dca27f71e");
+        Assert.Equal("bf46e78dca27f71e", agent.Hash);
     }
 
     [Fact]
@@ -172,7 +177,7 @@ public sealed class AgentDefinitionTests
         foreach (AgentDefinition agent in ShippedAgents.All)
         {
             AgentDefinition read = AgentDefinition.FromJson(AgentDefinition.CanonicalJson(agent));
-            read.Hash.Should().Be(agent.Hash);
+            Assert.Equal(agent.Hash, read.Hash);
             read.Validate();
         }
     }

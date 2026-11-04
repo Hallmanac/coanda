@@ -27,11 +27,10 @@ public sealed class ParcelGateTests
         var gates = new GateSet([gate]);
         Parcel parcel = Create("unready work", gates);
 
-        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage($"The gate 'stand-in' refused the move from 'refine' to 'build': {StandInGate.Reason}");
-        parcel.Stage.Should().Be("refine");
-        gate.Checks.Should().Equal(("refine", "build"));
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now));
+        Assert.Equal($"The gate 'stand-in' refused the move from 'refine' to 'build': {StandInGate.Reason}", exception.Message);
+        Assert.Equal("refine", parcel.Stage);
+        Assert.Equal([("refine", "build")], gate.Checks);
     }
 
     [Fact]
@@ -42,7 +41,7 @@ public sealed class ParcelGateTests
 
         ParcelMoved moved = ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now);
 
-        moved.ToStage.Should().Be("build");
+        Assert.Equal("build", moved.ToStage);
     }
 
     [Fact]
@@ -52,8 +51,8 @@ public sealed class ParcelGateTests
         var gates = new GateSet([gate]);
         Parcel parcel = Create("unready work", gates);
 
-        ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now).ToStage.Should().Be("paused");
-        gate.Checks.Should().BeEmpty();
+        Assert.Equal("paused", ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now).ToStage);
+        Assert.Empty(gate.Checks);
     }
 
     [Fact]
@@ -64,11 +63,12 @@ public sealed class ParcelGateTests
         Parcel parcel = Create("unready work", gates);
         parcel.Apply(ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now));
 
-        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage($"The gate 'stand-in' refused the move from 'paused' to 'build': {StandInGate.Reason}");
-        gate.Checks.Should().Equal([("refine", "build")], "the gate judges the move its binding names, not the resume");
-        ParcelDecider.Move(Gated, gates, parcel, "review", "brian", Now).ToStage.Should().Be("review", "no gate is bound to a move into review");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now));
+        Assert.Equal($"The gate 'stand-in' refused the move from 'paused' to 'build': {StandInGate.Reason}", exception.Message);
+        // the gate judges the move its binding names, not the resume
+        Assert.Equal([("refine", "build")], gate.Checks);
+        // no gate is bound to a move into review
+        Assert.Equal("review", ParcelDecider.Move(Gated, gates, parcel, "review", "brian", Now).ToStage);
     }
 
     [Fact]
@@ -76,16 +76,15 @@ public sealed class ParcelGateTests
     {
         Parcel parcel = Create("ready work", new GateSet([new StandInGate()]));
 
-        FluentActions.Invoking(() => ParcelDecider.Move(Gated, GateSet.None, parcel, "build", "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage("The gate 'stand-in' bound to the move to 'build' is not a gate this daemon runs, so the move is refused.");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(Gated, GateSet.None, parcel, "build", "brian", Now));
+        Assert.Equal("The gate 'stand-in' bound to the move to 'build' is not a gate this daemon runs, so the move is refused.", exception.Message);
     }
 
     [Fact]
     public void A_gate_set_refuses_two_gates_of_one_name()
     {
-        FluentActions.Invoking(() => new GateSet([new StandInGate(), new StandInGate()]))
-            .Should().Throw<InvalidOperationException>().WithMessage("*'stand-in' is given twice*");
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new GateSet([new StandInGate(), new StandInGate()]));
+        Assert.Contains("'stand-in' is given twice", exception.Message, StringComparison.Ordinal);
     }
 
     private static readonly ParcelType GatedClose = ShippedTypes.Task with
@@ -109,10 +108,9 @@ public sealed class ParcelGateTests
         var gates = new GateSet([gate]);
         Parcel parcel = InReview(GatedClose, gates);
 
-        FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "QA has not passed", "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage($"The gate 'stand-in' refused the move from 'review' to 'closed': {StandInGate.Reason}");
-        gate.Checks.Should().Equal(("review", "closed"));
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "QA has not passed", "brian", Now));
+        Assert.Equal($"The gate 'stand-in' refused the move from 'review' to 'closed': {StandInGate.Reason}", exception.Message);
+        Assert.Equal([("review", "closed")], gate.Checks);
     }
 
     [Fact]
@@ -123,13 +121,14 @@ public sealed class ParcelGateTests
         Parcel parcel = InReview(GatedClose, gates);
         parcel.Apply(ParcelDecider.Move(GatedClose, gates, parcel, "paused", "brian", Now));
 
-        FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "done", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("The gate 'stand-in' refused*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "done", "brian", Now));
+        Assert.StartsWith("The gate 'stand-in' refused", exception.Message, StringComparison.Ordinal);
 
         Parcel fresh = Parcel.Create(ParcelDecider.Create(GatedClose, gates, "coanda", "abandoned early", null, "brian", Now));
         gate.Checks.Clear();
-        ParcelDecider.Close(GatedClose, gates, fresh, "abandoned", "not needed", "brian", Now).TerminalStage.Should().Be("closed");
-        gate.Checks.Should().BeEmpty("the gate is bound to the close from review, not from refine");
+        Assert.Equal("closed", ParcelDecider.Close(GatedClose, gates, fresh, "abandoned", "not needed", "brian", Now).TerminalStage);
+        // the gate is bound to the close from review, not from refine
+        Assert.Empty(gate.Checks);
     }
 
     [Fact]
@@ -137,9 +136,8 @@ public sealed class ParcelGateTests
     {
         Parcel parcel = InReview(GatedClose, new GateSet([new StandInGate()]));
 
-        FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, GateSet.None, parcel, "completed", "done", "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage("The gate 'stand-in' bound to the move to 'closed' is not a gate this daemon runs, so the move is refused.");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Close(GatedClose, GateSet.None, parcel, "completed", "done", "brian", Now));
+        Assert.Equal("The gate 'stand-in' bound to the move to 'closed' is not a gate this daemon runs, so the move is refused.", exception.Message);
     }
 
     [Fact]
@@ -151,15 +149,16 @@ public sealed class ParcelGateTests
         Guid flowRun = Ids.New();
         parcel.Apply(new ParcelFlowRunAttached(parcel.Id, flowRun, Now));
 
-        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
-        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, Ids.New()))
-            .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
-        FluentActions.Invoking(() => ParcelDecider.Close(Gated, gates, parcel, "completed", "done", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
-        gate.Checks.Should().BeEmpty("the live-flow-run refusal comes before any gate");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now));
+        Assert.Contains($"held by flow run {Ids.Short(flowRun)}", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, Ids.New()));
+        Assert.Contains($"held by flow run {Ids.Short(flowRun)}", exception2.Message, StringComparison.Ordinal);
+        DomainException exception3 = Assert.Throws<DomainException>(() => ParcelDecider.Close(Gated, gates, parcel, "completed", "done", "brian", Now));
+        Assert.Contains($"held by flow run {Ids.Short(flowRun)}", exception3.Message, StringComparison.Ordinal);
+        // the live-flow-run refusal comes before any gate
+        Assert.Empty(gate.Checks);
 
-        ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, flowRun).ToStage.Should().Be("build");
-        gate.Checks.Should().Equal(("refine", "build"));
+        Assert.Equal("build", ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, flowRun).ToStage);
+        Assert.Equal([("refine", "build")], gate.Checks);
     }
 }

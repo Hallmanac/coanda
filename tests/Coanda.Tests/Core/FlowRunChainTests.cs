@@ -58,10 +58,10 @@ public sealed class FlowRunChainTests
         (FlowRunStarted started, _) = FlowRunDecider.Start(Build, 1, ParcelOf(), "owner", Now);
         FlowRun flowRun = FlowRun.Create(started);
 
-        started.ParentFlowRunId.Should().BeNull();
-        flowRun.ParentFlowRunId.Should().BeNull();
-        flowRun.RootFlowRunId.Should().Be(flowRun.Id);
-        flowRun.Depth.Should().Be(0);
+        Assert.Null(started.ParentFlowRunId);
+        Assert.Null(flowRun.ParentFlowRunId);
+        Assert.Equal(flowRun.Id, flowRun.RootFlowRunId);
+        Assert.Equal(0, flowRun.Depth);
     }
 
     [Fact]
@@ -72,11 +72,11 @@ public sealed class FlowRunChainTests
         (FlowRunStarted started, ParcelFlowRunAttached attached) = FlowRunDecider.Follow(Follower, 1, parcel, parent, "follow:x", Now);
         FlowRun child = FlowRun.Create(started);
 
-        child.ParentFlowRunId.Should().Be(parent.Id);
-        child.RootFlowRunId.Should().Be(parent.Id);
-        child.Depth.Should().Be(1);
-        child.ParcelId.Should().Be(parcel.Id);
-        attached.FlowRunId.Should().Be(child.Id);
+        Assert.Equal(parent.Id, child.ParentFlowRunId);
+        Assert.Equal(parent.Id, child.RootFlowRunId);
+        Assert.Equal(1, child.Depth);
+        Assert.Equal(parcel.Id, child.ParcelId);
+        Assert.Equal(child.Id, attached.FlowRunId);
 
         Flow again = Follower with { Follow = new FlowFollow { Outcome = "followed", DepthCap = 3 } };
         (FlowRunEnded ended, ParcelFlowRunReleased released) = FlowRunDecider.End(Follower, child, Follower.Outcome, "follow:x", Now);
@@ -84,8 +84,9 @@ public sealed class FlowRunChainTests
         parcel.Apply(attached);
         parcel.Apply(released);
         FlowRun grandchild = FlowRun.Create(FlowRunDecider.Follow(again, 1, parcel, child, "follow:y", Now).Started);
-        grandchild.RootFlowRunId.Should().Be(parent.Id, "the root is carried down the chain");
-        grandchild.Depth.Should().Be(2);
+        // the root is carried down the chain
+        Assert.Equal(parent.Id, grandchild.RootFlowRunId);
+        Assert.Equal(2, grandchild.Depth);
     }
 
     [Fact]
@@ -94,8 +95,8 @@ public sealed class FlowRunChainTests
         Parcel parcel = ParcelOf();
         FlowRun running = FlowRun.Create(FlowRunDecider.Start(Build, 1, parcel, "owner", Now).Started);
 
-        FluentActions.Invoking(() => FlowRunDecider.Follow(Follower, 1, ParcelOf(), running, "follow:x", Now))
-            .Should().Throw<DomainException>().WithMessage("*is running; a follow starts only from a flow run that reached its end.");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Follow(Follower, 1, ParcelOf(), running, "follow:x", Now));
+        Assert.EndsWith("is running; a follow starts only from a flow run that reached its end.", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -103,8 +104,8 @@ public sealed class FlowRunChainTests
     {
         (FlowRun parent, _) = EndedBuild();
 
-        FluentActions.Invoking(() => FlowRunDecider.Follow(Follower, 1, ParcelOf(), parent, "follow:x", Now))
-            .Should().Throw<DomainException>().WithMessage("*a follow runs on the parcel of the flow run it follows*");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Follow(Follower, 1, ParcelOf(), parent, "follow:x", Now));
+        Assert.Contains("a follow runs on the parcel of the flow run it follows", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -112,11 +113,11 @@ public sealed class FlowRunChainTests
     {
         (FlowRun parent, Parcel parcel) = EndedBuild();
 
-        FluentActions.Invoking(() => FlowRunDecider.Follow(Follower with { Follow = null }, 1, parcel, parent, "follow:x", Now))
-            .Should().Throw<DomainException>().WithMessage("Flow 'after-build' declares no follow, so no flow run's end starts it.");
-        FluentActions.Invoking(() => FlowRunDecider.Follow(
-                Follower with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 } }, 1, parcel, parent, "follow:x", Now))
-            .Should().Throw<DomainException>().WithMessage("Flow 'after-build' follows the outcome 'pr-opened' of flow 'discovery'; flow run * of flow 'build' ended with 'pr-opened'.");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Follow(Follower with { Follow = null }, 1, parcel, parent, "follow:x", Now));
+        Assert.Equal("Flow 'after-build' declares no follow, so no flow run's end starts it.", exception.Message);
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.Follow(
+                Follower with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 } }, 1, parcel, parent, "follow:x", Now));
+        Assert.Matches(@"(?s)^Flow 'after-build' follows the outcome 'pr-opened' of flow 'discovery'; flow run .* of flow 'build' ended with 'pr-opened'\.$", exception2.Message);
     }
 
     [Fact]
@@ -135,13 +136,15 @@ public sealed class FlowRunChainTests
         FlowRunPaused paused = FlowRunDecider.Pause(Build, flowRun, "no valid answer", "/transcripts/1.jsonl", "owner", Now, usage);
         flowRun.Apply(paused);
 
-        paused.Usage.Should().Be(usage);
-        flowRun.PauseUsage.Should().Be(usage);
-        flowRun.Cost.Should().Be(3.75m);
+        Assert.Equal(usage, paused.Usage);
+        Assert.Equal(usage, flowRun.PauseUsage);
+        Assert.Equal(3.75m, flowRun.Cost);
 
         flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, "owner", Now));
-        flowRun.PauseUsage.Should().BeNull("the usage belongs to the pause the resume ends");
-        flowRun.Cost.Should().Be(3.75m, "a resume spends nothing and forgets nothing spent");
+        // the usage belongs to the pause the resume ends
+        Assert.Null(flowRun.PauseUsage);
+        // a resume spends nothing and forgets nothing spent
+        Assert.Equal(3.75m, flowRun.Cost);
     }
 
     [Fact]
@@ -152,7 +155,7 @@ public sealed class FlowRunChainTests
 
         FlowRun child = FlowRun.Create(FlowRunDecider.Follow(spelled, 1, parcel, parent, "follow:x", Now).Started);
 
-        child.ParentFlowRunId.Should().Be(parent.Id);
+        Assert.Equal(parent.Id, child.ParentFlowRunId);
     }
 
     [Fact]
@@ -170,13 +173,15 @@ public sealed class FlowRunChainTests
             ?? throw new InvalidOperationException("A flow run serialized to nothing.");
         foreach (string added in new[] { nameof(FlowRun.ParentFlowRunId), nameof(FlowRun.RootFlowRunId), nameof(FlowRun.Depth), nameof(FlowRun.PausedCost), nameof(FlowRun.PauseUsage) })
         {
-            document.Remove(added).Should().BeTrue($"the document carries {added} today");
+            Assert.True(document.Remove(added), $"the document carries {added} today");
         }
 
         FlowRun legacy = document.Deserialize<FlowRun>() ?? throw new InvalidOperationException("The document read as nothing.");
 
-        legacy.RootFlowRunId.Should().Be(flowRun.Id, "a flow run recorded before chains has no stored root and is its own");
-        legacy.Cost.Should().Be(1.5m, "what its answers cost is read from its recorded visits");
+        // a flow run recorded before chains has no stored root and is its own
+        Assert.Equal(flowRun.Id, legacy.RootFlowRunId);
+        // what its answers cost is read from its recorded visits
+        Assert.Equal(1.5m, legacy.Cost);
     }
 
     [Fact]
@@ -184,8 +189,8 @@ public sealed class FlowRunChainTests
     {
         FlowRun flowRun = FlowRun.Create(FlowRunDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
 
-        FluentActions.Invoking(() => FlowRunDecider.Pause(Build, flowRun, "why", "lever", "owner", Now, new Measurement(0, -1m, 0, TimeSpan.Zero)))
-            .Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Pause(Build, flowRun, "why", "lever", "owner", Now, new Measurement(0, -1m, 0, TimeSpan.Zero)));
+        Assert.StartsWith("A measurement is never negative", exception.Message, StringComparison.Ordinal);
     }
 
     private static JsonElement Json(string json)

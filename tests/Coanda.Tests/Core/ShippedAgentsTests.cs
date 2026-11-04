@@ -9,33 +9,34 @@ public sealed class ShippedAgentsTests
     [Fact]
     public void The_five_shipped_agents_exist_and_pass_validation()
     {
-        ShippedAgents.All.Select(a => a.Name).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance", "fix", "discovery");
+        Assert.Equal(["build", "reviewer-adversarial", "reviewer-conformance", "fix", "discovery"], ShippedAgents.All.Select(a => a.Name));
         foreach (AgentDefinition agent in ShippedAgents.All)
         {
-            FluentActions.Invoking(agent.Validate).Should().NotThrow(agent.Name);
+            Exception? refusal = Record.Exception(agent.Validate);
+            Assert.True(refusal is null, $"{agent.Name}: {refusal?.Message}");
         }
     }
 
     [Fact]
     public void Each_agent_names_its_answer_schema()
     {
-        ShippedAgents.Build.AnswerSchema.Should().Be("build");
-        ShippedAgents.ReviewerAdversarial.AnswerSchema.Should().Be("review");
-        ShippedAgents.ReviewerConformance.AnswerSchema.Should().Be("review");
-        ShippedAgents.Fix.AnswerSchema.Should().Be("fix");
-        ShippedAgents.Discovery.AnswerSchema.Should().Be("discovery");
+        Assert.Equal("build", ShippedAgents.Build.AnswerSchema);
+        Assert.Equal("review", ShippedAgents.ReviewerAdversarial.AnswerSchema);
+        Assert.Equal("review", ShippedAgents.ReviewerConformance.AnswerSchema);
+        Assert.Equal("fix", ShippedAgents.Fix.AnswerSchema);
+        Assert.Equal("discovery", ShippedAgents.Discovery.AnswerSchema);
     }
 
     [Fact]
     public void Only_build_and_fix_hold_the_edit_tool()
     {
-        ShippedAgents.All.Where(a => a.HoldsTool(ToolCatalog.Edit)).Select(a => a.Name).Should().Equal("build", "fix");
+        Assert.Equal(["build", "fix"], ShippedAgents.All.Where(a => a.HoldsTool(ToolCatalog.Edit)).Select(a => a.Name));
     }
 
     [Fact]
     public void Every_agent_names_the_claude_code_vendor()
     {
-        ShippedAgents.All.Should().OnlyContain(a => a.Model.Vendor == "claude-code");
+        Assert.All(ShippedAgents.All, a => Assert.True(a.Model.Vendor == "claude-code"));
     }
 
     [Fact]
@@ -45,10 +46,11 @@ public sealed class ShippedAgentsTests
         {
             foreach (string verdict in AnswerSchemas.Require(agent.AnswerSchema).Verdicts)
             {
-                agent.Persona.Output.Should().Contain($"\"{verdict}\"", $"{agent.Name} must name the verdict {verdict}");
+                // {agent.Name} must name the verdict {verdict}
+                Assert.Contains($"\"{verdict}\"", agent.Persona.Output, StringComparison.Ordinal);
             }
 
-            agent.Persona.Output.Should().Contain("JSON document");
+            Assert.Contains("JSON document", agent.Persona.Output, StringComparison.Ordinal);
         }
     }
 
@@ -60,9 +62,10 @@ public sealed class ShippedAgentsTests
             AgentPersona persona = agent.Persona;
             foreach (string part in new[] { persona.Role, persona.Purpose, persona.Output, persona.Rules, persona.Prohibitions })
             {
-                part.Should().NotContain("\n", agent.Name);
-                part.Should().NotMatchRegex(@"^[A-Z][A-Z_\-]{2,}:", agent.Name);
-                part.Should().NotContain("\u2014", agent.Name);
+                // each check names the agent, agent.Name, as its reason
+                Assert.DoesNotContain("\n", part, StringComparison.Ordinal);
+                Assert.DoesNotMatch(@"^[A-Z][A-Z_\-]{2,}:", part);
+                Assert.DoesNotContain("\u2014", part, StringComparison.Ordinal);
             }
         }
     }
@@ -70,18 +73,19 @@ public sealed class ShippedAgentsTests
     [Fact]
     public void Every_agent_is_sent_to_the_project_guidance_by_its_rules()
     {
-        ShippedAgents.ProjectGuidance.Should().Contain("AGENTS.md").And.Contain("CLAUDE.md");
+        Assert.Contains("AGENTS.md", ShippedAgents.ProjectGuidance, StringComparison.Ordinal);
+        Assert.Contains("CLAUDE.md", ShippedAgents.ProjectGuidance, StringComparison.Ordinal);
         foreach (AgentDefinition agent in ShippedAgents.All)
         {
-            agent.Persona.Rules.Should().Contain(ShippedAgents.ProjectGuidance, agent.Name);
+            // the check names the agent, agent.Name, as its reason
+            Assert.Contains(ShippedAgents.ProjectGuidance, agent.Persona.Rules, StringComparison.Ordinal);
         }
     }
 
     [Fact]
     public void Shipped_definitions_carry_the_agents_hashes()
     {
-        ShippedDefinitions.Agents.Select(d => (d.Kind, d.Name, d.ContentHash))
-            .Should().Equal(ShippedAgents.All.Select(a => (DefinitionKind.Agent, a.Name, a.Hash)));
-        ShippedDefinitions.All.Should().HaveCount(ShippedTypes.All.Count + ShippedFlows.All.Count + ShippedAgents.All.Count);
+        Assert.Equal(ShippedAgents.All.Select(a => (DefinitionKind.Agent, a.Name, a.Hash)), ShippedDefinitions.Agents.Select(d => (d.Kind, d.Name, d.ContentHash)));
+        Assert.Equal(ShippedTypes.All.Count + ShippedFlows.All.Count + ShippedAgents.All.Count, ShippedDefinitions.All.Count);
     }
 }

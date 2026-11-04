@@ -14,18 +14,15 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void The_shipped_idea_declares_no_field_and_hashes_to_a_literal()
     {
-        ShippedTypes.Idea.Fields.Should().BeEmpty();
-        ShippedTypes.Idea.Hash.Should().Be("e6c4447a6bc6586d", "the idea declares no field, so its hash covers its stages, transitions, and flow bindings alone");
+        Assert.Empty(ShippedTypes.Idea.Fields);
+        // the idea declares no field, so its hash covers its stages, transitions, and flow bindings alone
+        Assert.Equal("e6c4447a6bc6586d", ShippedTypes.Idea.Hash);
     }
 
     [Fact]
     public void The_shipped_task_declares_its_objective_criteria_non_goals_and_pull_request()
     {
-        ShippedTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))).Should().Equal(
-            ("objective", FieldKinds.Text, "refine"),
-            ("criteria", FieldKinds.TextList, "refine"),
-            ("non-goals", FieldKinds.TextList, ""),
-            ("pull-request", FieldKinds.Reference, "build"));
+        Assert.Equal([("objective", FieldKinds.Text, "refine"), ("criteria", FieldKinds.TextList, "refine"), ("non-goals", FieldKinds.TextList, ""), ("pull-request", FieldKinds.Reference, "build")], ShippedTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))));
         ShippedTypes.Task.Validate(Gates);
     }
 
@@ -34,9 +31,12 @@ public sealed class ParcelTypeFieldTests
     {
         ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(ShippedTypes.Task));
 
-        read.Fields.Should().BeEquivalentTo(ShippedTypes.Task.Fields, o => o.WithStrictOrdering());
-        read.Hash.Should().Be(ShippedTypes.Task.Hash);
-        ParcelType.CanonicalJson(ShippedTypes.Task).Should().Contain("\"Fields\"").And.Contain("\"RequiredToLeave\"");
+        Assert.Equal(ShippedTypes.Task.Fields.Select(f => (f.Name, f.Kind)), read.Fields.Select(f => (f.Name, f.Kind)));
+        Assert.Equal(ShippedTypes.Task.Fields.Select(f => f.RequiredToLeave), read.Fields.Select(f => f.RequiredToLeave));
+        Assert.Equal(ShippedTypes.Task.Hash, read.Hash);
+        string actual = ParcelType.CanonicalJson(ShippedTypes.Task);
+        Assert.Contains("\"Fields\"", actual, StringComparison.Ordinal);
+        Assert.Contains("\"RequiredToLeave\"", actual, StringComparison.Ordinal);
 
         ParcelType renamed = ShippedTypes.Task with
         {
@@ -51,7 +51,7 @@ public sealed class ParcelTypeFieldTests
             Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Kind = FieldKinds.TextList } : f)],
         };
         string[] hashes = [ShippedTypes.Task.Hash, renamed.Hash, relaxed.Hash, rekinded.Hash, (ShippedTypes.Task with { Fields = [] }).Hash];
-        hashes.Should().OnlyHaveUniqueItems();
+        Assert.Distinct(hashes);
     }
 
     public static TheoryData<string, FieldDeclaration[], string> Refused => new()
@@ -97,10 +97,11 @@ public sealed class ParcelTypeFieldTests
     [MemberData(nameof(Refused))]
     public void A_type_declaring_a_broken_field_is_refused_at_load_quoting_the_rule(string broken, FieldDeclaration[] fields, string rule)
     {
-        broken.Should().NotBeNullOrEmpty();
+        Assert.False(string.IsNullOrEmpty(broken));
         ParcelType type = ShippedTypes.Task with { Fields = fields };
 
-        FluentActions.Invoking(() => type.Validate(Gates)).Should().Throw<DomainException>().WithMessage(rule);
+        DomainException exception = Assert.Throws<DomainException>(() => type.Validate(Gates));
+        Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
     }
 
     [Theory]
@@ -115,14 +116,15 @@ public sealed class ParcelTypeFieldTests
 
         ParcelType read = ParcelType.FromJson(replaced);
 
-        FluentActions.Invoking(() => read.Validate(Gates)).Should().Throw<DomainException>().WithMessage(rule);
+        DomainException exception = Assert.Throws<DomainException>(() => read.Validate(Gates));
+        Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
     }
 
     [Fact]
     public void The_shipped_types_enforce_every_field_they_declare()
     {
-        FluentActions.Invoking(() => ShippedTypes.Idea.Validate(Gates)).Should().NotThrow();
-        FluentActions.Invoking(() => ShippedTypes.Task.Validate(Gates)).Should().NotThrow();
+        ShippedTypes.Idea.Validate(Gates);
+        ShippedTypes.Task.Validate(Gates);
     }
 
     [Fact]
@@ -138,8 +140,8 @@ public sealed class ParcelTypeFieldTests
             },
         };
 
-        FluentActions.Invoking(() => unbound.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "Field 'objective' of parcel type 'task' is required to leave 'refine', and the move from 'refine' to 'review' is not bound to the 'required-fields' gate; every move the table holds out of a stage a field is required to leave is bound to that gate.");
+        DomainException exception = Assert.Throws<DomainException>(() => unbound.Validate(Gates));
+        Assert.Equal("Field 'objective' of parcel type 'task' is required to leave 'refine', and the move from 'refine' to 'review' is not bound to the 'required-fields' gate; every move the table holds out of a stage a field is required to leave is bound to that gate.", exception.Message);
     }
 
     [Fact]
@@ -155,7 +157,7 @@ public sealed class ParcelTypeFieldTests
             },
         };
 
-        FluentActions.Invoking(() => pausesInTable.Validate(Gates)).Should().NotThrow();
+        pausesInTable.Validate(Gates);
     }
 
     [Fact]
@@ -172,15 +174,15 @@ public sealed class ParcelTypeFieldTests
             },
         };
 
-        FluentActions.Invoking(() => withQa.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "Stage 'qa' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and no move the table holds into it is bound to the 'required-fields' gate, so a resume into it would check nothing; a stage some field is required to enter has a move into it bound to that gate.");
+        DomainException exception = Assert.Throws<DomainException>(() => withQa.Validate(Gates));
+        Assert.Equal("Stage 'qa' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and no move the table holds into it is bound to the 'required-fields' gate, so a resume into it would check nothing; a stage some field is required to enter has a move into it bound to that gate.", exception.Message);
 
         ParcelType guarded = withQa with
         {
             GateBindings = [.. withQa.GateBindings, new GateBinding("review", "qa", RequiredFieldsGate.GateName)],
         };
-        FluentActions.Invoking(() => guarded.Validate(Gates)).Should().NotThrow();
-        guarded.RequiredToEnter("qa").Should().Equal("objective", "criteria", "pull-request");
+        guarded.Validate(Gates);
+        Assert.Equal(["objective", "criteria", "pull-request"], guarded.RequiredToEnter("qa"));
     }
 
     [Fact]
@@ -199,9 +201,11 @@ public sealed class ParcelTypeFieldTests
             EntryStages = ["refine", "spike"],
         };
 
-        forked.RequiredToEnter("build").Should().BeEmpty("a route from the spike entry stage reaches build without leaving refine");
-        forked.RequiredToEnter("review").Should().Equal("pull-request");
-        forked.RequiredToEnter("shelved").Should().BeEmpty("no route reaches it");
+        // a route from the spike entry stage reaches build without leaving refine
+        Assert.Empty(forked.RequiredToEnter("build"));
+        Assert.Equal(["pull-request"], forked.RequiredToEnter("review"));
+        // no route reaches it
+        Assert.Empty(forked.RequiredToEnter("shelved"));
     }
 
     [Fact]
@@ -219,14 +223,15 @@ public sealed class ParcelTypeFieldTests
             },
         };
 
-        FluentActions.Invoking(() => shelved.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "Stage 'review' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and the move the table holds into it from 'shelved', a stage no route from an entry stage reaches, would carry a parcel resumed into 'shelved' there without them; a move out of a stage no route reaches goes only into a stage that requires nothing to enter.");
+        DomainException exception = Assert.Throws<DomainException>(() => shelved.Validate(Gates));
+        Assert.Equal("Stage 'review' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and the move the table holds into it from 'shelved', a stage no route from an entry stage reaches, would carry a parcel resumed into 'shelved' there without them; a move out of a stage no route reaches goes only into a stage that requires nothing to enter.", exception.Message);
 
         ParcelType intoRefine = shelved with
         {
             Moves = new Dictionary<string, IReadOnlyList<string>>(shelved.Moves) { ["shelved"] = ["refine"] },
         };
-        FluentActions.Invoking(() => intoRefine.Validate(Gates)).Should().NotThrow("refine requires nothing to enter");
+        // refine requires nothing to enter
+        intoRefine.Validate(Gates);
     }
 
     [Fact]
@@ -238,12 +243,12 @@ public sealed class ParcelTypeFieldTests
         };
         string content = ParcelType.CanonicalJson(unenforced);
 
-        FluentActions.Invoking(() => DefinitionDecider.Draft(
+        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
-                content, unenforced.Hash, null, "brian", DateTimeOffset.UnixEpoch, Gates))
-            .Should().Throw<DomainException>().WithMessage("Field 'pull-request' of parcel type 'task' is required to leave 'build', and the move from 'build' to 'review' is not bound*");
-        FluentActions.Invoking(() => ParcelDecider.Create(unenforced, GateSet.Shipped, "alpha", "Work", null, "brian", DateTimeOffset.UnixEpoch))
-            .Should().Throw<DomainException>().WithMessage("Field 'pull-request' of parcel type 'task'*not bound*");
+                content, unenforced.Hash, null, "brian", DateTimeOffset.UnixEpoch, Gates));
+        Assert.StartsWith("Field 'pull-request' of parcel type 'task' is required to leave 'build', and the move from 'build' to 'review' is not bound", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.Create(unenforced, GateSet.Shipped, "alpha", "Work", null, "brian", DateTimeOffset.UnixEpoch));
+        Assert.Matches(@"(?s)^Field 'pull-request' of parcel type 'task'.*not bound.*$", exception2.Message);
     }
 
     private static FieldDeclaration Text(string name, params string[] requiredToLeave) =>

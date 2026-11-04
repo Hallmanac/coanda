@@ -29,21 +29,21 @@ public sealed class FlowStepFieldTests
     [Fact]
     public void An_agent_step_declaring_plain_distinct_fields_loads()
     {
-        FluentActions.Invoking(() => With(["objective", "non-goals", "pull_request2"]).Validate(Known)).Should().NotThrow();
+        With(["objective", "non-goals", "pull_request2"]).Validate(Known);
     }
 
     [Fact]
     public void A_system_step_declaring_a_field_is_refused_quoting_the_rule()
     {
-        FluentActions.Invoking(() => With([], actFields: ["objective"]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("System step 'act' of flow 'sample' declares fields; only an agent step declares the fields its context carries.");
+        DomainException exception = Assert.Throws<DomainException>(() => With([], actFields: ["objective"]).Validate(Known));
+        Assert.Equal("System step 'act' of flow 'sample' declares fields; only an agent step declares the fields its context carries.", exception.Message);
     }
 
     [Fact]
     public void A_field_declared_twice_is_refused_quoting_the_rule()
     {
-        FluentActions.Invoking(() => With(["objective", "criteria", "objective"]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Agent step 'judge' of flow 'sample' declares the field 'objective' twice; a step declares each field once.");
+        DomainException exception = Assert.Throws<DomainException>(() => With(["objective", "criteria", "objective"]).Validate(Known));
+        Assert.Equal("Agent step 'judge' of flow 'sample' declares the field 'objective' twice; a step declares each field once.", exception.Message);
     }
 
     [Theory]
@@ -52,8 +52,8 @@ public sealed class FlowStepFieldTests
     [InlineData("objective:")]
     public void A_field_whose_name_is_not_plain_is_refused_quoting_the_rule(string name)
     {
-        FluentActions.Invoking(() => With([name]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage($"Agent step 'judge' of flow 'sample' declares the field '{name}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
+        DomainException exception = Assert.Throws<DomainException>(() => With([name]).Validate(Known));
+        Assert.Equal($"Agent step 'judge' of flow 'sample' declares the field '{name}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.", exception.Message);
     }
 
     [Fact]
@@ -61,8 +61,8 @@ public sealed class FlowStepFieldTests
     {
         string content = Flow.CanonicalJson(With(["objective"])).Replace("\"objective\"", "null", StringComparison.Ordinal);
 
-        FluentActions.Invoking(() => Flow.FromJson(content).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("*declares the field ''*");
+        DomainException exception = Assert.Throws<DomainException>(() => Flow.FromJson(content).Validate(Known));
+        Assert.Contains("declares the field ''", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -72,10 +72,11 @@ public sealed class FlowStepFieldTests
 
         Flow read = Flow.FromJson(Flow.CanonicalJson(declared));
 
-        read.Steps[0].Fields.Should().Equal("objective", "criteria");
-        read.Hash.Should().Be(declared.Hash);
+        Assert.Equal(["objective", "criteria"], read.Steps[0].Fields);
+        Assert.Equal(declared.Hash, read.Hash);
         string[] hashes = [With([]).Hash, declared.Hash, With(["criteria", "objective"]).Hash, With(["objective"]).Hash];
-        hashes.Should().OnlyHaveUniqueItems("the fields and their order are part of the hash");
+        // the fields and their order are part of the hash
+        Assert.Distinct(hashes);
     }
 
     [Fact]
@@ -85,10 +86,11 @@ public sealed class FlowStepFieldTests
 
         foreach (string step in new[] { "build", "fix", "adversarial-review", "conformance-review" })
         {
-            build.Step(step)?.Fields.Should().Equal(["objective", "criteria", "non-goals"], $"step '{step}' is an agent step the task's brief informs");
+            // step '{step}' is an agent step the task's brief informs
+            Assert.Equal(["objective", "criteria", "non-goals"], build.Step(step)?.Fields);
         }
 
-        build.Steps.Where(s => s.IsSystemStep).Should().OnlyContain(s => s.Fields.Count == 0);
+        Assert.All(build.Steps.Where(s => s.IsSystemStep), s => Assert.True(s.Fields.Count == 0));
         build.Validate(ShippedSystemSteps.Names);
     }
 
@@ -98,7 +100,8 @@ public sealed class FlowStepFieldTests
         Flow declared = PreviousFlows.BuildWithGatedMerge;
         Flow undeclared = declared with { Steps = [.. declared.Steps.Select(s => s with { Fields = [], Sources = [] })] };
 
-        undeclared.Hash.Should().Be("aa5f4bb96eec30da", "a flow none of whose steps declares fields leaves fields out of its hash");
-        declared.Hash.Should().NotBe(undeclared.Hash);
+        // a flow none of whose steps declares fields leaves fields out of its hash
+        Assert.Equal("aa5f4bb96eec30da", undeclared.Hash);
+        Assert.NotEqual(undeclared.Hash, declared.Hash);
     }
 }

@@ -61,21 +61,21 @@ public sealed class InterpreterTests
     public void Start_and_two_moves_count_one_visit_to_each_step_entered_and_one_spawn_per_agent_step()
     {
         FlowRunPosition start = Interpreter.Start(Sample);
-        start.Step.Should().Be("act");
-        start.VisitsTo("act").Should().Be(1);
-        start.Spawns.Should().Be(0);
+        Assert.Equal("act", start.Step);
+        Assert.Equal(1, start.VisitsTo("act"));
+        Assert.Equal(0, start.Spawns);
 
         FlowRunPosition judged = Interpreter.Apply(Sample, start, new FlowRunMove.GoTo("judge"));
-        judged.Step.Should().Be("judge");
-        judged.VisitsTo("act").Should().Be(1);
-        judged.VisitsTo("judge").Should().Be(1);
-        judged.Spawns.Should().Be(1);
+        Assert.Equal("judge", judged.Step);
+        Assert.Equal(1, judged.VisitsTo("act"));
+        Assert.Equal(1, judged.VisitsTo("judge"));
+        Assert.Equal(1, judged.Spawns);
 
         FlowRunPosition back = Interpreter.Apply(Sample, judged, new FlowRunMove.GoTo("act"));
-        back.Step.Should().Be("act");
-        back.VisitsTo("act").Should().Be(2);
-        back.VisitsTo("judge").Should().Be(1);
-        back.Spawns.Should().Be(1);
+        Assert.Equal("act", back.Step);
+        Assert.Equal(2, back.VisitsTo("act"));
+        Assert.Equal(1, back.VisitsTo("judge"));
+        Assert.Equal(1, back.Spawns);
     }
 
     [Fact]
@@ -89,14 +89,14 @@ public sealed class InterpreterTests
         FlowRunMove first = Decide(position, """{"verdict":"more"}""");
         FlowRunMove second = Decide(copy, """{"verdict":"more"}""");
 
-        first.Should().Be(new FlowRunMove.GoTo("judge"));
-        second.Should().Be(first);
-        position.Should().Be(copy);
-        position.Step.Should().Be("judge");
-        position.VisitsTo("judge").Should().Be(1);
-        position.Spawns.Should().Be(1);
-        Sample.Hash.Should().Be(hash);
-        Flow.CanonicalJson(Sample).Should().Be(json);
+        Assert.Equal(new FlowRunMove.GoTo("judge"), first);
+        Assert.Equal(first, second);
+        Assert.Equal(copy, position);
+        Assert.Equal("judge", position.Step);
+        Assert.Equal(1, position.VisitsTo("judge"));
+        Assert.Equal(1, position.Spawns);
+        Assert.Equal(hash, Sample.Hash);
+        Assert.Equal(json, Flow.CanonicalJson(Sample));
     }
 
     [Fact]
@@ -104,10 +104,10 @@ public sealed class InterpreterTests
     {
         FlowRunPosition lost = At("nowhere");
 
-        FluentActions.Invoking(() => Decide(lost, """{"verdict":"done"}"""))
-            .Should().Throw<DomainException>().WithMessage("*'nowhere'*");
-        FluentActions.Invoking(() => Interpreter.Apply(Sample, lost, new FlowRunMove.GoTo("judge")))
-            .Should().Throw<DomainException>().WithMessage("*'nowhere'*");
+        DomainException exception = Assert.Throws<DomainException>(() => Decide(lost, """{"verdict":"done"}"""));
+        Assert.Contains("'nowhere'", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(() => Interpreter.Apply(Sample, lost, new FlowRunMove.GoTo("judge")));
+        Assert.Contains("'nowhere'", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -116,20 +116,22 @@ public sealed class InterpreterTests
         FlowRunPosition start = Interpreter.Start(Sample);
 
         FlowRunMove first = Decide(start, """{"verdict":"again"}""");
-        first.Should().Be(new FlowRunMove.GoTo("act"));
+        Assert.Equal(new FlowRunMove.GoTo("act"), first);
 
         FlowRunPosition second = Interpreter.Apply(Sample, start, (FlowRunMove.GoTo)first);
-        second.VisitsTo("act").Should().Be(2);
-        Decide(second, """{"verdict":"again"}""").Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain("'act'").And.Contain("visit cap of 1");
+        Assert.Equal(2, second.VisitsTo("act"));
+        FlowRunMove.Pause pause = Assert.IsType<FlowRunMove.Pause>(Decide(second, """{"verdict":"again"}"""));
+        Assert.Contains("'act'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains("visit cap of 1", pause.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
     public void The_first_matching_transition_decides_so_a_capped_one_pauses_rather_than_falling_through()
     {
-        Decide(At("act", visits: 1), """{"verdict":"twice"}""").Should().Be(new FlowRunMove.GoTo("judge"));
-        Decide(At("act", visits: 2), """{"verdict":"twice"}""").Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain("'act'").And.Contain("visit cap of 1");
+        Assert.Equal(new FlowRunMove.GoTo("judge"), Decide(At("act", visits: 1), """{"verdict":"twice"}"""));
+        FlowRunMove.Pause pause = Assert.IsType<FlowRunMove.Pause>(Decide(At("act", visits: 2), """{"verdict":"twice"}"""));
+        Assert.Contains("'act'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains("visit cap of 1", pause.Reason, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -151,11 +153,11 @@ public sealed class InterpreterTests
 
         if (matches)
         {
-            move.Should().NotBeOfType<FlowRunMove.Pause>();
+            Assert.IsNotType<FlowRunMove.Pause>(move);
         }
         else
         {
-            move.Should().BeOfType<FlowRunMove.Pause>().Which.Reason.Should().Contain("'act'");
+            Assert.Contains("'act'", Assert.IsType<FlowRunMove.Pause>(move).Reason, StringComparison.Ordinal);
         }
     }
 
@@ -168,8 +170,7 @@ public sealed class InterpreterTests
     [InlineData("null")]
     public void An_answer_no_transition_matches_pauses_naming_the_step(string answer)
     {
-        Decide(Interpreter.Start(Sample), answer).Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain("'act'");
+        Assert.Contains("'act'", Assert.IsType<FlowRunMove.Pause>(Decide(Interpreter.Start(Sample), answer)).Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -177,23 +178,21 @@ public sealed class InterpreterTests
     {
         FlowRunPosition judging = At("judge");
 
-        Decide(judging, """{"verdict":"blocked"}""").Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain("'judge'");
-        Decide(judging, """{"verdict":"done"}""").Should().Be(new FlowRunMove.End("thing-done"));
+        Assert.Contains("'judge'", Assert.IsType<FlowRunMove.Pause>(Decide(judging, """{"verdict":"blocked"}""")).Reason, StringComparison.Ordinal);
+        Assert.Equal(new FlowRunMove.End("thing-done"), Decide(judging, """{"verdict":"done"}"""));
     }
 
     [Fact]
     public void Going_to_an_agent_step_at_the_spawn_cap_pauses_naming_the_cap_but_going_to_a_system_step_does_not()
     {
         FlowRunPosition below = At("judge", spawns: Sample.SpawnCap - 1);
-        Decide(below, """{"verdict":"more"}""").Should().Be(new FlowRunMove.GoTo("judge"));
+        Assert.Equal(new FlowRunMove.GoTo("judge"), Decide(below, """{"verdict":"more"}"""));
 
         FlowRunPosition atCap = At("judge", spawns: Sample.SpawnCap);
-        Decide(atCap, """{"verdict":"more"}""").Should().BeOfType<FlowRunMove.Pause>()
-            .Which.Reason.Should().Contain($"spawn cap of {Sample.SpawnCap}");
-        Decide(atCap with { Spawns = Sample.SpawnCap + 1 }, """{"verdict":"more"}""").Should().BeOfType<FlowRunMove.Pause>();
+        Assert.Contains($"spawn cap of {Sample.SpawnCap}", Assert.IsType<FlowRunMove.Pause>(Decide(atCap, """{"verdict":"more"}""")).Reason, StringComparison.Ordinal);
+        Assert.IsType<FlowRunMove.Pause>(Decide(atCap with { Spawns = Sample.SpawnCap + 1 }, """{"verdict":"more"}"""));
 
-        Decide(atCap, """{"verdict":"act"}""").Should().Be(new FlowRunMove.GoTo("act"));
+        Assert.Equal(new FlowRunMove.GoTo("act"), Decide(atCap, """{"verdict":"act"}"""));
     }
 
     [Fact]
@@ -201,11 +200,11 @@ public sealed class InterpreterTests
     {
         FlowStep act = Sample.Step("act") ?? throw new InvalidOperationException("The sample has an act step.");
 
-        Interpreter.CanFireAtNextVisit(act, 4).Should().BeTrue("the transitions capped at 5 allow a fifth visit");
-        Interpreter.CanFireAtNextVisit(act, 5).Should().BeFalse("no transition out of the step allows a sixth visit");
+        Assert.True(Interpreter.CanFireAtNextVisit(act, 4), "the transitions capped at 5 allow a fifth visit");
+        Assert.False(Interpreter.CanFireAtNextVisit(act, 5), "no transition out of the step allows a sixth visit");
 
         // The same rule Decide applies: at the fifth visit a transition capped at 5 still fires.
-        Decide(At("act", visits: 5), """{"verdict":"done"}""").Should().Be(new FlowRunMove.GoTo("judge"));
-        Decide(At("act", visits: 6), """{"verdict":"done"}""").Should().BeOfType<FlowRunMove.Pause>();
+        Assert.Equal(new FlowRunMove.GoTo("judge"), Decide(At("act", visits: 5), """{"verdict":"done"}"""));
+        Assert.IsType<FlowRunMove.Pause>(Decide(At("act", visits: 6), """{"verdict":"done"}"""));
     }
 }

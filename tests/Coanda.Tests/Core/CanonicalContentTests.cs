@@ -20,7 +20,8 @@ public sealed class CanonicalContentTests
 
             foreach (string property in Derived)
             {
-                PropertyNames(content).Should().NotContain(property, $"flow '{flow.Name}' writes only what it declares");
+                // flow '{flow.Name}' writes only what it declares
+                Assert.DoesNotContain(property, PropertyNames(content));
             }
         }
     }
@@ -30,7 +31,8 @@ public sealed class CanonicalContentTests
     {
         foreach (ParcelType type in ShippedTypes.All)
         {
-            PropertyNames(ParcelType.CanonicalJson(type)).Should().NotContain("Hash", $"type '{type.Name}' writes only what it declares");
+            // type '{type.Name}' writes only what it declares
+            Assert.DoesNotContain("Hash", PropertyNames(ParcelType.CanonicalJson(type)));
         }
     }
 
@@ -46,13 +48,14 @@ public sealed class CanonicalContentTests
         }
 
         string stored = node.ToJsonString();
-        PropertyNames(stored).Should().Contain(["IsAgentStep", "IsSystemStep"]);
+        List<string> names = PropertyNames(stored);
+        Assert.Contains("IsAgentStep", names);
+        Assert.Contains("IsSystemStep", names);
 
         Flow read = Flow.FromJson(stored);
 
-        read.Hash.Should().Be(shipped.Hash);
-        read.Steps.Select(s => (s.Name, s.IsAgentStep, s.IsSystemStep))
-            .Should().Equal(shipped.Steps.Select(s => (s.Name, s.IsAgentStep, s.IsSystemStep)));
+        Assert.Equal(shipped.Hash, read.Hash);
+        Assert.Equal(shipped.Steps.Select(s => (s.Name, s.IsAgentStep, s.IsSystemStep)), read.Steps.Select(s => (s.Name, s.IsAgentStep, s.IsSystemStep)));
     }
 
     private static List<string> PropertyNames(string content)

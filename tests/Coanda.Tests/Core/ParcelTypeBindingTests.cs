@@ -19,20 +19,18 @@ public sealed class ParcelTypeBindingTests
     [Fact]
     public void The_shipped_task_binds_build_to_build_and_the_shipped_idea_binds_discovery_to_discovery_and_nothing_else()
     {
-        ShippedTypes.Task.FlowBindings.Should().Equal(new FlowBinding("build", "build"));
-        ShippedTypes.Idea.FlowBindings.Should().Equal(new FlowBinding("discovery", "discovery"));
-        ShippedTypes.Idea.GateBindings.Should().BeEmpty();
-        ShippedTypes.Task.GateBindings.Should().Equal(
-            new GateBinding("refine", "build", RequiredFieldsGate.GateName),
-            new GateBinding("build", "review", RequiredFieldsGate.GateName));
-        ShippedTypes.All.Should().OnlyContain(t => t.FlowBindings.Count == 1, "no other stage carries a flow");
+        Assert.Equal([new FlowBinding("build", "build")], ShippedTypes.Task.FlowBindings);
+        Assert.Equal([new FlowBinding("discovery", "discovery")], ShippedTypes.Idea.FlowBindings);
+        Assert.Empty(ShippedTypes.Idea.GateBindings);
+        Assert.Equal([new GateBinding("refine", "build", RequiredFieldsGate.GateName), new GateBinding("build", "review", RequiredFieldsGate.GateName)], ShippedTypes.Task.GateBindings);
+        Assert.All(ShippedTypes.All, t => Assert.True(t.FlowBindings.Count == 1, "no other stage carries a flow"));
     }
 
     [Fact]
     public void A_type_that_binds_nothing_hashes_to_a_literal()
     {
-        (Ungated with { FlowBindings = [] }).Hash.Should().Be("3e70a726cd7c44a1");
-        (ShippedTypes.Idea with { FlowBindings = [] }).Hash.Should().Be("d548b43e0f79bc35");
+        Assert.Equal("3e70a726cd7c44a1", (Ungated with { FlowBindings = [] }).Hash);
+        Assert.Equal("d548b43e0f79bc35", (ShippedTypes.Idea with { FlowBindings = [] }).Hash);
     }
 
     [Fact]
@@ -46,8 +44,9 @@ public sealed class ParcelTypeBindingTests
         ParcelType otherGate = bound with { GateBindings = [new GateBinding("refine", "build", "has-a-plan")] };
 
         string[] hashes = [unbound.Hash, bound.Hash, otherFlow.Hash, otherStage.Hash, gated.Hash, otherGate.Hash];
-        hashes.Should().OnlyHaveUniqueItems();
-        bound.Hash.Should().Be(Ungated.Hash, "the hash is a pure function of the content");
+        Assert.Distinct(hashes);
+        // the hash is a pure function of the content
+        Assert.Equal(Ungated.Hash, bound.Hash);
     }
 
     [Fact]
@@ -57,9 +56,9 @@ public sealed class ParcelTypeBindingTests
 
         ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(gated));
 
-        read.FlowBindings.Should().Equal(gated.FlowBindings);
-        read.GateBindings.Should().Equal(gated.GateBindings);
-        read.Hash.Should().Be(gated.Hash);
+        Assert.Equal(gated.FlowBindings, read.FlowBindings);
+        Assert.Equal(gated.GateBindings, read.GateBindings);
+        Assert.Equal(gated.Hash, read.Hash);
     }
 
     [Fact]
@@ -67,8 +66,8 @@ public sealed class ParcelTypeBindingTests
     {
         ParcelType broken = Ungated with { FlowBindings = [new FlowBinding("shipping", "build")] };
 
-        FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a flow to 'shipping', which is not one of its live stages; a flow binds to a stage the type has, never its terminal stage.");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(NoGates));
+        Assert.Equal("Parcel type 'task' binds a flow to 'shipping', which is not one of its live stages; a flow binds to a stage the type has, never its terminal stage.", exception.Message);
     }
 
     [Fact]
@@ -76,8 +75,8 @@ public sealed class ParcelTypeBindingTests
     {
         ParcelType broken = Ungated with { FlowBindings = [new FlowBinding("closed", "build")] };
 
-        FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a flow to 'closed', which is not one of its live stages;*never its terminal stage.");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(NoGates));
+        Assert.Matches(@"(?s)^Parcel type 'task' binds a flow to 'closed', which is not one of its live stages;.*never its terminal stage\.$", exception.Message);
     }
 
     [Fact]
@@ -88,8 +87,8 @@ public sealed class ParcelTypeBindingTests
             FlowBindings = [new FlowBinding("build", "build"), new FlowBinding("build", "build-carefully")],
         };
 
-        FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds more than one flow to 'build'; a stage carries at most one flow binding.");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(NoGates));
+        Assert.Equal("Parcel type 'task' binds more than one flow to 'build'; a stage carries at most one flow binding.", exception.Message);
     }
 
     [Fact]
@@ -97,8 +96,8 @@ public sealed class ParcelTypeBindingTests
     {
         ParcelType broken = Ungated with { GateBindings = [new GateBinding("refine", "review", "has-an-owner")] };
 
-        FluentActions.Invoking(() => broken.Validate(OneGate)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a gate to the move from 'refine' to 'review', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live stage.");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(OneGate));
+        Assert.Equal("Parcel type 'task' binds a gate to the move from 'refine' to 'review', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live stage.", exception.Message);
     }
 
     [Fact]
@@ -106,8 +105,8 @@ public sealed class ParcelTypeBindingTests
     {
         ParcelType broken = Ungated with { GateBindings = [new GateBinding("build", "paused", "has-an-owner")] };
 
-        FluentActions.Invoking(() => broken.Validate(OneGate)).Should().Throw<DomainException>()
-            .WithMessage("*which its move table does not hold*");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(OneGate));
+        Assert.Contains("which its move table does not hold", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -115,9 +114,9 @@ public sealed class ParcelTypeBindingTests
     {
         ParcelType gated = Ungated with { GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
 
-        FluentActions.Invoking(() => gated.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds the gate 'has-an-owner', which is not a gate this daemon runs; a gate binding names a known gate.");
-        FluentActions.Invoking(() => gated.Validate(OneGate)).Should().NotThrow();
+        DomainException exception = Assert.Throws<DomainException>(() => gated.Validate(NoGates));
+        Assert.Equal("Parcel type 'task' binds the gate 'has-an-owner', which is not a gate this daemon runs; a gate binding names a known gate.", exception.Message);
+        gated.Validate(OneGate);
     }
 
     [Fact]
@@ -126,9 +125,9 @@ public sealed class ParcelTypeBindingTests
         ParcelType gatedClose = Ungated with { GateBindings = [new GateBinding("review", "closed", "has-an-owner")] };
         ParcelType fromPaused = Ungated with { GateBindings = [new GateBinding("paused", "closed", "has-an-owner")] };
 
-        FluentActions.Invoking(() => gatedClose.Validate(OneGate)).Should().NotThrow();
-        FluentActions.Invoking(() => fromPaused.Validate(OneGate)).Should().Throw<DomainException>()
-            .WithMessage("*which its move table does not hold*");
+        gatedClose.Validate(OneGate);
+        DomainException exception = Assert.Throws<DomainException>(() => fromPaused.Validate(OneGate));
+        Assert.Contains("which its move table does not hold", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -140,14 +139,15 @@ public sealed class ParcelTypeBindingTests
     public void A_drafted_binding_missing_a_field_or_null_is_refused_quoting_the_rule(string gateBindings, string flowBindings)
     {
         string json = ParcelType.CanonicalJson(Ungated with { FlowBindings = [] });
-        json.Should().Contain("\"FlowBindings\": []").And.Contain("\"GateBindings\": []");
+        Assert.Contains("\"FlowBindings\": []", json, StringComparison.Ordinal);
+        Assert.Contains("\"GateBindings\": []", json, StringComparison.Ordinal);
         string content = json
             .Replace("\"FlowBindings\": []", $"\"FlowBindings\": {flowBindings}", StringComparison.Ordinal)
             .Replace("\"GateBindings\": []", $"\"GateBindings\": {gateBindings}", StringComparison.Ordinal);
 
         ParcelType read = ParcelType.FromJson(content);
 
-        FluentActions.Invoking(() => read.Validate(OneGate)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' has a * binding without *");
+        DomainException exception = Assert.Throws<DomainException>(() => read.Validate(OneGate));
+        Assert.Matches(@"(?s)^Parcel type 'task' has a .* binding without .*$", exception.Message);
     }
 }

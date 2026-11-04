@@ -18,14 +18,17 @@ public sealed class FlowRunResumeMarkTests
 
         flowRun.Apply(new FlowRunPaused(flowRunId, "Waits for a person.", "Resume it.", "flow-run", At.AddMinutes(1)));
         flowRun.Apply(new FlowRunResumed(flowRunId, "owner", string.Empty, At.AddMinutes(2)));
-        flowRun.Current?.ResumedAt.Should().Be(At.AddMinutes(2), "the resumed visit is performed again");
+        // the resumed visit is performed again
+        Assert.Equal(At.AddMinutes(2), flowRun.Current?.ResumedAt);
 
         flowRun.Apply(new SystemStepCompleted(flowRunId, "approve", "wait-for-human", JsonSerializer.SerializeToElement(new { verdict = "done" }), At.AddMinutes(3)));
-        flowRun.Current?.ResumedAt.Should().BeNull("a recording consumes the resume, so a restart routes it rather than performing it again");
+        // a recording consumes the resume, so a restart routes it rather than performing it again
+        Assert.Null(flowRun.Current?.ResumedAt);
 
         flowRun.Apply(new FlowRunPaused(flowRunId, "Capped.", "Resume it.", "flow-run", At.AddMinutes(4)));
         flowRun.Apply(new FlowRunResumed(flowRunId, "owner", string.Empty, At.AddMinutes(5)));
-        flowRun.Current?.IsRecorded.Should().BeTrue();
-        flowRun.Current?.ResumedAt.Should().Be(At.AddMinutes(5), "a resume after the recording asks for the step to be performed again");
+        Assert.True(flowRun.Current?.IsRecorded);
+        // a resume after the recording asks for the step to be performed again
+        Assert.Equal(At.AddMinutes(5), flowRun.Current?.ResumedAt);
     }
 }

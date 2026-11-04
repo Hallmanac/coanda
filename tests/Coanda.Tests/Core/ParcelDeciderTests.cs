@@ -14,18 +14,18 @@ public sealed class ParcelDeciderTests
     {
         ParcelCreated created = ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "  Try it  ", null, "brian", Now);
 
-        created.Stage.Should().Be("refine");
-        created.TypeName.Should().Be("task");
-        created.TypeHash.Should().Be(ShippedTypes.Task.Hash);
-        created.Title.Should().Be("Try it");
-        created.Project.Should().Be("coanda");
+        Assert.Equal("refine", created.Stage);
+        Assert.Equal("task", created.TypeName);
+        Assert.Equal(ShippedTypes.Task.Hash, created.TypeHash);
+        Assert.Equal("Try it", created.Title);
+        Assert.Equal("coanda", created.Project);
     }
 
     [Fact]
     public void Create_refuses_a_stage_that_is_not_an_entry()
     {
-        FluentActions.Invoking(() => ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", "review", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*cannot start at 'review'*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", "review", "brian", Now));
+        Assert.Contains("cannot start at 'review'", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -35,18 +35,18 @@ public sealed class ParcelDeciderTests
 
         ParcelMoved moved = ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", "daemon", Now);
         parcel.Apply(moved);
-        parcel.Stage.Should().Be("build");
+        Assert.Equal("build", parcel.Stage);
 
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "refine", "daemon", Now))
-            .Should().Throw<DomainException>().WithMessage("*does not allow a move from 'build' to 'refine'*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "refine", "daemon", Now));
+        Assert.Contains("does not allow a move from 'build' to 'refine'", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Move_to_the_terminal_stage_is_refused_in_favour_of_close()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now));
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*takes a resolution*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now));
+        Assert.Contains("takes a resolution", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -54,17 +54,17 @@ public sealed class ParcelDeciderTests
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Idea, GateSet.Shipped, "coanda", "lump of clay", null, "brian", Now));
 
-        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Idea, GateSet.Shipped, parcel, "completed", "done", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*closes with one of split, concluded, archived*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Close(ShippedTypes.Idea, GateSet.Shipped, parcel, "completed", "done", "brian", Now));
+        Assert.Contains("closes with one of split, concluded, archived", exception.Message, StringComparison.Ordinal);
 
         ParcelClosed closed = ParcelDecider.Close(ShippedTypes.Idea, GateSet.Shipped, parcel, "split", "Three tasks derived.", "brian", Now);
         parcel.Apply(closed);
-        parcel.IsClosed.Should().BeTrue();
-        parcel.Stage.Should().Be("closed");
-        parcel.Resolution.Should().Be("split");
+        Assert.True(parcel.IsClosed);
+        Assert.Equal("closed", parcel.Stage);
+        Assert.Equal("split", parcel.Resolution);
 
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Idea, GateSet.Shipped, parcel, "discovery", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*is closed*");
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Idea, GateSet.Shipped, parcel, "discovery", "brian", Now));
+        Assert.Contains("is closed", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -73,9 +73,9 @@ public sealed class ParcelDeciderTests
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now)).Briefed(ShippedTypes.Task);
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", "daemon", Now));
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "paused", "daemon", Now));
-        parcel.Stage.Should().Be("paused");
+        Assert.Equal("paused", parcel.Stage);
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", "brian", Now));
-        parcel.Stage.Should().Be("review");
+        Assert.Equal("review", parcel.Stage);
     }
 
     [Fact]
@@ -86,22 +86,26 @@ public sealed class ParcelDeciderTests
         parcel.Apply(new ParcelFlowRunAttached(parcel.Id, flowRun, Now));
         string refusal = $"Parcel {Ids.Short(parcel.Id)} is held by flow run {Ids.Short(flowRun)}*stop flow run {Ids.Short(flowRun)} (flow-run.stop) before";
 
-        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "split", "", $"flow-run:{flowRun}", Now))
-            .Should().Throw<DomainException>().WithMessage(refusal + " closing the parcel.", "the holding flow run does not close it either");
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the terminal-stage check");
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "nowhere", "brian", Now, Ids.New()))
-            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the move table");
+        DomainException closing = Assert.Throws<DomainException>(() => ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "split", "", $"flow-run:{flowRun}", Now));
+        // the holding flow run does not close it either
+        Assert.Matches(WildcardPattern.ToRegex(refusal + " closing the parcel."), closing.Message);
+        DomainException toClosed = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now));
+        // the live-flow-run check runs before the terminal-stage check
+        Assert.Matches(WildcardPattern.ToRegex(refusal + " moving the parcel."), toClosed.Message);
+        DomainException toNowhere = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "nowhere", "brian", Now, Ids.New()));
+        // the live-flow-run check runs before the move table
+        Assert.Matches(WildcardPattern.ToRegex(refusal + " moving the parcel."), toNowhere.Message);
 
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", $"flow-run:{flowRun}", Now, flowRun))
-            .Should().Throw<DomainException>().WithMessage("*does not allow a move from 'refine' to 'review'*", "the holding flow run's move still follows the move table");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", $"flow-run:{flowRun}", Now, flowRun));
+        // the holding flow run's move still follows the move table
+        Assert.Contains("does not allow a move from 'refine' to 'review'", exception.Message, StringComparison.Ordinal);
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", $"flow-run:{flowRun}", Now, flowRun));
-        parcel.Stage.Should().Be("build");
+        Assert.Equal("build", parcel.Stage);
 
         parcel.Apply(new ParcelFlowRunReleased(parcel.Id, flowRun, Now));
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", "brian", Now));
         parcel.Apply(ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "completed", "Done.", "brian", Now));
-        parcel.IsClosed.Should().BeTrue();
+        Assert.True(parcel.IsClosed);
     }
 
     [Fact]
@@ -110,9 +114,9 @@ public sealed class ParcelDeciderTests
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now));
         parcel.Apply(new ParcelFlowRunAttached(parcel.Id, Ids.New(), Now));
 
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Idea, GateSet.Shipped, parcel, "build", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*is a 'task', not a 'idea'*");
-        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Idea, GateSet.Shipped, parcel, "split", "done", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*is a 'task', not a 'idea'*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(ShippedTypes.Idea, GateSet.Shipped, parcel, "build", "brian", Now));
+        Assert.Contains("is a 'task', not a 'idea'", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.Close(ShippedTypes.Idea, GateSet.Shipped, parcel, "split", "done", "brian", Now));
+        Assert.Contains("is a 'task', not a 'idea'", exception2.Message, StringComparison.Ordinal);
     }
 }

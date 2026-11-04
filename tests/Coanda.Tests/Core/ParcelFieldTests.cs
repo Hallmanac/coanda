@@ -41,33 +41,33 @@ public sealed class ParcelFieldTests
         Set(parcel, "criteria", FieldValue.OfItems("three"));
         Set(parcel, "pull-request", FieldValue.OfReference("42", "https://example.com/pull/42"));
 
-        text.Should().BeEquivalentTo(new { ParcelId = parcel.Id, Field = "objective", SetBy = "brian", SetAt = Now });
-        parcel.ValueOf("objective").Should().BeEquivalentTo(FieldValue.OfText("Ship fields."));
-        parcel.ValueOf("criteria").Should().BeEquivalentTo(FieldValue.OfItems("three"), "a set replaces the list, it never appends to it");
-        parcel.ValueOf("pull-request").Should().BeEquivalentTo(FieldValue.OfReference("42", "https://example.com/pull/42"));
-        parcel.ValueOf("non-goals").Should().BeNull();
-        parcel.UpdatedAt.Should().Be(Now);
+        Assert.Equivalent(new { ParcelId = parcel.Id, Field = "objective", SetBy = "brian", SetAt = Now }, text);
+        Assert.Equivalent(FieldValue.OfText("Ship fields."), parcel.ValueOf("objective"), strict: true);
+        // a set replaces the list, it never appends to it
+        Assert.Equivalent(FieldValue.OfItems("three"), parcel.ValueOf("criteria"), strict: true);
+        Assert.Equivalent(FieldValue.OfReference("42", "https://example.com/pull/42"), parcel.ValueOf("pull-request"), strict: true);
+        Assert.Null(parcel.ValueOf("non-goals"));
+        Assert.Equal(Now, parcel.UpdatedAt);
     }
 
     [Fact]
     public void A_reference_takes_no_url_and_a_blank_url_is_recorded_as_none()
     {
-        ParcelDecider.SetField(Task, NewTask(), "pull-request", FieldValue.OfReference("42"), "brian", Now)
-            .Value.Reference.Should().Be(new FieldReference("42", null));
-        ParcelDecider.SetField(Task, NewTask(), "pull-request", FieldValue.OfReference("42", "  "), "brian", Now)
-            .Value.Reference.Should().Be(new FieldReference("42", null));
+        Assert.Equal(new FieldReference("42", null), ParcelDecider.SetField(Task, NewTask(), "pull-request", FieldValue.OfReference("42"), "brian", Now)
+            .Value.Reference);
+        Assert.Equal(new FieldReference("42", null), ParcelDecider.SetField(Task, NewTask(), "pull-request", FieldValue.OfReference("42", "  "), "brian", Now)
+            .Value.Reference);
     }
 
     [Fact]
     public void A_field_the_type_version_does_not_declare_is_refused_quoting_the_rule()
     {
-        FluentActions.Invoking(() => ParcelDecider.SetField(Task, NewTask(), "branch", FieldValue.OfText("main"), "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' declares no field 'branch'; a parcel holds values only in the fields its type declares: objective, criteria, non-goals, pull-request.");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, NewTask(), "branch", FieldValue.OfText("main"), "brian", Now));
+        Assert.Equal("Parcel type 'task' declares no field 'branch'; a parcel holds values only in the fields its type declares: objective, criteria, non-goals, pull-request.", exception.Message);
 
         Parcel idea = Parcel.Create(ParcelDecider.Create(ShippedTypes.Idea, Gates, "coanda", "No fields", null, "brian", Now));
-        FluentActions.Invoking(() => ParcelDecider.SetField(ShippedTypes.Idea, idea, "objective", FieldValue.OfText("x"), "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*declares no field 'objective'*and it declares none.");
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.SetField(ShippedTypes.Idea, idea, "objective", FieldValue.OfText("x"), "brian", Now));
+        Assert.Matches(@"(?s)^.*declares no field 'objective'.*and it declares none\.$", exception2.Message);
     }
 
     public static TheoryData<string, FieldValue, string> WrongKind => new()
@@ -83,8 +83,8 @@ public sealed class ParcelFieldTests
     [MemberData(nameof(WrongKind))]
     public void A_value_of_the_wrong_kind_is_refused_quoting_the_rule(string field, FieldValue value, string rule)
     {
-        FluentActions.Invoking(() => ParcelDecider.SetField(Task, NewTask(), field, value, "brian", Now))
-            .Should().Throw<DomainException>().WithMessage(rule);
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, NewTask(), field, value, "brian", Now));
+        Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
     }
 
     public static TheoryData<string, FieldValue> Empty => new()
@@ -101,9 +101,8 @@ public sealed class ParcelFieldTests
     [MemberData(nameof(Empty))]
     public void An_empty_value_is_refused_quoting_the_rule(string field, FieldValue value)
     {
-        FluentActions.Invoking(() => ParcelDecider.SetField(Task, NewTask(), field, value, "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage($"The value given for field '{field}' is empty; a field takes no empty value: no text that is empty or only white space, no list without items or with an empty item, and no reference without an identifier.");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, NewTask(), field, value, "brian", Now));
+        Assert.Equal($"The value given for field '{field}' is empty; a field takes no empty value: no text that is empty or only white space, no list without items or with an empty item, and no reference without an identifier.", exception.Message);
     }
 
     [Fact]
@@ -112,9 +111,8 @@ public sealed class ParcelFieldTests
         Parcel parcel = NewTask();
         parcel.Apply(ParcelDecider.Close(Task, Gates, parcel, "abandoned", "Not wanted.", "brian", Now));
 
-        FluentActions.Invoking(() => ParcelDecider.SetField(Task, parcel, "objective", FieldValue.OfText("Too late."), "brian", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage($"Parcel {Ids.Short(parcel.Id)} is closed (abandoned); a closed parcel's fields are set by nobody.");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, parcel, "objective", FieldValue.OfText("Too late."), "brian", Now));
+        Assert.Equal($"Parcel {Ids.Short(parcel.Id)} is closed (abandoned); a closed parcel's fields are set by nobody.", exception.Message);
     }
 
     [Fact]
@@ -123,10 +121,10 @@ public sealed class ParcelFieldTests
         ParcelType older = Task with { Fields = [.. Task.Fields.Where(f => f.Name != "non-goals")] };
         Parcel parcel = Parcel.Create(ParcelDecider.Create(older, Gates, "coanda", "Older", null, "brian", Now));
 
-        FluentActions.Invoking(() => ParcelDecider.SetField(Task, parcel, "non-goals", FieldValue.OfItems("x"), "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*was created under 'task@*");
-        FluentActions.Invoking(() => ParcelDecider.SetField(older, parcel, "non-goals", FieldValue.OfItems("x"), "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("*declares no field 'non-goals'*");
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, parcel, "non-goals", FieldValue.OfItems("x"), "brian", Now));
+        Assert.Contains("was created under 'task@", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.SetField(older, parcel, "non-goals", FieldValue.OfItems("x"), "brian", Now));
+        Assert.Contains("declares no field 'non-goals'", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -134,14 +132,14 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = NewTask();
         string snapshot = JsonSerializer.Serialize(parcel);
-        snapshot.Should().Contain("\"Fields\":{}");
+        Assert.Contains("\"Fields\":{}", snapshot, StringComparison.Ordinal);
 
         Parcel read = JsonSerializer.Deserialize<Parcel>(snapshot.Replace(",\"Fields\":{}", string.Empty, StringComparison.Ordinal))
             ?? throw new InvalidOperationException("The snapshot read as nothing.");
 
-        read.Id.Should().Be(parcel.Id);
-        read.Fields.Should().BeEmpty();
-        read.ValueOf("objective").Should().BeNull();
+        Assert.Equal(parcel.Id, read.Id);
+        Assert.Empty(read.Fields);
+        Assert.Null(read.ValueOf("objective"));
     }
 
     // The required-fields gate.
@@ -151,15 +149,16 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = NewTask();
 
-        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>().WithMessage(
-            "The gate 'required-fields' refused the move from 'refine' to 'build': a 'task' leaves 'refine' only with a value in every field required to leave it, and 'objective', 'criteria' have none.");
+        DomainException exception = Assert.Throws<DomainException>(() => Moved(parcel, "build"));
+        Assert.Equal("The gate 'required-fields' refused the move from 'refine' to 'build': a 'task' leaves 'refine' only with a value in every field required to leave it, and 'objective', 'criteria' have none.", exception.Message);
 
         Set(parcel, "objective", TaskFields.ObjectiveValue);
-        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>()
-            .WithMessage("*and 'criteria' has none.");
+        DomainException exception2 = Assert.Throws<DomainException>(() => Moved(parcel, "build"));
+        Assert.EndsWith("and 'criteria' has none.", exception2.Message, StringComparison.Ordinal);
 
         Set(parcel, "criteria", TaskFields.CriteriaValue);
-        Moved(parcel, "build").Stage.Should().Be("build", "non-goals is required to leave no stage");
+        // non-goals is required to leave no stage
+        Assert.Equal("build", Moved(parcel, "build").Stage);
     }
 
     [Fact]
@@ -167,22 +166,23 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = Moved(NewTask().Briefed(Task, pullRequest: false), "build");
 
-        FluentActions.Invoking(() => Moved(parcel, "review")).Should().Throw<DomainException>().WithMessage(
-            "The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.");
+        DomainException exception = Assert.Throws<DomainException>(() => Moved(parcel, "review"));
+        Assert.Equal("The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.", exception.Message);
 
         Set(parcel, "pull-request", TaskFields.PullRequestValue);
-        Moved(parcel, "review").Stage.Should().Be("review");
-        Moved(parcel, "build").Stage.Should().Be("build", "no gate is bound to the move from review back to build");
+        Assert.Equal("review", Moved(parcel, "review").Stage);
+        // no gate is bound to the move from review back to build
+        Assert.Equal("build", Moved(parcel, "build").Stage);
     }
 
     [Fact]
     public void The_shipped_task_requires_nothing_to_enter_refine_the_brief_to_enter_build_and_the_brief_and_pull_request_to_enter_review()
     {
-        Task.RequiredToEnter("refine").Should().BeEmpty();
-        Task.RequiredToEnter("build").Should().Equal("objective", "criteria");
-        Task.RequiredToEnter("review").Should().Equal("objective", "criteria", "pull-request");
-        Task.RequiredToEnter("paused").Should().BeEmpty();
-        Task.RequiredToEnter("closed").Should().BeEmpty();
+        Assert.Empty(Task.RequiredToEnter("refine"));
+        Assert.Equal(["objective", "criteria"], Task.RequiredToEnter("build"));
+        Assert.Equal(["objective", "criteria", "pull-request"], Task.RequiredToEnter("review"));
+        Assert.Empty(Task.RequiredToEnter("paused"));
+        Assert.Empty(Task.RequiredToEnter("closed"));
     }
 
     /// <summary>
@@ -217,9 +217,9 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("refine", TaskFields.PullRequest);
 
-        FluentActions.Invoking(() => Moved(parcel, "review")).Should().Throw<DomainException>().WithMessage(
-            "The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only with a value in every field required to enter it, which every route into it would have required, and in every field required to leave 'build', and 'objective', 'criteria' have none.");
-        parcel.Stage.Should().Be("paused");
+        DomainException exception = Assert.Throws<DomainException>(() => Moved(parcel, "review"));
+        Assert.Equal("The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only with a value in every field required to enter it, which every route into it would have required, and in every field required to leave 'build', and 'objective', 'criteria' have none.", exception.Message);
+        Assert.Equal("paused", parcel.Stage);
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("refine", TaskFields.Objective, TaskFields.Criteria);
 
-        Moved(parcel, "build").Stage.Should().Be("build");
+        Assert.Equal("build", Moved(parcel, "build").Stage);
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("build");
 
-        Moved(parcel, "refine").Stage.Should().Be("refine");
+        Assert.Equal("refine", Moved(parcel, "refine").Stage);
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("build", TaskFields.Objective, TaskFields.Criteria, TaskFields.PullRequest);
 
-        Moved(parcel, "review").Stage.Should().Be("review");
+        Assert.Equal("review", Moved(parcel, "review").Stage);
     }
 
     [Fact]
@@ -251,15 +251,15 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = Moved(NewTask(), "paused");
 
-        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>()
-            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build' only*'objective', 'criteria' have none.");
+        DomainException exception = Assert.Throws<DomainException>(() => Moved(parcel, "build"));
+        Assert.Matches(@"(?s)^The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build' only.*'objective', 'criteria' have none\.$", exception.Message);
 
         Set(parcel, "objective", TaskFields.ObjectiveValue);
-        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>()
-            .WithMessage("*resumes into 'build'*and 'criteria' has none.");
+        DomainException exception2 = Assert.Throws<DomainException>(() => Moved(parcel, "build"));
+        Assert.Matches(@"(?s)^.*resumes into 'build'.*and 'criteria' has none\.$", exception2.Message);
 
         Set(parcel, "criteria", TaskFields.CriteriaValue);
-        Moved(parcel, "build").Stage.Should().Be("build");
+        Assert.Equal("build", Moved(parcel, "build").Stage);
     }
 
     [Fact]
@@ -267,11 +267,11 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = Moved(NewTask().Briefed(Task, pullRequest: false), "paused");
 
-        FluentActions.Invoking(() => Moved(parcel, "review")).Should().Throw<DomainException>()
-            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only*'pull-request' has none.");
+        DomainException exception = Assert.Throws<DomainException>(() => Moved(parcel, "review"));
+        Assert.Matches(@"(?s)^The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only.*'pull-request' has none\.$", exception.Message);
 
         Set(parcel, "pull-request", TaskFields.PullRequestValue);
-        Moved(parcel, "review").Stage.Should().Be("review");
+        Assert.Equal("review", Moved(parcel, "review").Stage);
     }
 
     [Fact]
@@ -294,30 +294,31 @@ public sealed class ParcelFieldTests
         Parcel parcel = Parcel.Create(ParcelDecider.Create(forked, Gates, "coanda", "Forked", "refine", "brian", Now));
         parcel.Apply(ParcelDecider.Move(forked, Gates, parcel, "paused", "brian", Now));
 
-        forked.RequiredToEnter("build").Should().BeEmpty("a route from either entry stage reaches build without leaving the other");
-        FluentActions.Invoking(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now)).Should().Throw<DomainException>()
-            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build'*required to leave 'refine', and 'objective', 'criteria' have none.");
+        // a route from either entry stage reaches build without leaving the other
+        Assert.Empty(forked.RequiredToEnter("build"));
+        DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now));
+        Assert.Matches(@"(?s)^The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build'.*required to leave 'refine', and 'objective', 'criteria' have none\.$", exception.Message);
 
         parcel.Apply(ParcelDecider.SetField(forked, parcel, TaskFields.Objective, TaskFields.ObjectiveValue, "brian", Now));
         parcel.Apply(ParcelDecider.SetField(forked, parcel, TaskFields.Criteria, TaskFields.CriteriaValue, "brian", Now));
-        FluentActions.Invoking(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now)).Should().Throw<DomainException>()
-            .WithMessage("*resumes into 'build'*required to leave 'spike', and 'hypothesis' has none.");
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now));
+        Assert.Matches(@"(?s)^.*resumes into 'build'.*required to leave 'spike', and 'hypothesis' has none\.$", exception2.Message);
 
         parcel.Apply(ParcelDecider.SetField(forked, parcel, "hypothesis", FieldValue.OfText("It holds."), "brian", Now));
-        ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now).ToStage.Should().Be("build");
+        Assert.Equal("build", ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now).ToStage);
     }
 
     [Fact]
     public void Pausing_or_closing_from_refine_or_build_is_never_refused_for_an_empty_field()
     {
-        Moved(NewTask(), "paused").Stage.Should().Be("paused");
-        ParcelDecider.Close(Task, Gates, NewTask(), "abandoned", "Not wanted.", "brian", Now).TerminalStage.Should().Be("closed");
+        Assert.Equal("paused", Moved(NewTask(), "paused").Stage);
+        Assert.Equal("closed", ParcelDecider.Close(Task, Gates, NewTask(), "abandoned", "Not wanted.", "brian", Now).TerminalStage);
 
         Parcel atBuild = Moved(NewTask().Briefed(Task, pullRequest: false), "build");
-        ParcelDecider.Move(Task, Gates, atBuild, "paused", "brian", Now).ToStage.Should().Be("paused");
-        ParcelDecider.Close(Task, Gates, atBuild, "superseded", "Done elsewhere.", "brian", Now).TerminalStage.Should().Be("closed");
+        Assert.Equal("paused", ParcelDecider.Move(Task, Gates, atBuild, "paused", "brian", Now).ToStage);
+        Assert.Equal("closed", ParcelDecider.Close(Task, Gates, atBuild, "superseded", "Done elsewhere.", "brian", Now).TerminalStage);
         Moved(atBuild, "paused");
-        ParcelDecider.Close(Task, Gates, atBuild, "abandoned", "Not wanted.", "brian", Now).TerminalStage.Should().Be("closed");
+        Assert.Equal("closed", ParcelDecider.Close(Task, Gates, atBuild, "abandoned", "Not wanted.", "brian", Now).TerminalStage);
     }
 
     [Fact]
@@ -337,17 +338,17 @@ public sealed class ParcelFieldTests
         };
         Parcel parcel = Parcel.Create(ParcelDecider.Create(chore, Gates, "coanda", "Sweep", null, "brian", Now));
 
-        new RequiredFieldsGate().Check(parcel, chore, "todo", "doing").Should().Be(
-            GateVerdict.Fail("a 'chore' leaves 'todo' only with a value in every field required to leave it, and 'owner' has none."));
-        new RequiredFieldsGate().Check(parcel, chore, "doing", "todo").Should().Be(GateVerdict.Pass, "no field is required to leave doing");
+        Assert.Equal(GateVerdict.Fail("a 'chore' leaves 'todo' only with a value in every field required to leave it, and 'owner' has none."), new RequiredFieldsGate().Check(parcel, chore, "todo", "doing"));
+        // no field is required to leave doing
+        Assert.Equal(GateVerdict.Pass, new RequiredFieldsGate().Check(parcel, chore, "doing", "todo"));
     }
 
     [Fact]
     public void The_shipped_gate_set_holds_the_required_fields_gate()
     {
-        GateSet.Shipped.Names.Should().BeEquivalentTo([RequiredFieldsGate.GateName]);
-        GateSet.Shipped.Find(RequiredFieldsGate.GateName).Should().BeOfType<RequiredFieldsGate>();
-        GateSet.None.Names.Should().BeEmpty();
+        Assert.Equivalent(new[] { RequiredFieldsGate.GateName }, GateSet.Shipped.Names, strict: true);
+        Assert.IsType<RequiredFieldsGate>(GateSet.Shipped.Find(RequiredFieldsGate.GateName));
+        Assert.Empty(GateSet.None.Names);
     }
 
     [Fact]
@@ -357,7 +358,7 @@ public sealed class ParcelFieldTests
 
         foreach (string word in new[] { "objective", "criteria", "pull", "branch", "worktree", "non-goals", "refine", "build", "review" })
         {
-            source.Should().NotContainEquivalentOf(word);
+            Assert.DoesNotContain(word, source, StringComparison.OrdinalIgnoreCase);
         }
     }
 
