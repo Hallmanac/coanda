@@ -24,6 +24,7 @@ CI builds and tests on ubuntu and windows for every push and pull request to mai
 - `switch` expressions and pattern matching over `if`/`else if` chains.
 - Every new async method takes a `CancellationToken` as its last parameter and passes it on.
 - No null-forgiving `!` where a prior check guarantees non-null; no unused usings.
+- Outbound HTTP from the daemon goes through `IHttpClientFactory` typed clients registered in the service collection, never a client created per call.
 - Warnings are errors.
 
 ## Writing
