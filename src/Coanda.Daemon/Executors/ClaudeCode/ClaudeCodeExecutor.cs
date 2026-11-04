@@ -235,14 +235,16 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         Session session = RequireLive(handle);
         decimal remaining;
         Attempt previous;
+        Measurement previousUsage;
         lock (gate)
         {
-            if (session.Current is not { Collected: not null } collected)
+            if (session.Current is not { Collected: { } previousAnswer } collected)
             {
                 throw new InvalidOperationException($"Session {handle.Id} still has a process whose answer was not collected, so it cannot be resumed.");
             }
 
             previous = collected;
+            previousUsage = previousAnswer.Usage;
             remaining = session.CeilingUsd - session.CollectedCostUsd;
         }
 
@@ -262,6 +264,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             live = sessions.ContainsKey(handle.Id);
             if (live)
             {
+                // What the previous attempt's collect returned is now an earlier attempt's usage.
+                session.EarlierUsage = Judgment.Sum(session.EarlierUsage, previousUsage);
                 session.Current = next;
             }
         }
@@ -385,14 +389,25 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     }
 
     /// <summary>
-    /// Returns the handle of a session this executor holds and has not stopped, finding it from its
-    /// record when this executor has not met it, as after a daemon restart; null when it is not held.
+    /// Returns a session this executor holds and has not stopped, with the attempt its latest
+    /// process is and the usage its earlier attempts' collects returned, finding it from its record
+    /// when this executor has not met it, as after a daemon restart; null when it is not held.
     /// </summary>
-    public ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
+    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(Find(handle.Id)?.Handle);
+        if (Find(handle.Id) is not { } session)
+        {
+            return ValueTask.FromResult<ReattachedSession?>(null);
+        }
+
+        lock (gate)
+        {
+            return session.Current is { } attempt
+                ? ValueTask.FromResult<ReattachedSession?>(new ReattachedSession(session.Handle, attempt.Ordinal, session.EarlierUsage))
+                : ValueTask.FromResult<ReattachedSession?>(null);
+        }
     }
 
     /// <summary>
@@ -479,6 +494,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         {
             CollectedCostUsd = record.CollectedCostUsd,
             ReportedTotalCostUsd = record.ReportedTotalCostUsd,
+            EarlierUsage = record.EarlierUsage ?? ReattachedSession.Nothing,
         };
 
         if (process is not null)
@@ -673,6 +689,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         /// <summary>The session's total cost as the last collected result reported it.</summary>
         public decimal ReportedTotalCostUsd { get; set; }
 
+        /// <summary>The usage the collects of every attempt before the latest returned.</summary>
+        public Measurement EarlierUsage { get; set; } = ReattachedSession.Nothing;
+
         /// <summary>The latest process, collected or not.</summary>
         public Attempt? Current { get; set; }
 
@@ -688,6 +707,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             TranscriptPath,
             CollectedCostUsd,
             ReportedTotalCostUsd,
+            EarlierUsage,
             Current is { } attempt
                 ? new AttemptRecord(
                     attempt.Ordinal,
@@ -778,6 +798,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         string TranscriptPath,
         decimal CollectedCostUsd,
         decimal ReportedTotalCostUsd,
+        Measurement? EarlierUsage,
         AttemptRecord? Attempt);
 
     /// <summary>The record of a session's latest process.</summary>

@@ -86,6 +86,33 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_restart_during_the_retry_collects_the_retry_without_another_and_pauses_with_the_whole_sessions_usage()
+    {
+        using var temp = new TemporaryHome();
+        var script = Scripts.CleanBuild();
+        script["build"] = [new ScriptEntry(null, "/transcripts/0.jsonl", Scripts.Usage(4)), new ScriptEntry(null, "/transcripts/1.jsonl", Scripts.Usage(1))];
+
+        // The first collect passes, so the daemon stops while the retry's collect is held.
+        var stalled = new GatedExecutor(new ScriptedExecutor(script)) { FreeCollects = 1 };
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Stopped in the retry");
+        stalled.Inner.Resumes.Should().ContainSingle(r => r.Handle == issued);
+
+        var answering = new GatedExecutor(stalled.Inner);
+        answering.Open();
+        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = answering }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
+
+        paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry:");
+        paused.PauseUsage.Should().Be(Judgment.Sum(Scripts.Usage(4), Scripts.Usage(1)), "the first turn, which nothing recorded at the stop, is counted");
+        answering.Inner.Resumes.Should().ContainSingle("the retry before the restart was the one retry");
+        answering.Inner.Spawns.Should().ContainSingle();
+        answering.Inner.Stops.Should().Equal(issued);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_reattached_judgment_whose_wall_clock_limit_ran_out_since_its_launch_is_stopped_and_pauses_without_a_second_spawn()
     {
         using var temp = new TemporaryHome();

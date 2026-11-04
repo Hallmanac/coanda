@@ -571,7 +571,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
         (await restarted.ListAsync(None)).Should().Equal(handle);
-        (await restarted.ReattachAsync(handle, None)).Should().Be(handle);
+        (await restarted.ReattachAsync(handle, None)).Should().Be(ReattachedSession.OnSpawn(handle));
         FakeClaude.Running(pid).Should().BeTrue();
         fake.Release();
         CollectedAnswer collected = await restarted.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
@@ -594,7 +594,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ReattachAsync(handle, None)).Should().Be(handle);
+        (await restarted.ReattachAsync(handle, None)).Should().Be(ReattachedSession.OnSpawn(handle));
         CollectedAnswer collected = await restarted.CollectAsync(handle, None);
 
         collected.Answer.Should().Be(ValidBuild);
@@ -612,7 +612,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        SessionHandle reattached = (await restarted.ReattachAsync(handle, None)).Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
+        ReattachedSession reattached = (await restarted.ReattachAsync(handle, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
+        reattached.Should().Be(ReattachedSession.OnSpawn(handle));
         fake.Release();
         JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None);
 
@@ -623,6 +624,33 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         fake.Starts[1].After("--resume").Should().Be(handle.Id.ToString());
         fake.Starts[1].Shared.Should().Equal(fake.Starts[0].Shared);
         fake.Starts[1].After("--max-budget-usd").Should().Be("1.75", "what the first daemon's session cost is still taken from the ceiling");
+    }
+
+    [Fact]
+    public async Task A_session_reattached_during_its_retry_is_not_resumed_again_and_answers_with_both_turns_usage()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000),
+            FakeClaude.Answering("Still undecided.", cost: 0.25m, totalCost: 1.00m, input: 1, output: 2, cacheCreation: 3, cacheRead: 4, turns: 1, durationMs: 1000, waitFor: "release"));
+        ClaudeCodeExecutor first = fake.Executor(temp.Home);
+        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        CollectedAnswer invalid = await first.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        await first.ResumeAsync(handle, "Answer in the schema.", None);
+        await Until(() => fake.Starts.Count == 2);
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        ReattachedSession reattached = (await restarted.ReattachAsync(handle, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
+        reattached.Should().Be(new ReattachedSession(handle, 2, invalid.Usage), "the record says the session is on its retry and what its first turn returned");
+        fake.Release();
+        var spend = new JudgmentSpend();
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend, CancellationToken.None, None);
+
+        JudgmentOutcome.Paused paused = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
+        paused.Reason.Should().Contain("after one retry");
+        paused.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)));
+        spend.Reported.Should().Be(paused.Usage);
+        fake.Starts.Should().HaveCount(2, "the retry before the restart was the one retry");
+        await restarted.StopAsync(handle, None);
     }
 
     [Fact]
@@ -703,7 +731,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         FakeClaude.Running(parent).Should().BeTrue("the daemon's stop does not end a session's process");
         FakeClaude.Running(child).Should().BeTrue();
         (await executor.ListAsync(None)).Should().Equal(handle);
-        (await executor.ReattachAsync(handle, None)).Should().Be(handle);
+        (await executor.ReattachAsync(handle, None)).Should().Be(ReattachedSession.OnSpawn(handle));
 
         await executor.StopAsync(handle, None);
         await Until(() => !FakeClaude.Running(parent) && !FakeClaude.Running(child));
@@ -733,7 +761,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         (await executor.ListAsync(None)).Should().Equal(handle);
-        (await executor.ReattachAsync(handle, None)).Should().Be(handle);
+        (await executor.ReattachAsync(handle, None)).Should().Be(ReattachedSession.OnSpawn(handle));
         await executor.CollectAsync(handle, None);
 
         (await executor.StopAsync(handle, None)).Should().BeNull();
