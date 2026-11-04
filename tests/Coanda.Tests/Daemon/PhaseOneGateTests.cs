@@ -1,9 +1,11 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
+using Coanda.Core.Parcels;
 using Coanda.Core.Contours;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
@@ -13,6 +15,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
 using Coanda.Tests.Daemon.Flows;
+using Coanda.Tests.Daemon.GitHub;
 using Fisher;
 
 namespace Coanda.Tests.Daemon;
@@ -40,19 +43,25 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
-        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
+        var github = new FakeGitHub();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, GitHubHandler = github.Handler }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
 
-        // The objective and criteria the move out of refine needs, and the pull request the move out of build needs.
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Through the gate", pullRequest: true);
-        parcel.Fields.Where(f => f.Name != TaskFields.NonGoals).Should().OnlyContain(f => f.Value != null);
+        // The objective and criteria the move out of refine needs; the open-pr step records the pull request the move out of build needs.
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Through the gate", pullRequest: false);
+        parcel.Fields.Single(f => f.Name == TaskFields.PullRequest).Value.Should().BeNull();
 
         FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         flow.Outcome.Should().Be("pr-opened");
         flow.ContourHash.Should().Be(ShippedContours.Build.Hash);
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("review");
+        ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
+        after.State.Should().Be("review");
+        after.Fields.Single(f => f.Name == TaskFields.PullRequest).Value.Should().Be(
+            FieldValue.OfReference(FakeGitHub.Number.ToString(CultureInfo.InvariantCulture), FakeGitHub.Url));
+        github.Requests.Count(r => r.IsOpen).Should().Be(1);
+        github.Unexpected.Should().BeEmpty();
         FlowStepView[] judgments = [.. flow.Steps.Where(s => s.Kind == "judgment")];
         judgments.Select(s => s.Performer).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance");
         foreach ((FlowStepView judgment, int ordinal) in judgments.Select((j, i) => (j, i + 1)))
@@ -74,16 +83,19 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_flow_of_the_shipped_build_contour_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
+    public async Task A_flow_of_a_build_contour_with_no_open_pr_step_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
+        Contour withoutOpenPr = await Publishing.ContourAsync(daemon, Project, WithoutOpenPr(ShippedContours.Build));
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
 
         FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
+        paused.ContourHash.Should().Be(withoutOpenPr.Hash);
+        paused.Steps.Select(s => s.Step).Should().NotContain("open-pr");
         paused.CurrentStep.Should().Be("move-to-review");
         paused.PauseReason.Should().Be(
             $"Step 'move-to-review' could not move parcel {Ids.Short(parcel.Id)} to 'review': The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.");
@@ -92,6 +104,19 @@ public sealed class PhaseOneGateTests
 
         await daemon.StopAsync(None);
     }
+
+    /// <summary>The build contour with its open-pr step taken out: a clean conformance review goes straight to the move to review.</summary>
+    private static Contour WithoutOpenPr(Contour build) => build with
+    {
+        Steps =
+        [
+            .. build.Steps
+                .Where(s => s.Name != "open-pr")
+                .Select(s => s.Name == "conformance-review"
+                    ? s with { Transitions = [.. s.Transitions.Select(t => t.Target == "open-pr" ? t with { Target = "move-to-review" } : t)] }
+                    : s),
+        ],
+    };
 
     // 2 and 3. The visit cap and the spawn cap.
 

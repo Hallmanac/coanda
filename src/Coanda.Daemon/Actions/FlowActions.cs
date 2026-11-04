@@ -2,6 +2,7 @@ using Coanda.Core.Contours;
 using Coanda.Core.Software;
 using Coanda.Daemon.Commands;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
@@ -32,9 +33,10 @@ public sealed class FlowActions
 
     /// <summary>
     /// The actions the daemon ships: every name in the core catalog and the software catalog. The
-    /// worktree and gates actions run their commands through <paramref name="runner"/>, the gates
-    /// action ending each of its commands after <paramref name="gatesCommandLimit"/>; derive-parcels,
-    /// open-pr, gated-merge, and rebase are still placeholders.
+    /// worktree, gates, and open-pr actions run their commands through <paramref name="runner"/>, the
+    /// gates action ending each of its commands after <paramref name="gatesCommandLimit"/>, and open-pr
+    /// reaches GitHub through the client <paramref name="github"/> gives it for each performance;
+    /// derive-parcels, gated-merge, and rebase are still placeholders.
     /// </summary>
     public static FlowActions Shipped(
         ParcelService parcels,
@@ -43,7 +45,8 @@ public sealed class FlowActions
         ICommandRunner runner,
         NodeHome home,
         TimeProvider clock,
-        TimeSpan gatesCommandLimit) => new(
+        TimeSpan gatesCommandLimit,
+        Func<GitHubClient> github) => new(
     [
         new MoveParcelAction(parcels),
         new TimerAction(clock),
@@ -53,8 +56,9 @@ public sealed class FlowActions
         new PlaceholderAction(CoreActions.DeriveParcels),
         new WorktreeAction(projects, clones),
         new GatesAction(projects, runner, home, gatesCommandLimit),
+        new OpenPrAction(parcels, projects, clones, new GitHubToken(runner, home), github),
         .. SoftwareActions.All
-            .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates))
+            .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates or SoftwareActions.OpenPr))
             .Select(name => new PlaceholderAction(name)),
     ]);
 

@@ -82,10 +82,16 @@ public sealed class ShippedContoursTests
     {
         Contour build = ShippedContours.Build;
 
-        List<string> visited = Walk(build, step => step.Name is "adversarial-review" or "conformance-review" ? "clean" : "done");
+        List<string> visited = Walk(build, step => step.Name switch
+        {
+            "adversarial-review" or "conformance-review" => "clean",
+            "open-pr" => "opened",
+            _ => "done",
+        });
 
         List<string> actions = [.. visited.Select(name => build.Step(name)!.Action ?? build.Step(name)!.Agent!)];
-        actions.Should().Equal("worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "gated-merge", "move-parcel");
+        actions.Should().Equal("worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel");
+        build.Steps.Should().NotContain(s => s.Action == SoftwareActions.GatedMerge, "the merge is a contour of its own that follows pr-opened");
         build.First!.Name.Should().Be("worktree");
         build.Steps.Count(s => s.Action == CoreActions.MoveParcel).Should().Be(1);
 
