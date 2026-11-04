@@ -20,9 +20,9 @@ public sealed class DefinitionDeciderAgentTests
 
         Definition definition = Definition.Create(Draft("fix", AgentDefinition.CanonicalJson(agent), agent.Hash));
 
-        definition.Kind.Should().Be(DefinitionKind.Agent);
-        definition.ContentHash.Should().Be(agent.Hash);
-        definition.Status.Should().Be(DefinitionStatus.Draft);
+        Assert.Equal(DefinitionKind.Agent, definition.Kind);
+        Assert.Equal(agent.Hash, definition.ContentHash);
+        Assert.Equal(DefinitionStatus.Draft, definition.Status);
     }
 
     [Fact]
@@ -30,8 +30,8 @@ public sealed class DefinitionDeciderAgentTests
     {
         foreach (string content in new[] { "not json", "{}", "null", """{"Name":"fix","Persona":null}""" })
         {
-            FluentActions.Invoking(() => Draft("fix", content, "abc"))
-                .Should().Throw<DomainException>().WithMessage("The content*agent definition*");
+            DomainException exception = Assert.Throws<DomainException>(() => Draft("fix", content, "abc"));
+            Assert.Matches(@"(?s)^The content.*agent definition.*$", exception.Message);
         }
     }
 
@@ -40,8 +40,8 @@ public sealed class DefinitionDeciderAgentTests
     {
         AgentDefinition broken = ShippedAgents.Fix with { AnswerSchema = "essay" };
 
-        FluentActions.Invoking(() => Draft("fix", AgentDefinition.CanonicalJson(broken), broken.Hash))
-            .Should().Throw<DomainException>().WithMessage("Agent 'fix' names the answer schema 'essay'*");
+        DomainException exception = Assert.Throws<DomainException>(() => Draft("fix", AgentDefinition.CanonicalJson(broken), broken.Hash));
+        Assert.StartsWith("Agent 'fix' names the answer schema 'essay'", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -49,8 +49,8 @@ public sealed class DefinitionDeciderAgentTests
     {
         AgentDefinition agent = ShippedAgents.Fix;
 
-        FluentActions.Invoking(() => Draft("fix", AgentDefinition.CanonicalJson(agent), ShippedAgents.Build.Hash))
-            .Should().Throw<DomainException>().WithMessage($"The content hash '{ShippedAgents.Build.Hash}' differs from the agent's hash '{agent.Hash}'.");
+        DomainException exception = Assert.Throws<DomainException>(() => Draft("fix", AgentDefinition.CanonicalJson(agent), ShippedAgents.Build.Hash));
+        Assert.Equal($"The content hash '{ShippedAgents.Build.Hash}' differs from the agent's hash '{agent.Hash}'.", exception.Message);
     }
 
     [Fact]
@@ -58,8 +58,8 @@ public sealed class DefinitionDeciderAgentTests
     {
         AgentDefinition agent = ShippedAgents.Fix;
 
-        FluentActions.Invoking(() => Draft("build", AgentDefinition.CanonicalJson(agent), agent.Hash))
-            .Should().Throw<DomainException>().WithMessage("An agent definition is named for its agent*");
+        DomainException exception = Assert.Throws<DomainException>(() => Draft("build", AgentDefinition.CanonicalJson(agent), agent.Hash));
+        Assert.StartsWith("An agent definition is named for its agent", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -69,8 +69,8 @@ public sealed class DefinitionDeciderAgentTests
 
         (DefinitionDrafted drafted, DefinitionPublished _) = DefinitionDecider.Seed(shipped, 0, "seed", Now);
 
-        drafted.Kind.Should().Be(DefinitionKind.Agent);
-        drafted.Scope.Should().Be(DefinitionScope.Shipped);
-        drafted.ContentHash.Should().Be(ShippedAgents.Discovery.Hash);
+        Assert.Equal(DefinitionKind.Agent, drafted.Kind);
+        Assert.Equal(DefinitionScope.Shipped, drafted.Scope);
+        Assert.Equal(ShippedAgents.Discovery.Hash, drafted.ContentHash);
     }
 }

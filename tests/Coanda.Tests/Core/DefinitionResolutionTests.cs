@@ -46,9 +46,9 @@ public sealed class DefinitionResolutionTests
         Definition owner = Make(DefinitionScope.Owner, 1);
         Definition project = Make(DefinitionScope.Project, 1, project: "alpha");
 
-        Resolve([shipped, owner, project]).Should().BeSameAs(project);
-        Resolve([shipped, owner]).Should().BeSameAs(owner);
-        Resolve([shipped]).Should().BeSameAs(shipped);
+        Assert.Same(project, Resolve([shipped, owner, project]));
+        Assert.Same(owner, Resolve([shipped, owner]));
+        Assert.Same(shipped, Resolve([shipped]));
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class DefinitionResolutionTests
         Definition shipped = Make(DefinitionScope.Shipped, 5);
         Definition project = Make(DefinitionScope.Project, 1, project: "alpha");
 
-        Resolve([shipped, project]).Should().BeSameAs(project);
+        Assert.Same(project, Resolve([shipped, project]));
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public sealed class DefinitionResolutionTests
         Definition v2 = Make(DefinitionScope.Project, 2, project: "alpha");
         Definition v3Draft = Make(DefinitionScope.Project, 3, project: "alpha", publish: false);
 
-        Resolve([v1, v3Draft, v2]).Should().BeSameAs(v2);
+        Assert.Same(v2, Resolve([v1, v3Draft, v2]));
     }
 
     [Fact]
@@ -77,8 +77,8 @@ public sealed class DefinitionResolutionTests
         Definition draft = Make(DefinitionScope.Project, 1, project: "alpha", publish: false);
         Definition retired = Make(DefinitionScope.Owner, 1, retire: true);
 
-        Resolve([shipped, draft, retired]).Should().BeSameAs(shipped);
-        Resolve([draft, retired]).Should().BeNull();
+        Assert.Same(shipped, Resolve([shipped, draft, retired]));
+        Assert.Null(Resolve([draft, retired]));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class DefinitionResolutionTests
         Definition v1 = Make(DefinitionScope.Project, 1, project: "alpha");
         Definition v2 = Make(DefinitionScope.Project, 2, project: "alpha", retire: true);
 
-        Resolve([v1, v2]).Should().BeSameAs(v1);
+        Assert.Same(v1, Resolve([v1, v2]));
     }
 
     [Fact]
@@ -96,8 +96,8 @@ public sealed class DefinitionResolutionTests
         Definition shipped = Make(DefinitionScope.Shipped, 1);
         Definition alphas = Make(DefinitionScope.Project, 1, project: "alpha");
 
-        Resolve([shipped, alphas], project: "beta").Should().BeSameAs(shipped);
-        Resolve([alphas], project: "beta").Should().BeNull();
+        Assert.Same(shipped, Resolve([shipped, alphas], project: "beta"));
+        Assert.Null(Resolve([alphas], project: "beta"));
     }
 
     [Fact]
@@ -105,9 +105,9 @@ public sealed class DefinitionResolutionTests
     {
         Definition shipped = Make(DefinitionScope.Shipped, 1);
 
-        Resolve([shipped], name: "TASK").Should().BeSameAs(shipped);
-        Resolve([shipped], name: "Task").Should().BeSameAs(shipped);
-        Resolve([shipped], name: "idea").Should().BeNull();
+        Assert.Same(shipped, Resolve([shipped], name: "TASK"));
+        Assert.Same(shipped, Resolve([shipped], name: "Task"));
+        Assert.Null(Resolve([shipped], name: "idea"));
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public sealed class DefinitionResolutionTests
     {
         Definition shipped = Make(DefinitionScope.Shipped, 1);
 
-        DefinitionResolution.Resolve([shipped], "alpha", DefinitionKind.Flow, "task").Should().BeNull();
+        Assert.Null(DefinitionResolution.Resolve([shipped], "alpha", DefinitionKind.Flow, "task"));
     }
 
     [Fact]
@@ -126,9 +126,9 @@ public sealed class DefinitionResolutionTests
         Definition alphaTask = Make(DefinitionScope.Project, 1, project: "alpha");
 
         IReadOnlyList<Definition> forAlpha = DefinitionResolution.ResolveAll([task, idea, alphaTask], "alpha", DefinitionKind.ParcelType);
-        forAlpha.Should().Equal(idea, alphaTask);
+        Assert.Equal([idea, alphaTask], forAlpha);
 
         IReadOnlyList<Definition> forBeta = DefinitionResolution.ResolveAll([task, idea, alphaTask], "beta", DefinitionKind.ParcelType);
-        forBeta.Should().Equal(idea, task);
+        Assert.Equal([idea, task], forBeta);
     }
 }

@@ -13,11 +13,12 @@ public sealed class ParcelTypeTests
         foreach (ParcelType type in ShippedTypes.All)
         {
             type.Validate(GateSet.Shipped.Names);
-            type.Hash.Should().HaveLength(16);
+            Assert.Equal(16, type.Hash.Length);
         }
 
-        ShippedTypes.Idea.Hash.Should().NotBe(ShippedTypes.Task.Hash);
-        ShippedTypes.Task.Hash.Should().Be(ShippedTypes.Task.Hash, "the hash is a pure function of the definition");
+        Assert.NotEqual(ShippedTypes.Task.Hash, ShippedTypes.Idea.Hash);
+        // the hash is a pure function of the definition
+        Assert.Equal(ShippedTypes.Task.Hash, ShippedTypes.Task.Hash);
     }
 
     [Theory]
@@ -32,14 +33,14 @@ public sealed class ParcelTypeTests
     [InlineData("closed", "refine", false)]
     [InlineData("refine", "refine", false)]
     [InlineData("refine", "nowhere", false)]
-    public void Task_lifecycle_allows_exactly_its_moves(string from, string to, bool allowed) =>
-        ShippedTypes.Task.AllowsMove(from, to).Should().Be(allowed);
+    public void Task_lifecycle_allows_exactly_its_moves(string from, string to, bool allowed) => Assert.Equal(allowed, ShippedTypes.Task.AllowsMove(from, to));
 
     [Fact]
     public void A_type_without_a_terminal_stage_is_refused()
     {
         ParcelType broken = ShippedTypes.Task with { TerminalStage = "finished" };
-        FluentActions.Invoking(() => broken.Validate(GateSet.Shipped.Names)).Should().Throw<DomainException>().WithMessage("*terminal stage*");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(GateSet.Shipped.Names));
+        Assert.Contains("terminal stage", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -49,6 +50,7 @@ public sealed class ParcelTypeTests
         {
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["shipping"] },
         };
-        FluentActions.Invoking(() => broken.Validate(GateSet.Shipped.Names)).Should().Throw<DomainException>().WithMessage("*does not have*");
+        DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(GateSet.Shipped.Names));
+        Assert.Contains("does not have", exception.Message, StringComparison.Ordinal);
     }
 }

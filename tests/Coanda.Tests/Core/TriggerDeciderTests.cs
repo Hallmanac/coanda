@@ -28,83 +28,107 @@ public sealed class TriggerDeciderTests
     {
         ExternalEventRecorded recorded = Record("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian", ["pr_number"] = "12" });
 
-        recorded.Project.Should().Be("alpha");
-        recorded.Kind.Should().Be("pr-assigned");
-        recorded.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["assignee"] = "brian", ["pr_number"] = "12" });
-        recorded.RecordedBy.Should().Be("brian");
+        Assert.Equal("alpha", recorded.Project);
+        Assert.Equal("pr-assigned", recorded.Kind);
+        Assert.Equivalent(new Dictionary<string, string> { ["assignee"] = "brian", ["pr_number"] = "12" }, recorded.Fields, strict: true);
+        Assert.Equal("brian", recorded.RecordedBy);
     }
 
     [Fact]
-    public void An_external_event_with_an_empty_kind_is_refused() =>
-        FluentActions.Invoking(() => Record(""))
-            .Should().Throw<DomainException>().WithMessage("An external event needs a kind that is a plain name*; '' is not.");
+    public void An_external_event_with_an_empty_kind_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Record(""));
+        Assert.Matches(@"(?s)^An external event needs a kind that is a plain name.*; '' is not\.$", exception.Message);
+    }
 
     [Fact]
-    public void An_external_event_whose_kind_is_not_a_plain_name_is_refused() =>
-        FluentActions.Invoking(() => Record("pr assigned!"))
-            .Should().Throw<DomainException>().WithMessage("An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores); 'pr assigned!' is not.");
+    public void An_external_event_whose_kind_is_not_a_plain_name_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Record("pr assigned!"));
+        Assert.Equal("An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores); 'pr assigned!' is not.", exception.Message);
+    }
 
     [Fact]
-    public void An_external_event_of_the_parcel_entered_kind_is_refused() =>
-        FluentActions.Invoking(() => Record("parcel-entered"))
-            .Should().Throw<DomainException>().WithMessage("The kind 'parcel-entered' is what a parcel's own creation and moves read as; an external event cannot use it.");
+    public void An_external_event_of_the_parcel_entered_kind_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Record("parcel-entered"));
+        Assert.Equal("The kind 'parcel-entered' is what a parcel's own creation and moves read as; an external event cannot use it.", exception.Message);
+    }
 
     [Fact]
-    public void An_external_event_of_the_flow_run_ended_kind_is_refused() =>
-        FluentActions.Invoking(() => Record("flow-run-ended", new Dictionary<string, string> { ["flow"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }))
-            .Should().Throw<DomainException>().WithMessage("The kind 'flow-run-ended' is what a flow run's own end reads as; an external event cannot use it.");
+    public void An_external_event_of_the_flow_run_ended_kind_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Record("flow-run-ended", new Dictionary<string, string> { ["flow"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }));
+        Assert.Equal("The kind 'flow-run-ended' is what a flow run's own end reads as; an external event cannot use it.", exception.Message);
+    }
 
     [Fact]
-    public void An_external_event_with_a_field_name_that_is_not_plain_is_refused() =>
-        FluentActions.Invoking(() => Record("pr-assigned", new Dictionary<string, string> { ["assigned to"] = "brian" }))
-            .Should().Throw<DomainException>().WithMessage("An external event's field names are plain names (letters, digits, hyphens, and underscores); 'assigned to' is not.");
+    public void An_external_event_with_a_field_name_that_is_not_plain_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Record("pr-assigned", new Dictionary<string, string> { ["assigned to"] = "brian" }));
+        Assert.Equal("An external event's field names are plain names (letters, digits, hyphens, and underscores); 'assigned to' is not.", exception.Message);
+    }
 
     [Fact]
     public void A_subscription_records_its_trigger_what_it_creates_and_the_principal_that_added_it()
     {
         Subscription subscription = Subscription.Create(Subscribe());
 
-        subscription.Project.Should().Be("alpha");
-        subscription.Trigger.EventKind.Should().Be("pr-assigned");
-        subscription.Trigger.Filters.Should().BeEquivalentTo(new Dictionary<string, string> { ["assignee"] = "brian" });
-        subscription.ParcelType.Should().Be("task");
-        subscription.TitleField.Should().Be("title");
-        subscription.Flow.Should().Be("review-on-assignment");
-        subscription.Principal.Should().Be(Member);
+        Assert.Equal("alpha", subscription.Project);
+        Assert.Equal("pr-assigned", subscription.Trigger.EventKind);
+        Assert.Equivalent(new Dictionary<string, string> { ["assignee"] = "brian" }, subscription.Trigger.Filters, strict: true);
+        Assert.Equal("task", subscription.ParcelType);
+        Assert.Equal("title", subscription.TitleField);
+        Assert.Equal("review-on-assignment", subscription.Flow);
+        Assert.Equal(Member, subscription.Principal);
     }
 
     [Fact]
-    public void A_subscription_with_an_empty_event_kind_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(kind: " "))
-            .Should().Throw<DomainException>().WithMessage("A subscription's trigger needs an event kind.");
+    public void A_subscription_with_an_empty_event_kind_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(kind: " "));
+        Assert.Equal("A subscription's trigger needs an event kind.", exception.Message);
+    }
 
     [Fact]
-    public void A_subscription_on_the_parcel_entered_kind_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(kind: "parcel-entered"))
-            .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'parcel-entered', which a parcel's own creation and moves read as.");
+    public void A_subscription_on_the_parcel_entered_kind_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(kind: "parcel-entered"));
+        Assert.Equal("A subscription sees external events only; it cannot trigger on 'parcel-entered', which a parcel's own creation and moves read as.", exception.Message);
+    }
 
     [Fact]
-    public void A_subscription_on_the_flow_run_ended_kind_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(kind: "flow-run-ended", filters: new Dictionary<string, string> { ["outcome"] = "pr-opened" }))
-            .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'flow-run-ended', which a flow run's own end reads as.");
+    public void A_subscription_on_the_flow_run_ended_kind_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(kind: "flow-run-ended", filters: new Dictionary<string, string> { ["outcome"] = "pr-opened" }));
+        Assert.Equal("A subscription sees external events only; it cannot trigger on 'flow-run-ended', which a flow run's own end reads as.", exception.Message);
+    }
 
     [Fact]
-    public void A_subscription_with_a_filter_name_that_is_not_plain_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(filters: new Dictionary<string, string> { ["assignee.login"] = "brian" }))
-            .Should().Throw<DomainException>().WithMessage("A subscription's filters name event fields, which are plain names (letters, digits, hyphens, and underscores); 'assignee.login' is not.");
+    public void A_subscription_with_a_filter_name_that_is_not_plain_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(filters: new Dictionary<string, string> { ["assignee.login"] = "brian" }));
+        Assert.Equal("A subscription's filters name event fields, which are plain names (letters, digits, hyphens, and underscores); 'assignee.login' is not.", exception.Message);
+    }
 
     [Fact]
-    public void A_subscription_with_no_parcel_type_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(parcelType: ""))
-            .Should().Throw<DomainException>().WithMessage("A subscription names the parcel type it creates; none was given.");
+    public void A_subscription_with_no_parcel_type_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(parcelType: ""));
+        Assert.Equal("A subscription names the parcel type it creates; none was given.", exception.Message);
+    }
 
     [Fact]
-    public void A_subscription_with_no_title_field_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(titleField: ""))
-            .Should().Throw<DomainException>().WithMessage("A subscription names the event field whose value titles the parcel it creates; none was given.");
+    public void A_subscription_with_no_title_field_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(titleField: ""));
+        Assert.Equal("A subscription names the event field whose value titles the parcel it creates; none was given.", exception.Message);
+    }
 
     [Fact]
-    public void A_subscription_with_no_flow_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(flow: ""))
-            .Should().Throw<DomainException>().WithMessage("A subscription names the flow it starts on the parcel it creates; none was given.");
+    public void A_subscription_with_no_flow_is_refused()
+    {
+        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(flow: ""));
+        Assert.Equal("A subscription names the flow it starts on the parcel it creates; none was given.", exception.Message);
+    }
 }

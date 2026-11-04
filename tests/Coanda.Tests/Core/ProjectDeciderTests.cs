@@ -13,17 +13,17 @@ public sealed class ProjectDeciderTests
     {
         ProjectRegistered registered = ProjectDecider.Register(" coanda ", "git@github.com:you/coanda.git ", " main", null, "brian", Now);
 
-        registered.Name.Should().Be("coanda");
-        registered.Remote.Should().Be("git@github.com:you/coanda.git ");
-        registered.PrimaryBranch.Should().Be(" main");
-        registered.RegisteredBy.Should().Be("brian");
-        registered.RegisteredAt.Should().Be(Now);
+        Assert.Equal("coanda", registered.Name);
+        Assert.Equal("git@github.com:you/coanda.git ", registered.Remote);
+        Assert.Equal(" main", registered.PrimaryBranch);
+        Assert.Equal("brian", registered.RegisteredBy);
+        Assert.Equal(Now, registered.RegisteredAt);
 
         Project project = Project.Create(registered);
-        project.Id.Should().Be(registered.ProjectId);
-        project.Name.Should().Be("coanda");
-        project.Remote.Should().Be(registered.Remote);
-        project.PrimaryBranch.Should().Be(registered.PrimaryBranch);
+        Assert.Equal(registered.ProjectId, project.Id);
+        Assert.Equal("coanda", project.Name);
+        Assert.Equal(registered.Remote, project.Remote);
+        Assert.Equal(registered.PrimaryBranch, project.PrimaryBranch);
     }
 
     [Fact]
@@ -31,33 +31,33 @@ public sealed class ProjectDeciderTests
     {
         Project existing = Project.Create(ProjectDecider.Register("coanda", "https://example.invalid/a.git", "main", null, "brian", Now));
 
-        FluentActions.Invoking(() => ProjectDecider.Register("coanda", "https://example.invalid/b.git", "trunk", existing, "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("Project 'coanda' is already registered*https://example.invalid/a.git*main*");
+        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register("coanda", "https://example.invalid/b.git", "trunk", existing, "brian", Now));
+        Assert.Matches(@"(?s)^Project 'coanda' is already registered.*https://example\.invalid/a\.git.*main.*$", exception.Message);
     }
 
     [Fact]
     public void A_name_differing_from_a_registered_one_only_in_letter_case_is_refused_naming_it()
     {
-        FluentActions.Invoking(() => ProjectDecider.Register(" Coanda ", "https://example.invalid/b.git", "main", null, "brian", Now, registeredNames: ["alpha", "coanda"]))
-            .Should().Throw<DomainException>().WithMessage("Project 'Coanda' differs from the registered project 'coanda' only in letter case*");
+        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register(" Coanda ", "https://example.invalid/b.git", "main", null, "brian", Now, registeredNames: ["alpha", "coanda"]));
+        Assert.StartsWith("Project 'Coanda' differs from the registered project 'coanda' only in letter case", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void A_name_no_registered_one_matches_even_ignoring_case_is_registered()
     {
-        ProjectDecider.Register("coanda-two", "https://example.invalid/b.git", "main", null, "brian", Now, registeredNames: ["coanda", "Alpha"])
-            .Name.Should().Be("coanda-two");
+        Assert.Equal("coanda-two", ProjectDecider.Register("coanda-two", "https://example.invalid/b.git", "main", null, "brian", Now, registeredNames: ["coanda", "Alpha"])
+            .Name);
     }
 
     [Theory]
-    [InlineData("", "main", "*needs the remote of its repository*")]
-    [InlineData("   ", "main", "*needs the remote of its repository*")]
-    [InlineData("https://example.invalid/a.git", "", "*needs the primary branch of its repository*")]
-    [InlineData("https://example.invalid/a.git", "  ", "*needs the primary branch of its repository*")]
+    [InlineData("", "main", "needs the remote of its repository")]
+    [InlineData("   ", "main", "needs the remote of its repository")]
+    [InlineData("https://example.invalid/a.git", "", "needs the primary branch of its repository")]
+    [InlineData("https://example.invalid/a.git", "  ", "needs the primary branch of its repository")]
     public void A_blank_remote_or_branch_is_refused(string remote, string branch, string rule)
     {
-        FluentActions.Invoking(() => ProjectDecider.Register("coanda", remote, branch, null, "brian", Now))
-            .Should().Throw<DomainException>().WithMessage(rule);
+        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register("coanda", remote, branch, null, "brian", Now));
+        Assert.Contains(rule, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -66,19 +66,19 @@ public sealed class ProjectDeciderTests
         Project named = Project.Create(ProjectDecider.Register("a", "https://example.invalid/a.git", "main", null, "brian", Now, "make", " make test "));
         Project unnamed = Project.Create(ProjectDecider.Register("b", "https://example.invalid/b.git", "main", null, "brian", Now));
 
-        (named.BuildCommand, named.Build, named.TestCommand, named.Test).Should().Be(("make", "make", " make test ", " make test "));
-        (unnamed.BuildCommand, unnamed.Build, unnamed.TestCommand, unnamed.Test).Should().Be((null, "dotnet build", null, "dotnet test"));
+        Assert.Equal(("make", "make", " make test ", " make test "), (named.BuildCommand, named.Build, named.TestCommand, named.Test));
+        Assert.Equal((null, "dotnet build", null, "dotnet test"), (unnamed.BuildCommand, unnamed.Build, unnamed.TestCommand, unnamed.Test));
     }
 
     [Theory]
-    [InlineData("", null, "*blank build command*")]
-    [InlineData("  ", null, "*blank build command*")]
-    [InlineData(null, "", "*blank test command*")]
-    [InlineData(null, " ", "*blank test command*")]
+    [InlineData("", null, "blank build command")]
+    [InlineData("  ", null, "blank build command")]
+    [InlineData(null, "", "blank test command")]
+    [InlineData(null, " ", "blank test command")]
     public void A_blank_build_or_test_command_is_refused(string? build, string? test, string rule)
     {
-        FluentActions.Invoking(() => ProjectDecider.Register("coanda", "https://example.invalid/a.git", "main", null, "brian", Now, build, test))
-            .Should().Throw<DomainException>().WithMessage(rule);
+        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register("coanda", "https://example.invalid/a.git", "main", null, "brian", Now, build, test));
+        Assert.Contains(rule, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -89,14 +89,14 @@ public sealed class ProjectDeciderTests
         ProjectRegistered registered = System.Text.Json.JsonSerializer.Deserialize<ProjectRegistered>(Recorded)
             ?? throw new InvalidOperationException("The recorded event did not read back.");
 
-        Project.Create(registered).Build.Should().Be(Project.DefaultBuild);
-        registered.TestCommand.Should().BeNull();
+        Assert.Equal(Project.DefaultBuild, Project.Create(registered).Build);
+        Assert.Null(registered.TestCommand);
     }
 
     [Fact]
     public void A_blank_name_is_refused()
     {
-        FluentActions.Invoking(() => ProjectDecider.Register(" ", "https://example.invalid/a.git", "main", null, "brian", Now))
-            .Should().Throw<DomainException>().WithMessage("A project name is required*");
+        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register(" ", "https://example.invalid/a.git", "main", null, "brian", Now));
+        Assert.StartsWith("A project name is required", exception.Message, StringComparison.Ordinal);
     }
 }

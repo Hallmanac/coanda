@@ -8,8 +8,9 @@ public sealed class IdsTests
     public void Short_ids_of_records_created_in_the_same_moment_differ()
     {
         List<string> shorts = Enumerable.Range(0, 50).Select(_ => Ids.Short(Ids.New())).ToList();
-        shorts.Should().OnlyHaveUniqueItems("the short form is the random tail, not the timestamp head");
-        shorts.Should().AllSatisfy(s => s.Should().HaveLength(8));
+        // the short form is the random tail, not the timestamp head
+        Assert.Distinct(shorts);
+        Assert.All(shorts, s => Assert.Equal(8, s.Length));
     }
 
     [Fact]
@@ -17,9 +18,9 @@ public sealed class IdsTests
     {
         Guid id = Ids.New();
         string full = id.ToString("N");
-        Ids.Matches(id, Ids.Short(id)).Should().BeTrue();
-        Ids.Matches(id, full[..6]).Should().BeTrue();
-        Ids.Matches(id, full[^5..]).Should().BeTrue();
-        Ids.Matches(id, "zzzz").Should().BeFalse();
+        Assert.True(Ids.Matches(id, Ids.Short(id)));
+        Assert.True(Ids.Matches(id, full[..6]));
+        Assert.True(Ids.Matches(id, full[^5..]));
+        Assert.False(Ids.Matches(id, "zzzz"));
     }
 }

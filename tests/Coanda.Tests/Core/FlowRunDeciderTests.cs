@@ -84,19 +84,21 @@ public sealed class FlowRunDeciderTests
     public void Replaying_a_start_and_two_step_starts_yields_the_interpreters_position()
     {
         FlowRun flowRun = Started();
-        flowRun.Position.Should().Be(Interpreter.Start(Build), "a started flow run has already visited its first step once");
+        // a started flow run has already visited its first step once
+        Assert.Equal(Interpreter.Start(Build), flowRun.Position);
 
         flowRun.Apply(FlowRunDecider.StartStep(Build, flowRun, "build", Now));
         flowRun.Apply(FlowRunDecider.StartStep(Build, flowRun, "gates", Now));
 
         FlowRunPosition expected = Interpreter.Apply(
             Build, Interpreter.Apply(Build, Interpreter.Start(Build), new FlowRunMove.GoTo("build")), new FlowRunMove.GoTo("gates"));
-        flowRun.Position.Should().Be(expected);
-        flowRun.Position.Step.Should().Be("gates");
-        flowRun.Position.Spawns.Should().Be(1, "only the agent step 'build' spawned an agent");
-        flowRun.Position.VisitsTo("worktree").Should().Be(1);
-        flowRun.Position.VisitsTo("build").Should().Be(1);
-        flowRun.Position.VisitsTo("gates").Should().Be(1);
+        Assert.Equal(expected, flowRun.Position);
+        Assert.Equal("gates", flowRun.Position.Step);
+        // only the agent step 'build' spawned an agent
+        Assert.Equal(1, flowRun.Position.Spawns);
+        Assert.Equal(1, flowRun.Position.VisitsTo("worktree"));
+        Assert.Equal(1, flowRun.Position.VisitsTo("build"));
+        Assert.Equal(1, flowRun.Position.VisitsTo("gates"));
     }
 
     [Fact]
@@ -104,8 +106,8 @@ public sealed class FlowRunDeciderTests
     {
         FlowRun flowRun = Started(ShippedFlows.ReviewOnAssignment);
 
-        flowRun.Position.Should().Be(Interpreter.Start(ShippedFlows.ReviewOnAssignment));
-        flowRun.Position.Spawns.Should().Be(1);
+        Assert.Equal(Interpreter.Start(ShippedFlows.ReviewOnAssignment), flowRun.Position);
+        Assert.Equal(1, flowRun.Position.Spawns);
     }
 
     [Fact]
@@ -116,9 +118,9 @@ public sealed class FlowRunDeciderTests
         flowRun.Apply(new StepStarted(flowRun.Id, "do", StepKind.SystemStep, "a-system-step", Now));
         flowRun.Apply(new StepStarted(flowRun.Id, "ask", StepKind.AgentStep, "an-agent", Now));
 
-        flowRun.Position.Step.Should().Be("ask");
-        flowRun.Position.VisitsTo("ask").Should().Be(2);
-        flowRun.Position.Spawns.Should().Be(2);
+        Assert.Equal("ask", flowRun.Position.Step);
+        Assert.Equal(2, flowRun.Position.VisitsTo("ask"));
+        Assert.Equal(2, flowRun.Position.Spawns);
     }
 
     [Fact]
@@ -127,15 +129,15 @@ public sealed class FlowRunDeciderTests
         Parcel parcel = ParcelOf();
         (FlowRunStarted started, ParcelFlowRunAttached attached) = FlowRunDecider.Start(Build, 3, parcel, "owner", Now);
 
-        started.ParcelId.Should().Be(parcel.Id);
-        started.FlowName.Should().Be("build");
-        started.FlowVersion.Should().Be(3);
-        started.FlowHash.Should().Be(Build.Hash);
-        started.FirstStep.Should().Be("worktree");
-        started.FirstStepKind.Should().Be(StepKind.SystemStep);
-        started.FirstStepPerformer.Should().Be(SoftwareSystemSteps.Worktree);
-        attached.FlowRunId.Should().Be(started.FlowRunId);
-        attached.ParcelId.Should().Be(parcel.Id);
+        Assert.Equal(parcel.Id, started.ParcelId);
+        Assert.Equal("build", started.FlowName);
+        Assert.Equal(3, started.FlowVersion);
+        Assert.Equal(Build.Hash, started.FlowHash);
+        Assert.Equal("worktree", started.FirstStep);
+        Assert.Equal(StepKind.SystemStep, started.FirstStepKind);
+        Assert.Equal(SoftwareSystemSteps.Worktree, started.FirstStepPerformer);
+        Assert.Equal(started.FlowRunId, attached.FlowRunId);
+        Assert.Equal(parcel.Id, attached.ParcelId);
     }
 
     [Fact]
@@ -146,7 +148,8 @@ public sealed class FlowRunDeciderTests
 
         Action start = () => FlowRunDecider.Start(Build, 1, parcel, "owner", Now);
 
-        start.Should().Throw<DomainException>().WithMessage("*is closed (abandoned); a flow run starts only on an open parcel*");
+        DomainException exception = Assert.Throws<DomainException>(start);
+        Assert.Contains("is closed (abandoned); a flow run starts only on an open parcel", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -154,7 +157,8 @@ public sealed class FlowRunDeciderTests
     {
         Action start = () => FlowRunDecider.Start(Build, 1, ParcelOf("idea"), "owner", Now);
 
-        start.Should().Throw<DomainException>().WithMessage("Flow 'build' accepts parcels of type task, not 'idea'.");
+        DomainException exception = Assert.Throws<DomainException>(start);
+        Assert.Equal("Flow 'build' accepts parcels of type task, not 'idea'.", exception.Message);
     }
 
     [Fact]
@@ -165,7 +169,8 @@ public sealed class FlowRunDeciderTests
 
         Action start = () => FlowRunDecider.Start(Build, 1, parcel, "owner", Now);
 
-        start.Should().Throw<DomainException>().WithMessage("A parcel has at most one live flow run;*");
+        DomainException exception = Assert.Throws<DomainException>(start);
+        Assert.StartsWith("A parcel has at most one live flow run;", exception.Message, StringComparison.Ordinal);
     }
 
     public static TheoryData<FlowRunStatus, string> NotRunning()
@@ -198,7 +203,8 @@ public sealed class FlowRunDeciderTests
             _ => throw new ArgumentOutOfRangeException(nameof(intent)),
         };
 
-        record.Should().Throw<DomainException>().WithMessage("*; only a running flow run can *");
+        DomainException exception = Assert.Throws<DomainException>(record);
+        Assert.Contains("; only a running flow run can ", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -206,7 +212,8 @@ public sealed class FlowRunDeciderTests
     {
         Action step = () => FlowRunDecider.StartStep(Build, Started(), "deploy", Now);
 
-        step.Should().Throw<DomainException>().WithMessage("Flow 'build' has no step 'deploy'; a flow run enters only a step its flow has.");
+        DomainException exception = Assert.Throws<DomainException>(step);
+        Assert.Equal("Flow 'build' has no step 'deploy'; a flow run enters only a step its flow has.", exception.Message);
     }
 
     [Fact]
@@ -214,7 +221,8 @@ public sealed class FlowRunDeciderTests
     {
         Action answer = () => AnswerAt(AtAgentStep(), "fix");
 
-        answer.Should().Throw<DomainException>().WithMessage("*is at step 'build'; an answer is recorded only for the current step, not 'fix'.");
+        DomainException exception = Assert.Throws<DomainException>(answer);
+        Assert.EndsWith("is at step 'build'; an answer is recorded only for the current step, not 'fix'.", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -222,7 +230,8 @@ public sealed class FlowRunDeciderTests
     {
         Action result = () => FlowRunDecider.Complete(Build, Started(), "gates", SoftwareSystemSteps.Gates, Json("{}"), Now);
 
-        result.Should().Throw<DomainException>().WithMessage("*is at step 'worktree'; a result is recorded only for the current step, not 'gates'.");
+        DomainException exception = Assert.Throws<DomainException>(result);
+        Assert.EndsWith("is at step 'worktree'; a result is recorded only for the current step, not 'gates'.", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -230,7 +239,8 @@ public sealed class FlowRunDeciderTests
     {
         Action answer = () => FlowRunDecider.Answer(Build, Started(), "worktree", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
 
-        answer.Should().Throw<DomainException>().WithMessage("Step 'worktree' is a system step; it takes a result, not an answer.");
+        DomainException exception = Assert.Throws<DomainException>(answer);
+        Assert.Equal("Step 'worktree' is a system step; it takes a result, not an answer.", exception.Message);
     }
 
     [Fact]
@@ -238,7 +248,8 @@ public sealed class FlowRunDeciderTests
     {
         Action result = () => FlowRunDecider.Complete(Build, AtAgentStep(), "build", "build", Json("{}"), Now);
 
-        result.Should().Throw<DomainException>().WithMessage("Step 'build' is an agent step; it takes an answer, not a result.");
+        DomainException exception = Assert.Throws<DomainException>(result);
+        Assert.Equal("Step 'build' is an agent step; it takes an answer, not a result.", exception.Message);
     }
 
     [Fact]
@@ -248,16 +259,16 @@ public sealed class FlowRunDeciderTests
         AgentStepAnswered answered = AnswerAt(flowRun, "build");
         flowRun.Apply(answered);
 
-        answered.Agent.Should().Be("build");
-        answered.AgentHash.Should().Be("agenthash");
-        answered.Model.Should().Be(Model);
-        answered.Answer.GetProperty("verdict").GetString().Should().Be("done");
-        answered.Measurement.Should().Be(Spend);
+        Assert.Equal("build", answered.Agent);
+        Assert.Equal("agenthash", answered.AgentHash);
+        Assert.Equal(Model, answered.Model);
+        Assert.Equal("done", answered.Answer.GetProperty("verdict").GetString());
+        Assert.Equal(Spend, answered.Measurement);
         FlowRunStepEntry? current = flowRun.Current;
-        current.Should().NotBeNull();
-        current.Answer.HasValue.Should().BeTrue();
-        current.Answer.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("done");
-        current.Measurement.Should().Be(Spend);
+        Assert.NotNull(current);
+        Assert.True(current.Answer.HasValue);
+        Assert.Equal("done", current.Answer.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.Equal(Spend, current.Measurement);
     }
 
     [Fact]
@@ -268,7 +279,8 @@ public sealed class FlowRunDeciderTests
 
         Action again = () => AnswerAt(flowRun, "build");
 
-        again.Should().Throw<DomainException>().WithMessage("Step 'build' already holds what this visit recorded*");
+        DomainException exception = Assert.Throws<DomainException>(again);
+        Assert.StartsWith("Step 'build' already holds what this visit recorded", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -276,7 +288,8 @@ public sealed class FlowRunDeciderTests
     {
         Action answer = () => FlowRunDecider.Answer(Build, AtAgentStep(), "build", "fix", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
 
-        answer.Should().Throw<DomainException>().WithMessage("Step 'build' names the agent 'build'; an answer from 'fix' is not its answer.");
+        DomainException exception = Assert.Throws<DomainException>(answer);
+        Assert.Equal("Step 'build' names the agent 'build'; an answer from 'fix' is not its answer.", exception.Message);
     }
 
     [Fact]
@@ -285,7 +298,8 @@ public sealed class FlowRunDeciderTests
         Action answer = () => FlowRunDecider.Answer(
             Build, AtAgentStep(), "build", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend with { CostUsd = -1m }, Now);
 
-        answer.Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
+        DomainException exception = Assert.Throws<DomainException>(answer);
+        Assert.StartsWith("A measurement is never negative", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -295,7 +309,8 @@ public sealed class FlowRunDeciderTests
     {
         Action pause = () => FlowRunDecider.Pause(Build, Started(), reason, lever, "owner", Now);
 
-        pause.Should().Throw<DomainException>().WithMessage(message);
+        DomainException exception = Assert.Throws<DomainException>(pause);
+        Assert.Equal(message, exception.Message);
     }
 
     [Fact]
@@ -303,7 +318,8 @@ public sealed class FlowRunDeciderTests
     {
         Action end = () => FlowRunDecider.End(Build, Started(), "merged", "owner", Now);
 
-        end.Should().Throw<DomainException>().WithMessage("Flow 'build' ends with its declared outcome 'pr-opened', not 'merged'.");
+        DomainException exception = Assert.Throws<DomainException>(end);
+        Assert.Equal("Flow 'build' ends with its declared outcome 'pr-opened', not 'merged'.", exception.Message);
     }
 
     [Theory]
@@ -314,19 +330,20 @@ public sealed class FlowRunDeciderTests
     {
         Action resume = () => FlowRunDecider.Resume(Build, InStatus(status), "go on", "owner", Now);
 
-        resume.Should().Throw<DomainException>().WithMessage("*; only a paused flow run resumes.");
+        DomainException exception = Assert.Throws<DomainException>(resume);
+        Assert.EndsWith("; only a paused flow run resumes.", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void A_paused_flow_run_resumes_and_runs_again()
     {
         FlowRun flowRun = InStatus(FlowRunStatus.Paused);
-        flowRun.IsLive.Should().BeTrue("a paused flow run is still live");
+        Assert.True(flowRun.IsLive, "a paused flow run is still live");
 
         flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, "answered", "owner", Now));
 
-        flowRun.Status.Should().Be(FlowRunStatus.Running);
-        flowRun.Lever.Should().BeNull();
+        Assert.Equal(FlowRunStatus.Running, flowRun.Status);
+        Assert.Null(flowRun.Lever);
     }
 
     [Theory]
@@ -336,7 +353,8 @@ public sealed class FlowRunDeciderTests
     {
         Action stop = () => FlowRunDecider.Stop(InStatus(status), "enough", "owner", Now);
 
-        stop.Should().Throw<DomainException>().WithMessage($"*{described}; only a live flow run stops.");
+        DomainException exception = Assert.Throws<DomainException>(stop);
+        Assert.EndsWith($"{described}; only a live flow run stops.", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -349,9 +367,9 @@ public sealed class FlowRunDeciderTests
         (FlowRunStopped stopped, ParcelFlowRunReleased released) = FlowRunDecider.Stop(flowRun, "enough", "owner", Now);
         flowRun.Apply(stopped);
 
-        flowRun.IsLive.Should().BeFalse();
-        released.ParcelId.Should().Be(flowRun.ParcelId);
-        released.FlowRunId.Should().Be(flowRun.Id);
+        Assert.False(flowRun.IsLive);
+        Assert.Equal(flowRun.ParcelId, released.ParcelId);
+        Assert.Equal(flowRun.Id, released.FlowRunId);
     }
 
     [Fact]
@@ -359,7 +377,8 @@ public sealed class FlowRunDeciderTests
     {
         Action step = () => FlowRunDecider.StartStep(ShippedFlows.Discovery, Started(), "discover", Now);
 
-        step.Should().Throw<DomainException>().WithMessage("*a flow run keeps the flow it started under.");
+        DomainException exception = Assert.Throws<DomainException>(step);
+        Assert.EndsWith("a flow run keeps the flow it started under.", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>A flow run of <paramref name="flow"/> at its agent step 'build', launched, paused without an answer and resumed.</summary>
@@ -386,18 +405,20 @@ public sealed class FlowRunDeciderTests
 
         flowRun.Apply(FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(2)));
 
-        flowRun.Spawns.Should().Be(spawns + 1);
-        flowRun.Position.Spawns.Should().Be(spawns + 1);
-        flowRun.Position.VisitsTo("build").Should().Be(visits, "the visit is performed again, not entered again");
-        flowRun.Steps.Should().HaveCount(2);
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(3)))
-            .Should().Throw<DomainException>().WithMessage("*already counted a spawn for its latest resume*");
+        Assert.Equal(spawns + 1, flowRun.Spawns);
+        Assert.Equal(spawns + 1, flowRun.Position.Spawns);
+        // the visit is performed again, not entered again
+        Assert.Equal(visits, flowRun.Position.VisitsTo("build"));
+        Assert.Equal(2, flowRun.Steps.Count);
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(3)));
+        Assert.Contains("already counted a spawn for its latest resume", exception.Message, StringComparison.Ordinal);
 
         flowRun.Apply(FlowRunDecider.Spawn(Build, flowRun, "build", "agenthash", Model, Now.AddMinutes(3)));
         flowRun.Apply(FlowRunDecider.Pause(Build, flowRun, "no valid answer", "perform it again", "flow-run", Now.AddMinutes(4), Spend));
         flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, "once more", "owner", Now.AddMinutes(5)));
         flowRun.Apply(FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(6)));
-        flowRun.Spawns.Should().Be(spawns + 2, "each resume counts its own spawn");
+        // each resume counts its own spawn
+        Assert.Equal(spawns + 2, flowRun.Spawns);
     }
 
     [Fact]
@@ -406,57 +427,59 @@ public sealed class FlowRunDeciderTests
         Flow capped = Build with { SpawnCap = 1 };
         FlowRun flowRun = ResumedUnanswered(capped, launched: false);
 
-        flowRun.Current.Should().NotBeNull();
-        flowRun.Current?.SpawnsAgainOnResume.Should().BeFalse("the spawn counted when the step was entered was never used");
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(capped, flowRun, "build", Now.AddMinutes(2)))
-            .Should().Throw<DomainException>().WithMessage("*has not launched its agent on the spawn it last counted*");
+        Assert.NotNull(flowRun.Current);
+        Assert.False(flowRun.Current?.SpawnsAgainOnResume, "the spawn counted when the step was entered was never used");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Respawn(capped, flowRun, "build", Now.AddMinutes(2)));
+        Assert.Contains("has not launched its agent on the spawn it last counted", exception.Message, StringComparison.Ordinal);
 
         flowRun.Apply(FlowRunDecider.Spawn(capped, flowRun, "build", "agenthash", Model, Now.AddMinutes(2)));
-        flowRun.Spawns.Should().Be(1, "a launch counts nothing itself");
-        flowRun.Current?.SpawnsAgainOnResume.Should().BeFalse("no resume has followed the launch");
+        // a launch counts nothing itself
+        Assert.Equal(1, flowRun.Spawns);
+        Assert.False(flowRun.Current?.SpawnsAgainOnResume, "no resume has followed the launch");
     }
 
     [Fact]
     public void A_respawn_is_refused_at_the_spawn_cap_before_a_resume_and_for_a_system_step()
     {
         Flow capped = Build with { SpawnCap = 1 };
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(capped, ResumedUnanswered(capped), "build", Now))
-            .Should().Throw<DomainException>()
-            .WithMessage("Flow 'build' reached its spawn cap of 1; performing agent step 'build' again would spawn another agent.");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Respawn(capped, ResumedUnanswered(capped), "build", Now));
+        Assert.Equal("Flow 'build' reached its spawn cap of 1; performing agent step 'build' again would spawn another agent.", exception.Message);
 
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, AtAgentStep(), "build", Now))
-            .Should().Throw<DomainException>().WithMessage("*has not been resumed since it was entered*");
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.Respawn(Build, AtAgentStep(), "build", Now));
+        Assert.Contains("has not been resumed since it was entered", exception2.Message, StringComparison.Ordinal);
 
         FlowRun atSystemStep = Started();
         atSystemStep.Apply(FlowRunDecider.Pause(Build, atSystemStep, "waiting", "lever", "owner", Now));
         atSystemStep.Apply(FlowRunDecider.Resume(Build, atSystemStep, "go on", "owner", Now));
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, atSystemStep, "worktree", Now))
-            .Should().Throw<DomainException>().WithMessage("*only an agent step spawns an agent*");
+        DomainException exception3 = Assert.Throws<DomainException>(() => FlowRunDecider.Respawn(Build, atSystemStep, "worktree", Now));
+        Assert.Contains("only an agent step spawns an agent", exception3.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void A_launch_carries_the_agents_hash_and_model_spec_and_its_session_is_recorded_once_until_the_next_launch()
     {
         FlowRun flowRun = AtAgentStep();
-        FluentActions.Invoking(() => FlowRunDecider.OpenSession(Build, flowRun, "build", Ids.New(), Now))
-            .Should().Throw<DomainException>().WithMessage("*has not recorded the launch of its agent*");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.OpenSession(Build, flowRun, "build", Ids.New(), Now));
+        Assert.Contains("has not recorded the launch of its agent", exception.Message, StringComparison.Ordinal);
 
         flowRun.Apply(FlowRunDecider.Spawn(Build, flowRun, "build", " agenthash ", Model, Now));
-        flowRun.Current?.AgentHash.Should().Be("agenthash");
-        flowRun.Current?.Model.Should().Be(Model);
-        flowRun.Current?.SessionId.Should().BeNull();
-        flowRun.Current?.Answer.Should().BeNull();
+        Assert.Equal("agenthash", flowRun.Current?.AgentHash);
+        Assert.Equal(Model, flowRun.Current?.Model);
+        Assert.Null(flowRun.Current?.SessionId);
+        Assert.Null(flowRun.Current?.Answer);
 
         Guid first = Ids.New();
         flowRun.Apply(FlowRunDecider.OpenSession(Build, flowRun, "build", first, Now.AddSeconds(1)));
-        flowRun.Current?.SessionId.Should().Be(first);
-        flowRun.Spawns.Should().Be(1, "recording a session counts nothing");
-        FluentActions.Invoking(() => FlowRunDecider.OpenSession(Build, flowRun, "build", Ids.New(), Now.AddSeconds(2)))
-            .Should().Throw<DomainException>().WithMessage("*already holds session*");
+        Assert.Equal(first, flowRun.Current?.SessionId);
+        // recording a session counts nothing
+        Assert.Equal(1, flowRun.Spawns);
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.OpenSession(Build, flowRun, "build", Ids.New(), Now.AddSeconds(2)));
+        Assert.Contains("already holds session", exception2.Message, StringComparison.Ordinal);
 
         flowRun.Apply(FlowRunDecider.Spawn(Build, flowRun, "build", "agenthash", Model, Now.AddSeconds(3)));
-        flowRun.Current?.SessionId.Should().BeNull("a launch has no session until the executor returns one");
-        flowRun.Spawns.Should().Be(1);
+        // a launch has no session until the executor returns one
+        Assert.Null(flowRun.Current?.SessionId);
+        Assert.Equal(1, flowRun.Spawns);
     }
 
     [Fact]
@@ -467,17 +490,18 @@ public sealed class FlowRunDeciderTests
 
         flowRun.Apply(FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(2)));
 
-        flowRun.Current?.SessionId.Should().BeNull();
-        flowRun.Current?.AgentHash.Should().Be("agenthash", "the visit still names the agent it last launched");
+        Assert.Null(flowRun.Current?.SessionId);
+        // the visit still names the agent it last launched
+        Assert.Equal("agenthash", flowRun.Current?.AgentHash);
     }
 
     [Fact]
     public void A_launch_with_no_agent_hash_or_model_spec_is_refused()
     {
-        FluentActions.Invoking(() => FlowRunDecider.Spawn(Build, AtAgentStep(), "build", " ", Model, Now))
-            .Should().Throw<DomainException>().WithMessage("*content hash of the agent it launches*");
-        FluentActions.Invoking(() => FlowRunDecider.Spawn(Build, AtAgentStep(), "build", "agenthash", Model with { Effort = "" }, Now))
-            .Should().Throw<DomainException>().WithMessage("*model spec its agent runs on*");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Spawn(Build, AtAgentStep(), "build", " ", Model, Now));
+        Assert.Contains("content hash of the agent it launches", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.Spawn(Build, AtAgentStep(), "build", "agenthash", Model with { Effort = "" }, Now));
+        Assert.Contains("model spec its agent runs on", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -490,9 +514,9 @@ public sealed class FlowRunDeciderTests
 
         flowRun.Apply(old);
 
-        flowRun.Current?.SpawnedAt.Should().Be(Now);
-        flowRun.Current?.AgentHash.Should().BeNull();
-        flowRun.Current?.Model.Should().BeNull();
+        Assert.Equal(Now, flowRun.Current?.SpawnedAt);
+        Assert.Null(flowRun.Current?.AgentHash);
+        Assert.Null(flowRun.Current?.Model);
     }
 
     [Fact]
@@ -503,11 +527,12 @@ public sealed class FlowRunDeciderTests
         flowRun.Apply(FlowRunDecider.Pause(Build, flowRun, "Hold on.", "resume", "owner", Now));
         flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, "owner", Now));
 
-        flowRun.Current?.SessionId.Should().Be(held, "a resume does not clear the session it found");
-        FluentActions.Invoking(() => FlowRunDecider.Answer(Build, flowRun, "build", "build", held, "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("Step 'build' was resumed after it launched session *; an answer from session * is not recorded on this visit.");
-        FluentActions.Invoking(() => FlowRunDecider.Pause(Build, flowRun, "No valid answer.", "/transcripts/1.jsonl", "owner", Now, Spend, held))
-            .Should().Throw<DomainException>().WithMessage("Step 'build' was resumed after it launched session *; a pause from session * is not recorded on this visit.");
+        // a resume does not clear the session it found
+        Assert.Equal(held, flowRun.Current?.SessionId);
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Answer(Build, flowRun, "build", "build", held, "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now));
+        Assert.Matches(@"(?s)^Step 'build' was resumed after it launched session .*; an answer from session .* is not recorded on this visit\.$", exception.Message);
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.Pause(Build, flowRun, "No valid answer.", "/transcripts/1.jsonl", "owner", Now, Spend, held));
+        Assert.Matches(@"(?s)^Step 'build' was resumed after it launched session .*; a pause from session .* is not recorded on this visit\.$", exception2.Message);
     }
 
     [Fact]
@@ -516,13 +541,13 @@ public sealed class FlowRunDeciderTests
         FlowRun flowRun = AtAgentStep();
         Launched(flowRun);
 
-        FluentActions.Invoking(() => FlowRunDecider.Answer(Build, flowRun, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("Step 'build' expects session *; an answer from session * is not recorded on this visit.");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Answer(Build, flowRun, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now));
+        Assert.Matches(@"(?s)^Step 'build' expects session .*; an answer from session .* is not recorded on this visit\.$", exception.Message);
 
         FlowRun unopened = AtAgentStep();
         unopened.Apply(FlowRunDecider.Spawn(Build, unopened, "build", "agenthash", Model, Now));
-        FluentActions.Invoking(() => FlowRunDecider.Answer(Build, unopened, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("Step 'build' holds no session for its latest launch; an answer from session * is not recorded on this visit.");
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.Answer(Build, unopened, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now));
+        Assert.Matches(@"(?s)^Step 'build' holds no session for its latest launch; an answer from session .* is not recorded on this visit\.$", exception2.Message);
     }
 
     [Theory]
@@ -553,27 +578,27 @@ public sealed class FlowRunDeciderTests
         AgentStepUsageRecorded recorded = FlowRunDecider.RecordUsage(Build, flowRun, "build", "build", session, usage, Now.AddMinutes(1));
         flowRun.Apply(recorded);
 
-        recorded.Usage.Should().Be(usage);
-        flowRun.Cost.Should().Be(before + usage.CostUsd);
-        flowRun.Status.Should().Be(status);
-        flowRun.PauseReason.Should().Be(reason);
-        flowRun.Lever.Should().Be(lever);
-        flowRun.PauseUsage.Should().Be(pauseUsage);
-        flowRun.Current.Should().Be(visit);
+        Assert.Equal(usage, recorded.Usage);
+        Assert.Equal(before + usage.CostUsd, flowRun.Cost);
+        Assert.Equal(status, flowRun.Status);
+        Assert.Equal(reason, flowRun.PauseReason);
+        Assert.Equal(lever, flowRun.Lever);
+        Assert.Equal(pauseUsage, flowRun.PauseUsage);
+        Assert.Equal(visit, flowRun.Current);
     }
 
     [Fact]
     public void A_dropped_agent_steps_usage_is_refused_on_an_ended_flow_run_another_step_or_a_system_step()
     {
         FlowRun ended = InStatus(FlowRunStatus.Ended);
-        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, ended, "worktree", "build", Ids.New(), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*has ended; an agent step's usage is recorded on a running, paused, or stopped flow run.");
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.RecordUsage(Build, ended, "worktree", "build", Ids.New(), Spend, Now));
+        Assert.EndsWith("has ended; an agent step's usage is recorded on a running, paused, or stopped flow run.", exception.Message, StringComparison.Ordinal);
 
-        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, AtAgentStep(), "worktree", "build", Ids.New(), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*is at step 'build'; an agent step's usage is recorded only for the current step, not 'worktree'.");
-        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, Started(), "worktree", "worktree", Ids.New(), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("Step 'worktree' is a system step; only an agent step reports usage.");
-        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, AtAgentStep(), "build", "build", Ids.New(), Spend with { Tokens = -1 }, Now))
-            .Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.RecordUsage(Build, AtAgentStep(), "worktree", "build", Ids.New(), Spend, Now));
+        Assert.EndsWith("is at step 'build'; an agent step's usage is recorded only for the current step, not 'worktree'.", exception2.Message, StringComparison.Ordinal);
+        DomainException exception3 = Assert.Throws<DomainException>(() => FlowRunDecider.RecordUsage(Build, Started(), "worktree", "worktree", Ids.New(), Spend, Now));
+        Assert.Equal("Step 'worktree' is a system step; only an agent step reports usage.", exception3.Message);
+        DomainException exception4 = Assert.Throws<DomainException>(() => FlowRunDecider.RecordUsage(Build, AtAgentStep(), "build", "build", Ids.New(), Spend with { Tokens = -1 }, Now));
+        Assert.StartsWith("A measurement is never negative", exception4.Message, StringComparison.Ordinal);
     }
 }
