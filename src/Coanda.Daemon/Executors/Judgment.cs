@@ -141,7 +141,7 @@ public static class Judgment
         try
         {
             using var bounded = new CancellationTokenSource(StopGrace);
-            Measurement? inProgress = await executor.StopAsync(handle, bounded.Token);
+            StopReport? inProgress = await executor.StopAsync(handle, bounded.Token);
             spend?.Add(inProgress);
         }
         catch (Exception stopFailure)

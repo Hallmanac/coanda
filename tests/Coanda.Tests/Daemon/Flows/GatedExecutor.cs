@@ -46,6 +46,9 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
     /// </summary>
     public Measurement? InProgressUsage { get; init; }
 
+    /// <summary>Whether what a stop reports for an attempt in progress holds its cost; when not, the usage is tokens and turns alone.</summary>
+    public bool InProgressCostReported { get; init; } = true;
+
     /// <summary>Completes once the first session has been spawned.</summary>
     public Task Spawned => spawned.Task;
 
@@ -128,7 +131,7 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
     public ValueTask SendAsync(SessionHandle handle, string message, CancellationToken cancellationToken) =>
         inner.SendAsync(handle, message, cancellationToken);
 
-    public async ValueTask<Measurement?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
+    public async ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         bool attempting;
         lock (records)
@@ -142,8 +145,10 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
             throw new InvalidOperationException($"Session {handle.Id} would not stop.");
         }
 
-        Measurement? reported = await inner.StopAsync(handle, cancellationToken);
-        return attempting ? InProgressUsage : reported;
+        StopReport? reported = await inner.StopAsync(handle, cancellationToken);
+        return attempting && InProgressUsage is { } usage
+            ? new StopReport(usage, InProgressCostReported)
+            : attempting ? null : reported;
     }
 
     public ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken) => inner.ListAsync(cancellationToken);
