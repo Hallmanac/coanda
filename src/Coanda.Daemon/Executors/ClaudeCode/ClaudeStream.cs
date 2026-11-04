@@ -7,7 +7,8 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// What one Claude Code process printed on its stream-json output, read a line at a time: the
 /// usage of every assistant message, counted once per message id at the last figure printed for
 /// it, and the result event, when the process printed one. A line that is not a JSON object is
-/// passed over, since the transcript keeps it either way.
+/// passed over, since the transcript keeps it either way, and a figure that is not a JSON number,
+/// such as a null token count, reads as zero.
 /// </summary>
 /// <remarks>
 /// An assistant event's usage is a snapshot that can be printed before the message's output is
@@ -94,9 +95,9 @@ public sealed class ClaudeStream
                     break;
             }
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or OverflowException)
         {
-            // Not an event; the transcript holds it as printed.
+            // Not an event, or one whose figures overflow when summed; the transcript holds it as printed.
         }
     }
 
@@ -107,8 +108,14 @@ public sealed class ClaudeStream
 
     internal static long Tokens(JsonElement element, params string[] properties) =>
         element.ValueKind == JsonValueKind.Object
-            ? properties.Sum(property => element.TryGetProperty(property, out JsonElement value) && value.TryGetInt64(out long count) ? count : 0L)
+            ? properties.Sum(property => Count(element, property) ?? 0L)
             : 0L;
+
+    /// <summary>The property's whole number, or null when it is absent, not a JSON number, or out of range.</summary>
+    internal static long? Count(JsonElement element, string property) =>
+        element.TryGetProperty(property, out JsonElement value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long count)
+            ? count
+            : null;
 
     internal static decimal? Dollars(JsonElement element, string property) =>
         element.TryGetProperty(property, out JsonElement value) && value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out decimal amount)
@@ -149,6 +156,8 @@ public sealed record ClaudeResult(
         ? string.Join("; ", Errors)
         : Text;
 
+    private static readonly long MaxMilliseconds = (long)TimeSpan.MaxValue.TotalMilliseconds;
+
     internal static ClaudeResult From(JsonElement root)
     {
         bool isError = root.TryGetProperty("is_error", out JsonElement flag) && flag.ValueKind == JsonValueKind.True;
@@ -165,8 +174,8 @@ public sealed record ClaudeResult(
                     sum.Tokens + ClaudeStream.Tokens(model.Value, "inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"),
                     sum.Cost + (model.Value.ValueKind == JsonValueKind.Object ? ClaudeStream.Dollars(model.Value, "costUSD") ?? 0m : 0m)))
             : null;
-        int turns = root.TryGetProperty("num_turns", out JsonElement count) && count.TryGetInt32(out int n) ? n : 0;
-        long milliseconds = root.TryGetProperty("duration_ms", out JsonElement duration) && duration.TryGetInt64(out long ms) ? ms : 0L;
+        int turns = (int)Math.Clamp(ClaudeStream.Count(root, "num_turns") ?? 0L, 0L, int.MaxValue);
+        long milliseconds = Math.Clamp(ClaudeStream.Count(root, "duration_ms") ?? 0L, 0L, MaxMilliseconds);
         return new ClaudeResult(
             isError,
             ClaudeStream.Text(root, "subtype"),
