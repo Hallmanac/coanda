@@ -29,7 +29,7 @@ public static class Program
     {
         if (args is [ChildFlag, string pidFile])
         {
-            File.WriteAllText(pidFile, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            WritePid(pidFile);
             Thread.Sleep(TimeSpan.FromSeconds(120));
             return 0;
         }
@@ -55,7 +55,7 @@ public static class Program
         if (Environment.GetEnvironmentVariable(IgnoreInputVariable) == "1")
         {
             // Never reads its input, so a writer of a large prompt blocks until it gives up.
-            File.WriteAllText(Path.Combine(control, "stalled.pid"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            WritePid(Path.Combine(control, "stalled.pid"));
             Thread.Sleep(TimeSpan.FromSeconds(60));
             return 0;
         }
@@ -335,6 +335,14 @@ public static class Program
     {
         int index = Array.IndexOf(args, flag);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    /// <summary>Writes this process's pid to a sibling and moves it into place, so a poller never opens the file while it is still being written.</summary>
+    private static void WritePid(string path)
+    {
+        string partial = path + ".tmp";
+        File.WriteAllText(partial, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        File.Move(partial, path, overwrite: true);
     }
 
     private static void Print(JsonObject line)
