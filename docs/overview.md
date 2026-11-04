@@ -34,6 +34,8 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 ## Operating
 
 - `coa daemon start` / `coa daemon stop` / `coa daemon status`
+- `coa project add <name> --repo <url> --branch <name>`, `coa project show <name>`,
+  `coa project list`
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
   `coa parcel close <id>`
 - `coa contour list`, `coa contour start <contour> --parcel <id>`
