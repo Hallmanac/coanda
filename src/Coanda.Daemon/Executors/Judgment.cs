@@ -25,19 +25,31 @@ public static class Judgment
         IAgentExecutor executor,
         JudgmentRequest request,
         CancellationToken cancellationToken) =>
-        RunAsync(executor, request, onSpawned: null, stopping: CancellationToken.None, cancellationToken);
+        RunAsync(executor, request, onSpawned: null, spend: null, stopping: CancellationToken.None, cancellationToken);
+
+    public static Task<JudgmentOutcome> RunAsync(
+        IAgentExecutor executor,
+        JudgmentRequest request,
+        Func<SessionHandle, CancellationToken, ValueTask>? onSpawned,
+        CancellationToken stopping,
+        CancellationToken cancellationToken) =>
+        RunAsync(executor, request, onSpawned, spend: null, stopping, cancellationToken);
 
     /// <summary>
     /// Runs the judgment, handing the session's handle to <paramref name="onSpawned"/> as soon as the
     /// spawn returns, so the runner can record it before the first collect. Once the handle is
     /// handed over, a cancellation while <paramref name="stopping"/> is cancelled (the daemon
     /// stopping) leaves the session alive for a reattach; any other failure, a cancellation of
-    /// <paramref name="cancellationToken"/> alone (a wall-clock limit) among them, stops it.
+    /// <paramref name="cancellationToken"/> alone (a wall-clock limit, a person's pause or stop)
+    /// among them, stops it. <paramref name="spend"/> is told every attempt's usage as it is
+    /// collected and what that stop reports for the attempt in progress, so a judgment that ends
+    /// without an outcome still says what it spent.
     /// </summary>
     public static async Task<JudgmentOutcome> RunAsync(
         IAgentExecutor executor,
         JudgmentRequest request,
         Func<SessionHandle, CancellationToken, ValueTask>? onSpawned,
+        JudgmentSpend? spend,
         CancellationToken stopping,
         CancellationToken cancellationToken)
     {
@@ -63,11 +75,11 @@ public static class Judgment
                 handedOver = true;
             }
 
-            return await AnswerAsync(executor, request, handle, cancellationToken);
+            return await AnswerAsync(executor, request, handle, spend, cancellationToken);
         }
         catch (Exception failure) when (!(handedOver && failure is OperationCanceledException && stopping.IsCancellationRequested))
         {
-            await StopAfterFailureAsync(executor, handle, failure);
+            await StopAfterFailureAsync(executor, handle, failure, spend);
             throw;
         }
     }
@@ -76,9 +88,11 @@ public static class Judgment
         IAgentExecutor executor,
         JudgmentRequest request,
         SessionHandle handle,
+        JudgmentSpend? spend,
         CancellationToken cancellationToken)
     {
         CollectedAnswer first = await executor.CollectAsync(handle, cancellationToken);
+        spend?.Add(first.Usage);
         IReadOnlyList<string> firstFailures = Check(request.AnswerSchema, first.Answer);
         if (first.Answer is { } firstAnswer && firstFailures.Count == 0)
         {
@@ -88,6 +102,7 @@ public static class Judgment
         await executor.ResumeAsync(handle, RetryMessage(request.AnswerSchema, first.Answer, firstFailures), cancellationToken);
 
         CollectedAnswer second = await executor.CollectAsync(handle, cancellationToken);
+        spend?.Add(second.Usage);
         Measurement usage = Sum(first.Usage, second.Usage);
         IReadOnlyList<string> secondFailures = Check(request.AnswerSchema, second.Answer);
         return second.Answer is { } secondAnswer && secondFailures.Count == 0
@@ -118,14 +133,16 @@ public static class Judgment
     /// cancellation of the caller's token, so the stop takes a short, bounded token of its own
     /// rather than that one: an executor that honours its token still stops the session, and a
     /// stop that hangs gives up after <see cref="StopGrace"/>. This is the one place the judgment
-    /// does not pass the caller's token on. A stop that also fails is reported alongside the failure.
+    /// does not pass the caller's token on. What the stop reports for the attempt in progress is
+    /// added to <paramref name="spend"/>. A stop that also fails is reported alongside the failure.
     /// </summary>
-    private static async Task StopAfterFailureAsync(IAgentExecutor executor, SessionHandle handle, Exception failure)
+    private static async Task StopAfterFailureAsync(IAgentExecutor executor, SessionHandle handle, Exception failure, JudgmentSpend? spend)
     {
         try
         {
             using var bounded = new CancellationTokenSource(StopGrace);
-            await executor.StopAsync(handle, bounded.Token);
+            Measurement? inProgress = await executor.StopAsync(handle, bounded.Token);
+            spend?.Add(inProgress);
         }
         catch (Exception stopFailure)
         {
@@ -146,7 +163,7 @@ public static class Judgment
         : $"Your answer did not match the '{schema}' answer schema. The validator reported: {string.Join("; ", failures)}. "
             + $"End your reply with exactly one JSON document that matches the '{schema}' answer schema.";
 
-    private static Measurement Sum(Measurement first, Measurement second) => new(
+    internal static Measurement Sum(Measurement first, Measurement second) => new(
         first.Tokens + second.Tokens,
         first.CostUsd + second.CostUsd,
         first.Turns + second.Turns,
