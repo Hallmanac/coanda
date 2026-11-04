@@ -173,18 +173,32 @@ public static class FlowDecider
     }
 
     /// <summary>
-    /// Records that the current judgment step launched its agent on the spawn its visit last
-    /// counted. A restart that launches the same visit again records it again, counting nothing.
+    /// Records that the current judgment step launched its agent, the definition whose content hash
+    /// is <paramref name="agentHash"/> on the model spec <paramref name="model"/>, on the spawn its
+    /// visit last counted. A restart that launches the same visit again records it again, counting nothing.
     /// </summary>
-    public static JudgmentSpawned Spawn(Contour contour, Flow flow, string step, DateTimeOffset now)
+    public static JudgmentSpawned Spawn(Contour contour, Flow flow, string step, string agentHash, ModelSpec model, DateTimeOffset now)
     {
         RequireContour(contour, flow);
         RequireRunning(flow, "launch its judgment");
         FlowStepEntry current = RequireCurrent(flow, step, "a launch");
 
-        return current.Kind == StepKind.Judgment
-            ? new JudgmentSpawned(flow.Id, current.Step, current.Performer, now)
-            : throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step spawns an agent.");
+        if (current.Kind != StepKind.Judgment)
+        {
+            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step spawns an agent.");
+        }
+
+        if (string.IsNullOrWhiteSpace(agentHash))
+        {
+            throw new DomainException("A launch records the content hash of the agent it launches; none was given.");
+        }
+
+        if (model is null || string.IsNullOrWhiteSpace(model.Vendor) || string.IsNullOrWhiteSpace(model.Model) || string.IsNullOrWhiteSpace(model.Effort))
+        {
+            throw new DomainException("A launch records the model spec its agent runs on: a vendor, a model, and an effort.");
+        }
+
+        return new JudgmentSpawned(flow.Id, current.Step, current.Performer, agentHash.Trim(), model, now);
     }
 
     public static ActionCompleted Complete(Contour contour, Flow flow, string step, string action, JsonElement result, DateTimeOffset now)
