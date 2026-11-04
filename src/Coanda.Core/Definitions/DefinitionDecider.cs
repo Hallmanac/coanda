@@ -1,8 +1,8 @@
+using System.Collections.Frozen;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Definitions;
@@ -15,17 +15,12 @@ namespace Coanda.Core.Definitions;
 public static class DefinitionDecider
 {
     /// <summary>
-    /// Every action name a contour may use: the core catalog and the software catalog. The contour's own
-    /// validation takes the names as an input and knows neither catalog.
-    /// </summary>
-    public static readonly IReadOnlySet<string> KnownActions =
-        new HashSet<string>([.. CoreActions.All, .. SoftwareActions.All], StringComparer.Ordinal);
-
-    /// <summary>
     /// Drafts the next version of a definition. <paramref name="latestVersion"/> is the highest
     /// version already recorded for the same kind, scope, and name (and project, in project
     /// scope), or 0 when there is none. <paramref name="knownGates"/> is every gate name the
     /// daemon runs, which a parcel type's gate bindings are validated against; none when null.
+    /// <paramref name="knownActions"/> is every action name the daemon registered, which a contour's
+    /// action steps are validated against; none when null. The decider holds no catalog of either.
     /// </summary>
     public static DefinitionDrafted Draft(
         DefinitionKind kind,
@@ -38,7 +33,8 @@ public static class DefinitionDecider
         ForkBase? forkBase,
         string draftedBy,
         DateTimeOffset now,
-        IReadOnlySet<string>? knownGates = null)
+        IReadOnlySet<string>? knownGates = null,
+        IReadOnlySet<string>? knownActions = null)
     {
         if (scope == DefinitionScope.Shipped)
         {
@@ -46,7 +42,7 @@ public static class DefinitionDecider
                 "A definition cannot be drafted into shipped scope; shipped definitions enter the store only by seeding.");
         }
 
-        return Build(kind, name, scope, project, latestVersion, content, contentHash, forkBase, knownGates ?? GateSet.None.Names, draftedBy, now);
+        return Build(kind, name, scope, project, latestVersion, content, contentHash, forkBase, knownGates ?? GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, draftedBy, now);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -80,14 +76,15 @@ public static class DefinitionDecider
     /// <summary>
     /// Seeds a shipped definition: the drafted and published events together, in shipped scope.
     /// The only road into that scope. The shipped gate set is empty, so a shipped parcel type is
-    /// validated against no gate names and binds none.
+    /// validated against no gate names and binds none. A shipped contour is validated against
+    /// <paramref name="knownActions"/>, the action names the daemon registered; none when null.
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published) Seed(
-        ShippedDefinition shipped, int latestVersion, string seededBy, DateTimeOffset now)
+        ShippedDefinition shipped, int latestVersion, string seededBy, DateTimeOffset now, IReadOnlySet<string>? knownActions = null)
     {
         DefinitionDrafted drafted = Build(
             shipped.Kind, shipped.Name, DefinitionScope.Shipped, null, latestVersion,
-            shipped.Content, shipped.ContentHash, null, GateSet.None.Names, seededBy, now);
+            shipped.Content, shipped.ContentHash, null, GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, seededBy, now);
         return (drafted, new DefinitionPublished(drafted.DefinitionId, seededBy, now));
     }
 
@@ -101,6 +98,7 @@ public static class DefinitionDecider
         string contentHash,
         ForkBase? forkBase,
         IReadOnlySet<string> knownGates,
+        IReadOnlySet<string> knownActions,
         string draftedBy,
         DateTimeOffset now)
     {
@@ -136,7 +134,7 @@ public static class DefinitionDecider
                 RequireParcelType(trimmedName, content, contentHash, knownGates);
                 break;
             case DefinitionKind.Contour:
-                RequireContour(trimmedName, content, contentHash);
+                RequireContour(trimmedName, content, contentHash, knownActions);
                 break;
             case DefinitionKind.Agent:
                 RequireAgent(trimmedName, content, contentHash);
@@ -164,10 +162,10 @@ public static class DefinitionDecider
         }
     }
 
-    private static void RequireContour(string name, string content, string contentHash)
+    private static void RequireContour(string name, string content, string contentHash, IReadOnlySet<string> knownActions)
     {
         Contour contour = Contour.FromJson(content);
-        contour.Validate(KnownActions);
+        contour.Validate(knownActions);
 
         if (!string.Equals(contour.Name, name, StringComparison.OrdinalIgnoreCase))
         {

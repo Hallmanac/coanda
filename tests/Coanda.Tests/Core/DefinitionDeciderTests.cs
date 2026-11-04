@@ -192,10 +192,10 @@ public sealed class DefinitionDeciderTests
         CommandRegistry.Require("definition.retire", Principal.LocalOwner).Should().NotBeNull();
     }
 
-    private static DefinitionDrafted DraftContour(Contour contour, string? name = null, string? hash = null) =>
+    private static DefinitionDrafted DraftContour(Contour contour, string? name = null, string? hash = null, IReadOnlySet<string>? actions = null) =>
         DefinitionDecider.Draft(
             DefinitionKind.Contour, name ?? contour.Name, DefinitionScope.Project, "alpha", 0,
-            Contour.CanonicalJson(contour), hash ?? contour.Hash, null, "brian", Now);
+            Contour.CanonicalJson(contour), hash ?? contour.Hash, null, "brian", Now, knownActions: actions ?? ShippedActions.Names);
 
     [Fact]
     public void A_valid_contour_is_drafted_with_its_hash_and_content_that_reads_back()
@@ -217,12 +217,39 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
-    public void A_contour_naming_an_action_in_neither_catalog_is_refused()
+    public void A_contour_naming_an_action_absent_from_the_names_passed_in_is_refused_even_when_a_catalog_holds_it()
+    {
+        var withoutGates = new HashSet<string>(ShippedActions.Names.Where(a => a != SoftwareActions.Gates), StringComparer.Ordinal);
+        var withoutMove = new HashSet<string>(ShippedActions.Names.Where(a => a != CoreActions.MoveParcel), StringComparer.Ordinal);
+
+        FluentActions.Invoking(() => DraftContour(ShippedContours.Build, actions: withoutGates))
+            .Should().Throw<DomainException>().WithMessage("*names the action 'gates', which is not a known action*");
+        FluentActions.Invoking(() => DraftContour(ShippedContours.Build, actions: withoutMove))
+            .Should().Throw<DomainException>().WithMessage("*names the action 'move-parcel', which is not a known action*");
+    }
+
+    [Fact]
+    public void A_contour_naming_an_action_among_the_names_passed_in_is_drafted_even_when_neither_catalog_holds_it()
     {
         ContourStep[] steps = [.. ShippedContours.Build.Steps.Select(s => s.Action == SoftwareActions.Gates ? s with { Action = "teleport" } : s)];
+        Contour teleporting = ShippedContours.Build with { Steps = steps };
+        CoreActions.All.Concat(SoftwareActions.All).Should().NotContain("teleport");
 
-        FluentActions.Invoking(() => DraftContour(ShippedContours.Build with { Steps = steps }))
+        FluentActions.Invoking(() => DraftContour(teleporting))
             .Should().Throw<DomainException>().WithMessage("*names the action 'teleport', which is not a known action*");
+
+        DefinitionDrafted drafted = DraftContour(teleporting, actions: new HashSet<string>([.. ShippedActions.Names, "teleport"], StringComparer.Ordinal));
+        drafted.ContentHash.Should().Be(teleporting.Hash);
+    }
+
+    [Fact]
+    public void Seeding_a_contour_validates_it_against_the_names_passed_in()
+    {
+        ShippedDefinition build = ShippedDefinition.FromContour(ShippedContours.Build);
+
+        FluentActions.Invoking(() => DefinitionDecider.Seed(build, 0, "seed", Now))
+            .Should().Throw<DomainException>().WithMessage("*which is not a known action*");
+        DefinitionDecider.Seed(build, 0, "seed", Now, ShippedActions.Names).Drafted.ContentHash.Should().Be(ShippedContours.Build.Hash);
     }
 
     [Fact]
@@ -255,7 +282,7 @@ public sealed class DefinitionDeciderTests
     public void Seeding_a_shipped_contour_produces_a_published_shipped_scope_definition()
     {
         (DefinitionDrafted drafted, DefinitionPublished published) =
-            DefinitionDecider.Seed(ShippedDefinition.FromContour(ShippedContours.Discovery), 0, "seed", Now);
+            DefinitionDecider.Seed(ShippedDefinition.FromContour(ShippedContours.Discovery), 0, "seed", Now, ShippedActions.Names);
 
         drafted.Kind.Should().Be(DefinitionKind.Contour);
         drafted.Scope.Should().Be(DefinitionScope.Shipped);

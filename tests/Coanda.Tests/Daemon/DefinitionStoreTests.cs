@@ -28,7 +28,7 @@ public sealed class DefinitionStoreTests
         },
     };
 
-    private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System);
+    private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System, actions: ShippedActions.Names);
 
     private static async Task<Definition> PublishedProjectTypeAsync(DefinitionService definitions, string project, ParcelType type)
     {

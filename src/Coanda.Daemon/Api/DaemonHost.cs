@@ -12,6 +12,7 @@ using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
+using Fisher;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -58,7 +59,12 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
         builder.Services.AddSingleton(new GateSet(options.Gates));
-        builder.Services.AddSingleton<DefinitionService>();
+        // Contours are validated against the actions the daemon registered, not a catalog of their own.
+        builder.Services.AddSingleton(services => new DefinitionService(
+            services.GetRequiredService<IDocumentStore>(),
+            services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<GateSet>(),
+            services.GetRequiredService<FlowActions>().Names));
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<ContourService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
