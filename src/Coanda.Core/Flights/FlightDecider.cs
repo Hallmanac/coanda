@@ -11,7 +11,7 @@ namespace Coanda.Core.Flights;
 /// <summary>
 /// The rules of a flight's record, as pure decisions: given the flow, the flight (or the parcel, to
 /// start one), and an intent, either the events that record it or a <see cref="DomainException"/>
-/// quoting the rule. A flight is live while it runs or is parked, and a parcel has at most one live
+/// quoting the rule. A flight is live while it runs or is paused, and a parcel has at most one live
 /// flight; starting, ending, and stopping therefore also decide the parcel event that records it.
 /// </summary>
 public static class FlightDecider
@@ -130,7 +130,7 @@ public static class FlightDecider
     }
 
     /// <summary>
-    /// Counts one more spawn for a resumed judgment step whose visit parked without an answer, which
+    /// Counts one more spawn for a resumed judgment step whose visit paused without an answer, which
     /// is performed again on the same visit and adds no visit. It is counted once per resume, and
     /// never past the flow's spawn cap; a visit's first spawn is counted when the step is entered.
     /// </summary>
@@ -206,21 +206,21 @@ public static class FlightDecider
         return new ActionCompleted(flight.Id, current.Step, action, result.Clone(), now);
     }
 
-    /// <summary>Parks a running flight; <paramref name="usage"/> is what a judgment that parked without an answer reported.</summary>
-    public static FlightParked Park(
-        FlowDefinition flow, Flight flight, string reason, string lever, string parkedBy, DateTimeOffset now, Measurement? usage = null)
+    /// <summary>Pauses a running flight; <paramref name="usage"/> is what a judgment that paused without an answer reported.</summary>
+    public static FlightPaused Pause(
+        FlowDefinition flow, Flight flight, string reason, string lever, string pausedBy, DateTimeOffset now, Measurement? usage = null)
     {
         RequireFlow(flow, flight);
-        RequireRunning(flight, "park it");
+        RequireRunning(flight, "pause it");
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new DomainException("A park records why the flight stopped; give a reason.");
+            throw new DomainException("A pause records why the flight stopped; give a reason.");
         }
 
         if (string.IsNullOrWhiteSpace(lever))
         {
-            throw new DomainException("A park records the lever a person acts on to resume the flight; give a lever.");
+            throw new DomainException("A pause records the lever a person acts on to resume the flight; give a lever.");
         }
 
         if (usage is not null)
@@ -228,16 +228,16 @@ public static class FlightDecider
             RequireMeasurement(usage);
         }
 
-        return new FlightParked(flight.Id, reason.Trim(), lever.Trim(), parkedBy, now, usage);
+        return new FlightPaused(flight.Id, reason.Trim(), lever.Trim(), pausedBy, now, usage);
     }
 
     public static FlightResumed Resume(FlowDefinition flow, Flight flight, string? note, string resumedBy, DateTimeOffset now)
     {
         RequireFlow(flow, flight);
 
-        if (flight.Status != FlightStatus.Parked)
+        if (flight.Status != FlightStatus.Paused)
         {
-            throw new DomainException($"Flight {Ids.Short(flight.Id)} {Describe(flight.Status)}; only a parked flight resumes.");
+            throw new DomainException($"Flight {Ids.Short(flight.Id)} {Describe(flight.Status)}; only a paused flight resumes.");
         }
 
         return new FlightResumed(flight.Id, resumedBy, note?.Trim() ?? string.Empty, now);
@@ -257,7 +257,7 @@ public static class FlightDecider
         return (new FlightEnded(flight.Id, outcome, endedBy, now), new ParcelFlightReleased(flight.ParcelId, flight.Id, now));
     }
 
-    /// <summary>Stops a live flight, running or parked, so that a park nobody resumes does not hold its parcel forever.</summary>
+    /// <summary>Stops a live flight, running or paused, so that a pause nobody resumes does not hold its parcel forever.</summary>
     public static (FlightStopped Stopped, ParcelFlightReleased Released) Stop(Flight flight, string reason, string stoppedBy, DateTimeOffset now)
     {
         if (!flight.IsLive)
@@ -322,7 +322,7 @@ public static class FlightDecider
     private static string Describe(FlightStatus status) => status switch
     {
         FlightStatus.Running => "is running",
-        FlightStatus.Parked => "is parked",
+        FlightStatus.Paused => "is paused",
         FlightStatus.Ended => "has ended",
         FlightStatus.Stopped => "has been stopped",
         _ => $"is {status}",

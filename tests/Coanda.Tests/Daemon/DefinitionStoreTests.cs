@@ -293,7 +293,7 @@ public sealed class DefinitionStoreTests
 
         ParcelType withoutReview = ShippedTypes.Task with
         {
-            States = ["refine", "build", ShippedTypes.Parked, ShippedTypes.Closed],
+            States = ["refine", "build", ShippedTypes.Paused, ShippedTypes.Closed],
             Resolutions = ["shipped"],
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["build"] },
         };

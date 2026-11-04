@@ -7,7 +7,7 @@ namespace Coanda.Daemon.Actions;
 
 /// <summary>
 /// The registered actions, one implementation per name, and the one place an action step is
-/// performed: it finds the step's action and turns a missing or ill-kinded argument into a park.
+/// performed: it finds the step's action and turns a missing or ill-kinded argument into a pause.
 /// </summary>
 public sealed class FlowActions
 {
@@ -45,7 +45,7 @@ public sealed class FlowActions
         string name = request.Step.Action ?? string.Empty;
         if (!actions.TryGetValue(name, out IFlowAction? action))
         {
-            return new ActionOutcome.Parked(
+            return new ActionOutcome.Paused(
                 $"Step '{request.Step.Name}' names the action '{name}', which this daemon has no implementation of.",
                 FlightLevers.PerformAgain(request.Step.Name));
         }
@@ -56,7 +56,7 @@ public sealed class FlowActions
         }
         catch (ActionArgumentException refused)
         {
-            return new ActionOutcome.Parked(refused.Message, FlightLevers.PerformAgain(refused.Step));
+            return new ActionOutcome.Paused(refused.Message, FlightLevers.PerformAgain(refused.Step));
         }
     }
 }

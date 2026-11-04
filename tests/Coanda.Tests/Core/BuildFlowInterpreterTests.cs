@@ -44,7 +44,7 @@ public sealed class BuildFlowInterpreterTests
     private static JsonDocument Answer(FlowTransition routing) =>
         JsonSerializer.SerializeToDocument(new Dictionary<string, JsonElement> { [routing.Field] = routing.Value });
 
-    /// <summary>Starts at the first step and answers each visit until the interpreter parks or ends.</summary>
+    /// <summary>Starts at the first step and answers each visit until the interpreter pauses or ends.</summary>
     private static (List<string> Visited, FlightMove Final, FlightPosition Last) Walk(Func<string, int, FlowTransition> answer)
     {
         FlightPosition position = Interpreter.Start(Build);
@@ -92,7 +92,7 @@ public sealed class BuildFlowInterpreterTests
     }
 
     [Fact]
-    public void One_more_not_clean_than_the_cap_allows_parks_naming_the_review_and_the_cap()
+    public void One_more_not_clean_than_the_cap_allows_pauses_naming_the_review_and_the_cap()
     {
         (string review, FlowTransition toFix) = ReviewToFix();
 
@@ -102,12 +102,12 @@ public sealed class BuildFlowInterpreterTests
         last.Step.Should().Be(review);
         last.Spawns.Should().BeLessThan(Build.SpawnCap);
         visited.Count(s => s == toFix.Target).Should().Be(toFix.VisitCap);
-        final.Should().BeOfType<FlightMove.Park>()
+        final.Should().BeOfType<FlightMove.Pause>()
             .Which.Reason.Should().Contain($"'{review}'").And.Contain($"visit cap of {toFix.VisitCap}");
     }
 
     [Fact]
-    public void An_answer_whose_value_no_transition_holds_parks_naming_the_step()
+    public void An_answer_whose_value_no_transition_holds_pauses_naming_the_step()
     {
         FlowTransition unheard = Success(Build.First?.Name ?? "") with { Value = FlowValue.Of("unheard-of") };
         Build.Steps.SelectMany(s => s.Transitions).Should().NotContain(t => t.Value.ToString() == "unheard-of");
@@ -115,6 +115,6 @@ public sealed class BuildFlowInterpreterTests
         (List<string> visited, FlightMove final, _) = Walk((_, _) => unheard);
 
         visited.Should().Equal(Build.First?.Name);
-        final.Should().BeOfType<FlightMove.Park>().Which.Reason.Should().Contain($"'{Build.First?.Name}'");
+        final.Should().BeOfType<FlightMove.Pause>().Which.Reason.Should().Contain($"'{Build.First?.Name}'");
     }
 }

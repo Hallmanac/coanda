@@ -27,7 +27,7 @@ public static class ShippedFlows
         Steps =
         [
             Action("worktree", SoftwareActions.Worktree, On("done", "build")),
-            Judgment("build", "build", "build", On("done", "gates"), On("blocked", FlowDefinition.Park)),
+            Judgment("build", "build", "build", On("done", "gates"), On("blocked", FlowDefinition.Pause)),
             Action("gates", SoftwareActions.Gates, On("done", "adversarial-review"), On("failed", "fix")),
             Judgment("adversarial-review", "reviewer-adversarial", "review",
                 On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)),
@@ -42,7 +42,7 @@ public static class ShippedFlows
                 Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("review") },
                 Transitions = [On("done", FlowDefinition.End)],
             },
-            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", FlowDefinition.Park)),
+            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", FlowDefinition.Pause)),
         ],
     };
 

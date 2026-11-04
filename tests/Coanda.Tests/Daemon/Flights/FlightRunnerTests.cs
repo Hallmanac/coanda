@@ -85,7 +85,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_review_that_stays_not_clean_past_its_cap_parks_with_the_interpreters_reason()
+    public async Task A_review_that_stays_not_clean_past_its_cap_pauses_with_the_interpreters_reason()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -99,23 +99,23 @@ public sealed class FlightRunnerTests
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never clean");
 
         FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
-        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
         flight.CurrentStep.Should().Be("adversarial-review");
-        flight.ParkReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
+        flight.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
         flight.Lever.Should().Be(FlightLevers.PerformAgain("adversarial-review"));
         flight.Steps.Count(s => s.Step == "adversarial-review").Should().Be(4);
         flight.Steps[^1].Answer.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("not-clean");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.State.Should().Be("build", "a flight park leaves the parcel in its state");
+        after.State.Should().Be("build", "a flight pause leaves the parcel in its state");
         after.LiveFlightId.Should().Be(started.Id);
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_wait_for_human_step_parks_with_its_lever_and_a_resume_through_the_flight_service_carries_the_flight_to_its_end()
+    public async Task A_wait_for_human_step_pauses_with_its_lever_and_a_resume_through_the_flight_service_carries_the_flight_to_its_end()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
@@ -145,9 +145,9 @@ public sealed class FlightRunnerTests
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Needs a nod", null), None);
 
         FlightView started = await Flying.StartAsync(client, Project, parcel.Id, hold.Name);
-        FlightView parked = await Flying.UntilAsync(client, Project, started.Id, "parked");
-        parked.Lever.Should().Be("Read the task and resume to approve it.");
-        parked.ParkReason.Should().Contain("Step 'approve'");
+        FlightView paused = await Flying.UntilAsync(client, Project, started.Id, "paused");
+        paused.Lever.Should().Be("Read the task and resume to approve it.");
+        paused.PauseReason.Should().Contain("Step 'approve'");
 
         await daemon.Services.GetRequiredService<FlightService>().ResumeAsync(Principal.LocalOwner, Project, started.Id, "Approved.", None);
         FlightView ended = await Flying.UntilAsync(client, Project, started.Id, "ended");
@@ -185,7 +185,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task An_agent_with_no_answer_parks_its_flight_naming_the_agent_while_another_flight_reaches_its_end()
+    public async Task An_agent_with_no_answer_pauses_its_flight_naming_the_agent_while_another_flight_reaches_its_end()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
@@ -197,17 +197,17 @@ public sealed class FlightRunnerTests
         FlightView discovery = await Flying.BoundAsync(client, Project, idea.Id);
         FlightView build = await Flying.BoundAsync(client, Project, task.Id);
 
-        FlightView parked = await Flying.UntilAsync(client, Project, discovery.Id, "parked");
-        parked.ParkReason.Should().StartWith("Step 'discover' got no judgment from agent 'discovery':").And.Contain("agent 'discovery'");
-        parked.Lever.Should().Be(FlightLevers.PerformAgain("discover"));
-        parked.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
+        FlightView paused = await Flying.UntilAsync(client, Project, discovery.Id, "paused");
+        paused.PauseReason.Should().StartWith("Step 'discover' got no judgment from agent 'discovery':").And.Contain("agent 'discovery'");
+        paused.Lever.Should().Be(FlightLevers.PerformAgain("discover"));
+        paused.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
         (await Flying.UntilAsync(client, Project, build.Id, "ended")).Outcome.Should().Be("pr-opened");
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_judgment_past_the_wall_clock_limit_is_stopped_and_parks_its_flight_with_no_answer()
+    public async Task A_judgment_past_the_wall_clock_limit_is_stopped_and_pauses_its_flight_with_no_answer()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
@@ -217,9 +217,9 @@ public sealed class FlightRunnerTests
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Too slow");
 
         FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
-        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
-        flight.ParkReason.Should().Be("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, so its session was stopped.");
+        flight.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, so its session was stopped.");
         flight.Lever.Should().Be(FlightLevers.PerformAgain("build"));
         flight.Steps[^1].Step.Should().Be("build");
         flight.Steps[^1].Answer.Should().BeNull();
@@ -230,7 +230,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_judgment_past_the_wall_clock_limit_whose_session_will_not_stop_still_parks_naming_the_limit()
+    public async Task A_judgment_past_the_wall_clock_limit_whose_session_will_not_stop_still_pauses_naming_the_limit()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { FailStops = true };
@@ -240,9 +240,9 @@ public sealed class FlightRunnerTests
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Too slow to stop");
 
         FlightView started = await Flying.BoundAsync(client, Project, parcel.Id);
-        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView flight = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
-        flight.ParkReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, and stopping its session failed:");
+        flight.PauseReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, and stopping its session failed:");
         flight.Lever.Should().Be(FlightLevers.PerformAgain("build"));
         flight.Steps[^1].Answer.Should().BeNull();
 
@@ -280,7 +280,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_resume_after_a_spawn_cap_park_parks_again_without_spawning_past_the_cap()
+    public async Task A_resume_after_a_spawn_cap_pause_pauses_again_without_spawning_past_the_cap()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -301,14 +301,14 @@ public sealed class FlightRunnerTests
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Capped", null), None);
 
         FlightView started = await Flying.StartAsync(client, Project, parcel.Id, capped.Name);
-        FlightView parked = await Flying.UntilAsync(client, Project, started.Id, "parked");
-        parked.ParkReason.Should().Contain("reached its spawn cap of 1");
+        FlightView paused = await Flying.UntilAsync(client, Project, started.Id, "paused");
+        paused.PauseReason.Should().Contain("reached its spawn cap of 1");
 
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
         await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
-        FlightView after = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView after = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
-        after.ParkReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
+        after.PauseReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
         after.Lever.Should().Be(FlightLevers.SpawnCapReached(capped.Name));
         executor.Spawns.Should().ContainSingle("a resume never spawns past the flow's cap");
         after.Steps.Should().ContainSingle();
@@ -317,7 +317,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_resume_of_a_judgment_that_parked_without_an_answer_counts_its_spawn_and_parks_at_the_cap()
+    public async Task A_resume_of_a_judgment_that_paused_without_an_answer_counts_its_spawn_and_pauses_at_the_cap()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -339,23 +339,23 @@ public sealed class FlightRunnerTests
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
 
         FlightView started = await Flying.StartAsync(client, Project, parcel.Id, refused.Name);
-        FlightView first = await Flying.UntilAsync(client, Project, started.Id, "parked");
-        first.ParkReason.Should().Contain("gave no valid 'build' answer");
+        FlightView first = await Flying.UntilAsync(client, Project, started.Id, "paused");
+        first.PauseReason.Should().Contain("gave no valid 'build' answer");
         first.Spawns.Should().Be(1);
 
         await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
-        FlightView second = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView second = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
-        second.ParkReason.Should().Contain("gave no valid 'build' answer");
+        second.PauseReason.Should().Contain("gave no valid 'build' answer");
         executor.Spawns.Should().HaveCount(2);
         second.Spawns.Should().Be(2, "the resume spawned the judgment again and counted it");
         second.Steps.Should().ContainSingle("the resume performed the same visit again rather than entering the step anew");
         second.Steps[0].Answer.Should().BeNull();
 
         await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Once more.", None);
-        FlightView capped = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView capped = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
-        capped.ParkReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
+        capped.PauseReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
         capped.Lever.Should().Be(FlightLevers.SpawnCapReached(refused.Name));
         executor.Spawns.Should().HaveCount(2, "a resume never spawns past the flow's cap");
         capped.Spawns.Should().Be(2);
@@ -364,7 +364,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_resume_of_a_judgment_that_parked_without_an_answer_routes_its_answer_within_a_visit_cap_of_one()
+    public async Task A_resume_of_a_judgment_that_paused_without_an_answer_routes_its_answer_within_a_visit_cap_of_one()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -386,7 +386,7 @@ public sealed class FlightRunnerTests
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
 
         FlightView started = await Flying.StartAsync(client, Project, parcel.Id, once.Name);
-        await Flying.UntilAsync(client, Project, started.Id, "parked");
+        await Flying.UntilAsync(client, Project, started.Id, "paused");
         await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
         FlightView ended = await Flying.UntilAsync(client, Project, started.Id, "ended");
 
@@ -399,7 +399,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_resumed_judgment_that_answers_after_counting_its_spawn_routes_against_that_count_and_parks_at_the_cap()
+    public async Task A_resumed_judgment_that_answers_after_counting_its_spawn_routes_against_that_count_and_pauses_at_the_cap()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -421,11 +421,11 @@ public sealed class FlightRunnerTests
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
 
         FlightView started = await Flying.StartAsync(client, Project, parcel.Id, chained.Name);
-        await Flying.UntilAsync(client, Project, started.Id, "parked");
+        await Flying.UntilAsync(client, Project, started.Id, "paused");
         await flights.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try again.", None);
-        FlightView capped = await Flying.UntilAsync(client, Project, started.Id, "parked");
+        FlightView capped = await Flying.UntilAsync(client, Project, started.Id, "paused");
 
-        capped.ParkReason.Should().Contain("spawn cap of 2", "the answer is routed against the spawn the resume counted");
+        capped.PauseReason.Should().Contain("spawn cap of 2", "the answer is routed against the spawn the resume counted");
         capped.Steps.Select(s => s.Step).Should().Equal(["a"], "step 'b' would spawn a third agent");
         capped.Spawns.Should().Be(2);
         executor.Spawns.Should().HaveCount(2);
@@ -434,7 +434,7 @@ public sealed class FlightRunnerTests
     }
 
     [Fact]
-    public async Task A_resume_of_a_judgment_that_parked_before_its_agent_launched_performs_it_without_counting_another_spawn()
+    public async Task A_resume_of_a_judgment_that_paused_before_its_agent_launched_performs_it_without_counting_another_spawn()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -456,9 +456,9 @@ public sealed class FlightRunnerTests
         FlightService flights = daemon.Services.GetRequiredService<FlightService>();
 
         FlightView started = await Flying.StartAsync(client, Project, parcel.Id, late.Name);
-        FlightView parked = await Flying.UntilAsync(client, Project, started.Id, "parked");
-        parked.ParkReason.Should().Contain("names the agent 'late-builder'");
-        parked.Spawns.Should().Be(1);
+        FlightView paused = await Flying.UntilAsync(client, Project, started.Id, "paused");
+        paused.PauseReason.Should().Contain("names the agent 'late-builder'");
+        paused.Spawns.Should().Be(1);
 
         AgentDefinition agent = ShippedAgents.Build with { Name = "late-builder" };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
@@ -494,7 +494,7 @@ public sealed class FlightRunnerTests
         {
             Flight? between = await new FlightService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flightId, None);
             between.Should().NotBeNull();
-            between.Status.Should().Be(FlightStatus.Running, "a daemon stop is not a park");
+            between.Status.Should().Be(FlightStatus.Running, "a daemon stop is not a pause");
             between.CurrentStep.Should().Be("build");
             between.Current?.IsRecorded.Should().BeFalse("nothing is recorded for a step the stop cancelled");
         }

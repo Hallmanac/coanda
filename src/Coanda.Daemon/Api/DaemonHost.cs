@@ -87,7 +87,7 @@ public sealed class DaemonHost
             await app.Services.GetRequiredService<DefinitionService>()
                 .SeedAsync(ShippedDefinition.All, cancellationToken);
 
-            // Every live flight that is not parked carries on from its current step.
+            // Every live flight that is not paused carries on from its current step.
             await app.Services.GetRequiredService<FlightRunner>().AdvanceLiveAsync(cancellationToken);
 
             // The trigger loop's position is fixed before the address is advertised, so nothing

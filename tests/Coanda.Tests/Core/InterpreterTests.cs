@@ -41,7 +41,7 @@ public sealed class InterpreterTests
                 Name = "judge",
                 Agent = "an-agent",
                 AnswerSchema = "a-schema",
-                Transitions = [On("done", FlowDefinition.End), On("blocked", FlowDefinition.Park), On("more", "judge"), On("act", "act")],
+                Transitions = [On("done", FlowDefinition.End), On("blocked", FlowDefinition.Pause), On("more", "judge"), On("act", "act")],
             },
         ],
     };
@@ -111,7 +111,7 @@ public sealed class InterpreterTests
     }
 
     [Fact]
-    public void A_cap_of_one_fires_on_the_first_visit_and_parks_on_the_second_naming_the_step_and_the_cap()
+    public void A_cap_of_one_fires_on_the_first_visit_and_pauses_on_the_second_naming_the_step_and_the_cap()
     {
         FlightPosition start = Interpreter.Start(Sample);
 
@@ -120,15 +120,15 @@ public sealed class InterpreterTests
 
         FlightPosition second = Interpreter.Apply(Sample, start, (FlightMove.GoTo)first);
         second.VisitsTo("act").Should().Be(2);
-        Decide(second, """{"verdict":"again"}""").Should().BeOfType<FlightMove.Park>()
+        Decide(second, """{"verdict":"again"}""").Should().BeOfType<FlightMove.Pause>()
             .Which.Reason.Should().Contain("'act'").And.Contain("visit cap of 1");
     }
 
     [Fact]
-    public void The_first_matching_transition_decides_so_a_capped_one_parks_rather_than_falling_through()
+    public void The_first_matching_transition_decides_so_a_capped_one_pauses_rather_than_falling_through()
     {
         Decide(At("act", visits: 1), """{"verdict":"twice"}""").Should().Be(new FlightMove.GoTo("judge"));
-        Decide(At("act", visits: 2), """{"verdict":"twice"}""").Should().BeOfType<FlightMove.Park>()
+        Decide(At("act", visits: 2), """{"verdict":"twice"}""").Should().BeOfType<FlightMove.Pause>()
             .Which.Reason.Should().Contain("'act'").And.Contain("visit cap of 1");
     }
 
@@ -151,11 +151,11 @@ public sealed class InterpreterTests
 
         if (matches)
         {
-            move.Should().NotBeOfType<FlightMove.Park>();
+            move.Should().NotBeOfType<FlightMove.Pause>();
         }
         else
         {
-            move.Should().BeOfType<FlightMove.Park>().Which.Reason.Should().Contain("'act'");
+            move.Should().BeOfType<FlightMove.Pause>().Which.Reason.Should().Contain("'act'");
         }
     }
 
@@ -166,32 +166,32 @@ public sealed class InterpreterTests
     [InlineData("""["done"]""")]
     [InlineData("\"done\"")]
     [InlineData("null")]
-    public void An_answer_no_transition_matches_parks_naming_the_step(string answer)
+    public void An_answer_no_transition_matches_pauses_naming_the_step(string answer)
     {
-        Decide(Interpreter.Start(Sample), answer).Should().BeOfType<FlightMove.Park>()
+        Decide(Interpreter.Start(Sample), answer).Should().BeOfType<FlightMove.Pause>()
             .Which.Reason.Should().Contain("'act'");
     }
 
     [Fact]
-    public void A_transition_to_park_parks_naming_the_step_and_one_to_end_ends_with_the_flow_outcome()
+    public void A_transition_to_pause_pauses_naming_the_step_and_one_to_end_ends_with_the_flow_outcome()
     {
         FlightPosition judging = At("judge");
 
-        Decide(judging, """{"verdict":"blocked"}""").Should().BeOfType<FlightMove.Park>()
+        Decide(judging, """{"verdict":"blocked"}""").Should().BeOfType<FlightMove.Pause>()
             .Which.Reason.Should().Contain("'judge'");
         Decide(judging, """{"verdict":"done"}""").Should().Be(new FlightMove.End("thing-done"));
     }
 
     [Fact]
-    public void Going_to_a_judgment_at_the_spawn_cap_parks_naming_the_cap_but_going_to_an_action_does_not()
+    public void Going_to_a_judgment_at_the_spawn_cap_pauses_naming_the_cap_but_going_to_an_action_does_not()
     {
         FlightPosition below = At("judge", spawns: Sample.SpawnCap - 1);
         Decide(below, """{"verdict":"more"}""").Should().Be(new FlightMove.GoTo("judge"));
 
         FlightPosition atCap = At("judge", spawns: Sample.SpawnCap);
-        Decide(atCap, """{"verdict":"more"}""").Should().BeOfType<FlightMove.Park>()
+        Decide(atCap, """{"verdict":"more"}""").Should().BeOfType<FlightMove.Pause>()
             .Which.Reason.Should().Contain($"spawn cap of {Sample.SpawnCap}");
-        Decide(atCap with { Spawns = Sample.SpawnCap + 1 }, """{"verdict":"more"}""").Should().BeOfType<FlightMove.Park>();
+        Decide(atCap with { Spawns = Sample.SpawnCap + 1 }, """{"verdict":"more"}""").Should().BeOfType<FlightMove.Pause>();
 
         Decide(atCap, """{"verdict":"act"}""").Should().Be(new FlightMove.GoTo("act"));
     }

@@ -40,8 +40,8 @@ internal static class FlightRendering
 
         switch (flight.Status)
         {
-            case "parked":
-                lines.Add(Pair("Reason", flight.ParkReason ?? string.Empty));
+            case "paused":
+                lines.Add(Pair("Reason", flight.PauseReason ?? string.Empty));
                 lines.Add(Pair("Lever", flight.Lever ?? string.Empty));
                 break;
             case "ended":

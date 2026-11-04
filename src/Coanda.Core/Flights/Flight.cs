@@ -10,7 +10,7 @@ namespace Coanda.Core.Flights;
 /// <see cref="FlightDecider"/>. Replaying the events alone, without the flow, yields the same
 /// <see cref="Position"/> the interpreter's start and apply produce, because every step entered
 /// carries its kind. The one exception is <see cref="JudgmentRespawned"/>: a resumed judgment that
-/// parked without an answer spawns again on the same visit, a position the interpreter never
+/// paused without an answer spawns again on the same visit, a position the interpreter never
 /// produces, so the spawns count one more than the interpreter's entries alone would while the
 /// visits stay as they were. The store snapshots this class inline, so it is also the document the
 /// list and show queries read.
@@ -45,7 +45,7 @@ public sealed class Flight
     [JsonInclude]
     public List<FlightStepEntry> Steps { get; private set; } = [];
     [JsonInclude]
-    public string? ParkReason { get; private set; }
+    public string? PauseReason { get; private set; }
     [JsonInclude]
     public string? Lever { get; private set; }
     [JsonInclude]
@@ -74,24 +74,24 @@ public sealed class Flight
     [JsonInclude]
     public int Depth { get; private set; }
 
-    /// <summary>What the judgments that parked the flight without an answer reported spending, in US dollars.</summary>
+    /// <summary>What the judgments that paused the flight without an answer reported spending, in US dollars.</summary>
     [JsonInclude]
-    public decimal ParkedCost { get; private set; }
+    public decimal PausedCost { get; private set; }
 
     /// <summary>
     /// What the flight has recorded spending, in US dollars: the cost of every answered judgment and
-    /// the usage every parked judgment reported. It is read from the recorded visits rather than
+    /// the usage every paused judgment reported. It is read from the recorded visits rather than
     /// kept as a running total, so a flight recorded before costs were totalled counts its spend too.
     /// </summary>
     [JsonIgnore]
-    public decimal Cost => Steps.Sum(entry => entry.Measurement?.CostUsd ?? 0m) + ParkedCost;
+    public decimal Cost => Steps.Sum(entry => entry.Measurement?.CostUsd ?? 0m) + PausedCost;
 
-    /// <summary>The usage the judgment that parked the flight reported, or null when the park was not a judgment's.</summary>
+    /// <summary>The usage the judgment that paused the flight reported, or null when the pause was not a judgment's.</summary>
     [JsonInclude]
-    public Measurement? ParkUsage { get; private set; }
+    public Measurement? PauseUsage { get; private set; }
 
-    /// <summary>Running or parked: the flight still holds its parcel.</summary>
-    public bool IsLive => Status is FlightStatus.Running or FlightStatus.Parked;
+    /// <summary>Running or paused: the flight still holds its parcel.</summary>
+    public bool IsLive => Status is FlightStatus.Running or FlightStatus.Paused;
 
     /// <summary>The step entered last, which is the one an answer or a result is recorded against.</summary>
     [JsonIgnore]
@@ -165,22 +165,22 @@ public sealed class Flight
         UpdatedAt = completed.CompletedAt;
     }
 
-    public void Apply(FlightParked parked)
+    public void Apply(FlightPaused paused)
     {
-        Status = FlightStatus.Parked;
-        ParkReason = parked.Reason;
-        Lever = parked.Lever;
-        ParkUsage = parked.Usage;
-        ParkedCost += parked.Usage?.CostUsd ?? 0m;
-        UpdatedAt = parked.ParkedAt;
+        Status = FlightStatus.Paused;
+        PauseReason = paused.Reason;
+        Lever = paused.Lever;
+        PauseUsage = paused.Usage;
+        PausedCost += paused.Usage?.CostUsd ?? 0m;
+        UpdatedAt = paused.PausedAt;
     }
 
     public void Apply(FlightResumed resumed)
     {
         Status = FlightStatus.Running;
-        ParkReason = null;
+        PauseReason = null;
         Lever = null;
-        ParkUsage = null;
+        PauseUsage = null;
         Record(entry => entry with { ResumedAt = resumed.ResumedAt, RespawnedAt = null });
         UpdatedAt = resumed.ResumedAt;
     }

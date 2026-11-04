@@ -14,8 +14,8 @@ namespace Coanda.Core.Flows;
 /// </summary>
 public sealed record FlowDefinition
 {
-    /// <summary>The target that parks the flight.</summary>
-    public const string Park = "park";
+    /// <summary>The target that pauses the flight.</summary>
+    public const string Pause = "pause";
 
     /// <summary>The target that ends the flight with the outcome this flow declares.</summary>
     public const string End = "end";
@@ -132,9 +132,9 @@ public sealed record FlowDefinition
                 throw new DomainException($"Flow '{Name}' has a step with no name.");
             }
 
-            if (step.Name.Equals(Park, StringComparison.OrdinalIgnoreCase) || step.Name.Equals(End, StringComparison.OrdinalIgnoreCase))
+            if (step.Name.Equals(Pause, StringComparison.OrdinalIgnoreCase) || step.Name.Equals(End, StringComparison.OrdinalIgnoreCase))
             {
-                throw new DomainException($"Flow '{Name}' has a step named '{step.Name}'; park and end are reserved targets and cannot name a step.");
+                throw new DomainException($"Flow '{Name}' has a step named '{step.Name}'; pause and end are reserved targets and cannot name a step.");
             }
 
             if (!seen.Add(step.Name))
@@ -229,11 +229,11 @@ public sealed record FlowDefinition
                 $"The transition of step '{step.Name}' in flow '{Name}' on '{transition.Field}' needs a visit cap greater than zero; every transition declares one.");
         }
 
-        bool reachable = transition.Target is Park or End || Step(transition.Target) is not null;
+        bool reachable = transition.Target is Pause or End || Step(transition.Target) is not null;
         if (!reachable)
         {
             throw new DomainException(
-                $"The transition of step '{step.Name}' in flow '{Name}' on '{transition.Field}' targets '{transition.Target}', which is not a step of the flow, park, or end.");
+                $"The transition of step '{step.Name}' in flow '{Name}' on '{transition.Field}' targets '{transition.Target}', which is not a step of the flow, pause, or end.");
         }
     }
 

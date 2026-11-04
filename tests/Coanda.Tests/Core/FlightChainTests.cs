@@ -120,7 +120,7 @@ public sealed class FlightChainTests
     }
 
     [Fact]
-    public void The_cost_a_flight_records_sums_its_answers_and_the_usage_of_a_parked_judgment()
+    public void The_cost_a_flight_records_sums_its_answers_and_the_usage_of_a_paused_judgment()
     {
         Flight flight = Flight.Create(FlightDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
         flight.Apply(FlightDecider.StartStep(Build, flight, "build", Now));
@@ -129,15 +129,15 @@ public sealed class FlightChainTests
         flight.Apply(FlightDecider.StartStep(Build, flight, "adversarial-review", Now));
         var usage = new Measurement(20, 2.25m, 2, TimeSpan.FromSeconds(2));
 
-        FlightParked parked = FlightDecider.Park(Build, flight, "no valid answer", "/transcripts/1.jsonl", "owner", Now, usage);
-        flight.Apply(parked);
+        FlightPaused paused = FlightDecider.Pause(Build, flight, "no valid answer", "/transcripts/1.jsonl", "owner", Now, usage);
+        flight.Apply(paused);
 
-        parked.Usage.Should().Be(usage);
-        flight.ParkUsage.Should().Be(usage);
+        paused.Usage.Should().Be(usage);
+        flight.PauseUsage.Should().Be(usage);
         flight.Cost.Should().Be(3.75m);
 
         flight.Apply(FlightDecider.Resume(Build, flight, null, "owner", Now));
-        flight.ParkUsage.Should().BeNull("the usage belongs to the park the resume ends");
+        flight.PauseUsage.Should().BeNull("the usage belongs to the pause the resume ends");
         flight.Cost.Should().Be(3.75m, "a resume spends nothing and forgets nothing spent");
     }
 
@@ -162,7 +162,7 @@ public sealed class FlightChainTests
 
         JsonObject document = JsonSerializer.SerializeToNode(flight)?.AsObject()
             ?? throw new InvalidOperationException("A flight serialized to nothing.");
-        foreach (string added in new[] { nameof(Flight.ParentFlightId), nameof(Flight.RootFlightId), nameof(Flight.Depth), nameof(Flight.ParkedCost), nameof(Flight.ParkUsage) })
+        foreach (string added in new[] { nameof(Flight.ParentFlightId), nameof(Flight.RootFlightId), nameof(Flight.Depth), nameof(Flight.PausedCost), nameof(Flight.PauseUsage) })
         {
             document.Remove(added).Should().BeTrue($"the document carries {added} today");
         }
@@ -174,11 +174,11 @@ public sealed class FlightChainTests
     }
 
     [Fact]
-    public void A_park_with_a_negative_usage_is_refused()
+    public void A_pause_with_a_negative_usage_is_refused()
     {
         Flight flight = Flight.Create(FlightDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
 
-        FluentActions.Invoking(() => FlightDecider.Park(Build, flight, "why", "lever", "owner", Now, new Measurement(0, -1m, 0, TimeSpan.Zero)))
+        FluentActions.Invoking(() => FlightDecider.Pause(Build, flight, "why", "lever", "owner", Now, new Measurement(0, -1m, 0, TimeSpan.Zero)))
             .Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
     }
 

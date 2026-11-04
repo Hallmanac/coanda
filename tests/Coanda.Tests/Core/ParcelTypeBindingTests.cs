@@ -21,8 +21,8 @@ public sealed class ParcelTypeBindingTests
     [Fact]
     public void A_type_that_binds_nothing_keeps_the_hash_it_had_before_bindings_existed()
     {
-        (ShippedTypes.Task with { FlowBindings = [] }).Hash.Should().Be("8861b7d87f05d86d");
-        (ShippedTypes.Idea with { FlowBindings = [] }).Hash.Should().Be("86fea503601c0200");
+        (ShippedTypes.Task with { FlowBindings = [] }).Hash.Should().Be("43a5a17c3896d58a");
+        (ShippedTypes.Idea with { FlowBindings = [] }).Hash.Should().Be("6d2b888dfd78bbdb");
     }
 
     [Fact]
@@ -92,9 +92,9 @@ public sealed class ParcelTypeBindingTests
     }
 
     [Fact]
-    public void A_gate_binding_on_a_park_the_table_does_not_hold_is_refused_though_the_lifecycle_allows_the_park()
+    public void A_gate_binding_on_a_pause_the_table_does_not_hold_is_refused_though_the_lifecycle_allows_the_pause()
     {
-        ParcelType broken = ShippedTypes.Task with { GateBindings = [new GateBinding("build", "parked", "has-an-owner")] };
+        ParcelType broken = ShippedTypes.Task with { GateBindings = [new GateBinding("build", "paused", "has-an-owner")] };
 
         FluentActions.Invoking(() => broken.Validate(OneGate)).Should().Throw<DomainException>()
             .WithMessage("*which its move table does not hold*");
@@ -111,13 +111,13 @@ public sealed class ParcelTypeBindingTests
     }
 
     [Fact]
-    public void A_gate_binding_on_a_close_from_a_live_state_is_accepted_and_one_from_parked_is_refused()
+    public void A_gate_binding_on_a_close_from_a_live_state_is_accepted_and_one_from_paused_is_refused()
     {
         ParcelType gatedClose = ShippedTypes.Task with { GateBindings = [new GateBinding("review", "closed", "has-an-owner")] };
-        ParcelType fromParked = ShippedTypes.Task with { GateBindings = [new GateBinding("parked", "closed", "has-an-owner")] };
+        ParcelType fromPaused = ShippedTypes.Task with { GateBindings = [new GateBinding("paused", "closed", "has-an-owner")] };
 
         FluentActions.Invoking(() => gatedClose.Validate(OneGate)).Should().NotThrow();
-        FluentActions.Invoking(() => fromParked.Validate(OneGate)).Should().Throw<DomainException>()
+        FluentActions.Invoking(() => fromPaused.Validate(OneGate)).Should().Throw<DomainException>()
             .WithMessage("*which its move table does not hold*");
     }
 

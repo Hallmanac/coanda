@@ -36,7 +36,7 @@ public sealed class Parcel
     public string? Resolution { get; private set; }
     [JsonInclude]
     public string? CloseReason { get; private set; }
-    /// <summary>The flight running or parked on this parcel, or null when it has none. A parcel has at most one.</summary>
+    /// <summary>The flight running or paused on this parcel, or null when it has none. A parcel has at most one.</summary>
     [JsonInclude]
     public Guid? LiveFlightId { get; private set; }
 

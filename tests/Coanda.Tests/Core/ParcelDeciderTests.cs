@@ -68,12 +68,12 @@ public sealed class ParcelDeciderTests
     }
 
     [Fact]
-    public void Park_and_resume_work_from_any_live_state()
+    public void Pause_and_resume_work_from_any_live_state()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.None, "coanda", "x", null, "brian", Now));
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.None, parcel, "build", "daemon", Now));
-        parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.None, parcel, "parked", "daemon", Now));
-        parcel.State.Should().Be("parked");
+        parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.None, parcel, "paused", "daemon", Now));
+        parcel.State.Should().Be("paused");
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.None, parcel, "review", "brian", Now));
         parcel.State.Should().Be("review");
     }

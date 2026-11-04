@@ -109,10 +109,10 @@ public sealed class ShippedFlowsTests
     }
 
     [Fact]
-    public void In_the_build_flow_blocked_answers_park()
+    public void In_the_build_flow_blocked_answers_pause()
     {
-        Next(ShippedFlows.Build, "build", "blocked").Should().Be(FlowDefinition.Park);
-        Next(ShippedFlows.Build, "fix", "blocked").Should().Be(FlowDefinition.Park);
+        Next(ShippedFlows.Build, "build", "blocked").Should().Be(FlowDefinition.Pause);
+        Next(ShippedFlows.Build, "fix", "blocked").Should().Be(FlowDefinition.Pause);
     }
 
     [Fact]
