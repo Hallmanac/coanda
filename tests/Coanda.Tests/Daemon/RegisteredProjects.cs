@@ -8,7 +8,8 @@ namespace Coanda.Tests.Daemon;
 
 /// <summary>
 /// Registers the projects a test creates parcels in, since a parcel is created only in a
-/// registered project. The remote and the branch are placeholders: nothing reads them yet.
+/// registered project. The remote and the branch are placeholders: only the worktree step reads
+/// them, and every test runs it on the scripted command runner, which contacts nothing.
 /// </summary>
 public static class RegisteredProjects
 {

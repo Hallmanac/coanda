@@ -50,7 +50,10 @@ public sealed class FlowRunnerTests
         ExpectJudgment(flow.Steps[1], ShippedAgents.Build, 1);
         ExpectJudgment(flow.Steps[3], ShippedAgents.ReviewerAdversarial, 2);
         ExpectJudgment(flow.Steps[4], ShippedAgents.ReviewerConformance, 3);
-        flow.Steps[2].Result.GetValueOrDefault().GetProperty("placeholder").GetBoolean().Should().BeTrue();
+        flow.Steps[0].Result.GetValueOrDefault().GetProperty("branch").GetString().Should().Be($"coanda/{Ids.Short(parcel.Id)}");
+        JsonElement gates = flow.Steps[2].Result.GetValueOrDefault();
+        gates.GetProperty("verdict").GetString().Should().Be("done");
+        gates.TryGetProperty("placeholder", out _).Should().BeFalse("the gates step runs the project's build and test commands");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
         after.State.Should().Be("review");

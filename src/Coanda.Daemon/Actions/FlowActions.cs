@@ -1,7 +1,10 @@
 using Coanda.Core.Contours;
 using Coanda.Core.Software;
+using Coanda.Daemon.Commands;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Projects;
+using Coanda.Daemon.Repositories;
 
 namespace Coanda.Daemon.Actions;
 
@@ -27,8 +30,13 @@ public sealed class FlowActions
     /// <summary>The names of the registered actions.</summary>
     public IReadOnlySet<string> Names => actions.Keys.ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>The actions the daemon ships: every name in the core catalog and the software catalog.</summary>
-    public static FlowActions Shipped(ParcelService parcels, TimeProvider clock) => new(
+    /// <summary>
+    /// The actions the daemon ships: every name in the core catalog and the software catalog. The
+    /// worktree and gates actions run their commands through <paramref name="runner"/>; derive-parcels,
+    /// open-pr, gated-merge, and rebase are still placeholders.
+    /// </summary>
+    public static FlowActions Shipped(
+        ParcelService parcels, ProjectService projects, ProjectClones clones, ICommandRunner runner, NodeHome home, TimeProvider clock) => new(
     [
         new MoveParcelAction(parcels),
         new TimerAction(clock),
@@ -36,7 +44,11 @@ public sealed class FlowActions
         new WaitForExternalEventAction(),
         new EmitOutcomeAction(),
         new PlaceholderAction(CoreActions.DeriveParcels),
-        .. SoftwareActions.All.Select(name => new PlaceholderAction(name)),
+        new WorktreeAction(projects, clones),
+        new GatesAction(projects, runner, home),
+        .. SoftwareActions.All
+            .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates))
+            .Select(name => new PlaceholderAction(name)),
     ]);
 
     public async ValueTask<ActionOutcome> PerformAsync(ActionRequest request, CancellationToken cancellationToken)
