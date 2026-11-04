@@ -39,13 +39,15 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
   `coa parcel close <id>`
 - `coa contour list`, `coa contour start <contour> --parcel <id>`
-- `coa flow list --parcel <id>`, `coa flow show <id>`, `coa flow stop <id> --reason <why>`,
-  `coa flow resume <id>`
+- `coa flow list --parcel <id>`, `coa flow show <id>`, `coa flow pause <id> --reason <why>`,
+  `coa flow stop <id> --reason <why>`, `coa flow resume <id>`
 
 A parcel with a live flow, whether that flow is running or paused, is closed by nobody and moved
 only by that flow's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow
 that holds it; the flow has to end or be stopped first. `coa flow stop <id> --reason <why>` stops
 it and frees the parcel, and `coa flow resume <id>` sets a paused one going again instead.
+`coa flow pause <id> --reason <why>` pauses a running flow without freeing the parcel, and a resume
+then performs the step it was paused at again.
 
 The record lives at `~/.coanda/coanda.db`. Do not edit it by hand.
 
