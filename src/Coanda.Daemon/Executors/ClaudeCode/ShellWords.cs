@@ -246,48 +246,46 @@ public static partial class ShellWords
 
         static DirectoryMove? Read(IReadOnlyList<string> words)
         {
-            int first = 0;
-            while (first < words.Count && (Assignment().IsMatch(words[first]) || Prefixes.Contains(Unescape(words[first]))))
-            {
-                // command -p and time -p take an option before the command they run; command -v only prints it.
-                first += Unescape(words[first]) is "command" or "time" && first + 1 < words.Count && words[first + 1] == "-p"
-                    ? 2
-                    : 1;
-            }
-
+            int first = NameAt(words);
             string? name = first < words.Count
                 ? Unescape(words[first])
                 : null;
+            // zsh's chdir is its cd under another name.
+            name = name is "chdir"
+                ? "cd"
+                : name;
             if (name is not ("cd" or "pushd" or "popd"))
             {
                 return null;
             }
 
             // The options end at the first word that is not one, or at a --, which is dropped. A word
-            // of letters only bash knows is an option to bash and a directory to zsh.
+            // of letters only bash knows is an option to bash and a directory to zsh. Each is read as
+            // the shell reads it, with its backslashes removed, so -\P is the option -P.
             int next = first + 1;
-            while (next < words.Count && Option().IsMatch(words[next]))
+            while (next < words.Count && Option().IsMatch(Unescape(words[next])))
             {
                 next++;
             }
 
-            if (next < words.Count && BashOption().IsMatch(words[next]))
+            if (next < words.Count && BashOption().IsMatch(Unescape(words[next])))
             {
                 return DirectoryMove.Unknown($"{name} {words[next]}, which bash reads as an option and zsh as the name of a directory");
             }
 
-            bool dashes = next < words.Count && words[next] == "--";
+            bool dashes = next < words.Count && Unescape(words[next]) == "--";
             string[] operands = [.. words.Skip(dashes ? next + 1 : next)];
             return (name, operands) switch
             {
                 ("popd", _) or (not "cd", []) => DirectoryMove.Back,
                 ("cd", []) => DirectoryMove.To("~"),
                 (_, [_, _, ..]) => DirectoryMove.Unknown($"a {name} with two directories, which zsh reads as a replacement in the name of the directory the shell is in"),
-                ("cd", [{ } place]) when StackPlace().IsMatch(place) => DirectoryMove.Unknown($"cd {place}, which zsh reads as a place on the directory stack and bash as the name of a directory"),
-                (_, [{ } place, ..]) when StackPlace().IsMatch(place) => dashes
+                ("cd", [{ } place]) when StackPlace().IsMatch(Unescape(place)) => DirectoryMove.Unknown($"cd {place}, which zsh reads as a place on the directory stack and bash as the name of a directory"),
+                (_, [{ } place, ..]) when StackPlace().IsMatch(Unescape(place)) => dashes
                     ? DirectoryMove.Unknown($"pushd -- {place}, which may name a place on the directory stack or a directory")
                     : DirectoryMove.Back,
                 (_, [['<' or '>', '(', ..], ..]) => DirectoryMove.Unknown("a directory change into a process substitution"),
+                (_, [{ } destination, ..]) when Unescape(destination) == "-" => DirectoryMove.To("-"),
                 (_, [{ } destination, ..]) => DirectoryMove.To(destination),
             };
         }
@@ -302,21 +300,37 @@ public static partial class ShellWords
     /// <c>set</c>, <c>setopt</c>, and <c>unsetopt</c> take for them. An assignment whose name holds an
     /// expansion, or a <c>${(P)…}</c> that may assign to the variable another names, may set either
     /// without naming it. Each word is read with its quotes and backslashes removed.
+    /// <para>
+    /// Only the shell sets its own variables and options, so a word that merely mentions one of those
+    /// names is let through when it is the name or an argument, with no <c>$</c> or backtick in it, of a program
+    /// the shell starts: a command whose name is written out plainly and is not a shell builtin or
+    /// keyword, not behind an <c>eval</c>, which would run the arguments as shell, on a line that
+    /// <paramref name="definesCommands"/> says defines no function or alias that name could call. So
+    /// <c>grep -rn CDPATH src</c> and a <c>git commit -m</c> that mentions it are allowed, while a word
+    /// before the command's name (an assignment), a word holding an expansion (which may assign, as
+    /// <c>${CDPATH:=x}</c> does), and any word of a builtin are still refused.
+    /// </para>
     /// </summary>
-    public static string? DirectoryRuleChange(ShellCommand command)
+    public static string? DirectoryRuleChange(ShellCommand command, bool definesCommands)
     {
         ArgumentNullException.ThrowIfNull(command);
+        int name = NameAt(command.Words);
+        bool program = !definesCommands
+            && name < command.Words.Count
+            && IsProgram(Plain(command.Words[name]))
+            && !command.Words.Take(name).Any(word => Plain(word) == "eval");
         bool setter = false;
-        foreach (string word in command.Words)
+        for (int i = 0; i < command.Words.Count; i++)
         {
-            string plain = Unescape(word).Replace("\"", string.Empty, StringComparison.Ordinal).Replace("'", string.Empty, StringComparison.Ordinal);
+            string plain = Plain(command.Words[i]);
+            bool mention = program && i >= name && plain.IndexOfAny(['$', '`']) < 0;
             string folded = plain.Replace("_", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-            if (folded.Contains("cdpath", StringComparison.Ordinal))
+            if (!mention && folded.Contains("cdpath", StringComparison.Ordinal))
             {
                 return "CDPATH, the directories a cd searches for a relative directory";
             }
 
-            if (DirectoryOptions.Any(option => folded.Contains(option, StringComparison.Ordinal)))
+            if (!mention && DirectoryOptions.Any(option => folded.Contains(option, StringComparison.Ordinal)))
             {
                 return "a shell option that changes where a cd or pushd goes";
             }
@@ -324,6 +338,11 @@ public static partial class ShellWords
             if (DynamicAssignment().IsMatch(plain) || IndirectExpansion().IsMatch(plain))
             {
                 return "an assignment to a variable whose name the shell expands";
+            }
+
+            if (program)
+            {
+                continue;
             }
 
             if (plain is "set" or "setopt" or "unsetopt")
@@ -338,6 +357,47 @@ public static partial class ShellWords
 
         return null;
     }
+
+    /// <summary>
+    /// Whether <paramref name="command"/>, a line of shell, may define a function or an alias a later
+    /// command's name calls: it holds a <c>()</c>, with or without space inside, or the word
+    /// <c>function</c> or <c>alias</c>.
+    /// </summary>
+    public static bool DefinesCommands(string command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        return CommandDefinition().IsMatch(command);
+    }
+
+    /// <summary>
+    /// Whether a command named <paramref name="name"/> is a program the shell starts rather than one it
+    /// runs itself: its name holds no expansion, quote, or other character a shell gives a meaning, and
+    /// is not a builtin or keyword of bash or zsh.
+    /// </summary>
+    private static bool IsProgram(string name) =>
+        ProgramName().IsMatch(name) && !ShellBuiltins.Contains(name);
+
+    /// <summary>
+    /// The index of a command's name among <paramref name="words"/>: the first word after any leading
+    /// <c>NAME=value</c> assignments, shell keywords, and wrappers, as <see cref="DirectoryChange"/> reads them.
+    /// </summary>
+    private static int NameAt(IReadOnlyList<string> words)
+    {
+        int first = 0;
+        while (first < words.Count && (Assignment().IsMatch(words[first]) || Prefixes.Contains(Unescape(words[first]))))
+        {
+            // command -p and time -p take an option before the command they run; command -v only prints it.
+            first += Unescape(words[first]) is "command" or "time" && first + 1 < words.Count && Unescape(words[first + 1]) == "-p"
+                ? 2
+                : 1;
+        }
+
+        return first;
+    }
+
+    /// <summary><paramref name="word"/> with its backslashes and any quote left in it removed.</summary>
+    private static string Plain(string word) =>
+        Unescape(word).Replace("\"", string.Empty, StringComparison.Ordinal).Replace("'", string.Empty, StringComparison.Ordinal);
 
     /// <summary>
     /// Whether a <c>cd</c> or <c>pushd</c> may look <paramref name="destination"/>, once expanded, up
@@ -390,6 +450,24 @@ public static partial class ShellWords
     private static FrozenSet<string> Prefixes { get; } = FrozenSet.Create(
         StringComparer.Ordinal,
         "!", "{", "if", "then", "elif", "else", "while", "until", "do", "builtin", "command", "eval", "time", "noglob", "nocorrect");
+
+    /// <summary>
+    /// The builtins and reserved words of bash and zsh, any of which the shell runs itself and so may
+    /// set one of its own variables or options.
+    /// </summary>
+    private static FrozenSet<string> ShellBuiltins { get; } = FrozenSet.Create(
+        StringComparer.Ordinal,
+        ".", ":", "[", "[[", "]]", "{", "}", "!", "alias", "autoload", "bg", "bind", "bindkey", "break", "builtin", "bye", "caller",
+        "case", "cd", "chdir", "command", "compadd", "comparguments", "compcall", "compctl", "compdef", "compdescribe", "compfiles",
+        "compgen", "compgroups", "complete", "compopt", "compquote", "comptags", "comptry", "compvalues", "continue", "coproc",
+        "declare", "dirs", "disable", "disown", "do", "done", "echo", "echotc", "echoti", "elif", "else", "emulate", "enable", "end", "esac",
+        "eval", "exec", "exit", "export", "false", "fc", "fg", "fi", "float", "for", "foreach", "function", "functions", "getcap",
+        "getln", "getopts", "hash", "help", "history", "if", "in", "integer", "jobs", "kill", "let", "limit", "local", "log", "logout",
+        "mapfile", "noglob", "nocorrect", "popd", "print", "printf", "private", "pushd", "pushln", "pwd", "r", "read", "readarray",
+        "readonly", "rehash", "repeat", "return", "sched", "select", "set", "setcap", "setopt", "shift", "shopt", "source", "stat",
+        "suspend", "test", "then", "time", "times", "trap", "true", "ttyctl", "type", "typeset", "ulimit", "umask", "unalias", "unfunction",
+        "unhash", "unlimit", "unset", "unsetopt", "until", "vared", "wait", "whence", "where", "which", "while", "zcompile", "zformat",
+        "zftp", "zle", "zmodload", "zparseopts", "zprof", "zpty", "zregexparse", "zsocket", "zstat", "zstyle", "ztcp");
 
     /// <summary>The most words a brace expansion may give before the guard stops expanding it.</summary>
     public const int BraceLimit = 256;
@@ -614,6 +692,14 @@ public static partial class ShellWords
     /// <summary>A zsh expansion with the P flag, such as <c>${(P)v::=x}</c>, which reads or assigns the variable another names.</summary>
     [GeneratedRegex(@"\$\{\([^)]*P")]
     private static partial Regex IndirectExpansion();
+
+    /// <summary>A command name written out plainly: letters, digits, and the punctuation a program's name or path holds.</summary>
+    [GeneratedRegex(@"^[A-Za-z0-9_./+-]+$")]
+    private static partial Regex ProgramName();
+
+    /// <summary>What may define a command a later name calls: a <c>()</c>, or the word <c>function</c> or <c>alias</c>.</summary>
+    [GeneratedRegex(@"\(\s*\)|(?<![A-Za-z0-9_])(?:function|alias)(?![A-Za-z0-9_])")]
+    private static partial Regex CommandDefinition();
 
     /// <summary>Single-letter options, among them zsh's J (AUTO_CD), T (CDABLE_VARS), or D (PUSHD_TO_HOME).</summary>
     [GeneratedRegex(@"^[+-][A-Za-z]*[JTD]")]

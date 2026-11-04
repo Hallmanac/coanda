@@ -340,6 +340,64 @@ public sealed class ToolGuardTests : IDisposable
         RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
 
     [Theory]
+    [InlineData("grep x ${CDPATH:=../../..}; cd alpha; cat daemon.json")]
+    [InlineData("git log $((CDPATH=1)); cd alpha")]
+    [InlineData("echo CDPATH=../../.. >x; cd alpha")]
+    [InlineData("eval grep x\\; setopt autocd; ../../..; cat daemon.json")]
+    [InlineData("f() { eval \"$@\"; }; f setopt autocd; ../../..; cat daemon.json")]
+    [InlineData("function f { eval \"$@\"; }; f setopt autocd; ../../..; cat daemon.json")]
+    [InlineData("alias g=eval; g setopt auto_cd; ../../..; cat daemon.json")]
+    [InlineData("$x setopt autocd; ../../..; cat daemon.json")]
+    [InlineData("\"setopt\" -J; ../../..; cat daemon.json")]
+    public void A_mention_a_shell_may_act_on_is_still_refused(string command) =>
+        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Theory]
+    [InlineData("grep -rn CDPATH src")]
+    [InlineData("rg -n 'AUTO_CD|cdable_vars' src")]
+    [InlineData("git log --grep autocd")]
+    [InlineData("git commit -m \"Refuse a command that may change where a cd goes through CDPATH or a shell option\"")]
+    [InlineData("cat <<EOF > notes.md\nAUTO_CD and PUSHD_TO_HOME\nEOF")]
+    [InlineData("dotnet test --filter set -T")]
+    public void A_program_s_argument_that_only_mentions_cdpath_or_an_option_is_allowed(string command) =>
+        Allowed(Guard(Call("Bash", new { command })));
+
+    [Theory]
+    [InlineData("cd -\\P && cat .claude/settings.json")]
+    [InlineData("cd -\\- && cat .claude/settings.json")]
+    [InlineData("cd -\\q && cat .claude/settings.json")]
+    [InlineData("cd \\-L && cat .claude/settings.json")]
+    [InlineData("cd -\\P -\\- && cat .claude/settings.json")]
+    public void A_cd_option_written_with_a_backslash_is_still_read_as_an_option(string command) =>
+        RefusedInConfig(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Theory]
+    [InlineData("cd \\- && cat daemon.json")]
+    [InlineData("cd -\\1 && cat ../../../daemon.json")]
+    [InlineData("cd -\\e && cat .claude/settings.json")]
+    [InlineData("pushd -\\- +1 && cat ../../../daemon.json")]
+    public void A_cd_word_written_with_a_backslash_is_read_as_the_shell_reads_it(string command) =>
+        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Fact]
+    public void A_pushd_to_a_stack_place_written_with_a_backslash_rotates_the_stack()
+    {
+        Directory.CreateDirectory(Path.Combine(work, "src", "x", "y", "z"));
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "pushd src/x/y/z && pushd +\\1 && cat ../../../daemon.json" })));
+    }
+
+    [Theory]
+    [InlineData("chdir src && cat ../../../../daemon.json")]
+    [InlineData("builtin chdir src && cat ../../../../daemon.json")]
+    public void Zsh_s_chdir_is_read_as_a_cd(string command)
+    {
+        Directory.CreateDirectory(Path.Combine(work, "src"));
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command })));
+    }
+
+    [Theory]
     [InlineData("cd alpha && cat daemon.json")]
     [InlineData("pushd alpha && cat daemon.json")]
     [InlineData("cd src")]

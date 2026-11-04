@@ -35,12 +35,12 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// before unless the word's command is joined to the <c>cd</c> by <c>&amp;&amp;</c>, and a
 /// <c>cd</c>'s destination is itself a path the call names. A <c>popd</c>, or a <c>pushd</c> that
 /// rotates the directory stack, may return the shell to any directory it has been in, so a word after
-/// one is judged against all of them. A <c>cd</c> is recognised behind shell keywords and the
+/// one is judged against all of them. A <c>cd</c>, or zsh's <c>chdir</c>, is recognised behind shell keywords and the
 /// wrappers <c>builtin</c>, <c>command</c>, and <c>eval</c>, and every word is judged both as written and with its
 /// backslashes removed. <c>$PWD</c> is the directory the
 /// shell is in at that point; a call that depends on <c>$OLDPWD</c>, <c>cd -</c>, <c>~-</c>, a
 /// <c>~NAME</c> lookup, or zsh's two-directory <c>cd</c>, which nothing the guard receives names, is
-/// refused, as is one that names <c>CDPATH</c> or an option that changes where a <c>cd</c> goes
+/// refused, as is one that may set <c>CDPATH</c> or an option that changes where a <c>cd</c> goes
 /// (<see cref="ShellWords.DirectoryRuleChange"/>), or that changes into a directory the
 /// <c>CDPATH</c> it inherits may be searched for. A Bash word or a Glob pattern holding braces is judged as each word
 /// its brace expansion gives (<see cref="ShellWords.Braces"/>), and one giving too many is refused. A
@@ -223,6 +223,9 @@ public static class ToolGuard
 
             // A shell that inherits a CDPATH looks a cd's relative directory up in it, which the guard does not follow.
             bool searched = environment.TryGetValue("CDPATH", out string? cdpath) && cdpath.Length > 0;
+
+            // A function or alias the line defines may make a program's name run shell of its own.
+            bool definesCommands = ShellWords.DefinesCommands(command);
             foreach (ShellCommand next in ShellWords.Commands(command))
             {
                 while (levels.Count > next.Depth + 1)
@@ -240,7 +243,7 @@ public static class ToolGuard
                     levels[^1] = new(Union(levels[^1].Bases, levels[^1].Unless), []);
                 }
 
-                if (ShellWords.DirectoryRuleChange(next) is { } rule)
+                if (ShellWords.DirectoryRuleChange(next, definesCommands) is { } rule)
                 {
                     unknowable ??= rule;
                 }

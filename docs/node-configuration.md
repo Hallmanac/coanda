@@ -135,8 +135,9 @@ would (`$PWD` is the directory the shell is in at that point, and a variable the
 empty). A relative word in a command is judged against each directory a `cd` or `pushd` earlier in
 the command may have moved the shell to, and against the directory the call runs in as well, unless
 the word's command is joined to the `cd` by `&&`; the destination of a `cd` is judged too, and a bare
-`cd` goes to your home directory, which holds the node home. A `cd` is recognised behind shell
-keywords such as `then` or `{` and behind `builtin`, `command`, and `eval`. After a `popd`, or a `pushd` that
+`cd` goes to your home directory, which holds the node home. A `cd`, or zsh's `chdir`, is recognised
+behind shell keywords such as `then` or `{` and behind `builtin`, `command`, and `eval`; its options
+are read as the shell reads them, with backslashes removed, so `cd -\P` is a bare `cd`. After a `popd`, or a `pushd` that
 rotates the directory stack, a relative word is judged against every directory the shell has been in
 during the command. Every word is judged both as written and with its backslashes removed, as the
 shell reads it outside quotes. The guard refuses a call that depends on `$OLDPWD`, `cd -`, or `~-`,
@@ -158,6 +159,26 @@ once for each `..` after it (and each `.*` or `.?`, which some shells match to `
 levels its other components descend, where `**` counts as descending none. On Windows it also reads a Git Bash drive path such as
 `/c/Users/me` as `C:\Users\me`. It resolves symbolic links before it compares, and on macOS and
 Windows it ignores case. A refused call reaches the session as an error saying why.
+
+The guard also refuses a command that may change where a later `cd` goes in a way it does not
+follow:
+
+- one that may set `CDPATH` (or zsh's `cdpath`), the directories a `cd` searches for a relative
+  directory;
+- one that may turn on the option `AUTO_CD`, `CDABLE_VARS`, or `PUSHD_TO_HOME`, named in any case
+  and with any underscores, or through the letters `J`, `T`, and `D` zsh's `set` and `setopt` take
+  for them;
+- an assignment to a variable whose name the shell expands, such as `${v}PATH=x`, or a zsh
+  `${(P)v::=x}`, either of which may set `CDPATH` without naming it.
+
+Only the shell sets its own variables and options, so a word that merely mentions one of those names
+is allowed when it is the plain name or argument (no `$` or backtick in it) of a program the shell starts:
+`grep -rn CDPATH src` and a `git commit -m` whose message names it both run. The same word is
+refused before a command's name, as an argument of a shell builtin such as `export`, `setopt`, or
+`echo`, behind `eval`, or anywhere on a line that defines a function or an alias. When the daemon
+itself runs with a non-empty `CDPATH`, every `cd` or `pushd` to a relative directory the shell would
+look up in it is refused, which is any relative directory not starting with `./` or `../`: write
+`cd ./src` rather than `cd src`, or unset `CDPATH` in the environment the daemon starts from.
 
 The guard keeps an agent's ordinary tool calls away from those files. It is not a sandbox. A program
 a command starts reads what it likes (`git` reads the clone, and `coa` reads `daemon.json` for the
