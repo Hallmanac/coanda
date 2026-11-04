@@ -160,6 +160,26 @@ public sealed class ContourTests
     }
 
     [Fact]
+    public void Content_holding_a_null_step_is_refused_naming_the_contour_and_the_rule()
+    {
+        Contour read = Contour.FromJson(
+            """{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Steps":[null]}""");
+
+        FluentActions.Invoking(() => read.Validate(Known))
+            .Should().Throw<DomainException>().WithMessage("Contour 'sample' has a step that is null*");
+    }
+
+    [Fact]
+    public void Content_holding_a_null_transition_is_refused_naming_the_contour_and_the_rule()
+    {
+        Contour read = Contour.FromJson(
+            """{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Steps":[{"Name":"s","Agent":"a","AnswerSchema":"b","Transitions":[null]}]}""");
+
+        FluentActions.Invoking(() => read.Validate(Known))
+            .Should().Throw<DomainException>().WithMessage("Step 's' of contour 'sample' has a transition that is null*");
+    }
+
+    [Fact]
     public void Content_missing_properties_reads_and_is_refused_by_validation_naming_the_rule()
     {
         Contour read = Contour.FromJson("{}");

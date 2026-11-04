@@ -125,8 +125,14 @@ public sealed record Contour
     private void ValidateStepNames()
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ContourStep step in Steps)
+        foreach (ContourStep? step in Steps)
         {
+            // Read content can carry a null element, whatever the annotations say.
+            if (step is null)
+            {
+                throw new DomainException($"Contour '{Name}' has a step that is null; each step is an object naming the step.");
+            }
+
             if (string.IsNullOrWhiteSpace(step.Name))
             {
                 throw new DomainException($"Contour '{Name}' has a step with no name.");
@@ -175,8 +181,15 @@ public sealed record Contour
             throw new DomainException($"Step '{step.Name}' of contour '{Name}' needs at least one transition.");
         }
 
-        foreach (ContourTransition transition in step.Transitions)
+        foreach (ContourTransition? transition in step.Transitions)
         {
+            // Read content can carry a null element, whatever the annotations say.
+            if (transition is null)
+            {
+                throw new DomainException(
+                    $"Step '{step.Name}' of contour '{Name}' has a transition that is null; each transition is an object naming its field, value, visit cap, and target.");
+            }
+
             ValidateTransition(step, transition);
         }
     }
