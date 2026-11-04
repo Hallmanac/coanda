@@ -108,7 +108,7 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         return this;
     }
 
-    /// <summary>Gives the modelled clone at <paramref name="clone"/> a branch, as an earlier flow would have left it.</summary>
+    /// <summary>Gives the modelled clone at <paramref name="clone"/> a branch, as an earlier flow run would have left it.</summary>
     public void AddBranch(string clone, string branch, string head)
     {
         lock (gate)

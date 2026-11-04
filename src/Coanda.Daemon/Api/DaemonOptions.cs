@@ -51,7 +51,7 @@ public sealed record DaemonOptions
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }
 
-    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flow pauses.</summary>
+    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flow run pauses.</summary>
     public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;
 
     /// <summary>

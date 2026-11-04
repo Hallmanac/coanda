@@ -20,9 +20,9 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
         });
 
     /// <summary>
-    /// The trigger a follow is: a flow ending with the followed outcome, from the followed contour
+    /// The trigger a follow is: a flow run ending with the followed outcome, from the followed contour
     /// when the follow names one. Like every filter, each compares for exact equality; the contour's
-    /// name is folded as <see cref="TriggerEvent.FlowEnded"/> folds it, so any spelling of the
+    /// name is folded as <see cref="TriggerEvent.FlowRunEnded"/> folds it, so any spelling of the
     /// followed contour's name matches it.
     /// </summary>
     public static Trigger ForFollow(ContourFollow follow)
@@ -33,7 +33,7 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
             filters[TriggerEvent.ContourField] = TriggerEvent.ContourKey(follow.Contour);
         }
 
-        return new Trigger(TriggerEvent.FlowEndedKind, filters);
+        return new Trigger(TriggerEvent.FlowRunEndedKind, filters);
     }
 
     public bool Matches(TriggerEvent candidate) =>

@@ -24,7 +24,7 @@ public sealed class ProjectAddSettings : ProjectNameSettings
     public required string Branch { get; init; }
 
     [CommandOption("--build <COMMAND>")]
-    [Description("The command line the gates run first, in the flow's worktree, through the platform's shell. Defaults to dotnet build.")]
+    [Description("The command line the gates run first, in the flow run's worktree, through the platform's shell. Defaults to dotnet build.")]
     public string? Build { get; init; }
 
     [CommandOption("--test <COMMAND>")]

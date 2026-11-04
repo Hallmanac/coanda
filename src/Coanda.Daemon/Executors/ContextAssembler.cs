@@ -3,20 +3,20 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Coanda.Core.Contours;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Daemon.Executors;
 
 /// <summary>
 /// Builds the per-parcel context body a step's spawn carries. It reads only the parcel record, the
-/// step, and the visits of the flow the step runs on; it never takes the agent definition, so the
+/// step, and the visits of the flow run the step runs on; it never takes the agent definition, so the
 /// persona reaches the executor only through the definition on the spawn and is never folded into
 /// the context. Six fixed lines come first;
 /// after them, one entry per field the step declares, in the step's order, holding the field's
 /// value or "not set"; after those, one line per source the step declares, in the step's order,
-/// holding the latest recorded visit of the source step on this flow or saying it has not run on
-/// this flow yet. Each value is folded onto its own line, so a title, a field value, or a recorded
+/// holding the latest recorded visit of the source step on this flow run or saying it has not run on
+/// this flow run yet. Each value is folded onto its own line, so a title, a field value, or a recorded
 /// answer holding a line break cannot start a labelled line of its own, and every field entry begins
 /// with <see cref="FieldLabel"/> and every source line with <see cref="SourceLabel"/>, so none reads
 /// as one of the fixed labels.
@@ -31,8 +31,8 @@ public static partial class ContextAssembler
 
     public const string NotSet = "not set";
 
-    /// <summary>What a source line says of a step with no recorded visit on the flow.</summary>
-    public const string NotRun = "has not run on this flow yet";
+    /// <summary>What a source line says of a step with no recorded visit on the flow run.</summary>
+    public const string NotRun = "has not run on this flow run yet";
 
     /// <summary>
     /// Writes a recorded answer or result as compact JSON whose text reads as written: characters such
@@ -42,10 +42,10 @@ public static partial class ContextAssembler
     /// </summary>
     private static readonly JsonSerializerOptions SourceJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    /// <param name="parcel">The parcel the step's flow runs on.</param>
+    /// <param name="parcel">The parcel the step's flow run is on.</param>
     /// <param name="step">The step about to spawn.</param>
-    /// <param name="visits">Every visit of the flow the step runs on, in the order entered (<see cref="Flow.Steps"/>).</param>
-    public static string Assemble(Parcel parcel, ContourStep step, IReadOnlyList<FlowStepEntry> visits)
+    /// <param name="visits">Every visit of the flow run the step runs on, in the order entered (<see cref="FlowRun.Steps"/>).</param>
+    public static string Assemble(Parcel parcel, ContourStep step, IReadOnlyList<FlowRunStepEntry> visits)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(step);
@@ -70,14 +70,14 @@ public static partial class ContextAssembler
     }
 
     /// <summary>
-    /// A source's line: the step's latest visit on the flow that recorded an answer or result, with
+    /// A source's line: the step's latest visit on the flow run that recorded an answer or result, with
     /// that visit's number among the step's visits counting from 1, when it recorded, and what it
-    /// recorded; or, when no visit of the step has recorded, that it has not run on this flow yet.
+    /// recorded; or, when no visit of the step has recorded, that it has not run on this flow run yet.
     /// </summary>
-    private static string SourceLine(string source, IReadOnlyList<FlowStepEntry> visits)
+    private static string SourceLine(string source, IReadOnlyList<FlowRunStepEntry> visits)
     {
         string label = $"{SourceLabel} {OneLine(source)}:";
-        FlowStepEntry[] ofSource = [.. visits.Where(entry => string.Equals(entry.Step, source, StringComparison.Ordinal))];
+        FlowRunStepEntry[] ofSource = [.. visits.Where(entry => string.Equals(entry.Step, source, StringComparison.Ordinal))];
         int latest = Array.FindLastIndex(ofSource, entry => entry.IsRecorded && (entry.Answer ?? entry.Result) is not null);
 
         return latest >= 0 && ofSource[latest] is { RecordedAt: { } recordedAt } visit && (visit.Answer ?? visit.Result) is JsonElement recorded

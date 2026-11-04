@@ -3,8 +3,8 @@ using Coanda.Core.Contours;
 namespace Coanda.Daemon.Actions;
 
 /// <summary>
-/// Pauses the flow for a person, with the step's <c>lever</c> argument as the lever. A resume is
-/// what it waits for, so once the flow is resumed on this visit the step answers done.
+/// Pauses the flow run for a person, with the step's <c>lever</c> argument as the lever. A resume is
+/// what it waits for, so once the flow run is resumed on this visit the step answers done.
 /// </summary>
 public sealed class WaitForHumanAction : IFlowAction
 {

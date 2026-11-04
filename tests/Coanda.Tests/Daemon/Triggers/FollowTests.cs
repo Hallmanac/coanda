@@ -5,7 +5,7 @@ using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Triggers;
-using Coanda.Tests.Daemon.Flows;
+using Coanda.Tests.Daemon.FlowRuns;
 
 namespace Coanda.Tests.Daemon.Triggers;
 
@@ -46,45 +46,45 @@ public sealed class FollowTests
     };
 
     [Fact]
-    public async Task The_end_of_a_build_flow_starts_its_follower_on_the_same_parcel_once_and_an_unproduced_outcome_starts_nothing()
+    public async Task The_end_of_a_build_flow_run_starts_its_follower_on_the_same_parcel_once_and_an_unproduced_outcome_starts_nothing()
     {
         using var temp = new TemporaryHome();
         ParcelView parcel;
-        FlowView build;
+        FlowRunView build;
         await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
         {
             await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
             await Publishing.ContourAsync(first, Project, AfterBuild);
             await Publishing.ContourAsync(first, Project, AfterNothing);
-            parcel = await Flowing.TaskAtBuildAsync(client, Project, "Build, then follow");
+            parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Build, then follow");
 
-            build = await Flowing.BoundAsync(client, Project, parcel.Id);
-            (await Flowing.UntilAsync(client, Project, build.Id, "ended")).Outcome.Should().Be("pr-opened");
-            FlowView follower = await Flowing.FollowerAsync(client, Project, parcel.Id, build.Id, AfterBuild.Name);
-            FlowView ended = await Flowing.UntilAsync(client, Project, follower.Id, "ended");
+            build = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+            (await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended")).Outcome.Should().Be("pr-opened");
+            FlowRunView follower = await FlowRunDriver.FollowerAsync(client, Project, parcel.Id, build.Id, AfterBuild.Name);
+            FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, follower.Id, "ended");
 
             ended.ContourName.Should().Be(AfterBuild.Name);
             ended.ParcelId.Should().Be(parcel.Id);
-            ended.ParentFlowId.Should().Be(build.Id);
-            ended.RootFlowId.Should().Be(build.Id);
+            ended.ParentFlowRunId.Should().Be(build.Id);
+            ended.RootFlowRunId.Should().Be(build.Id);
             ended.Depth.Should().Be(1);
             ended.StartedBy.Should().Be(TriggerLoop.PrincipalFor(build.Id).Id);
             ended.Outcome.Should().Be("followed");
 
-            FlowView root = await Flowing.ShowAsync(client, Project, build.Id);
-            root.ParentFlowId.Should().BeNull();
-            root.RootFlowId.Should().Be(build.Id);
+            FlowRunView root = await FlowRunDriver.ShowAsync(client, Project, build.Id);
+            root.ParentFlowRunId.Should().BeNull();
+            root.RootFlowRunId.Should().Be(build.Id);
             root.Depth.Should().Be(0);
 
-            IReadOnlyList<string> lines = FlowRendering.Show(ended);
+            IReadOnlyList<string> lines = FlowRunRendering.Show(ended);
             lines.Should().Contain($"Parent  {build.Id}").And.Contain("Depth   1");
-            FlowRendering.Show(root).Should().NotContain(line => line.StartsWith("Parent", StringComparison.Ordinal) || line.StartsWith("Depth", StringComparison.Ordinal));
+            FlowRunRendering.Show(root).Should().NotContain(line => line.StartsWith("Parent", StringComparison.Ordinal) || line.StartsWith("Depth", StringComparison.Ordinal));
 
             // The followers started from the same end, so the loop has handled it: the contour following an unproduced outcome started nothing.
             // The shipped merge closes the parcel, so it starts only once the project's follower releases it.
-            await Flowing.MergedAsync(client, Project, parcel.Id, build.Id);
-            (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", AfterBuild.Name, "merge");
+            await FlowRunDriver.MergedAsync(client, Project, parcel.Id, build.Id);
+            (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", AfterBuild.Name, "merge");
             await first.StopAsync(None);
         }
 
@@ -92,13 +92,13 @@ public sealed class FollowTests
         using var again = new DaemonClient(temp.Home);
 
         // A later chain's follower ending proves the loop has read past the first chain's end since the restart.
-        ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "A later build");
-        FlowView laterBuild = await Flowing.BoundAsync(again, Project, later.Id);
-        await Flowing.UntilAsync(again, Project, laterBuild.Id, "ended");
-        await Flowing.UntilAsync(again, Project, (await Flowing.FollowerAsync(again, Project, later.Id, laterBuild.Id, AfterBuild.Name)).Id, "ended");
-        await Flowing.MergedAsync(again, Project, later.Id, laterBuild.Id);
+        ParcelView later = await FlowRunDriver.TaskAtBuildAsync(again, Project, "A later build");
+        FlowRunView laterBuild = await FlowRunDriver.BoundAsync(again, Project, later.Id);
+        await FlowRunDriver.UntilAsync(again, Project, laterBuild.Id, "ended");
+        await FlowRunDriver.UntilAsync(again, Project, (await FlowRunDriver.FollowerAsync(again, Project, later.Id, laterBuild.Id, AfterBuild.Name)).Id, "ended");
+        await FlowRunDriver.MergedAsync(again, Project, later.Id, laterBuild.Id);
 
-        (await Flowing.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
+        (await FlowRunDriver.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
             .Should().Equal(["build", AfterBuild.Name, "merge"], "a restart starts no second follower of an end already followed");
 
         await second.StopAsync(None);
@@ -113,25 +113,25 @@ public sealed class FollowTests
         using var client = new DaemonClient(temp.Home);
         await Publishing.ContourAsync(daemon, Project, AfterBuild);
         await Publishing.ContourAsync(daemon, Project, AlsoAfterBuild);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Build, then follow twice");
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Build, then follow twice");
 
-        FlowView build = await Flowing.BoundAsync(client, Project, parcel.Id);
-        await Flowing.UntilAsync(client, Project, build.Id, "ended");
-        List<FlowView> followers = [];
-        await Flowing.UntilAsync(
+        FlowRunView build = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended");
+        List<FlowRunView> followers = [];
+        await FlowRunDriver.UntilAsync(
             async () =>
             {
-                List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
-                followers = [.. flows.Where(f => f.ParentFlowId == build.Id && f.Status == "ended")];
+                List<FlowRunView> flowRuns = await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id);
+                followers = [.. flowRuns.Where(f => f.ParentFlowRunId == build.Id && f.Status == "ended")];
                 return followers.Count == 3;
             },
-            $"every follower of flow {build.Id} ends");
+            $"every follower of flow run {build.Id} ends");
 
         // The shipped merge follows the same end and closes the parcel, so it starts after both and closes the task.
         followers.Select(f => f.ContourName).Should().Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"]);
-        followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlowId == build.Id);
+        followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlowRunId == build.Id);
         followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
-        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "each follower starts once");
+        (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "each follower starts once");
 
         await daemon.StopAsync(None);
     }
@@ -145,19 +145,19 @@ public sealed class FollowTests
         using var client = new DaemonClient(temp.Home);
         await Publishing.ContourAsync(daemon, Project, AfterBuild);
         await Publishing.ContourAsync(daemon, Project, NotifyAfterBuild);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Build, then notify after merge's name");
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Build, then notify after merge's name");
 
-        FlowView build = await Flowing.BoundAsync(client, Project, parcel.Id);
-        await Flowing.UntilAsync(client, Project, build.Id, "ended");
-        List<FlowView> followers = [];
-        await Flowing.UntilAsync(
+        FlowRunView build = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended");
+        List<FlowRunView> followers = [];
+        await FlowRunDriver.UntilAsync(
             async () =>
             {
-                List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
-                followers = [.. flows.Where(f => f.ParentFlowId == build.Id && f.Status == "ended")];
+                List<FlowRunView> flowRuns = await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id);
+                followers = [.. flowRuns.Where(f => f.ParentFlowRunId == build.Id && f.Status == "ended")];
                 return followers.Count == 3;
             },
-            $"every follower of flow {build.Id} ends");
+            $"every follower of flow run {build.Id} ends");
 
         // "notify-pr" sorts after "merge", but the merge closes the parcel, so every follower that
         // does not close it starts first and none is refused on a closed parcel.

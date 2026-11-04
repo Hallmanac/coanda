@@ -63,7 +63,7 @@ public sealed class Git(ICommandRunner runner)
 /// A git command exited nonzero, or wrote more output than the runner keeps. Its message names the
 /// command and, for a nonzero exit, quotes at most the last
 /// <see cref="Git.QuotedLines"/> lines of its error output, with the user information of any URL
-/// removed, because it becomes a pause reason stored on the flow.
+/// removed, because it becomes a pause reason stored on the flow run.
 /// </summary>
 public sealed class GitCommandException(CommandLine command, CommandResult result)
     : Exception(Describe(command, result))

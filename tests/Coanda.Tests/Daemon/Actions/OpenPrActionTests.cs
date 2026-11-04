@@ -9,7 +9,7 @@ using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Commands;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
@@ -27,7 +27,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     private const string Project = "alpha";
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly Principal FlowPrincipal = new("flow:under-test", Role.Agent);
+    private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
     private static readonly ContourStep Step = new() { Name = "open-pr", Action = SoftwareActions.OpenPr };
 
     private readonly TemporaryHome temp = new();
@@ -62,16 +62,16 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAsync(Project, "Open the pull request");
         string branch = ProjectClones.BranchOf(parcel.Id);
-        Guid flowId = Ids.New();
+        Guid flowRunId = Ids.New();
         runner.AddBranch(Clone, branch, Moved);
 
-        JsonElement result = Opened(await PerformAsync(parcel.Id, flowId));
+        JsonElement result = Opened(await PerformAsync(parcel.Id, flowRunId));
 
         result.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
         result.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);
         result.GetProperty("head").GetString().Should().Be(Moved);
         runner.Commands[0].Should().Match<CommandLine>(c => c.Program == "gh" && string.Join(' ', c.Arguments) == "auth token --hostname github.com");
-        runner.Commands.Single(c => c.IsGit("status")).WorkingDirectory.Should().Be(temp.Home.FlowWorkPath(Project, flowId));
+        runner.Commands.Single(c => c.IsGit("status")).WorkingDirectory.Should().Be(temp.Home.FlowRunWorkPath(Project, flowRunId));
         runner.GitCalls.Should().Equal(
             "status --porcelain --untracked-files=all",
             $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}",
@@ -110,23 +110,23 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_new_flow_after_someone_updated_the_branch_on_the_remote_builds_on_their_commit_and_its_push_expects_it()
+    public async Task A_new_flow_run_after_someone_updated_the_branch_on_the_remote_builds_on_their_commit_and_its_push_expects_it()
     {
         const string Theirs = "aaaabbbbccccddddeeeeffff0000111122223333";
         const string Built = "1111222233334444555566667777888899990000";
-        var worktree = new WorktreeAction(projects, clones, new FlowService(store, TimeProvider.System), new FlowWorkers());
+        var worktree = new WorktreeAction(projects, clones, new FlowRunService(store, TimeProvider.System), new FlowRunWorkers());
         ContourStep checkoutStep = Step with { Name = "worktree", Action = SoftwareActions.Worktree };
         Parcel parcel = await TaskAsync(Project, "Build on the reviewer's update");
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid first = Ids.New();
-        await worktree.PerformAsync(new ActionRequest(FlowPrincipal, Project, first, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
+        await worktree.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, first, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
         Opened(await PerformAsync(parcel.Id, first));
         await clones.RemoveAsync(Project, first, None);
         runner.SetRemoteBranch(Clone, branch, Theirs);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Theirs);
         Guid second = Ids.New();
 
-        ActionOutcome checkedOut = await worktree.PerformAsync(new ActionRequest(FlowPrincipal, Project, second, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
+        ActionOutcome checkedOut = await worktree.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, second, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
         runner.AddBranch(Clone, branch, Built);
         Opened(await PerformAsync(parcel.Id, second));
 
@@ -156,11 +156,11 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAsync(Project, "Twice");
         string branch = ProjectClones.BranchOf(parcel.Id);
-        Guid flowId = Ids.New();
-        JsonElement first = Opened(await PerformAsync(parcel.Id, flowId));
+        Guid flowRunId = Ids.New();
+        JsonElement first = Opened(await PerformAsync(parcel.Id, flowRunId));
         long version = await VersionAsync(parcel.Id);
 
-        JsonElement again = Opened(await PerformAsync(parcel.Id, flowId));
+        JsonElement again = Opened(await PerformAsync(parcel.Id, flowRunId));
 
         again.GetRawText().Should().Be(first.GetRawText());
         github.Requests.Count(r => r.IsOpen).Should().Be(1);
@@ -175,9 +175,9 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     public async Task Performing_the_step_again_after_a_push_that_GitHub_then_refused_opens_one_pull_request_and_records_it()
     {
         Parcel parcel = await TaskAsync(Project, "Pushed, then refused");
-        Guid flowId = Ids.New();
+        Guid flowRunId = Ids.New();
         github.Refuse(r => r.IsOpen, HttpStatusCode.BadGateway, "Server Error");
-        Paused(await PerformAsync(parcel.Id, flowId));
+        Paused(await PerformAsync(parcel.Id, flowRunId));
         github.On(r => r.IsOpen, r => FakeGitHub.Json(HttpStatusCode.Created, new JsonObject
         {
             ["number"] = FakeGitHub.Number,
@@ -185,13 +185,13 @@ public sealed class OpenPrActionTests : IAsyncLifetime
             ["head"] = new JsonObject { ["ref"] = ProjectClones.BranchOf(parcel.Id) },
         }));
 
-        Opened(await PerformAsync(parcel.Id, flowId));
+        Opened(await PerformAsync(parcel.Id, flowRunId));
 
         (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
     }
 
     [Fact]
-    public async Task A_push_its_lease_refuses_pauses_saying_someone_else_updated_the_branch_with_a_lever_to_stop_the_flow()
+    public async Task A_push_its_lease_refuses_pauses_saying_someone_else_updated_the_branch_with_a_lever_to_stop_the_flow_run()
     {
         Parcel parcel = await TaskAsync(Project, "Raced");
         string branch = ProjectClones.BranchOf(parcel.Id);
@@ -202,8 +202,8 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
         paused.Reason.Should().StartWith($"Step 'open-pr' pushed nothing: someone else updated branch {branch} on the remote").And.Contain("(stale info)");
-        paused.Lever.Should().Be(FlowLevers.RemoteBranchMoved("open-pr"));
-        paused.Lever.Should().StartWith("Stop the flow");
+        paused.Lever.Should().Be(FlowRunLevers.RemoteBranchMoved("open-pr"));
+        paused.Lever.Should().StartWith("Stop the flow run");
         runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Moved, "a refused push moves no ref");
         github.Requests.Should().BeEmpty();
     }
@@ -218,7 +218,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
         paused.Reason.Should().StartWith("Step 'open-pr' could not push: ").And.Contain("exited with code 128").And.Contain("terminal prompts disabled");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
         runner.GitCalls.Should().NotContain(c => c.StartsWith("update-ref", StringComparison.Ordinal));
         github.Requests.Should().BeEmpty();
     }
@@ -236,27 +236,27 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
         paused.Reason.Should().StartWith("Step 'open-pr' could not push: ").And.Contain(reason);
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
     }
 
     [Fact]
-    public async Task It_answers_opened_under_the_shipped_build_contour_which_moves_the_flow_to_review()
+    public async Task It_answers_opened_under_the_shipped_build_contour_which_moves_the_flow_run_to_review()
     {
         Parcel parcel = await TaskAsync(Project, "Under the shipped contour");
 
         ActionOutcome outcome = await PerformUnderAsync(ShippedContours.Build, parcel.Id);
 
-        Decide(ShippedContours.Build, Answered(outcome, OpenPrAction.OpenedVerdict)).Should().Be(new FlowMove.GoTo("move-to-review"));
+        Decide(ShippedContours.Build, Answered(outcome, OpenPrAction.OpenedVerdict)).Should().Be(new FlowRunMove.GoTo("move-to-review"));
     }
 
     [Fact]
-    public async Task It_answers_done_to_a_flow_pinned_to_the_build_contour_before_it_which_routed_open_pr_only_on_done()
+    public async Task It_answers_done_to_a_flow_run_pinned_to_the_build_contour_before_it_which_routed_open_pr_only_on_done()
     {
         Parcel parcel = await TaskAsync(Project, "Pinned to an earlier contour");
 
         ActionOutcome outcome = await PerformUnderAsync(PreviousContours.BuildWithGatedMerge, parcel.Id);
 
-        Decide(PreviousContours.BuildWithGatedMerge, Answered(outcome, ActionOutcome.DoneVerdict)).Should().Be(new FlowMove.GoTo("gated-merge"));
+        Decide(PreviousContours.BuildWithGatedMerge, Answered(outcome, ActionOutcome.DoneVerdict)).Should().Be(new FlowRunMove.GoTo("gated-merge"));
         (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
     }
 
@@ -285,7 +285,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
         paused.Reason.Should().Be("Step 'open-pr' pushed nothing: the worktree has changes that git status reports, which a push would leave out: src/Changed.cs, notes.txt.");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
         runner.GitCalls.Should().NotContain(c => c.StartsWith("push", StringComparison.Ordinal));
         github.Requests.Should().BeEmpty();
     }
@@ -313,7 +313,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         paused.Reason.Should().StartWith($"Step 'open-pr' pushed {ScriptedCommandRunner.PrimaryHead} but has no pull request: GitHub answered")
             .And.Contain($"status {(int)status}").And.Contain(message);
         paused.Reason.Should().NotContain(ScriptedCommandRunner.GitHubToken);
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
         (await FieldAsync(parcel.Id)).Should().BeNull();
     }
 
@@ -326,7 +326,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
         paused.Reason.Should().Contain("could not reach GitHub").And.Contain("no GitHub handler");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
         paused.Reason.Should().StartWith("Step 'open-pr' pushed nothing: no GitHub token is available").And.Contain("no oauth token found");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
         runner.Commands.Should().NotContain(c => c.Program == "git");
         github.Requests.Should().BeEmpty();
     }
@@ -369,7 +369,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
 
         paused.Reason.Should().StartWith("Step 'open-pr' pushed nothing: the remote 'https://gitlab.example.com/team/repo.git' of project 'beta' is not a github.com repository");
         paused.Reason.Should().NotContain("s3cr3t").And.NotContain("someone");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
         runner.Commands.Should().BeEmpty("neither the token is read nor anything pushed");
         github.Requests.Should().BeEmpty();
     }
@@ -408,7 +408,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     [Fact]
     public async Task The_push_waits_its_turn_at_the_clone_behind_a_worktree_checkout_in_the_same_project()
     {
-        var worktree = new WorktreeAction(projects, clones, new FlowService(store, TimeProvider.System), new FlowWorkers());
+        var worktree = new WorktreeAction(projects, clones, new FlowRunService(store, TimeProvider.System), new FlowRunWorkers());
         Parcel parcel = await TaskAsync(Project, "Wait your turn");
         var fetching = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -420,7 +420,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         });
 
         Task<ActionOutcome> checkout = worktree.PerformAsync(
-            new ActionRequest(FlowPrincipal, Project, Ids.New(), Ids.New(), ShippedContours.Build, Step with { Name = "worktree", Action = SoftwareActions.Worktree }, false), None).AsTask();
+            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedContours.Build, Step with { Name = "worktree", Action = SoftwareActions.Worktree }, false), None).AsTask();
         await fetching.Task;
         Task<ActionOutcome> push = PerformAsync(parcel.Id, Ids.New()).AsTask();
         await WhenReadAsync(runner, () => runner.Commands.Any(c => c.Program == "gh"));
@@ -461,19 +461,19 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         return (await session.Events.FetchStreamAsync(parcelId, token: None)).Count;
     }
 
-    private ValueTask<ActionOutcome> PerformAsync(Guid parcelId, Guid flowId, string project = Project) =>
-        action.PerformAsync(new ActionRequest(FlowPrincipal, project, flowId, parcelId, ShippedContours.Build, Step, Resumed: false), None);
+    private ValueTask<ActionOutcome> PerformAsync(Guid parcelId, Guid flowRunId, string project = Project) =>
+        action.PerformAsync(new ActionRequest(FlowRunPrincipal, project, flowRunId, parcelId, ShippedContours.Build, Step, Resumed: false), None);
 
     private ValueTask<ActionOutcome> PerformUnderAsync(Contour contour, Guid parcelId)
     {
         ContourStep openPr = contour.Step("open-pr") ?? throw new InvalidOperationException("The contour has no open-pr step.");
-        return action.PerformAsync(new ActionRequest(FlowPrincipal, Project, Ids.New(), parcelId, contour, openPr, Resumed: false), None);
+        return action.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, contour, openPr, Resumed: false), None);
     }
 
-    private static FlowMove Decide(Contour contour, JsonElement answer)
+    private static FlowRunMove Decide(Contour contour, JsonElement answer)
     {
         using JsonDocument document = JsonDocument.Parse(answer.GetRawText());
-        var atOpenPr = new FlowPosition("open-pr", ImmutableDictionary<string, int>.Empty.Add("open-pr", 1), Spawns: 0);
+        var atOpenPr = new FlowRunPosition("open-pr", ImmutableDictionary<string, int>.Empty.Add("open-pr", 1), Spawns: 0);
         return Interpreter.Decide(contour, atOpenPr, document);
     }
 

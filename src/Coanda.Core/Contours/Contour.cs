@@ -7,28 +7,28 @@ namespace Coanda.Core.Contours;
 
 /// <summary>
 /// A contour as validated data: the parcel types it accepts, the outcome it declares, a budget and a
-/// spawn cap, an optional follow, an optional resolution that closes its parcel when a flow of it
+/// spawn cap, an optional follow, an optional resolution that closes its parcel when a flow run of it
 /// ends, and an ordered list of named steps, the first of which is where a
-/// flow starts. It routes on an answer field equalling a value and a visit count and never
+/// flow run starts. It routes on an answer field equalling a value and a visit count and never
 /// computes. Validation takes the set of known action names as an input, so this type holds no
 /// action catalog and nothing software-specific.
 /// </summary>
 public sealed record Contour
 {
-    /// <summary>The target that pauses the flow.</summary>
+    /// <summary>The target that pauses the flow run.</summary>
     public const string Pause = "pause";
 
-    /// <summary>The target that ends the flow with the outcome this contour declares.</summary>
+    /// <summary>The target that ends the flow run with the outcome this contour declares.</summary>
     public const string End = "end";
 
     public string Name { get; init; } = string.Empty;
     public IReadOnlyList<string> Accepts { get; init; } = [];
     public string Outcome { get; init; } = string.Empty;
 
-    /// <summary>The most a flow may cost, in US dollars, the unit the measurement events record per spawn.</summary>
+    /// <summary>The most a flow run may cost, in US dollars, the unit the measurement events record per spawn.</summary>
     public decimal Budget { get; init; }
 
-    /// <summary>The most agents a flow may spawn.</summary>
+    /// <summary>The most agents a flow run may spawn.</summary>
     public int SpawnCap { get; init; }
 
     /// <summary>
@@ -40,7 +40,7 @@ public sealed record Contour
     public ContourFollow? Follow { get; init; }
 
     /// <summary>
-    /// The resolution a flow of this contour closes its parcel with when it reaches end, recorded in
+    /// The resolution a flow run of this contour closes its parcel with when it reaches end, recorded in
     /// the same save as the end and the release, or null when the end leaves the parcel open. Left
     /// out of the content when null, so a contour without one reads and hashes as it did before.
     /// </summary>
@@ -53,7 +53,7 @@ public sealed record Contour
     [JsonIgnore]
     public string Hash => ComputeHash();
 
-    /// <summary>The step a flow starts at, or null when the contour has no steps.</summary>
+    /// <summary>The step a flow run starts at, or null when the contour has no steps.</summary>
     [JsonIgnore]
     public ContourStep? First => Steps.Count == 0 ? null : Steps[0];
 

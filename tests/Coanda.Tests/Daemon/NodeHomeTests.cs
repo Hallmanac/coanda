@@ -9,11 +9,11 @@ public sealed class NodeHomeTests
     private static readonly NodeHome Home = new(Path.Combine(Path.GetTempPath(), "coanda-home"));
 
     [Fact]
-    public void A_flows_work_path_sits_under_the_homes_work_directory()
+    public void A_flow_runs_work_path_sits_under_the_homes_work_directory()
     {
-        Guid flowId = Ids.New();
+        Guid flowRunId = Ids.New();
 
-        Home.FlowWorkPath("alpha", flowId).Should().Be(Path.Combine(Home.Path, "work", "alpha", flowId.ToString()));
+        Home.FlowRunWorkPath("alpha", flowRunId).Should().Be(Path.Combine(Home.Path, "work", "alpha", flowRunId.ToString()));
     }
 
     [Theory]
@@ -25,22 +25,22 @@ public sealed class NodeHomeTests
     [InlineData("a\\b")]
     public void A_project_that_is_not_a_plain_directory_name_has_no_work_path(string project)
     {
-        Action work = () => Home.FlowWorkPath(project, Ids.New());
-        Action transcripts = () => Home.FlowTranscriptPath(project, Ids.New());
+        Action work = () => Home.FlowRunWorkPath(project, Ids.New());
+        Action transcripts = () => Home.FlowRunTranscriptPath(project, Ids.New());
 
         work.Should().Throw<DomainException>().WithMessage($"Project '{project}' is not a plain directory name*");
         transcripts.Should().Throw<DomainException>().WithMessage($"Project '{project}' is not a plain directory name*");
     }
 
     [Fact]
-    public void A_flows_transcripts_sit_under_the_homes_transcript_directory_beside_its_work_directory_never_inside_it()
+    public void A_flow_runs_transcripts_sit_under_the_homes_transcript_directory_beside_its_work_directory_never_inside_it()
     {
-        Guid flowId = Ids.New();
-        string work = Home.FlowWorkPath("alpha", flowId);
+        Guid flowRunId = Ids.New();
+        string work = Home.FlowRunWorkPath("alpha", flowRunId);
 
         string transcripts = Home.TranscriptDirectoryOf(work);
 
-        transcripts.Should().Be(Path.Combine(Home.Path, "transcripts", "alpha", flowId.ToString())).And.Be(Home.FlowTranscriptPath("alpha", flowId));
+        transcripts.Should().Be(Path.Combine(Home.Path, "transcripts", "alpha", flowRunId.ToString())).And.Be(Home.FlowRunTranscriptPath("alpha", flowRunId));
         transcripts.Should().NotStartWith(work);
     }
 
@@ -50,11 +50,11 @@ public sealed class NodeHomeTests
     [InlineData("work/alpha/01a1a451-5d9b-7422-b0b4-7d9fa1901a78/deeper")]
     [InlineData("transcripts/alpha/01a1a451-5d9b-7422-b0b4-7d9fa1901a78")]
     [InlineData("../elsewhere/alpha/01a1a451-5d9b-7422-b0b4-7d9fa1901a78")]
-    public void A_path_that_is_not_a_flows_work_directory_has_no_transcript_directory(string relative)
+    public void A_path_that_is_not_a_flow_runs_work_directory_has_no_transcript_directory(string relative)
     {
         Action find = () => Home.TranscriptDirectoryOf(Path.Combine(Home.Path, relative));
 
-        find.Should().Throw<DomainException>().WithMessage("*is not a flow's working directory under the node home*");
+        find.Should().Throw<DomainException>().WithMessage("*is not a flow run's working directory under the node home*");
     }
 
     [Fact]

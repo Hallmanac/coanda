@@ -7,7 +7,7 @@ namespace Coanda.Core.Contours;
 /// A step of a contour. A judgment names an <see cref="Agent"/> and an <see cref="AnswerSchema"/>; an
 /// action names an <see cref="Action"/> and holds zero or more named <see cref="Arguments"/>. Exactly
 /// one of agent and action is set. A judgment may declare the parcel <see cref="Fields"/> its context
-/// carries, and the <see cref="Sources"/> whose latest recordings on the same flow it carries after them;
+/// carries, and the <see cref="Sources"/> whose latest recordings on the same flow run it carries after them;
 /// an action declares neither.
 /// </summary>
 public sealed record ContourStep

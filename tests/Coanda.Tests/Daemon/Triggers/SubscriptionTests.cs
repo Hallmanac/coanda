@@ -7,7 +7,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
-using Coanda.Tests.Daemon.Flows;
+using Coanda.Tests.Daemon.FlowRuns;
 using Fisher;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -35,7 +35,7 @@ public sealed class SubscriptionTests
     private static async Task<ParcelView> ParcelTitledAsync(DaemonClient client, string title)
     {
         ParcelView? found = null;
-        await Flowing.UntilAsync(
+        await FlowRunDriver.UntilAsync(
             async () =>
             {
                 found = (await ParcelsAsync(client, Project)).FirstOrDefault(p => p.Title == title);
@@ -46,7 +46,7 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
-    public async Task A_matching_external_event_creates_the_subscriptions_parcel_and_a_flow_of_its_contour_runs_once_per_event_across_a_restart()
+    public async Task A_matching_external_event_creates_the_subscriptions_parcel_and_a_flow_run_of_its_contour_runs_once_per_event_across_a_restart()
     {
         using var temp = new TemporaryHome();
         ParcelView first;
@@ -68,10 +68,10 @@ public sealed class SubscriptionTests
             first.State.Should().Be("refine");
             first.CreatedBy.Should().Be(Teammate.Id, "the subscription acts as the principal that recorded it");
 
-            FlowView bound = await Flowing.BoundAsync(client, Project, first.Id);
+            FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, first.Id);
             bound.ContourName.Should().Be("review-on-assignment");
             bound.StartedBy.Should().Be(Teammate.Id);
-            (await Flowing.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("report-produced");
+            (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("report-produced");
 
             (await ParcelsAsync(client, Project)).Should().ContainSingle("an event whose assignee differs creates nothing");
             (await ParcelsAsync(client, Other)).Should().BeEmpty("a subscription sees its own project's events only");
@@ -82,11 +82,11 @@ public sealed class SubscriptionTests
         using var again = new DaemonClient(temp.Home);
         await RecordAsync(restarted, Project, "brian", "Review another");
         ParcelView second = await ParcelTitledAsync(again, "Review another");
-        FlowView secondFlow = await Flowing.BoundAsync(again, Project, second.Id);
-        (await Flowing.UntilAsync(again, Project, secondFlow.Id, "ended")).Outcome.Should().Be("report-produced");
+        FlowRunView secondFlowRun = await FlowRunDriver.BoundAsync(again, Project, second.Id);
+        (await FlowRunDriver.UntilAsync(again, Project, secondFlowRun.Id, "ended")).Outcome.Should().Be("report-produced");
 
         (await ParcelsAsync(again, Project)).Select(p => p.Title).Should().BeEquivalentTo("Review my PR", "Review another");
-        (await Flowing.OfParcelAsync(again, Project, first.Id)).Should().ContainSingle();
+        (await FlowRunDriver.OfParcelAsync(again, Project, first.Id)).Should().ContainSingle();
 
         await restarted.StopAsync(None);
     }

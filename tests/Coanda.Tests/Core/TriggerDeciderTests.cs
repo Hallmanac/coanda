@@ -50,9 +50,9 @@ public sealed class TriggerDeciderTests
             .Should().Throw<DomainException>().WithMessage("The kind 'parcel-entered' is what a parcel's own creation and moves read as; an external event cannot use it.");
 
     [Fact]
-    public void An_external_event_of_the_flow_ended_kind_is_refused() =>
-        FluentActions.Invoking(() => Record("flow-ended", new Dictionary<string, string> { ["contour"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }))
-            .Should().Throw<DomainException>().WithMessage("The kind 'flow-ended' is what a flow's own end reads as; an external event cannot use it.");
+    public void An_external_event_of_the_flow_run_ended_kind_is_refused() =>
+        FluentActions.Invoking(() => Record("flow-run-ended", new Dictionary<string, string> { ["contour"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }))
+            .Should().Throw<DomainException>().WithMessage("The kind 'flow-run-ended' is what a flow run's own end reads as; an external event cannot use it.");
 
     [Fact]
     public void An_external_event_with_a_field_name_that_is_not_plain_is_refused() =>
@@ -84,9 +84,9 @@ public sealed class TriggerDeciderTests
             .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'parcel-entered', which a parcel's own creation and moves read as.");
 
     [Fact]
-    public void A_subscription_on_the_flow_ended_kind_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(kind: "flow-ended", filters: new Dictionary<string, string> { ["outcome"] = "pr-opened" }))
-            .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'flow-ended', which a flow's own end reads as.");
+    public void A_subscription_on_the_flow_run_ended_kind_is_refused() =>
+        FluentActions.Invoking(() => Subscribe(kind: "flow-run-ended", filters: new Dictionary<string, string> { ["outcome"] = "pr-opened" }))
+            .Should().Throw<DomainException>().WithMessage("A subscription sees external events only; it cannot trigger on 'flow-run-ended', which a flow run's own end reads as.");
 
     [Fact]
     public void A_subscription_with_a_filter_name_that_is_not_plain_is_refused() =>

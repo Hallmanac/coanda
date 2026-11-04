@@ -7,7 +7,7 @@ using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Api;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
@@ -22,7 +22,7 @@ namespace Coanda.Tests.Daemon.Actions;
 public sealed class FlowActionsTests : IAsyncLifetime
 {
     private const string Project = "alpha";
-    private static readonly Principal FlowPrincipal = new("flow:under-test", Role.Agent);
+    private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
 
     private readonly TemporaryHome temp = new();
     private readonly RecordingClock clock = new();
@@ -40,7 +40,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
         var projects = new ProjectService(store, TimeProvider.System);
         var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
         actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit, github.Client,
-            new FlowService(store, TimeProvider.System), new FlowWorkers());
+            new FlowRunService(store, TimeProvider.System), new FlowRunWorkers());
     }
 
     public async Task DisposeAsync()
@@ -63,7 +63,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Move_parcel_moves_the_parcel_as_the_flows_principal_and_answers_done()
+    public async Task Move_parcel_moves_the_parcel_as_the_flow_runs_principal_and_answers_done()
     {
         Parcel parcel = await TaskAtAsync("build");
 
@@ -74,7 +74,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
         Parcel? moved = await parcels.ShowAsync(Principal.LocalOwner, Project, parcel.Id, CancellationToken.None);
         moved?.State.Should().Be("review");
         ParcelMoved recorded = (await MovesAsync(parcel.Id)).Should().ContainSingle(m => m.ToState == "review").Subject;
-        recorded.MovedBy.Should().Be(FlowPrincipal.Id);
+        recorded.MovedBy.Should().Be(FlowRunPrincipal.Id);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
 
         ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("act"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("act"));
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
 
         ActionOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().Contain("'ci-finished'").And.Contain("Step 'act'");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("act"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("act"));
 
         DoneResult(await PerformAsync(step, Ids.New(), resumed: true)).GetProperty("event").GetString().Should().Be("ci-finished");
     }
@@ -208,7 +208,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
 
         ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().Contain("Step 'act'").And.Contain($"argument '{argument}'");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("act"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("act"));
         clock.Waits.Should().BeEmpty();
     }
 
@@ -230,7 +230,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
 
     private ValueTask<ActionOutcome> PerformAsync(ContourStep step, Guid parcelId, bool resumed = false) =>
         actions.PerformAsync(
-            new ActionRequest(FlowPrincipal, Project, Ids.New(), parcelId, ShippedContours.Build, step, resumed),
+            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedContours.Build, step, resumed),
             CancellationToken.None);
 
     private static JsonElement DoneResult(ActionOutcome outcome)

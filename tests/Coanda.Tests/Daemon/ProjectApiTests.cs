@@ -6,7 +6,7 @@ using Coanda.Core.Triggers;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Triggers;
-using Coanda.Tests.Daemon.Flows;
+using Coanda.Tests.Daemon.FlowRuns;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
@@ -104,15 +104,15 @@ public sealed class ProjectApiTests
         await triggers.RecordEventAsync(Principal.LocalOwner, "alpha", "pr-assigned", fields, None);
 
         // The loop handles events in order, so once alpha's parcel exists the earlier event has been handled.
-        await Flowing.UntilAsync(
+        await FlowRunDriver.UntilAsync(
             async () => (await client.GetAsync<List<ParcelView>>("/parcels?project=alpha", None)).Count == 1,
             "the registered project's subscription created its parcel");
         (await client.GetAsync<List<ParcelView>>("/parcels?project=unregistered", None)).Should().BeEmpty();
 
-        // The stock daemon's empty scripted executor pauses the flow at its first judgment; waiting for that keeps the stop from racing the runner.
+        // The stock daemon's empty scripted executor pauses the flow run at its first judgment; waiting for that keeps the stop from racing the runner.
         ParcelView alpha = (await client.GetAsync<List<ParcelView>>("/parcels?project=alpha", None)).Single();
-        FlowView bound = await Flowing.BoundAsync(client, "alpha", alpha.Id);
-        await Flowing.UntilAsync(client, "alpha", bound.Id, "paused");
+        FlowRunView bound = await FlowRunDriver.BoundAsync(client, "alpha", alpha.Id);
+        await FlowRunDriver.UntilAsync(client, "alpha", bound.Id, "paused");
 
         await daemon.StopAsync(None);
     }

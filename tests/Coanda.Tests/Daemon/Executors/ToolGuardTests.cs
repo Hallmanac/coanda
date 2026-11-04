@@ -26,7 +26,7 @@ public sealed class ToolGuardTests : IDisposable
     public ToolGuardTests()
     {
         home = new NodeHome(Path.Combine(root, "home"));
-        work = home.FlowWorkPath(Project, Ids.New());
+        work = home.FlowRunWorkPath(Project, Ids.New());
         defaultConfig = Path.Combine(root, "user", ".claude");
         directoryProfile = new CredentialProfile("claude-code", "work", Path.Combine(root, "profiles", "work"), null);
         otherProfile = new CredentialProfile("claude-code", "other", Path.Combine(home.Path, "profiles", "other"), null);
@@ -111,8 +111,8 @@ public sealed class ToolGuardTests : IDisposable
         RefusedInNodeHome(Guard(Call("Glob", new { pattern = Path.Combine(root, "*", "daemon.json") })));
 
     [Fact]
-    public void A_write_into_another_flows_work_directory_is_refused() =>
-        RefusedInNodeHome(Guard(Call("Write", new { file_path = Path.Combine(home.FlowWorkPath(Project, Ids.New()), "notes.md"), content = "x" })));
+    public void A_write_into_another_flow_runs_work_directory_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Write", new { file_path = Path.Combine(home.FlowRunWorkPath(Project, Ids.New()), "notes.md"), content = "x" })));
 
     [Fact]
     public void A_write_into_a_profiles_config_directory_is_refused() =>
@@ -409,7 +409,7 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("pushd alpha && cat daemon.json")]
     [InlineData("cd src")]
     public void With_an_inherited_cdpath_a_cd_the_shell_searches_it_for_is_refused(string command) =>
-        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("CDPATH", Path.Combine(root, "home", "flows")))));
+        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("CDPATH", Path.Combine(root, "home", "flow-runs")))));
 
     [Theory]
     [InlineData("cd ./src && cat a.cs")]
@@ -757,7 +757,7 @@ public sealed class ToolGuardTests : IDisposable
 
     [Fact]
     public void Coa_with_no_path_argument_is_allowed_from_a_working_directory_under_the_node_home() =>
-        Allowed(Guard(Call("Bash", new { command = "coa flow show 0192a3b4 && coa parcel list --project alpha" }, cwd: work), environment: Environment()));
+        Allowed(Guard(Call("Bash", new { command = "coa flow-run show 0192a3b4 && coa parcel list --project alpha" }, cwd: work), environment: Environment()));
 
     [Fact]
     public void Ordinary_commands_using_pwd_cd_and_wildcards_inside_the_work_directory_are_allowed()

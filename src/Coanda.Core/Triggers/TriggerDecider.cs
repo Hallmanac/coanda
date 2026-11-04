@@ -7,9 +7,9 @@ namespace Coanda.Core.Triggers;
 /// <summary>
 /// The rules for recording an external event and a subscription, as pure decisions: the event that
 /// records the intent, or a <see cref="DomainException"/> quoting the rule. Neither may use
-/// <see cref="TriggerEvent.ParcelEnteredKind"/> or <see cref="TriggerEvent.FlowEndedKind"/>: those
+/// <see cref="TriggerEvent.ParcelEnteredKind"/> or <see cref="TriggerEvent.FlowRunEndedKind"/>: those
 /// are what the daemon's own record reads as, a subscription that created parcels from them could
-/// feed itself, and a recorded event of either kind would pass for a parcel entry or a flow end.
+/// feed itself, and a recorded event of either kind would pass for a parcel entry or a flow run end.
 /// </summary>
 public static class TriggerDecider
 {
@@ -30,10 +30,10 @@ public static class TriggerDecider
                 $"The kind '{TriggerEvent.ParcelEnteredKind}' is what a parcel's own creation and moves read as; an external event cannot use it.");
         }
 
-        if (string.Equals(kind, TriggerEvent.FlowEndedKind, StringComparison.Ordinal))
+        if (string.Equals(kind, TriggerEvent.FlowRunEndedKind, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"The kind '{TriggerEvent.FlowEndedKind}' is what a flow's own end reads as; an external event cannot use it.");
+                $"The kind '{TriggerEvent.FlowRunEndedKind}' is what a flow run's own end reads as; an external event cannot use it.");
         }
 
         string? notPlain = fields.Keys.FirstOrDefault(name => !Contour.IsPlainName(name));
@@ -69,10 +69,10 @@ public static class TriggerDecider
                 $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.ParcelEnteredKind}', which a parcel's own creation and moves read as.");
         }
 
-        if (string.Equals(trigger.EventKind, TriggerEvent.FlowEndedKind, StringComparison.Ordinal))
+        if (string.Equals(trigger.EventKind, TriggerEvent.FlowRunEndedKind, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.FlowEndedKind}', which a flow's own end reads as.");
+                $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.FlowRunEndedKind}', which a flow run's own end reads as.");
         }
 
         string? notPlain = trigger.Filters.Keys.FirstOrDefault(name => !Contour.IsPlainName(name));

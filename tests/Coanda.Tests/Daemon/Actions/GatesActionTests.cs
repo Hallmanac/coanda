@@ -6,7 +6,7 @@ using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Commands;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Projects;
 using Coanda.Tests.Daemon.Commands;
 using Fisher;
@@ -17,7 +17,7 @@ public sealed class GatesActionTests : IAsyncLifetime
 {
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly Principal FlowPrincipal = new("flow:under-test", Role.Agent);
+    private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
     private static readonly ContourStep Step = new() { Name = "gates", Action = SoftwareActions.Gates };
     private static readonly TimeSpan Limit = TimeSpan.FromMinutes(45);
 
@@ -44,14 +44,14 @@ public sealed class GatesActionTests : IAsyncLifetime
     [Fact]
     public async Task Passing_build_and_test_commands_answer_done_having_run_each_through_the_shell_in_the_work_path()
     {
-        Guid flowId = Ids.New();
+        Guid flowRunId = Ids.New();
 
-        ActionOutcome outcome = await PerformAsync(Project, flowId);
+        ActionOutcome outcome = await PerformAsync(Project, flowRunId);
 
         JsonElement result = Result(outcome, "done");
         result.GetProperty("build").GetString().Should().Be(ProjectDefaults.DefaultBuild);
         result.GetProperty("test").GetString().Should().Be(ProjectDefaults.DefaultTest);
-        runner.Commands.Should().HaveCount(2).And.OnlyContain(c => c.WorkingDirectory == temp.Home.FlowWorkPath(Project, flowId));
+        runner.Commands.Should().HaveCount(2).And.OnlyContain(c => c.WorkingDirectory == temp.Home.FlowRunWorkPath(Project, flowRunId));
         runner.ShellLines.Should().Equal(ProjectDefaults.DefaultBuild, ProjectDefaults.DefaultTest);
         (runner.Commands[0].Program, runner.Commands[0].VerbatimArguments).Should().Be(OperatingSystem.IsWindows()
             ? ("cmd.exe", $"/d /s /c \"{ProjectDefaults.DefaultBuild}\"")
@@ -143,7 +143,7 @@ public sealed class GatesActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = AsPaused(await PerformAsync(Project, Ids.New()));
 
         paused.Reason.Should().StartWith("Step 'gates' could not start the shell to run the build command 'dotnet build'").And.Contain("No such file or directory");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("gates"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("gates"));
     }
 
     [Fact]
@@ -152,12 +152,12 @@ public sealed class GatesActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = AsPaused(await PerformAsync("nowhere", Ids.New()));
 
         paused.Reason.Should().StartWith("Step 'gates'").And.Contain("project 'nowhere'").And.Contain("Project 'nowhere' is not registered");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("gates"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("gates"));
         runner.Commands.Should().BeEmpty();
     }
 
-    private ValueTask<ActionOutcome> PerformAsync(string project, Guid flowId) =>
-        action.PerformAsync(new ActionRequest(FlowPrincipal, project, flowId, Ids.New(), ShippedContours.Build, Step, Resumed: false), None);
+    private ValueTask<ActionOutcome> PerformAsync(string project, Guid flowRunId) =>
+        action.PerformAsync(new ActionRequest(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedContours.Build, Step, Resumed: false), None);
 
     private static JsonElement Result(ActionOutcome outcome, string verdict)
     {
