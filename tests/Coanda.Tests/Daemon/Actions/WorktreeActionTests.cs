@@ -63,7 +63,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
             $"for-each-ref --format=%(objectname) refs/heads/{branch}",
             $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}",
             $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}",
-            $"ls-tree -r --name-only {ScriptedCommandRunner.PrimaryHead} -- .coanda",
+            $"ls-tree -r -z --name-only {ScriptedCommandRunner.PrimaryHead} -- .coanda",
             $"config {ProjectClones.OwnerKeyOf(branch)} {parcelId}",
             $"branch --no-track {branch} {ScriptedCommandRunner.PrimaryHead}",
             $"worktree add --quiet {workPath} {branch}");
@@ -75,14 +75,15 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Every_git_command_runs_with_terminal_prompts_off_and_ssh_in_batch_mode()
+    public async Task Every_git_command_runs_with_terminal_prompts_off_ssh_in_batch_mode_and_the_C_locale()
     {
         await PerformAsync(Ids.New(), Ids.New());
 
         runner.Commands.Should().NotBeEmpty().And.OnlyContain(c =>
             c.Program == "git"
             && c.Environment["GIT_TERMINAL_PROMPT"] == "0"
-            && c.Environment["GIT_SSH_COMMAND"].Contains("BatchMode=yes"));
+            && c.Environment["GIT_SSH_COMMAND"].Contains("BatchMode=yes")
+            && c.Environment["LC_ALL"] == "C");
     }
 
     [Fact]
@@ -122,7 +123,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
             "worktree list --porcelain",
             $"for-each-ref --format=%(objectname) refs/heads/{branch}",
             $"config --get --default  {ProjectClones.OwnerKeyOf(branch)}",
-            $"ls-tree -r --name-only {Moved} -- .coanda",
+            $"ls-tree -r -z --name-only {Moved} -- .coanda",
             $"worktree add --quiet {temp.Home.FlowWorkPath(Project, later)} {branch}");
     }
 
@@ -246,7 +247,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     [Fact]
     public async Task A_commit_that_tracks_files_under_coanda_pauses_naming_them_before_any_owner_branch_or_worktree_is_made()
     {
-        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda/task.md\n.coanda/notes/a.md\n"));
+        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda/task.md\0.coanda/notes/a.md\0"));
 
         ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
@@ -259,9 +260,19 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_tracked_path_under_coanda_that_git_would_quote_by_default_still_pauses_the_step()
+    {
+        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda/na\u00efve \"x\".md\0"));
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+
+        paused.Reason.Should().Contain(".coanda/na\u00efve \"x\".md");
+    }
+
+    [Fact]
     public async Task A_file_named_coanda_outside_the_directory_does_not_count_as_tracked_under_it()
     {
-        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda\n"));
+        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda\0"));
 
         Done(await PerformAsync(Ids.New(), Ids.New()));
     }

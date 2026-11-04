@@ -101,8 +101,9 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
                 cancellationToken)).Trim();
         }
 
-        string tracked = await git.RunAsync(Git.Against(clone, "ls-tree", "-r", "--name-only", tip, "--", ".coanda"), cancellationToken);
-        string[] underCoanda = [.. Lines(tracked).Where(p => p.StartsWith(".coanda/", StringComparison.Ordinal))];
+        // -z lists each path verbatim, where the default quotes a path holding anything unusual.
+        string tracked = await git.RunAsync(Git.Against(clone, "ls-tree", "-r", "-z", "--name-only", tip, "--", ".coanda"), cancellationToken);
+        string[] underCoanda = [.. tracked.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(p => p.StartsWith(".coanda/", StringComparison.Ordinal))];
         if (underCoanda.Length > 0)
         {
             string from = exists ? $"branch {branch}" : $"primary branch {project.PrimaryBranch}";

@@ -18,12 +18,15 @@ public sealed class Git(ICommandRunner runner)
     /// <summary>
     /// The variables every git command is given. <c>GIT_SSH_COMMAND</c> takes precedence over
     /// <c>core.sshCommand</c> and <c>GIT_SSH</c>, so it overrides any of those the operator set;
-    /// ssh's own configuration still applies.
+    /// ssh's own configuration still applies. <c>LC_ALL=C</c> keeps git's output untranslated, so
+    /// what the daemon reads from it, such as a worktree's <c>initializing</c> lock reason, reads the
+    /// same under any locale.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> Environment = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["GIT_TERMINAL_PROMPT"] = "0",
         ["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes",
+        ["LC_ALL"] = "C",
     };
 
     /// <summary>A git command against the repository at <paramref name="gitDirectory"/>, run from its parent directory.</summary>
