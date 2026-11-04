@@ -11,8 +11,11 @@ namespace Coanda.Daemon.Executors;
 /// records nothing and leaves the session open on either outcome, returning its handle: the runner
 /// records the flow's events and decides when a session ends. If the judgment fails after the
 /// spawn, it stops the session rather than leave one nobody holds, except when the caller already
-/// took the handle and the failure is a cancellation of the caller's stopping token, which leaves
-/// the session for a reattach.
+/// took the handle and its stopping token (the daemon's own) is cancelled, which leaves the session
+/// for a reattach. Whether a failure is a daemon stop is decided by that token alone, never by the
+/// failure's type: an executor that throws a cancellation of its own accord has its session stopped.
+/// <see cref="ReattachAsync"/> runs the same collect, validation, and retry on a session a daemon
+/// restart found still held, starting from its handle instead of a spawn.
 /// </summary>
 public static class Judgment
 {
@@ -38,10 +41,10 @@ public static class Judgment
     /// <summary>
     /// Runs the judgment, handing the session's handle to <paramref name="onSpawned"/> as soon as the
     /// spawn returns, so the runner can record it before the first collect. Once the handle is
-    /// handed over, a cancellation while <paramref name="stopping"/> is cancelled (the daemon
-    /// stopping) leaves the session alive for a reattach; any other failure, a cancellation of
-    /// <paramref name="cancellationToken"/> alone (a wall-clock limit, a person's pause or stop)
-    /// among them, stops it. <paramref name="spend"/> is told every attempt's usage as it is
+    /// handed over, a failure while <paramref name="stopping"/> is cancelled (the daemon stopping)
+    /// leaves the session alive for a reattach; any other failure, a cancellation of
+    /// <paramref name="cancellationToken"/> alone (a wall-clock limit, a person's pause or stop) or
+    /// one the executor throws of its own accord among them, stops it. <paramref name="spend"/> is told every attempt's usage as it is
     /// collected and what that stop reports for the attempt in progress, so a judgment that ends
     /// without an outcome still says what it spent.
     /// </summary>
@@ -76,41 +79,72 @@ public static class Judgment
                 handedOver = true;
             }
 
-            return await AnswerAsync(executor, request, handle, spend, cancellationToken);
+            return await AnswerAsync(executor, handle, request.AnswerSchema, spend, cancellationToken);
         }
-        catch (Exception failure) when (!(handedOver && failure is OperationCanceledException && stopping.IsCancellationRequested))
+        catch (Exception failure) when (!(handedOver && stopping.IsCancellationRequested))
         {
             await StopAfterFailureAsync(executor, handle, failure, spend);
             throw;
         }
     }
 
+    /// <summary>
+    /// Runs the judgment on a session launched before a daemon restart that the executor still
+    /// holds: collects it, validates its answer against <paramref name="answerSchema"/>, and retries
+    /// once on the same session after a missing or invalid answer, exactly as for a fresh spawn.
+    /// Nothing is spawned. A failure while <paramref name="stopping"/> is cancelled leaves the session
+    /// held for the next start to reattach again; any other failure stops it, and a token cancelled
+    /// before the first collect (a wall-clock limit already past) is such a failure.
+    /// </summary>
+    public static async Task<JudgmentOutcome> ReattachAsync(
+        IAgentExecutor executor,
+        SessionHandle session,
+        string answerSchema,
+        JudgmentSpend? spend,
+        CancellationToken stopping,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(executor);
+        ArgumentNullException.ThrowIfNull(session);
+        try
+        {
+            AnswerSchemas.Require(answerSchema);
+            cancellationToken.ThrowIfCancellationRequested();
+            return await AnswerAsync(executor, session, answerSchema, spend, cancellationToken);
+        }
+        catch (Exception failure) when (!stopping.IsCancellationRequested)
+        {
+            await StopAfterFailureAsync(executor, session, failure, spend);
+            throw;
+        }
+    }
+
     private static async Task<JudgmentOutcome> AnswerAsync(
         IAgentExecutor executor,
-        JudgmentRequest request,
         SessionHandle handle,
+        string answerSchema,
         JudgmentSpend? spend,
         CancellationToken cancellationToken)
     {
         CollectedAnswer first = await executor.CollectAsync(handle, cancellationToken);
         spend?.Add(first.Usage);
-        IReadOnlyList<string> firstFailures = Check(request.AnswerSchema, first.Answer);
+        IReadOnlyList<string> firstFailures = Check(answerSchema, first.Answer);
         if (first.Answer is { } firstAnswer && firstFailures.Count == 0)
         {
             return new JudgmentOutcome.Answered(handle, firstAnswer, first.TranscriptPath, first.Usage);
         }
 
-        await executor.ResumeAsync(handle, RetryMessage(request.AnswerSchema, first.Answer, firstFailures), cancellationToken);
+        await executor.ResumeAsync(handle, RetryMessage(answerSchema, first.Answer, firstFailures), cancellationToken);
 
         CollectedAnswer second = await executor.CollectAsync(handle, cancellationToken);
         spend?.Add(second.Usage);
         Measurement usage = Sum(first.Usage, second.Usage);
-        IReadOnlyList<string> secondFailures = Check(request.AnswerSchema, second.Answer);
+        IReadOnlyList<string> secondFailures = Check(answerSchema, second.Answer);
         return second.Answer is { } secondAnswer && secondFailures.Count == 0
             ? new JudgmentOutcome.Answered(handle, secondAnswer, second.TranscriptPath, usage)
             : new JudgmentOutcome.Paused(
                 handle,
-                $"Agent '{request.Agent.Name}' gave no valid '{request.AnswerSchema}' answer after one retry: {string.Join("; ", secondFailures)}.",
+                $"Agent '{handle.Agent}' gave no valid '{answerSchema}' answer after one retry: {string.Join("; ", secondFailures)}.",
                 second.TranscriptPath,
                 usage);
     }

@@ -240,4 +240,64 @@ public sealed class JudgmentTests
         await run.Should().ThrowAsync<DomainException>().WithMessage($"*'{AnswerSchemas.Build}'*'{Agent}'*'{AnswerSchemas.Review}'*");
         executor.Spawns.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task A_reattached_session_is_collected_validated_and_retried_once_on_the_same_session_without_a_spawn()
+    {
+        ScriptedExecutor executor = Executor(
+            new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
+            new ScriptEntry(Valid, "/t/2.jsonl", SecondUsage));
+        SessionHandle held = await SpawnAsync(executor);
+
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None);
+
+        outcome.Should().Be(new JudgmentOutcome.Answered(held, Valid, "/t/2.jsonl", Summed));
+        executor.Spawns.Should().ContainSingle("the reattach spawns nothing");
+        executor.Resumes.Should().ContainSingle().Which.Handle.Should().Be(held);
+        executor.Stops.Should().BeEmpty("the caller stops the session once the outcome is recorded");
+    }
+
+    [Fact]
+    public async Task A_reattached_session_whose_token_is_already_cancelled_is_stopped_without_a_collect()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+        SessionHandle held = await SpawnAsync(executor);
+        using var limit = new CancellationTokenSource();
+        await limit.CancelAsync();
+
+        Func<Task> run = () => Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, CancellationToken.None, limit.Token);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        executor.Stops.Should().Equal(held);
+    }
+
+    [Fact]
+    public async Task A_reattached_session_failing_while_the_caller_stops_is_left_for_the_next_reattach()
+    {
+        ScriptedExecutor executor = Executor();
+        SessionHandle held = await SpawnAsync(executor);
+        using var stopping = new CancellationTokenSource();
+        await stopping.CancelAsync();
+
+        Func<Task> run = () => Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, stopping.Token, CancellationToken.None);
+
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
+        executor.Stops.Should().BeEmpty("a failure while the daemon stops is a daemon stop, whatever its type");
+        (await executor.ReattachAsync(held, CancellationToken.None)).Should().Be(held);
+    }
+
+    [Fact]
+    public async Task A_reattached_session_failing_while_the_caller_is_not_stopping_is_stopped_and_the_failure_rethrown()
+    {
+        ScriptedExecutor executor = Executor();
+        SessionHandle held = await SpawnAsync(executor);
+
+        Func<Task> run = () => Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None);
+
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
+        executor.Stops.Should().Equal(held);
+    }
+
+    private static Task<SessionHandle> SpawnAsync(ScriptedExecutor executor) =>
+        executor.SpawnAsync(Request.Agent, Request.Context, Request.WorkingDirectory, Request.Caps, Request.AnswerSchema, null, null, CancellationToken.None).AsTask();
 }
