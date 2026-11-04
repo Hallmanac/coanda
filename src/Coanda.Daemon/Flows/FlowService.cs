@@ -109,6 +109,15 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             (flow, spawned) => flow.Apply(spawned),
             cancellationToken);
 
+    /// <summary>Records the session the executor returned for the judgment <paramref name="step"/>'s latest launch.</summary>
+    public Task<Flow> SessionOpenedAsync(
+        Principal principal, string project, Guid flowId, string step, Guid sessionId, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flow.session", principal, project, flowId,
+            (contour, flow) => FlowDecider.OpenSession(contour, flow, step, sessionId, clock.GetUtcNow()),
+            (flow, opened) => flow.Apply(opened),
+            cancellationToken);
+
     public Task<Flow> RecordAnswerAsync(
         Principal principal,
         string project,

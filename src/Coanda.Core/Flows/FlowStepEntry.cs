@@ -55,6 +55,13 @@ public sealed record FlowStepEntry
     public DateTimeOffset? SpawnedAt { get; init; }
 
     /// <summary>
+    /// The id of the session the executor returned for this judgment visit's latest launch, or null
+    /// while that launch has returned none: a launch or a resume's counted spawn clears it, and the
+    /// executor's handing back the session sets it.
+    /// </summary>
+    public Guid? SessionId { get; init; }
+
+    /// <summary>
     /// Whether a resume of this visit spawns another agent beyond those already counted: a judgment
     /// resumed since its last count whose counted spawn was used, by a launch or by the recorded
     /// answer only a launch gives.

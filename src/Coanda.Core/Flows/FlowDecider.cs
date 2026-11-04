@@ -201,6 +201,39 @@ public static class FlowDecider
         return new JudgmentSpawned(flow.Id, current.Step, current.Performer, agentHash.Trim(), model, now);
     }
 
+    /// <summary>
+    /// Records the session the executor returned for the current judgment step's latest launch,
+    /// once per launch: a launch must be recorded first, and a later launch or a resume's counted
+    /// spawn clears the session it held.
+    /// </summary>
+    public static JudgmentSessionOpened OpenSession(Contour contour, Flow flow, string step, Guid sessionId, DateTimeOffset now)
+    {
+        RequireContour(contour, flow);
+        RequireRunning(flow, "record its judgment's session");
+        FlowStepEntry current = RequireCurrent(flow, step, "a session");
+
+        if (current.Kind != StepKind.Judgment)
+        {
+            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step runs an agent's session.");
+        }
+
+        if (current.SpawnedAt is null)
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' has not recorded the launch of its agent on the spawn it last counted; a session belongs to a recorded launch.");
+        }
+
+        if (current.SessionId is Guid held)
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' already holds session {Ids.Short(held)} for its latest launch; a launch returns one session.");
+        }
+
+        return sessionId == Guid.Empty
+            ? throw new DomainException("A session is recorded by its id; none was given.")
+            : new JudgmentSessionOpened(flow.Id, current.Step, sessionId, now);
+    }
+
     public static ActionCompleted Complete(Contour contour, Flow flow, string step, string action, JsonElement result, DateTimeOffset now)
     {
         RequireContour(contour, flow);

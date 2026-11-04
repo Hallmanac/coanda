@@ -36,9 +36,11 @@ namespace Coanda.Daemon.Flows;
 /// Every write is made as the flow's own principal, of the Agent role, through a flow service
 /// of the runner's own: the service the daemon registers hands resumes to this runner, so the
 /// runner cannot also take that one without a cycle. A daemon stop cancels the step in progress
-/// and records nothing for it, leaving the flow live and unpaused so the next start performs the
-/// step again. A step recorded before the stop but not yet routed is routed without being
-/// performed again.
+/// and records no answer, result, or pause for it, leaving the flow live and unpaused so the next
+/// start performs the step again. A judgment whose session the flow already names keeps that
+/// session alive across the stop, for a reattach; one stopped before its session was recorded has
+/// the session stopped. A step recorded before the stop but not yet routed is routed without
+/// being performed again.
 /// </remarks>
 public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 {
@@ -118,7 +120,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    /// <summary>Cancels every step in progress and waits for the workers to give up, recording nothing for those steps.</summary>
+    /// <summary>Cancels every step in progress and waits for the workers to give up, recording no answer, result, or pause for those steps.</summary>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         Task[] running;
@@ -271,7 +273,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// passed. The launch itself is recorded just before the agent runs, with the agent's hash and
     /// model spec, so a pause after the count and before the launch (an agent that does not resolve,
     /// a parcel that does not load) leaves that spawn unused, and the next resume uses it rather than
-    /// counting another.
+    /// counting another. The session the spawn returns is recorded before its first collect.
     /// </summary>
     private async Task<Recording?> JudgeAsync(
         Principal principal, string project, Flow flow, Contour contour, ContourStep step, bool spawnsAgain, CancellationToken cancellationToken)
@@ -314,10 +316,18 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         flow = await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
         using var limit = new CancellationTokenSource(judgmentLimit, clock);
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token);
+        Guid flowId = flow.Id;
         JudgmentOutcome outcome;
         try
         {
-            outcome = await Judgment.RunAsync(executor, request, bounded.Token);
+            // The session's id is recorded before its first collect, so a daemon stop after that
+            // leaves the session alive (the judgment does not stop it) and the flow names it.
+            outcome = await Judgment.RunAsync(
+                executor,
+                request,
+                async (session, token) => await flows.SessionOpenedAsync(principal, project, flowId, step.Name, session.Id, token),
+                cancellationToken,
+                bounded.Token);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {

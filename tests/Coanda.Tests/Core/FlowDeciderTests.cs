@@ -419,16 +419,40 @@ public sealed class FlowDeciderTests
     }
 
     [Fact]
-    public void A_launch_carries_the_agents_hash_and_model_spec_and_counts_nothing()
+    public void A_launch_carries_the_agents_hash_and_model_spec_and_its_session_is_recorded_once_until_the_next_launch()
     {
         Flow flow = AtJudgment();
+        FluentActions.Invoking(() => FlowDecider.OpenSession(Build, flow, "build", Ids.New(), Now))
+            .Should().Throw<DomainException>().WithMessage("*has not recorded the launch of its agent*");
 
         flow.Apply(FlowDecider.Spawn(Build, flow, "build", " agenthash ", Model, Now));
-
         flow.Current?.AgentHash.Should().Be("agenthash");
         flow.Current?.Model.Should().Be(Model);
+        flow.Current?.SessionId.Should().BeNull();
         flow.Current?.Answer.Should().BeNull();
+
+        Guid first = Ids.New();
+        flow.Apply(FlowDecider.OpenSession(Build, flow, "build", first, Now.AddSeconds(1)));
+        flow.Current?.SessionId.Should().Be(first);
+        flow.Spawns.Should().Be(1, "recording a session counts nothing");
+        FluentActions.Invoking(() => FlowDecider.OpenSession(Build, flow, "build", Ids.New(), Now.AddSeconds(2)))
+            .Should().Throw<DomainException>().WithMessage("*already holds session*");
+
+        flow.Apply(FlowDecider.Spawn(Build, flow, "build", "agenthash", Model, Now.AddSeconds(3)));
+        flow.Current?.SessionId.Should().BeNull("a launch has no session until the executor returns one");
         flow.Spawns.Should().Be(1);
+    }
+
+    [Fact]
+    public void A_resumes_counted_spawn_clears_the_session_of_the_launch_before_it()
+    {
+        Flow flow = ResumedUnanswered(Build);
+        flow.Apply(new JudgmentSessionOpened(flow.Id, "build", Ids.New(), Now.AddMinutes(1)));
+
+        flow.Apply(FlowDecider.Respawn(Build, flow, "build", Now.AddMinutes(2)));
+
+        flow.Current?.SessionId.Should().BeNull();
+        flow.Current?.AgentHash.Should().Be("agenthash", "the visit still names the agent it last launched");
     }
 
     [Fact]

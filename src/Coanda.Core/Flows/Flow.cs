@@ -145,14 +145,15 @@ public sealed class Flow
     public void Apply(JudgmentRespawned respawned)
     {
         Spawns += 1;
-        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt, SpawnedAt = null });
+        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt, SpawnedAt = null, SessionId = null });
         UpdatedAt = respawned.RespawnedAt;
     }
 
     /// <summary>
     /// The current visit launched its agent on the spawn it last counted; nothing more is counted.
     /// The launch performs the resume the visit held, so a restart that launches it again is not a
-    /// resume. The visit holds the launched agent's hash and model spec.
+    /// resume. The visit holds the launched agent's hash and model spec, and no session until the
+    /// executor returns one for this launch.
     /// </summary>
     public void Apply(JudgmentSpawned spawned)
     {
@@ -162,8 +163,16 @@ public sealed class Flow
             ResumedAt = null,
             AgentHash = spawned.AgentHash,
             Model = spawned.Model,
+            SessionId = null,
         });
         UpdatedAt = spawned.SpawnedAt;
+    }
+
+    /// <summary>The current visit's latest launch returned its session.</summary>
+    public void Apply(JudgmentSessionOpened opened)
+    {
+        Record(entry => entry with { SessionId = opened.SessionId });
+        UpdatedAt = opened.OpenedAt;
     }
 
     public void Apply(ActionCompleted completed)

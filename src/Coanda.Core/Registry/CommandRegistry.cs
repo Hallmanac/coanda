@@ -22,6 +22,7 @@ public static class CommandRegistry
         new("flow.step", EntryKind.Command, "Record a flow entering a step.", Everyone),
         new("flow.respawn", EntryKind.Command, "Record a resumed judgment spawning its agent again on the same visit.", Everyone),
         new("flow.spawn", EntryKind.Command, "Record a judgment launching its agent on the spawn its visit counted.", Everyone),
+        new("flow.session", EntryKind.Command, "Record the session an executor returned for a judgment's launch.", Everyone),
         new("flow.answer", EntryKind.Command, "Record a judgment's answer and its measurement.", Everyone),
         new("flow.result", EntryKind.Command, "Record an action's result.", Everyone),
         new("flow.pause", EntryKind.Command, "Pause a flow with a reason and a lever.", Everyone),

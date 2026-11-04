@@ -564,6 +564,77 @@ public sealed class FlowRunnerTests
     }
 
     [Fact]
+    public async Task The_session_a_spawn_returned_is_recorded_on_the_flow_before_its_first_collect()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Named session");
+
+        FlowView started = await Flowing.BoundAsync(client, Project, parcel.Id);
+        await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
+        Flow? held = await flows.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
+
+        SessionHandle issued = executor.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+        held.Should().NotBeNull();
+        held.Current.Should().NotBeNull();
+        held.Current?.Step.Should().Be("build");
+        held.Current?.SessionId.Should().Be(issued.Id);
+
+        executor.Open();
+        (await Flowing.UntilAsync(client, Project, started.Id, "ended")).Outcome.Should().Be("pr-opened");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_launch_whose_spawn_fails_uses_its_counted_spawn_holds_no_session_and_its_resume_counts_another()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new GatedExecutor(new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("done", 1)],
+        }))
+        { FailingSpawns = 1 };
+        executor.Open();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        Contour twice = await Publishing.ContourAsync(daemon, Project, new Contour
+        {
+            Name = "launch-fails-once",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 10m,
+            SpawnCap = 2,
+            Steps = [Judge("build", "build", Contour.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Launch fails", null), None);
+        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+
+        FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, twice.Name);
+        FlowView paused = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':").And.Contain("could not be launched");
+        paused.Spawns.Should().Be(1);
+        Flow? failed = await flows.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
+        failed.Should().NotBeNull();
+        failed.Current?.SpawnedAt.Should().NotBeNull("the launch was recorded before the spawn failed, so its counted spawn is used");
+        failed.Current?.SessionId.Should().BeNull("the spawn returned no session");
+        executor.Inner.Spawns.Should().BeEmpty();
+
+        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Try the launch again.", None);
+        FlowView ended = await Flowing.UntilAsync(client, Project, started.Id, "ended");
+
+        ended.Outcome.Should().Be("built");
+        ended.Spawns.Should().Be(2, "the resume of a used spawn counts another");
+        ended.Steps.Should().ContainSingle();
+        executor.Inner.Spawns.Should().ContainSingle();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_daemon_stop_cancels_the_judgment_in_progress_recording_nothing_and_the_next_start_carries_the_flow_on()
     {
         using var temp = new TemporaryHome();
@@ -593,6 +664,78 @@ public sealed class FlowRunnerTests
         ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
 
         await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_daemon_stop_after_the_judgments_session_is_recorded_leaves_that_session_alive_and_the_next_start_carries_the_flow_on()
+    {
+        using var temp = new TemporaryHome();
+        Guid flowId;
+        Guid sessionId = Guid.Empty;
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stalled }, None))
+        {
+            using var client = new DaemonClient(temp.Home);
+            FlowService flows = first.Services.GetRequiredService<FlowService>();
+            ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Left running");
+            flowId = (await Flowing.BoundAsync(client, Project, parcel.Id)).Id;
+            await Flowing.UntilAsync(
+                async () =>
+                {
+                    Flow? flow = await flows.ShowAsync(Principal.LocalOwner, Project, flowId, None);
+                    sessionId = flow?.Current?.SessionId ?? Guid.Empty;
+                    return sessionId != Guid.Empty;
+                },
+                "the flow names its judgment's session");
+            await first.StopAsync(None);
+        }
+
+        SessionHandle issued = stalled.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+        issued.Id.Should().Be(sessionId);
+        stalled.Inner.Stops.Should().BeEmpty("a daemon stop leaves a recorded session for a reattach");
+        stalled.StopTokensCancelled.Should().BeEmpty();
+        (await stalled.ListAsync(None)).Should().Equal(issued);
+
+        await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
+        {
+            Flow? between = await new FlowService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowId, None);
+            between.Should().NotBeNull();
+            between.Status.Should().Be(FlowStatus.Running, "a daemon stop is not a pause");
+            between.Current?.IsRecorded.Should().BeFalse();
+            between.Current?.SessionId.Should().Be(issued.Id);
+        }
+
+        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
+        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task An_executor_that_cancels_its_own_collect_after_the_session_is_recorded_pauses_the_flow_and_stops_the_session_once()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { CollectsGiveUp = true };
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Gave up");
+
+        FlowView started = await Flowing.BoundAsync(client, Project, parcel.Id);
+        FlowView paused = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+
+        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':").And.Contain("gave up collecting");
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("build"));
+        paused.Steps[^1].Answer.Should().BeNull();
+        SessionHandle issued = executor.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+        Flow? flow = await flows.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
+        flow?.Current?.SessionId.Should().Be(issued.Id, "the session was recorded before the collect gave up");
+        executor.Inner.Stops.Should().Equal(issued);
+        executor.StopTokensCancelled.Should().Equal(false);
+
+        await daemon.StopAsync(None);
     }
 
     [Fact]
@@ -647,7 +790,10 @@ public sealed class FlowRunnerTests
         ParcelView first = await Flowing.TaskAtBuildAsync(client, Project, "Called off");
 
         FlowView doomed = await Flowing.BoundAsync(client, Project, first.Id);
-        await executor.Spawned.WaitAsync(TimeSpan.FromSeconds(15));
+
+        // Collecting, not Spawned: the session id is recorded on the flow after the spawn returns,
+        // and a stop that lands before it is refused as a concurrent change.
+        await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
         await flows.StopAsync(Principal.LocalOwner, Project, doomed.Id, "Not needed any more.", None);
         executor.Open();
         await Flowing.UntilAsync(() => executor.Inner.Stops.Count == 1, "the stopped flow's session is ended");
