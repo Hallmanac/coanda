@@ -82,17 +82,24 @@ of a session, the retry's included, starts with these variables set:
 | --- | --- |
 | `COANDA_SESSION_TOKEN` | A session token issued for this flow and this launch of the judgment |
 | `COANDA_HOME` | The node home of the daemon that spawned the session |
+| `COANDA_SESSION_HOME` | The same node home, naming the one daemon the session token belongs to |
 | `COANDA_PROJECT` | The flow's project, which `coa` uses when no `--project` is given |
 
 The directory that holds the `coa` executable running the daemon goes first on the session's
-`PATH`, so the session runs `coa` by name. When `COANDA_SESSION_TOKEN` is set, `coa` presents that
-token instead of the daemon token, and it never starts a daemon: if none answers, it says that the
-daemon which started the session is not running.
+`PATH`, so the session runs `coa` by name. When `COANDA_SESSION_TOKEN` is set and `coa` is reaching
+the node home `COANDA_SESSION_HOME` names, it presents that token instead of the daemon token, and it
+never starts a daemon: if none answers, it says that the daemon which started the session is not
+running. Pointed at any other node home (a session that sets `COANDA_HOME` to a scratch home, or
+a test suite that starts its own daemon on a throwaway one), `coa` never sends the session token and
+works as it does outside a session, so the token only ever reaches the daemon that issued it.
 
 The token makes the call an Agent-role principal bound to its flow and its launch. Queries, parcel
 moves, and drafting a definition are open to it in any project, as they are to any agent. The flow
-recording entries (a step, a launch, an answer, a result, a pause, an end) are open to it only on its
-own flow, and only while its launch is the one the flow expects; it can never start a flow. The
+recording entries (a step, a launch, the session a launch returned, an answer, the usage a session
+reported, a result, a pause, an end) are open to it only on its own flow, and only while its launch
+is the one the flow expects. It can never start or follow a flow directly. A parcel move it makes
+can still start one, as any parcel move can: moving a parcel into a state its type binds to a
+contour starts that contour's flow under the binding's principal, not the session's. The
 token resolves until the launch's answer is recorded, its flow pauses, stops, or ends, or the
 judgment launches again; after that it is refused like any token the daemon did not issue, even
 once the flow is resumed. The daemon keeps only a hash of each token, in memory, so a token does not
