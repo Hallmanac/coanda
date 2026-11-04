@@ -5,6 +5,7 @@
     <Project Path="src/Coanda.Daemon/Coanda.Daemon.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Coanda.FakeClaude/Coanda.FakeClaude.csproj" />
     <Project Path="tests/Coanda.Tests/Coanda.Tests.csproj" />
   </Folder>
 </Solution>
