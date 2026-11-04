@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Coanda.Core.Contours;
 
@@ -16,7 +17,11 @@ public sealed record ContourStep
     public IReadOnlyDictionary<string, JsonElement> Arguments { get; init; } = new Dictionary<string, JsonElement>();
     public IReadOnlyList<ContourTransition> Transitions { get; init; } = [];
 
+    /// <summary>Whether the step is a judgment; derived from <see cref="Agent"/>, so never written into content.</summary>
+    [JsonIgnore]
     public bool IsJudgment => !string.IsNullOrWhiteSpace(Agent);
 
+    /// <summary>Whether the step is an action; derived from <see cref="Action"/>, so never written into content.</summary>
+    [JsonIgnore]
     public bool IsAction => !string.IsNullOrWhiteSpace(Action);
 }
