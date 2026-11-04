@@ -164,13 +164,13 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Open_pr_answers_opened_with_the_pull_requests_number_and_url_and_the_head_it_pushed()
+    public async Task Open_pr_answers_done_with_the_pull_requests_number_and_url_and_the_head_it_pushed()
     {
         Parcel parcel = await TaskAtAsync("build");
 
         JsonElement result = (await PerformAsync(Step(SoftwareActions.OpenPr), parcel.Id)).Should().BeOfType<ActionOutcome.Done>().Subject.Result;
 
-        result.GetProperty("verdict").GetString().Should().Be(OpenPrAction.OpenedVerdict);
+        result.GetProperty("verdict").GetString().Should().Be(ActionOutcome.DoneVerdict);
         result.GetProperty("action").GetString().Should().Be(SoftwareActions.OpenPr);
         result.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
         result.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);

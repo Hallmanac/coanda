@@ -15,7 +15,7 @@ namespace Coanda.Daemon.Actions;
 /// <summary>
 /// Pushes the flow's branch to the project's remote and opens a pull request from it against the
 /// primary branch, or reuses the open one whose head it already is, then records that pull request
-/// in the task's <c>pull-request</c> field and answers <see cref="OpenedVerdict"/> with its
+/// in the task's <c>pull-request</c> field and answers <c>done</c> with its
 /// <c>number</c> and <c>url</c> and the <c>head</c> pushed. The remote is parsed and the token read
 /// before anything is pushed, so a flow that cannot open a pull request pushes nothing. A worktree
 /// with changes, a remote that is no github.com repository, no token, a failed push, and a request
@@ -29,9 +29,6 @@ public sealed class OpenPrAction(
     GitHubToken tokens,
     Func<GitHubClient> github) : IFlowAction
 {
-    /// <summary>The verdict the action answers once the pull request is open.</summary>
-    public const string OpenedVerdict = "opened";
-
     /// <summary>The task field the pull request is recorded in.</summary>
     public const string PullRequestField = "pull-request";
 
@@ -111,7 +108,7 @@ public sealed class OpenPrAction(
             await parcels.SetFieldAsync(request.Principal, request.Project, request.ParcelId, PullRequestField, recorded, cancellationToken);
         }
 
-        return ActionOutcome.ResultWith(OpenedVerdict, Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));
+        return ActionOutcome.DoneWith(Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));
     }
 
     /// <summary>The pull request's body: the task's objective, then its criteria as a list.</summary>

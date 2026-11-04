@@ -30,14 +30,13 @@ public abstract record ActionOutcome
 
     /// <summary>A result whose verdict is <c>done</c>, naming the action, with any further fields given.</summary>
     public static Done DoneWith(string action, params (string Field, JsonNode? Value)[] fields) =>
-        ResultWith(DoneVerdict, action, fields);
+        WithVerdict(DoneVerdict, action, fields);
 
     /// <summary>A result whose verdict is <c>failed</c>, naming the action and carrying the <paramref name="reason"/>.</summary>
     public static Done FailedWith(string action, string reason) =>
-        ResultWith(FailedVerdict, action, [("reason", reason)]);
+        WithVerdict(FailedVerdict, action, [("reason", reason)]);
 
-    /// <summary>A result whose verdict is <paramref name="verdict"/>, naming the action, with any further fields given.</summary>
-    public static Done ResultWith(string verdict, string action, params (string Field, JsonNode? Value)[] fields)
+    private static Done WithVerdict(string verdict, string action, (string Field, JsonNode? Value)[] fields)
     {
         var result = new JsonObject
         {

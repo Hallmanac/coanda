@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -13,6 +14,7 @@ using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
+using Coanda.Tests.Core;
 using Coanda.Tests.Daemon.Commands;
 using Coanda.Tests.Daemon.GitHub;
 using Fisher;
@@ -195,17 +197,32 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         github.Requests.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task A_push_rejected_as_no_fast_forward_is_no_lease_rejection_and_pauses_with_the_perform_again_lever()
+    [Theory]
+    [InlineData(" ! [remote rejected] HEAD -> coanda/x (protected branch hook declined)", "(protected branch hook declined)")]
+    [InlineData(" ! [rejected]        HEAD -> coanda/x (non-fast-forward)", "(non-fast-forward)")]
+    [InlineData(" ! [rejected]        HEAD -> coanda/x (fetch first)", "(fetch first)")]
+    public async Task A_push_rejected_for_a_reason_other_than_stale_info_is_no_lease_rejection_and_pauses_with_the_perform_again_lever(
+        string rejection, string reason)
     {
         Parcel parcel = await TaskAsync(Project, "Rejected otherwise");
-        runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(1,
-            " ! [remote rejected] HEAD -> coanda/x (protected branch hook declined)\nerror: failed to push some refs"));
+        runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(1, $"{rejection}\nerror: failed to push some refs"));
 
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().StartWith("Step 'open-pr' could not push: ").And.Contain("protected branch hook declined");
+        paused.Reason.Should().StartWith("Step 'open-pr' could not push: ").And.Contain(reason);
         paused.Lever.Should().Be(FlowLevers.PerformAgain("open-pr"));
+    }
+
+    [Fact]
+    public async Task Its_answer_moves_a_flow_on_from_open_pr_under_the_shipped_build_contour_and_under_the_one_before_it()
+    {
+        Parcel parcel = await TaskAsync(Project, "Pinned to an earlier contour");
+        JsonElement result = Opened(await PerformAsync(parcel.Id, Ids.New()));
+        using JsonDocument answer = JsonDocument.Parse(result.GetRawText());
+        var atOpenPr = new FlowPosition("open-pr", ImmutableDictionary<string, int>.Empty.Add("open-pr", 1), Spawns: 0);
+
+        Interpreter.Decide(ShippedContours.Build, atOpenPr, answer).Should().Be(new FlowMove.GoTo("move-to-review"));
+        Interpreter.Decide(PreviousContours.BuildWithGatedMerge, atOpenPr, answer).Should().Be(new FlowMove.GoTo("gated-merge"));
     }
 
     [Fact]
@@ -394,7 +411,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     private static JsonElement Opened(ActionOutcome outcome)
     {
         JsonElement result = outcome.Should().BeOfType<ActionOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be(OpenPrAction.OpenedVerdict);
+        result.GetProperty("verdict").GetString().Should().Be(ActionOutcome.DoneVerdict);
         result.GetProperty("action").GetString().Should().Be(SoftwareActions.OpenPr);
         return result;
     }
