@@ -15,6 +15,12 @@ public sealed record NodeHome(string Path)
     public string DaemonInfoPath => System.IO.Path.Combine(Path, "daemon.json");
     public string LogPath => System.IO.Path.Combine(Path, "coanda.log");
 
+    /// <summary>The files SQLite keeps beside the database: the write-ahead log, the shared-memory file, and the rollback journal.</summary>
+    public IReadOnlyList<string> DatabaseCompanionPaths => [DatabasePath + "-wal", DatabasePath + "-shm", DatabasePath + "-journal"];
+
+    /// <summary>Every file in the home that only its owner may read or write.</summary>
+    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath];
+
     /// <summary>
     /// Where a flow's judgments work: <c>work/&lt;project&gt;/&lt;flow id&gt;</c> under the home.
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
@@ -38,9 +44,31 @@ public sealed record NodeHome(string Path)
         return new NodeHome(System.IO.Path.GetFullPath(path));
     }
 
+    /// <summary>
+    /// Creates the home if it is absent and narrows to owner-only access anything an earlier run
+    /// left wider: on Windows the directory itself, whose access list every file created in it
+    /// inherits, and on every platform the token file, the database and its companion files, and
+    /// the log. Called before anything opens the database or writes to any of those files.
+    /// </summary>
     public NodeHome EnsureExists()
     {
-        Directory.CreateDirectory(Path);
+        OwnerOnly.EnsureDirectory(Path);
+        foreach (string path in OwnerOnlyPaths)
+        {
+            OwnerOnly.Narrow(path);
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Creates the database empty and owner-only when it is absent, so SQLite opens a file that
+    /// already has the access it should, and on macOS and Linux gives the companion files it
+    /// creates the same mode. SQLite reads a zero-length file as an empty database.
+    /// </summary>
+    public NodeHome EnsureDatabase()
+    {
+        using FileStream database = OwnerOnly.Open(DatabasePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
         return this;
     }
 }

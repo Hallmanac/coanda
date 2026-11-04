@@ -12,7 +12,12 @@ public sealed record DaemonInfo(int Pid, int Port, string Token, DateTimeOffset 
 
     public string BaseAddress => $"http://127.0.0.1:{Port}";
 
-    public void Save(NodeHome home) => File.WriteAllText(home.DaemonInfoPath, JsonSerializer.Serialize(this, Json));
+    /// <summary>Writes the address file, readable and writable by its owner alone from the moment it is created.</summary>
+    public void Save(NodeHome home)
+    {
+        using FileStream file = OwnerOnly.Open(home.DaemonInfoPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        JsonSerializer.Serialize(file, this, Json);
+    }
 
     public static DaemonInfo? Load(NodeHome home)
     {

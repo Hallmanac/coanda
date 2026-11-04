@@ -23,10 +23,10 @@ public sealed class DaemonRunCommand : AsyncCommand<DaemonRunSettings>
 {
     protected override async Task<int> ExecuteAsync(CommandContext context, DaemonRunSettings settings, CancellationToken cancellationToken)
     {
-        NodeHome home = NodeHome.Resolve().EnsureExists();
+        NodeHome home = NodeHome.Resolve();
         if (settings.LogToFile)
         {
-            var log = new StreamWriter(new FileStream(home.LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+            StreamWriter log = OpenLog(home);
             Console.SetOut(log);
             Console.SetError(log);
         }
@@ -35,6 +35,16 @@ public sealed class DaemonRunCommand : AsyncCommand<DaemonRunSettings>
         Console.WriteLine($"coanda daemon {daemon.Info.Version} listening on {daemon.Info.BaseAddress} (pid {daemon.Info.Pid}), home {home.Path}");
         await daemon.WaitForShutdownAsync(cancellationToken);
         return 0;
+    }
+
+    /// <summary>
+    /// Creates or narrows the home, then opens its log for appending. The log is owner-only from
+    /// the moment it is created, and a log an earlier run left wider is narrowed before this writes to it.
+    /// </summary>
+    internal static StreamWriter OpenLog(NodeHome home)
+    {
+        home.EnsureExists();
+        return new StreamWriter(OwnerOnly.Open(home.LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
     }
 }
 

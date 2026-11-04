@@ -303,7 +303,12 @@ download and run; the SQLite file is created on first start in the node home. Up
 next GitHub release and restarts when no step is in progress, reattaching live sessions. Doctor
 checks git, gh, the agent CLI, and the node key. The daemon runs as a user process started on
 demand; service registration is later. Windows through the same process-manager seam. One local-
-time daemon log per node, plus the measurement events, which are what gets queried.
+time daemon log per node, plus the measurement events, which are what gets queried. The node
+home's token file (daemon.json), its database with the files SQLite keeps beside it, and its log
+are readable and writable by their owner alone from the moment each is created: mode 0600 on macOS
+and Linux, and on Windows the node home carries an owner-only access list, not inherited from its
+parent, that every file created inside it inherits. A start narrows any of them an earlier run left
+wider before it opens the database.
 
 ## 14. Beyond software
 

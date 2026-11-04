@@ -47,8 +47,7 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
             return running;
         }
 
-        // Said here as well as by the daemon, which reports it only to its log.
-        PreRenameStore.ThrowIfFound(Home);
+        PrepareToStart();
         DaemonInfo.Delete(Home);
         StartDetached();
 
@@ -66,6 +65,19 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
         throw new DomainException($"The daemon did not start within {StartTimeout.TotalSeconds:0} seconds; see {Home.LogPath}.");
     }
 
+    /// <summary>
+    /// What happens before a detached start: the home is created or narrowed to owner-only access,
+    /// then checked for a record from an older build. The check opens the database, so the
+    /// narrowing comes first.
+    /// </summary>
+    internal void PrepareToStart()
+    {
+        Home.EnsureExists();
+
+        // Said here as well as by the daemon, which reports it only to its log.
+        PreRenameStore.ThrowIfFound(Home);
+    }
+
     private void StartDetached()
     {
         string executable = Environment.ProcessPath ?? throw new InvalidOperationException("The CLI cannot find its own executable.");
@@ -73,7 +85,7 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = Home.EnsureExists().Path,
+            WorkingDirectory = Home.Path,
         };
         start.ArgumentList.Add("daemon");
         start.ArgumentList.Add("run");

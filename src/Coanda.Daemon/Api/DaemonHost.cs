@@ -44,7 +44,9 @@ public sealed class DaemonHost
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.JudgmentLimit, TimeSpan.Zero, nameof(options));
-        home.EnsureExists();
+        // Narrows what an earlier run left wider and creates the database owner-only, before the
+        // check below or the store opens it.
+        home.EnsureExists().EnsureDatabase();
 
         // Before the store is configured, which would add this build's tables to an old record.
         PreRenameStore.ThrowIfFound(home);
