@@ -74,7 +74,11 @@ and the project's build and test tools on its PATH, and it has to reach the proj
 no prompt: every git command runs with `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o
 BatchMode=yes`, so an ssh key needs no passphrase or has to be loaded in an agent, and a key named
 only in `core.sshCommand` is not used. The gates step ends a build or test command still running
-after an hour and fails, as it does for a nonzero exit. [Getting started](getting-started.md) has the details.
+after an hour and fails, as it does for a nonzero exit. The open-pr step needs the project's remote
+to be a github.com repository in one of the forms getting started lists, and the GitHub CLI on the
+daemon's PATH and signed in. These steps are not simulated: a build flow pushes a real
+`coanda/<short id>` branch and opens a real pull request on the project's remote.
+[Getting started](getting-started.md) has the details.
 
 A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
 commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that
