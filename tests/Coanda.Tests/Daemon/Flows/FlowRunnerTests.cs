@@ -667,17 +667,61 @@ public sealed class FlowRunnerTests
     }
 
     [Fact]
-    public async Task A_daemon_stop_after_the_judgments_session_is_recorded_leaves_that_session_alive_and_the_next_start_carries_the_flow_on()
+    public async Task A_daemon_stop_after_the_judgments_session_is_recorded_leaves_that_session_alive_and_the_next_start_stops_it_before_launching_again()
     {
         using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Left running");
+
+        stalled.Open();
+        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stalled }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
+        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
+
+        stalled.Inner.Stops.Should().HaveCountGreaterThan(1);
+        stalled.Inner.Stops[0].Should().Be(issued, "the next start stops the session left alive before it launches another");
+        stalled.Inner.Spawns.Should().HaveCountGreaterThan(1);
+        stalled.Inner.Stops.Should().ContainSingle(handle => handle == issued);
+        (await stalled.ListAsync(None)).Should().NotContain(issued);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_session_left_alive_that_will_not_stop_on_the_next_start_pauses_the_flow_without_launching_another()
+    {
+        using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Will not stop");
+
+        var stubborn = new GatedExecutor(stalled.Inner) { FailStops = true };
+        stubborn.Open();
+        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stubborn }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
+
+        paused.PauseReason.Should().StartWith($"Step 'build' could not stop session {Ids.Short(issued.Id)} that agent 'build' was left running in");
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("build"));
+        stubborn.Inner.Spawns.Should().ContainSingle("no second agent is launched beside one that would not stop");
+        stubborn.StopTokensCancelled.Should().Equal(false);
+
+        await second.StopAsync(None);
+    }
+
+    /// <summary>
+    /// Starts a daemon on the gated executor, waits until the bound flow's judgment has recorded its
+    /// session, and stops the daemon, checking that the session was left alive and the flow names it.
+    /// </summary>
+    private static async Task<(Guid FlowId, SessionHandle Issued)> StopWithSessionLeftAsync(TemporaryHome temp, GatedExecutor stalled, string title)
+    {
         Guid flowId;
         Guid sessionId = Guid.Empty;
-        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
         await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stalled }, None))
         {
             using var client = new DaemonClient(temp.Home);
             FlowService flows = first.Services.GetRequiredService<FlowService>();
-            ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Left running");
+            ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, title);
             flowId = (await Flowing.BoundAsync(client, Project, parcel.Id)).Id;
             await Flowing.UntilAsync(
                 async () =>
@@ -705,12 +749,7 @@ public sealed class FlowRunnerTests
             between.Current?.SessionId.Should().Be(issued.Id);
         }
 
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
-        using var again = new DaemonClient(temp.Home);
-        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-
-        await second.StopAsync(None);
+        return (flowId, issued);
     }
 
     [Fact]
