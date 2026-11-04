@@ -47,7 +47,7 @@ than left waiting, whatever your own Claude Code settings say. No user, project,
 hooks, or MCP servers are loaded, and automatic memory is off, so a session never reads or writes
 your own Claude Code configuration. The repository's `CLAUDE.md` and `AGENTS.md` are not loaded
 either (seen with Claude Code 2.1.318), so a session reads the project's guidance only when its
-persona tells it to, as the shipped build agent's does.
+persona tells it to, as every shipped agent's persona does.
 
 Before each spawn the daemon writes `.coanda/task.md` (the parcel record) and `.coanda/prompt.md`
 (the context the step carries) at the root of the work directory, and the session's persona as
