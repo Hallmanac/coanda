@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Daemon;
@@ -64,15 +65,31 @@ public sealed class FakeClaude : IDisposable
     public void Script(params object[] entries) =>
         File.WriteAllText(Path.Combine(Control, "script.json"), JsonSerializer.Serialize(entries));
 
-    /// <summary>One record per process start, in start order.</summary>
+    /// <summary>Releases every start whose entry waits for <paramref name="name"/>.</summary>
+    public void Release(string name = "release") => File.WriteAllText(Path.Combine(Control, name), "released");
+
+    /// <summary>
+    /// One record per process start, in start order. A start holds the file to itself while it
+    /// appends its record, so a read that meets one waits for it, as the fake's own writers do.
+    /// </summary>
     public IReadOnlyList<Start> Starts
     {
         get
         {
             string path = Path.Combine(Control, "records.jsonl");
-            return File.Exists(path)
-                ? [.. File.ReadAllLines(path).Where(l => l.Length > 0).Select(Start.From)]
-                : [];
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    return File.Exists(path)
+                        ? [.. File.ReadAllLines(path).Where(l => l.Length > 0).Select(Start.From)]
+                        : [];
+                }
+                catch (IOException) when (attempt < 50)
+                {
+                    Thread.Sleep(20);
+                }
+            }
         }
     }
 
@@ -82,8 +99,62 @@ public sealed class FakeClaude : IDisposable
         get
         {
             string path = Path.Combine(Control, "child.pid");
-            return File.Exists(path) && int.TryParse(File.ReadAllText(path), out int pid) ? pid : null;
+            try
+            {
+                return File.Exists(path) && int.TryParse(File.ReadAllText(path), out int pid)
+                    ? pid
+                    : null;
+            }
+            catch (IOException)
+            {
+                // Windows refuses a read while the child still has the file open; it is not there yet.
+                return null;
+            }
         }
+    }
+
+    /// <summary>Whether a process with the id is running, as the system reports it, so one that has exited but not been reaped yet still counts.</summary>
+    public static bool Running(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether the process has exited, counting one that has exited but not been reaped yet: a session
+    /// process a test's first executor started is a child of the test process, and stays in the process
+    /// table after it exits until something waits on it, where a daemon that exited would have left
+    /// it to the system to reap.
+    /// </summary>
+    public static bool Finished(int pid)
+    {
+        if (OperatingSystem.IsWindows() || !Running(pid))
+        {
+            return !Running(pid);
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            string stat = $"/proc/{pid}/stat";
+            return !File.Exists(stat) || File.ReadAllText(stat).Split(')')[^1].TrimStart().StartsWith('Z');
+        }
+
+        using Process ps = Process.Start(new ProcessStartInfo("ps", ["-o", "stat=", "-p", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)]) { RedirectStandardOutput = true })
+            ?? throw new InvalidOperationException("ps did not start.");
+        string state = ps.StandardOutput.ReadToEnd().Trim();
+        ps.WaitForExit();
+        return state.Length == 0 || state.StartsWith('Z');
     }
 
     public void Dispose()
@@ -101,9 +172,10 @@ public sealed class FakeClaude : IDisposable
     }
 
     /// <summary>A successful result whose reply is <paramref name="reply"/>, with figures in <c>model_usage_since_last_result</c>.</summary>
-    public static object Answering(string? reply, decimal cost, decimal totalCost, long input = 10, long output = 20, long cacheCreation = 30, long cacheRead = 40, int turns = 2, long durationMs = 1500) => new
+    public static object Answering(string? reply, decimal cost, decimal totalCost, long input = 10, long output = 20, long cacheCreation = 30, long cacheRead = 40, int turns = 2, long durationMs = 1500, string? waitFor = null) => new
     {
         reply,
+        waitFor,
         totalCost,
         turns,
         durationMs,

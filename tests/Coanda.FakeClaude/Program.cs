@@ -11,7 +11,8 @@ namespace Coanda.Testing.FakeClaude;
 /// directory, standard input, and the persona file as it found it, then plays the entry of
 /// <c>script.json</c> whose position is the number of starts before it (the last entry once they
 /// run out): a system init event, a rate-limit event, the entry's assistant events, and its result,
-/// printed the way Claude Code 2.1.318 prints them in print mode with stream-json output.
+/// printed the way Claude Code 2.1.318 prints them in print mode with stream-json output. An entry
+/// with <c>waitFor</c> holds its result until a file of that name appears in the control directory.
 /// Started with <see cref="CommandFlag"/> first, it is instead the stand-in command the command
 /// runner's tests start, and needs no control directory (see <see cref="Command"/>).
 /// </summary>
@@ -271,6 +272,17 @@ public static class Program
         }
 
         Console.Error.Flush();
+        if ((string?)entry["waitFor"] is { } release)
+        {
+            // Holds the session in progress until the test writes the release file, as a long turn would.
+            string released = Path.Combine(control, release);
+            DateTime deadline = DateTime.UtcNow.AddSeconds(120);
+            while (!File.Exists(released) && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(20);
+            }
+        }
+
         int exitCode = (int?)entry["exitCode"] ?? 0;
         switch ((string?)entry["result"] ?? "success")
         {
