@@ -49,7 +49,9 @@ namespace Coanda.Daemon.Flows;
 /// was recorded (a person paused or stopped the flow, or its visit no longer expects the session),
 /// in a record of its usage alone. An answer or a pause from a session the visit no longer expects,
 /// because a resume came after its launch, does not pause the flow: the resume's own pass performs
-/// the step again.
+/// the step again. Each launch, once recorded and before its agent starts, is issued a session token
+/// of its own (<see cref="SessionTokens"/>), handed to the executor in the spawn's
+/// <see cref="SessionAccess"/>, and forgotten when the judgment ends.
 /// </remarks>
 public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 {
@@ -64,6 +66,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private readonly IAgentExecutor executor;
     private readonly CredentialProfiles profiles;
     private readonly NodeHome home;
+    private readonly SessionTokens sessionTokens;
     private readonly TimeProvider clock;
     private readonly TimeSpan judgmentLimit;
     private readonly ILogger<FlowRunner> logger;
@@ -81,6 +84,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         IAgentExecutor executor,
         CredentialProfiles profiles,
         NodeHome home,
+        SessionTokens sessionTokens,
         TimeProvider clock,
         FlowRunnerOptions options,
         ILogger<FlowRunner> logger)
@@ -93,6 +97,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         this.executor = executor;
         this.profiles = profiles;
         this.home = home;
+        this.sessionTokens = sessionTokens;
         this.clock = clock;
         judgmentLimit = options.JudgmentLimit;
         this.logger = logger;
@@ -427,13 +432,26 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         // ends the judgment even before its spawn returns, and one saved before it refuses the record.
         using var ended = new CancellationTokenSource();
         Watch(flow.Id, ended);
+        Guid? launch = null;
         try
         {
-            await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
+            Flow spawned = await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
+            launch = spawned.Current?.LaunchId
+                ?? throw new InvalidOperationException($"The launch of step '{step.Name}' on flow {Ids.Short(flow.Id)} was recorded without a launch id.");
+
+            // Issued once the launch is recorded and before the agent starts, since the session's
+            // environment is fixed when its process starts; it resolves only while this launch runs.
+            string token = sessionTokens.Issue(new SessionBinding(project.Trim(), flow.Id, launch.Value));
+            request = request with { Access = new SessionAccess(token, home.Path, project.Trim()) };
             return await RunJudgmentAsync(principal, project, flow.Id, step, agent, published.ContentHash, request, ended.Token, cancellationToken);
         }
         finally
         {
+            if (launch is Guid issued)
+            {
+                sessionTokens.Revoke(issued);
+            }
+
             Unwatch(flow.Id, ended);
         }
     }

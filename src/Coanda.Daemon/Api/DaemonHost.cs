@@ -77,6 +77,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunner>();
         builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());
         builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunner>());
@@ -93,7 +94,7 @@ public sealed class DaemonHost
 
         // The token check runs first for everything but /health; the DomainException mapping sits
         // inside it, wrapping the endpoints.
-        app.UseDaemonToken(token);
+        app.UseDaemonToken(token, app.Services.GetRequiredService<SessionTokens>());
         app.UseDomainExceptionMapping();
 
         app.MapDaemonEndpoints();
