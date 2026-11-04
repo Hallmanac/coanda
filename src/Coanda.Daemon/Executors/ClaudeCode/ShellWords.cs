@@ -24,18 +24,30 @@ public static partial class ShellWords
 
     /// <summary>
     /// The commands of <paramref name="command"/>, in order, each as its words with their quotes
-    /// removed, with how many subshells (parentheses, <c>$(</c>, or backticks) it runs inside, and
-    /// with the operators on either side of it.
+    /// removed, with how many subshells (parentheses, <c>$(</c>, or backticks) it runs inside, with
+    /// the operators on either side of it, and with which of its words are its arguments (see
+    /// <see cref="ShellCommand.Arguments"/>).
     /// </summary>
     public static IReadOnlyList<ShellCommand> Commands(string command)
     {
         ArgumentNullException.ThrowIfNull(command);
         List<ShellCommand> commands = [];
         List<string> words = [];
+        List<string> arguments = [];
         var word = new StringBuilder();
         int depth = 0;
         bool backticks = false;
         string before = string.Empty;
+
+        // Redirections and comments are told apart from arguments only in a line with no quotes,
+        // backslashes, or ${, where every word this reader makes is a word the shell makes too; in any
+        // other line, every word counts as an argument.
+        bool plain = command.IndexOfAny(['\'', '"', '\\']) < 0 && !command.Contains("${", StringComparison.Ordinal);
+
+        // Whether the next word is the file of a redirection, and whether the words are in a comment.
+        bool operand = false;
+        bool comment = false;
+        bool commentable = false;
         for (int i = 0; i < command.Length; i++)
         {
             char c = command[i];
@@ -56,6 +68,9 @@ public static partial class ShellWords
                 };
                 i += op.Length - 1;
                 EndCommand(op);
+
+                // A comment runs to the end of its line, whatever operators it holds.
+                comment = comment && c is not ('\n' or '\r');
                 switch (c)
                 {
                     case '(':
@@ -69,12 +84,36 @@ public static partial class ShellWords
                         break;
                 }
             }
-            else if (char.IsWhiteSpace(c) || Redirections.Contains(c, StringComparison.Ordinal))
+            else if (Redirections.Contains(c, StringComparison.Ordinal))
+            {
+                // A digit written right before the redirection names the descriptor it redirects.
+                bool descriptor = plain && !operand && word.Length == 1 && char.IsAsciiDigit(word[0]);
+                EndWord(descriptor);
+                if (plain && !comment)
+                {
+                    // <( and >( are a process substitution, which the shell passes on as a file name.
+                    if (i + 1 < command.Length && command[i + 1] == '(')
+                    {
+                        arguments.Add(c + "(");
+                        operand = false;
+                    }
+                    else
+                    {
+                        operand = true;
+                    }
+                }
+            }
+            else if (char.IsWhiteSpace(c))
             {
                 EndWord();
             }
             else if (c is not ('\'' or '"'))
             {
+                // Only a # that begins a word after whitespace or at the start of the line begins a
+                // comment; after an operator it may be zsh's glob flag, as in (#i).
+                commentable = word.Length > 0
+                    ? commentable
+                    : i == 0 || char.IsWhiteSpace(command[i - 1]);
                 word.Append(c);
             }
         }
@@ -90,12 +129,31 @@ public static partial class ShellWords
             _ => 0,
         };
 
-        void EndWord()
+        void EndWord(bool descriptor = false)
         {
-            if (word.Length > 0)
+            if (word.Length == 0)
             {
-                words.Add(word.ToString());
-                word.Clear();
+                return;
+            }
+
+            string text = word.ToString();
+            words.Add(text);
+            word.Clear();
+            if (!plain)
+            {
+                arguments.Add(text);
+            }
+            else if (operand)
+            {
+                operand = false;
+            }
+            else if (!comment && !descriptor)
+            {
+                comment = commentable && text[0] == '#';
+                if (!comment)
+                {
+                    arguments.Add(text);
+                }
             }
         }
 
@@ -103,10 +161,12 @@ public static partial class ShellWords
         {
             if (words.Count > 0)
             {
-                commands.Add(new ShellCommand([.. words], backticks ? depth + 1 : depth, before, after));
+                commands.Add(new ShellCommand([.. words], backticks ? depth + 1 : depth, before, after, [.. arguments]));
                 words.Clear();
             }
 
+            arguments.Clear();
+            operand = false;
             before = after;
         }
     }
@@ -121,12 +181,15 @@ public static partial class ShellWords
     /// been in (<see cref="DirectoryMove.Back"/>) for a <c>popd</c>, a <c>pushd</c> with no directory,
     /// and a <c>cd</c> or <c>pushd</c> to a place on the directory stack such as <c>+1</c>; and to a
     /// directory the guard cannot know (<see cref="DirectoryMove.Unknown"/>) for zsh's
-    /// <c>cd OLD NEW</c>, which replaces part of the current directory's name. Null for any other
-    /// command.
+    /// <c>cd OLD NEW</c>, which replaces part of the current directory's name. Only the command's
+    /// <see cref="ShellCommand.Arguments"/> are read, so a redirection or a comment is neither the
+    /// command's name nor a directory. Null for any other command.
     /// </summary>
-    public static DirectoryMove? DirectoryChange(IReadOnlyList<string> words)
+    public static DirectoryMove? DirectoryChange(ShellCommand command)
     {
-        ArgumentNullException.ThrowIfNull(words);
+        ArgumentNullException.ThrowIfNull(command);
+        // A redirection's words and a comment's are not the command's own, so they are left out here.
+        IReadOnlyList<string> words = command.Arguments;
         int first = 0;
         while (first < words.Count && (Assignment().IsMatch(words[first]) || Prefixes.Contains(Unescape(words[first]))))
         {
@@ -391,12 +454,16 @@ public static partial class ShellWords
 }
 
 /// <summary>
-/// One command of a shell command line: its words, how many subshells it runs inside, and the
-/// operators before and after it. An operator is <c>;</c> (also for a line end), <c>&amp;&amp;</c>,
-/// <c>||</c>, <c>|</c>, <c>&amp;</c>, <c>(</c> or <c>)</c> (also for an opening or closing backtick),
-/// or empty at the start or end of the line.
+/// One command of a shell command line: its words, how many subshells it runs inside, the
+/// operators before and after it, and its arguments. An operator is <c>;</c> (also for a line end),
+/// <c>&amp;&amp;</c>, <c>||</c>, <c>|</c>, <c>&amp;</c>, <c>(</c> or <c>)</c> (also for an opening or
+/// closing backtick), or empty at the start or end of the line. The arguments are the words the
+/// command receives: its words without a redirection's descriptor number and file and without a
+/// comment's words, with a process substitution standing as <c>&lt;(</c> or <c>&gt;(</c>. In a line
+/// holding a quote, a backslash, or <c>${</c>, the reader cannot tell those apart, so the arguments
+/// are all the words.
 /// </summary>
-public sealed record ShellCommand(IReadOnlyList<string> Words, int Depth, string Before, string After);
+public sealed record ShellCommand(IReadOnlyList<string> Words, int Depth, string Before, string After, IReadOnlyList<string> Arguments);
 
 /// <summary>
 /// Where a command moves the shell: to <see cref="Destination"/>, as written, for a
