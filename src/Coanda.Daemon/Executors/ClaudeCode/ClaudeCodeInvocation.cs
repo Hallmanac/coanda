@@ -23,6 +23,14 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// exec-form pre-tool-use hook that blocks the call when it cannot run, and sets
 /// <c>disableAllHooks</c> to false, which outranks a user, project, or local settings file that
 /// would switch hooks off; only managed settings rank above it.
+/// The settings document sets <c>attribution</c> to <c>{ "commit": "", "pr": "" }</c>, which the
+/// 2.1.318 settings schema documents as hiding the attribution Claude Code otherwise adds to the
+/// commits and pull requests a session makes (an empty string hides it). It uses the object form
+/// rather than <c>false</c>, which older versions reject, and a settings document that fails
+/// validation is not loaded at all. It sets no <c>includeCoAuthoredBy</c>, which that schema marks
+/// as deprecated, and no <c>sessionUrl</c>, which applies only to web and Remote Control sessions.
+/// Managed settings rank above the document here too, so an operator's managed policy can turn
+/// attribution back on.
 /// </remarks>
 public static partial class ClaudeCodeInvocation
 {
@@ -40,6 +48,9 @@ public static partial class ClaudeCodeInvocation
     public const string AutoMemorySetting = "autoMemoryEnabled";
 
     public const string ApiKeyHelperSetting = "apiKeyHelper";
+
+    /// <summary>The setting that names the attribution added to a session's commits and pull requests; the settings document hides both.</summary>
+    public const string AttributionSetting = "attribution";
 
     /// <summary>The setting that switches every hook off when true; the settings document sets it to false.</summary>
     public const string DisableAllHooksSetting = "disableAllHooks";
@@ -137,15 +148,20 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>
     /// The settings document every process of a session receives through <c>--settings</c>: automatic
-    /// memory off, a helper profile's API key helper, hooks left on, and the tool guard registered
-    /// before every call to the six tools it judges, run as <paramref name="coaExecutable"/> with the
-    /// <paramref name="guard"/>'s arguments and no shell, blocking the call when it cannot run.
+    /// memory off, no attribution on commits or pull requests, a helper profile's API key helper,
+    /// hooks left on, and the tool guard registered before every call to the six tools it judges, run
+    /// as <paramref name="coaExecutable"/> with the <paramref name="guard"/>'s arguments and no shell,
+    /// blocking the call when it cannot run.
     /// </summary>
     public static string Settings(CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentException.ThrowIfNullOrWhiteSpace(coaExecutable);
-        var settings = new JsonObject { [AutoMemorySetting] = false };
+        var settings = new JsonObject
+        {
+            [AutoMemorySetting] = false,
+            [AttributionSetting] = new JsonObject { ["commit"] = string.Empty, ["pr"] = string.Empty },
+        };
         if (profile?.ApiKeyHelper is { } helper)
         {
             settings[ApiKeyHelperSetting] = helper;

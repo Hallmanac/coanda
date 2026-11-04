@@ -49,6 +49,12 @@ your own Claude Code configuration. The repository's `CLAUDE.md` and `AGENTS.md`
 either (seen with Claude Code 2.1.318), so a session reads the project's guidance only when its
 persona tells it to, as every shipped agent's persona does.
 
+A session adds no attribution to the commits or pull requests it makes: no `Co-Authored-By`
+trailer on a commit and no generated-with line in a pull request's description. The daemon's
+settings for the session turn both off (Claude Code's `attribution` setting, with an empty
+`commit` and `pr`), and your own Claude Code settings cannot turn them back on, because none of
+them are loaded. Only a managed settings file can, since managed settings outrank the daemon's.
+
 Before each spawn the daemon writes `.coanda/task.md` (the parcel record) and `.coanda/prompt.md`
 (the context the step carries) at the root of the work directory, and the session's persona as
 `.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the

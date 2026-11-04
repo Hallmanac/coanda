@@ -56,7 +56,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             "--permission-prompts", "none",
             "--strict-mcp-config",
             "--setting-sources", "",
-            "--settings", """{"autoMemoryEnabled":false}""",
+            "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}""",
             "--max-budget-usd", "2.5");
         start.Arguments.Should().NotContain("--mcp-config").And.NotContain("--append-system-prompt");
         JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.ValueKind.Should().Be(JsonValueKind.Object, "the settings reach the CLI as a JSON document, never as a file");
@@ -118,7 +118,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         start.Environment.Should().Contain("CLAUDE_CONFIG_DIR", "/profiles/work");
         start.Environment.Keys.Should().NotContain(ClaudeCodeInvocation.CredentialVariables);
         ClaudeCodeInvocation.CredentialVariables.Should().Contain(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
-        WithoutGuard(start.Arguments).Should().ContainInConsecutiveOrder("--settings", """{"autoMemoryEnabled":false}""");
+        WithoutGuard(start.Arguments).Should().ContainInConsecutiveOrder("--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}""");
     }
 
     [Fact]
@@ -951,6 +951,34 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         }
 
         fake.Starts[1].After("--settings").Should().Be(fake.Starts[0].After("--settings"), "a retry resumes with the same settings document");
+    }
+
+    [Fact]
+    public async Task Every_process_of_a_session_with_or_without_a_profile_hides_attribution_on_commits_and_pull_requests()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering(ValidBuild, 0.1m, 0.1m),
+            FakeClaude.Answering("I could not decide.", cost: 0.1m, totalCost: 0.1m),
+            FakeClaude.Answering(ValidBuild, cost: 0.1m, totalCost: 0.2m));
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+        var profile = new CredentialProfile("claude-code", "work", "/profiles/work", null);
+
+        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await executor.CollectAsync(handle, None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(profile), None);
+
+        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
+        fake.Starts.Should().HaveCount(3);
+        fake.Starts[0].After("--session-id").Should().NotBeNull("the first process spawns a session with no profile");
+        fake.Starts[1].After("--session-id").Should().NotBeNull("the second process spawns a session with a profile");
+        fake.Starts[1].Environment.Should().Contain("CLAUDE_CONFIG_DIR", "/profiles/work");
+        fake.Starts[2].After("--resume").Should().Be(fake.Starts[1].After("--session-id"), "the third process resumes that session");
+        foreach (FakeClaude.Start start in fake.Starts)
+        {
+            JsonElement settings = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement;
+            settings.GetProperty("attribution").GetRawText().Should().Be("""{"commit":"","pr":""}""");
+            settings.TryGetProperty("includeCoAuthoredBy", out _).Should().BeFalse("the deprecated setting is never set");
+        }
     }
 
     [Fact]
