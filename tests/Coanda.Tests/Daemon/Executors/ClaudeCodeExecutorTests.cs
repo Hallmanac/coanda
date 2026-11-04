@@ -51,14 +51,13 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             "--model", "claude-sonnet-5-5",
             "--effort", "high",
             "--tools", "Read,Glob,Grep,Edit,Write,Bash",
-            "--allowedTools", "Read,Glob,Grep,Edit,Write,Bash",
             "--permission-mode", "dontAsk",
             "--permission-prompts", "none",
             "--strict-mcp-config",
             "--setting-sources", "",
-            "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}""",
+            "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""",
             "--max-budget-usd", "2.5");
-        start.Arguments.Should().NotContain("--mcp-config").And.NotContain("--append-system-prompt");
+        start.Arguments.Should().NotContain("--mcp-config").And.NotContain("--append-system-prompt").And.NotContain("--allowedTools", "the tools are approved inside the settings document, so a CLI that skips it approves none");
         JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.ValueKind.Should().Be(JsonValueKind.Object, "the settings reach the CLI as a JSON document, never as a file");
 
         string persona = await File.ReadAllTextAsync(Path.Combine(WorkDirectory, ".coanda", "persona.md"));
@@ -86,7 +85,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
         start.After("--tools").Should().Be(mapped);
-        start.After("--allowedTools").Should().Be(mapped);
+        start.Arguments.Should().NotContain("--allowedTools");
+        AllowRules(start).Should().Equal(mapped.Split(','));
     }
 
     [Fact]
@@ -101,6 +101,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
         start.After("--tools").Should().BeEmpty();
         start.Arguments.Should().NotContain("--allowedTools");
+        JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.TryGetProperty("permissions", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -118,7 +119,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         start.Environment.Should().Contain("CLAUDE_CONFIG_DIR", "/profiles/work");
         start.Environment.Keys.Should().NotContain(ClaudeCodeInvocation.CredentialVariables);
         ClaudeCodeInvocation.CredentialVariables.Should().Contain(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
-        WithoutGuard(start.Arguments).Should().ContainInConsecutiveOrder("--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""}}""");
+        WithoutGuard(start.Arguments).Should().ContainInConsecutiveOrder(
+            "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""");
     }
 
     [Fact]
@@ -1011,6 +1013,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         return stripped;
     }
+
+    /// <summary>The tools the settings document's permission rules allow.</summary>
+    private static List<string> AllowRules(FakeClaude.Start start) =>
+        [.. JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement
+            .GetProperty("permissions").GetProperty("allow").EnumerateArray().Select(a => a.GetString() ?? string.Empty)];
 
     private static ToolGuardRules GuardOf(FakeClaude.Start start)
     {
