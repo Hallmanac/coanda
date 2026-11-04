@@ -26,6 +26,7 @@ public sealed class DefinitionStoreTests
             ["build"] = ["review"],
             ["review"] = ["build", "qa"],
         },
+        GateBindings = [.. ShippedTypes.Task.GateBindings, new GateBinding("review", "qa", RequiredFieldsGate.GateName)],
     };
 
     private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System, actions: ShippedActions.Names);

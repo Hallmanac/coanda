@@ -57,6 +57,7 @@ public sealed class ParcelBindingTests
         {
             Name = "gated-task",
             ContourBindings = [],
+            Fields = [],
             GateBindings = [new GateBinding("refine", "build", gate.Name)],
         };
         await PublishTypeAsync(daemon, gated);
