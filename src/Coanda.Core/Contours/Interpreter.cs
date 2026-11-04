@@ -50,7 +50,7 @@ public static class Interpreter
         {
             null => new FlowMove.Pause(
                 $"Step '{step.Name}' has no transition for that answer; no field and value in its table match it."),
-            _ when visits > considered.VisitCap => new FlowMove.Pause(
+            _ when !Allows(considered, visits) => new FlowMove.Pause(
                 $"Step '{step.Name}' reached the visit cap of {considered.VisitCap} on its transition to '{considered.Target}'."),
             { Target: Contour.End } => new FlowMove.End(contour.Outcome),
             { Target: Contour.Pause } => new FlowMove.Pause(
@@ -58,6 +58,18 @@ public static class Interpreter
             _ => GoTo(contour, position, considered.Target),
         };
     }
+
+    /// <summary>
+    /// Whether some transition out of <paramref name="step"/> could fire at the step's next visit,
+    /// one more than <paramref name="visits"/>, by the same visit-cap rule <see cref="Decide"/>
+    /// applies, whatever its answer or target. When none could, entering the step again can only
+    /// pause on a visit cap.
+    /// </summary>
+    public static bool CanFireAtNextVisit(ContourStep step, int visits) =>
+        step.Transitions.Any(transition => Allows(transition, visits + 1));
+
+    /// <summary>A transition fires at a visit count no greater than its visit cap.</summary>
+    private static bool Allows(ContourTransition transition, int visits) => visits <= transition.VisitCap;
 
     private static FlowMove GoTo(Contour contour, FlowPosition position, string target)
     {

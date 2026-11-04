@@ -195,4 +195,17 @@ public sealed class InterpreterTests
 
         Decide(atCap, """{"verdict":"act"}""").Should().Be(new FlowMove.GoTo("act"));
     }
+
+    [Fact]
+    public void A_step_can_fire_at_its_next_visit_while_any_transition_out_of_it_has_a_cap_no_smaller_than_that_visit()
+    {
+        ContourStep act = Sample.Step("act") ?? throw new InvalidOperationException("The sample has an act step.");
+
+        Interpreter.CanFireAtNextVisit(act, 4).Should().BeTrue("the transitions capped at 5 allow a fifth visit");
+        Interpreter.CanFireAtNextVisit(act, 5).Should().BeFalse("no transition out of the step allows a sixth visit");
+
+        // The same rule Decide applies: at the fifth visit a transition capped at 5 still fires.
+        Decide(At("act", visits: 5), """{"verdict":"done"}""").Should().Be(new FlowMove.GoTo("judge"));
+        Decide(At("act", visits: 6), """{"verdict":"done"}""").Should().BeOfType<FlowMove.Pause>();
+    }
 }
