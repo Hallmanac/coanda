@@ -59,6 +59,11 @@ public sealed class DaemonHost
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(o => o.TimestampFormat = "yyyy-MM-dd HH:mm:ss ");
+        if (options.LoggerProvider is { } provider)
+        {
+            builder.Logging.AddProvider(provider);
+        }
+
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(TimeProvider.System);
@@ -126,8 +131,13 @@ public sealed class DaemonHost
             await app.Services.GetRequiredService<DefinitionService>()
                 .SeedAsync(ShippedDefinitions.All, cancellationToken);
 
+            // Worktrees of flows that ended or were stopped while no daemon ran to remove them go
+            // first, before any live flow is advanced. A sweep that fails is logged and the start goes on.
+            FlowRunner runner = app.Services.GetRequiredService<FlowRunner>();
+            await runner.SweepWorktreesAsync(cancellationToken);
+
             // Every live flow that is not paused carries on from its current step.
-            await app.Services.GetRequiredService<FlowRunner>().AdvanceLiveAsync(cancellationToken);
+            await runner.AdvanceLiveAsync(cancellationToken);
 
             // The trigger loop's position is fixed before the address is advertised, so nothing
             // recorded through the API can land before the point it reads from.

@@ -13,6 +13,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
+using Coanda.Daemon.Repositories;
 using Fisher;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -44,7 +45,10 @@ namespace Coanda.Daemon.Flows;
 /// the session stopped. Until a reattach path exists, the next start stops a session left that way
 /// before it launches the judgment again, so no two agents run in one flow's working directory. A step recorded before the stop but not yet routed is routed without
 /// being performed again. A person's pause or stop, once saved, ends the judgment in progress at
-/// once, its session stopped through the executor; an action in progress runs on. Every judgment
+/// once, its session stopped through the executor. A pause lets an action in progress run on; a stop
+/// cancels it, ending any command it runs, and the action records nothing. When a flow ends, or once
+/// its worker has returned from the step it was performing when it was stopped, the flow's worktree
+/// is removed; a removal that fails is logged, and the daemon's next start sweeps what is left. Every judgment
 /// that launched a session records what it spent: in its answer, in its pause, or, when neither
 /// was recorded (a person paused or stopped the flow, or its visit no longer expects the session),
 /// in a record of its usage alone. An answer or a pause from a session the visit no longer expects,
@@ -65,6 +69,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private readonly FlowActions actions;
     private readonly IAgentExecutor executor;
     private readonly CredentialProfiles profiles;
+    private readonly ProjectClones clones;
     private readonly NodeHome home;
     private readonly SessionTokens sessionTokens;
     private readonly TimeProvider clock;
@@ -83,6 +88,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         FlowActions actions,
         IAgentExecutor executor,
         CredentialProfiles profiles,
+        ProjectClones clones,
         NodeHome home,
         SessionTokens sessionTokens,
         TimeProvider clock,
@@ -96,6 +102,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         this.actions = actions;
         this.executor = executor;
         this.profiles = profiles;
+        this.clones = clones;
         this.home = home;
         this.sessionTokens = sessionTokens;
         this.clock = clock;
@@ -138,6 +145,50 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             {
                 _ = judging.CancelAsync();
             }
+        }
+    }
+
+    public void Stopped(string project, Guid flowId)
+    {
+        lock (gate)
+        {
+            if (workers.TryGetValue(flowId, out Worker? running))
+            {
+                running.Stopping = true;
+                if (running.Judging is { } judging)
+                {
+                    _ = judging.CancelAsync();
+                }
+
+                if (running.Acting is { } acting)
+                {
+                    _ = acting.CancelAsync();
+                }
+            }
+        }
+
+        // The worker reads the stopped flow once it returns from its step, or a new one reads it now,
+        // and either removes its worktree.
+        _ = RequestAdvance(project, flowId);
+    }
+
+    /// <summary>
+    /// Removes the worktree of every flow an existing project clone lists that has ended or been
+    /// stopped, as an end or a stop would have, leaving the worktrees of live flows as they are. The
+    /// daemon runs it at start, before any live flow is advanced; a sweep that fails is logged.
+    /// </summary>
+    public async Task SweepWorktreesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await clones.SweepAsync(
+                async (project, flowId, token) =>
+                    await flows.ShowAsync(ScanPrincipal, project, flowId, token) is { Status: FlowStatus.Ended or FlowStatus.Stopped },
+                cancellationToken);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(failure, "Sweeping the worktrees of ended and stopped flows failed; the daemon starts without it.");
         }
     }
 
@@ -213,6 +264,12 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         while (moving)
         {
             Flow? flow = await flows.ShowAsync(principal, project, flowId, cancellationToken);
+            if (flow is { Status: FlowStatus.Ended or FlowStatus.Stopped })
+            {
+                await RemoveWorktreeAsync(project, flowId, cancellationToken);
+                return;
+            }
+
             if (flow is not { Status: FlowStatus.Running })
             {
                 return;
@@ -717,6 +774,57 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         }
     }
 
+    /// <summary>Lets a person's stop of the flow cancel the action <paramref name="stopped"/> bounds, at once when the stop is already saved.</summary>
+    private void WatchAction(Guid flowId, CancellationTokenSource stopped)
+    {
+        lock (gate)
+        {
+            if (workers.TryGetValue(flowId, out Worker? worker))
+            {
+                worker.Acting = stopped;
+                if (worker.Stopping)
+                {
+                    stopped.Cancel();
+                }
+            }
+        }
+    }
+
+    private void UnwatchAction(Guid flowId, CancellationTokenSource stopped)
+    {
+        lock (gate)
+        {
+            if (workers.TryGetValue(flowId, out Worker? worker) && ReferenceEquals(worker.Acting, stopped))
+            {
+                worker.Acting = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes the flow's worktree once the flow has ended or been stopped and its worker is between
+    /// steps. A flow that never made one is left alone; a removal that fails is logged, since the end
+    /// or the stop is already recorded, and the next start's sweep tries again.
+    /// </summary>
+    private async Task RemoveWorktreeAsync(string project, Guid flowId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (await clones.RemoveAsync(project, flowId, cancellationToken))
+            {
+                logger.LogInformation("Removed the worktree of flow {Flow} in project {Project}.", Ids.Short(flowId), project);
+            }
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception failure)
+        {
+            logger.LogError(failure, "Removing the worktree of flow {Flow} in project {Project} failed; the daemon's next start sweeps it.", Ids.Short(flowId), project);
+        }
+    }
+
     /// <summary>
     /// What is left of the budgets a judgment is performed under. <see cref="Spent"/> is the reason a
     /// judgment may not be performed because a budget is spent, or null when none is;
@@ -769,19 +877,41 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     {
         var request = new ActionRequest(principal, project, flow.Id, flow.ParcelId, contour, step, resumed);
         ActionOutcome outcome;
+
+        // A person's stop, saved before the action starts or while it runs, cancels it.
+        using var stopped = new CancellationTokenSource();
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopped.Token);
+        WatchAction(flow.Id, stopped);
         try
         {
-            outcome = await actions.PerformAsync(request, cancellationToken);
+            outcome = await actions.PerformAsync(request, bounded.Token);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (Exception failure) when (stopped.IsCancellationRequested)
+        {
+            logger.LogInformation(
+                "The action '{Action}' of step '{Step}' on flow {Flow} ended because a person stopped the flow; it records nothing: {Failure}",
+                step.Action, step.Name, Ids.Short(flow.Id), failure.Message);
+            return null;
         }
         catch (Exception failure)
         {
             outcome = new ActionOutcome.Paused(
                 $"Step '{step.Name}' could not perform the action '{step.Action}': {failure.Message}",
                 FlowLevers.PerformAgain(step.Name));
+        }
+        finally
+        {
+            UnwatchAction(flow.Id, stopped);
+        }
+
+        if (stopped.IsCancellationRequested)
+        {
+            // Stopped as the action finished: what it found is not recorded on a stopped flow.
+            return null;
         }
 
         switch (outcome)
@@ -810,6 +940,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                 return true;
             case FlowMove.End end:
                 await flows.EndAsync(principal, project, flow.Id, end.Outcome, cancellationToken);
+                await RemoveWorktreeAsync(project, flow.Id, cancellationToken);
                 return false;
             case FlowMove.Pause pause:
                 await PauseAsync(principal, project, flow.Id, pause.Reason, FlowLevers.PerformAgain(step.Name), cancellationToken);
@@ -889,5 +1020,11 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
         /// <summary>Cancelled by a person's pause or stop to end the judgment this worker runs; null while it runs none.</summary>
         public CancellationTokenSource? Judging { get; set; }
+
+        /// <summary>Cancelled by a person's stop to end the action this worker performs; null while it performs none.</summary>
+        public CancellationTokenSource? Acting { get; set; }
+
+        /// <summary>A person's stop of the flow was saved, so an action this worker starts from now on is cancelled at once.</summary>
+        public bool Stopping { get; set; }
     }
 }

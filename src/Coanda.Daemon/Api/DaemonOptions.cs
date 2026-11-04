@@ -1,6 +1,7 @@
 using Coanda.Core.Parcels;
 using Coanda.Daemon.Commands;
 using Coanda.Daemon.Executors;
+using Microsoft.Extensions.Logging;
 
 namespace Coanda.Daemon.Api;
 
@@ -35,6 +36,9 @@ public sealed record DaemonOptions
     /// through them and drafted parcel types are validated against them. None by default.
     /// </summary>
     public IReadOnlyList<IGate> Gates { get; init; } = [];
+
+    /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
+    public ILoggerProvider? LoggerProvider { get; init; }
 
     /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flow pauses.</summary>
     public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;
