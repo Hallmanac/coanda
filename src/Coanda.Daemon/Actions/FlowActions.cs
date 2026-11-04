@@ -32,11 +32,18 @@ public sealed class FlowActions
 
     /// <summary>
     /// The actions the daemon ships: every name in the core catalog and the software catalog. The
-    /// worktree and gates actions run their commands through <paramref name="runner"/>; derive-parcels,
+    /// worktree and gates actions run their commands through <paramref name="runner"/>, the gates
+    /// action ending each of its commands after <paramref name="gatesCommandLimit"/>; derive-parcels,
     /// open-pr, gated-merge, and rebase are still placeholders.
     /// </summary>
     public static FlowActions Shipped(
-        ParcelService parcels, ProjectService projects, ProjectClones clones, ICommandRunner runner, NodeHome home, TimeProvider clock) => new(
+        ParcelService parcels,
+        ProjectService projects,
+        ProjectClones clones,
+        ICommandRunner runner,
+        NodeHome home,
+        TimeProvider clock,
+        TimeSpan gatesCommandLimit) => new(
     [
         new MoveParcelAction(parcels),
         new TimerAction(clock),
@@ -45,7 +52,7 @@ public sealed class FlowActions
         new EmitOutcomeAction(),
         new PlaceholderAction(CoreActions.DeriveParcels),
         new WorktreeAction(projects, clones),
-        new GatesAction(projects, runner, home),
+        new GatesAction(projects, runner, home, gatesCommandLimit),
         .. SoftwareActions.All
             .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates))
             .Select(name => new PlaceholderAction(name)),

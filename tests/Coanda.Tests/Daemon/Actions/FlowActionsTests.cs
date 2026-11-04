@@ -6,6 +6,7 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
+using Coanda.Daemon.Api;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
@@ -36,7 +37,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
         parcels = new ParcelService(store, TimeProvider.System);
         var projects = new ProjectService(store, TimeProvider.System);
         var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
-        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock);
+        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit);
     }
 
     public async Task DisposeAsync()

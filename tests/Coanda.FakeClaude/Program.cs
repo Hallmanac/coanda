@@ -75,6 +75,7 @@ public static class Program
     /// exits; <c>leave-writer &lt;pid file&gt;</c> does the same with a child that writes a line to the
     /// shared output every 20 milliseconds until a write fails or two minutes pass; <c>hold &lt;pid file&gt;</c> writes its own pid beside the file, with <c>.parent</c> added
     /// to its name, starts such a child, and then waits two minutes. The child writes its pid to the file.
+    /// <c>flood &lt;count&gt;</c> writes the lines <c>line 1</c> to <c>line &lt;count&gt;</c> and exits.
     /// </summary>
     private static int Command(string[] command)
     {
@@ -102,6 +103,15 @@ public static class Program
             case ["leave-writer", string pidFile]:
                 StartChild(pidFile, WritingChildFlag);
                 Console.Out.WriteLine("parent exits");
+                return 0;
+            case ["flood", string count]:
+                int lines = int.Parse(count, System.Globalization.CultureInfo.InvariantCulture);
+                for (int written = 1; written <= lines; written++)
+                {
+                    Console.Out.Write("line ");
+                    Console.Out.WriteLine(written);
+                }
+
                 return 0;
             case ["hold", string pidFile]:
                 File.WriteAllText(pidFile + ".parent", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));

@@ -9,7 +9,10 @@ namespace Coanda.Daemon.Commands;
 /// standard input is closed as soon as it starts. The command is finished when its own process
 /// exits: what it wrote before then is read for a short grace, and a process it started that still
 /// holds its output open does not hold the runner, nor keeps it reading once it returns. Cancelling ends the command and every process it
-/// started that is still its descendant. Nothing the command writes is logged.
+/// started that is still its descendant, and so does the command running past its
+/// <see cref="CommandLine.Limit"/>, which answers <see cref="CommandResult.TimedOut"/> with what it
+/// wrote until then. Of each of its output, its error output, and both together, only the last
+/// <see cref="KeptCharacters"/> characters are kept. Nothing the command writes is logged.
 /// </summary>
 public sealed class ProcessCommandRunner : ICommandRunner
 {
@@ -18,6 +21,12 @@ public sealed class ProcessCommandRunner : ICommandRunner
 
     /// <summary>How long a cancelled command's processes are given to go once they are killed.</summary>
     private static readonly TimeSpan KillGrace = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// How many characters of each of the command's output, its error output, and both together are
+    /// kept: the end of each, so a command that writes without end cannot grow the daemon's memory.
+    /// </summary>
+    public const int KeptCharacters = 1024 * 1024;
 
     public async Task<CommandResult> RunAsync(CommandLine command, CancellationToken cancellationToken)
     {
@@ -55,11 +64,23 @@ public sealed class ProcessCommandRunner : ICommandRunner
             output.ReadAsync(process.StandardOutput, error: false, stopReading.Token),
             output.ReadAsync(process.StandardError, error: true, stopReading.Token));
 
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (command.Limit is { } allowed)
+        {
+            limit.CancelAfter(allowed);
+        }
+
         try
         {
+            bool timedOut = false;
             try
             {
-                await process.WaitForExitAsync(cancellationToken);
+                await process.WaitForExitAsync(limit.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                End(process);
+                timedOut = true;
             }
             catch (OperationCanceledException)
             {
@@ -70,7 +91,7 @@ public sealed class ProcessCommandRunner : ICommandRunner
             // A process the command started may still hold the output open, so the end of it is not
             // waited for past the grace.
             await Task.WhenAny(reading, Task.Delay(DrainGrace, CancellationToken.None));
-            return new CommandResult(process.ExitCode, output.StandardOutput, output.StandardError, output.Combined);
+            return output.ResultOf(timedOut ? null : process.ExitCode);
         }
         finally
         {
@@ -111,22 +132,29 @@ public sealed class ProcessCommandRunner : ICommandRunner
     }
 
     /// <summary>
-    /// The command's output as it is read: each stream, and both together. Once closed, nothing
-    /// more is kept, so a read that outlives the runner cannot grow it.
+    /// The command's output as it is read: each stream, and both together, each cut to its last
+    /// <see cref="KeptCharacters"/> characters. Once closed, nothing more is kept, so a read that
+    /// outlives the runner cannot grow it.
     /// </summary>
     private sealed class Output
     {
         private readonly Lock gate = new();
         private bool closed;
-        private readonly StringBuilder combined = new();
-        private readonly StringBuilder standardOutput = new();
-        private readonly StringBuilder standardError = new();
+        private readonly Tail combined = new();
+        private readonly Tail standardOutput = new();
+        private readonly Tail standardError = new();
 
-        public string Combined => Read(combined);
-
-        public string StandardOutput => Read(standardOutput);
-
-        public string StandardError => Read(standardError);
+        /// <summary>The result for a command that exited with <paramref name="exitCode"/>, or ran past its limit when that is null.</summary>
+        public CommandResult ResultOf(int? exitCode)
+        {
+            lock (gate)
+            {
+                CommandResult result = exitCode is { } code
+                    ? new CommandResult(code, standardOutput.ToString(), standardError.ToString(), combined.ToString())
+                    : CommandResult.LimitReached(standardOutput.ToString(), standardError.ToString(), combined.ToString());
+                return result with { Truncated = combined.Cut || standardOutput.Cut || standardError.Cut };
+            }
+        }
 
         public void Close()
         {
@@ -161,13 +189,34 @@ public sealed class ProcessCommandRunner : ICommandRunner
                 // The runner returned and ended the read while something the command started held the stream.
             }
         }
+    }
 
-        private string Read(StringBuilder text)
+    /// <summary>
+    /// The last <see cref="KeptCharacters"/> characters of a text as it is appended to. The text may
+    /// grow to twice that before its start is dropped, so dropping costs nothing per append on average.
+    /// </summary>
+    private sealed class Tail
+    {
+        private readonly StringBuilder text = new();
+
+        private bool dropped;
+
+        /// <summary>Whether any of the start of the text has been dropped.</summary>
+        public bool Cut => dropped || text.Length > KeptCharacters;
+
+        public void Append(char[] buffer, int start, int count)
         {
-            lock (gate)
+            text.Append(buffer, start, count);
+            if (text.Length > 2 * KeptCharacters)
             {
-                return text.ToString();
+                text.Remove(0, text.Length - KeptCharacters);
+                dropped = true;
             }
         }
+
+        public override string ToString() =>
+            text.Length > KeptCharacters
+                ? text.ToString(text.Length - KeptCharacters, KeptCharacters)
+                : text.ToString();
     }
 }

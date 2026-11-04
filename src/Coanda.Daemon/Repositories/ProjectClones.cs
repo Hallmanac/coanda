@@ -245,7 +245,7 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
             Directory.Delete(partial, recursive: true);
         }
 
-        await git.RunAsync(new CommandLine("git", ["init", "--bare", "--quiet", partial], parent, Git.Environment), cancellationToken);
+        await git.RunAsync(new CommandLine("git", ["init", "--bare", "--quiet", partial], parent, Git.Environment) { Limit = Git.Limit }, cancellationToken);
         await git.RunAsync(Git.Against(partial, "remote", "add", Git.Remote, project.Remote), cancellationToken);
         Directory.Move(partial, clone);
         return null;
@@ -281,6 +281,12 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
                 logger.LogWarning(
                     "The uncommitted changes in the worktree of flow {Flow} at {Path} could not be listed (git status exited with code {Code}); the removal discards them unlisted.",
                     Ids.Short(flowId), entry.Path, status.ExitCode);
+            }
+            else if (status.Truncated)
+            {
+                logger.LogWarning(
+                    "Removing the worktree of flow {Flow} at {Path} discards more uncommitted changes than can be listed; the last of them are to: {Changes}",
+                    Ids.Short(flowId), entry.Path, string.Join(", ", changed));
             }
             else if (changed.Length > 0)
             {

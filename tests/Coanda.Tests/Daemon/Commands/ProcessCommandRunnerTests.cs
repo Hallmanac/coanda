@@ -124,6 +124,55 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_command_past_its_limit_is_ended_with_its_child_and_answers_timed_out_with_what_it_wrote()
+    {
+        string pidFile = Path.Combine(scratch, "child.pid");
+
+        CommandResult result = await runner.RunAsync(Fake("hold", pidFile) with { Limit = TimeSpan.FromSeconds(2) }, CancellationToken.None).WaitAsync(Patience);
+        int fake = Pid(pidFile + ".parent");
+        int child = Pid(pidFile);
+        started.AddRange([fake, child]);
+
+        result.TimedOut.Should().BeTrue();
+        result.Succeeded.Should().BeFalse();
+        result.ExitCode.Should().Be(CommandResult.TimedOutExitCode);
+        result.StandardOutput.Should().Contain("holding");
+        await UntilAsync(() => !Running(fake) && !Running(child));
+    }
+
+    [Fact]
+    public async Task A_command_that_exits_within_its_limit_is_not_timed_out()
+    {
+        CommandResult result = await runner.RunAsync(Fake("exit", "0", "done\n", "") with { Limit = TimeSpan.FromMinutes(1) }, CancellationToken.None).WaitAsync(Patience);
+
+        result.TimedOut.Should().BeFalse();
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Only_the_end_of_output_longer_than_the_runner_keeps_is_returned_and_marked_truncated()
+    {
+        const int Lines = 300_000;
+
+        CommandResult result = await runner.RunAsync(Fake("flood", Lines.ToString(CultureInfo.InvariantCulture)), CancellationToken.None).WaitAsync(Patience);
+
+        result.ExitCode.Should().Be(0);
+        result.Truncated.Should().BeTrue();
+        result.StandardOutput.Should().HaveLength(ProcessCommandRunner.KeptCharacters);
+        result.Combined.Should().HaveLength(ProcessCommandRunner.KeptCharacters);
+        result.StandardOutput.ReplaceLineEndings("\n").Should().EndWith($"line {Lines}\n");
+    }
+
+    [Fact]
+    public async Task Output_within_what_the_runner_keeps_is_not_marked_truncated()
+    {
+        CommandResult result = await runner.RunAsync(Fake("flood", "10"), CancellationToken.None).WaitAsync(Patience);
+
+        result.Truncated.Should().BeFalse();
+        result.StandardOutput.ReplaceLineEndings("\n").Should().StartWith("line 1\n").And.EndWith("line 10\n");
+    }
+
+    [Fact]
     public async Task The_platforms_shell_delivers_an_argument_holding_a_space_and_a_double_quote_intact()
     {
         const string Awkward = "a \"b c";
