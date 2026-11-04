@@ -164,13 +164,14 @@ public sealed class ProjectServiceTests
         var parcels = new ParcelService(store, TimeProvider.System);
 
         // Written straight to the store, as a parcel created before projects had records was.
-        ParcelCreated created = ParcelDecider.Create(ShippedTypes.Task, GateSet.None, "legacy", "From before records", null, Owner.Id, DateTimeOffset.UtcNow);
+        ParcelCreated created = ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "legacy", "From before records", null, Owner.Id, DateTimeOffset.UtcNow);
         await using (IDocumentSession session = store.LightweightSession("legacy"))
         {
             session.Events.StartStream<Parcel>(created.ParcelId, created);
             await session.SaveChangesAsync(None);
         }
 
+        await parcels.BriefAsync(Owner, "legacy", created.ParcelId, cancellationToken: None);
         (await parcels.MoveAsync(Owner, "legacy", created.ParcelId, "build", None)).State.Should().Be("build");
         (await parcels.CloseAsync(Owner, "legacy", created.ParcelId, "abandoned", "Never registered.", None)).Resolution.Should().Be("abandoned");
     }

@@ -18,7 +18,7 @@ public static class DefinitionDecider
     /// Drafts the next version of a definition. <paramref name="latestVersion"/> is the highest
     /// version already recorded for the same kind, scope, and name (and project, in project
     /// scope), or 0 when there is none. <paramref name="knownGates"/> is every gate name the
-    /// daemon runs, which a parcel type's gate bindings are validated against; none when null.
+    /// daemon runs, which a parcel type's gate bindings are validated against; the shipped gate set's when null.
     /// <paramref name="knownActions"/> is every action name the daemon registered, which a contour's
     /// action steps are validated against; none when null. The decider holds no catalog of either.
     /// <paramref name="shippedVersions"/> is the name and version of every shipped definition of
@@ -47,7 +47,7 @@ public static class DefinitionDecider
 
         return Build(
             kind, name, scope, project, latestVersion, content, contentHash, forkBase, shippedVersions ?? [],
-            knownGates ?? GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, draftedBy, now);
+            knownGates ?? GateSet.Shipped.Names, knownActions ?? FrozenSet<string>.Empty, draftedBy, now);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -80,8 +80,8 @@ public static class DefinitionDecider
 
     /// <summary>
     /// Seeds a shipped definition: the drafted and published events together, in shipped scope.
-    /// The only road into that scope. The shipped gate set is empty, so a shipped parcel type is
-    /// validated against no gate names and binds none. A shipped contour is validated against
+    /// The only road into that scope. A shipped parcel type is validated against the shipped gate
+    /// set, the gates every daemon runs, so it binds only those. A shipped contour is validated against
     /// <paramref name="knownActions"/>, the action names the daemon registered; none when null.
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published) Seed(
@@ -89,7 +89,7 @@ public static class DefinitionDecider
     {
         DefinitionDrafted drafted = Build(
             shipped.Kind, shipped.Name, DefinitionScope.Shipped, null, latestVersion,
-            shipped.Content, shipped.ContentHash, null, [], GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, seededBy, now);
+            shipped.Content, shipped.ContentHash, null, [], GateSet.Shipped.Names, knownActions ?? FrozenSet<string>.Empty, seededBy, now);
         return (drafted, new DefinitionPublished(drafted.DefinitionId, seededBy, now));
     }
 

@@ -1,8 +1,9 @@
 namespace Coanda.Core.Parcels;
 
 /// <summary>
-/// The gates a daemon runs, by name. A parcel type is validated against <see cref="Names"/>, and
-/// a move is refused when a gate it binds is not here, so a missing gate fails closed.
+/// The gates a daemon runs, by name: <see cref="Shipped"/>, and any more it is given. A parcel type
+/// is validated against <see cref="Names"/>, and a move is refused when a gate it binds is not here,
+/// so a missing gate fails closed.
 /// </summary>
 public sealed class GateSet
 {
@@ -21,7 +22,16 @@ public sealed class GateSet
         Names = this.gates.Keys.ToHashSet(StringComparer.Ordinal);
     }
 
-    /// <summary>No gates: what a daemon runs when it is given none. The shipped gate set is empty.</summary>
+    /// <summary>The gates the binary carries, which every daemon runs whatever else it is given.</summary>
+    public static IReadOnlyList<IGate> ShippedGates { get; } = [new RequiredFieldsGate()];
+
+    /// <summary>
+    /// The shipped gate set: what seeding, drafting, and the parcel and definition services use when
+    /// they are given no gates, and what a daemon runs beside any gates its options add.
+    /// </summary>
+    public static GateSet Shipped { get; } = new(ShippedGates);
+
+    /// <summary>No gates at all, for a check that a type binding a gate is refused where that gate is not run.</summary>
     public static GateSet None { get; } = new([]);
 
     public IReadOnlySet<string> Names { get; }

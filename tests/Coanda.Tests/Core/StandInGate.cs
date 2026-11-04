@@ -1,4 +1,5 @@
 using Coanda.Core.Parcels;
+using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
 
@@ -14,7 +15,7 @@ public sealed class StandInGate(string name = StandInGate.DefaultName, string re
 
     public List<(string From, string To)> Checks { get; } = [];
 
-    public GateVerdict Check(Parcel parcel, string fromState, string toState)
+    public GateVerdict Check(Parcel parcel, ParcelType type, string fromState, string toState)
     {
         Checks.Add((fromState, toState));
         return parcel.Title.Contains(refuses, StringComparison.Ordinal)

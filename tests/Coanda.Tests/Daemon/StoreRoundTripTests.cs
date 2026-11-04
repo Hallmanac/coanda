@@ -19,6 +19,7 @@ public sealed class StoreRoundTripTests
             await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
             Parcel created = await service.AddAsync(Principal.LocalOwner, "alpha", "task", "Survive a restart", null, CancellationToken.None);
             id = created.Id;
+            await service.BriefAsync(Principal.LocalOwner, "alpha", id, cancellationToken: CancellationToken.None);
             Parcel moved = await service.MoveAsync(Principal.LocalOwner, "alpha", id, "build", CancellationToken.None);
             moved.State.Should().Be("build");
         }
@@ -31,6 +32,10 @@ public sealed class StoreRoundTripTests
             shown.Should().NotBeNull();
             shown.State.Should().Be("build");
             shown.Title.Should().Be("Survive a restart");
+            shown.ValueOf(TaskFields.Objective).Should().BeEquivalentTo(TaskFields.ObjectiveValue);
+            shown.ValueOf(TaskFields.Criteria).Should().BeEquivalentTo(TaskFields.CriteriaValue);
+            shown.ValueOf(TaskFields.PullRequest).Should().BeEquivalentTo(TaskFields.PullRequestValue);
+            shown.ValueOf(TaskFields.NonGoals).Should().BeNull();
 
             IReadOnlyList<Parcel> alpha = await service.ListAsync(Principal.LocalOwner, "alpha", CancellationToken.None);
             alpha.Should().ContainSingle(p => p.Id == id);

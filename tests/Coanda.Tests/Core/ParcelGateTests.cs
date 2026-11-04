@@ -65,7 +65,7 @@ public sealed class ParcelGateTests
         FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
             .Should().Throw<DomainException>()
             .WithMessage($"The gate 'stand-in' refused the move from 'paused' to 'build': {StandInGate.Reason}");
-        gate.Checks.Should().Equal(("paused", "build"));
+        gate.Checks.Should().Equal([("refine", "build")], "the gate judges the move its binding names, not the resume");
         ParcelDecider.Move(Gated, gates, parcel, "review", "brian", Now).ToState.Should().Be("review", "no gate is bound to a move into review");
     }
 

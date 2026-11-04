@@ -135,6 +135,7 @@ public sealed class LiveFlowHoldTests : IAsyncLifetime
     private async Task<(Parcel Parcel, Flow Flow)> HeldAtBuildAsync()
     {
         Parcel parcel = await parcels.AddAsync(Person, Project, "task", "Held by a flow", null, None);
+        await parcels.BriefAsync(Person, Project, parcel.Id, cancellationToken: None);
         await parcels.MoveAsync(Person, Project, parcel.Id, "build", None);
         Flow flow = await flows.StartAsync(Person, Project, parcel.Id, "build", None);
         Parcel held = await parcels.ShowAsync(Person, Project, parcel.Id, None)

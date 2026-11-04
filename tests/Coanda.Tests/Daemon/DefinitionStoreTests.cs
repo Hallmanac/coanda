@@ -315,6 +315,7 @@ public sealed class DefinitionStoreTests
         types.Select(t => (t.Name, t.Hash)).Should().Equal(ShippedTypes.All.Select(t => (t.Name, t.Hash)));
 
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "alpha", "Task", "Lifecycle", null, CancellationToken.None);
+        await parcels.BriefAsync(Principal.LocalOwner, "alpha", parcel.Id, cancellationToken: CancellationToken.None);
         (await parcels.MoveAsync(Principal.LocalOwner, "alpha", parcel.Id, "build", CancellationToken.None)).State.Should().Be("build");
         (await parcels.CloseAsync(Principal.LocalOwner, "alpha", parcel.Id, "completed", "Done.", CancellationToken.None)).Resolution.Should().Be("completed");
 
@@ -330,6 +331,7 @@ public sealed class DefinitionStoreTests
         await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
         Parcel inReview = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Under way", null, CancellationToken.None);
+        await parcels.BriefAsync(Principal.LocalOwner, "alpha", inReview.Id, cancellationToken: CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "review", CancellationToken.None);
 
@@ -338,6 +340,7 @@ public sealed class DefinitionStoreTests
             States = ["refine", "build", ShippedTypes.Paused, ShippedTypes.Closed],
             Resolutions = ["shipped"],
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["build"] },
+            GateBindings = [new GateBinding("refine", "build", RequiredFieldsGate.GateName)],
         };
         await PublishedProjectTypeAsync(Definitions(store), "alpha", withoutReview);
 
@@ -362,12 +365,14 @@ public sealed class DefinitionStoreTests
         var parcels = new ParcelService(store, TimeProvider.System);
         DefinitionService definitions = Definitions(store);
         Parcel original = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Before", null, CancellationToken.None);
+        await parcels.BriefAsync(Principal.LocalOwner, "alpha", original.Id, cancellationToken: CancellationToken.None);
 
         Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", ShippedTypes.Task with { Name = "Task", EntryStates = ["refine", "build"] });
         (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "build", CancellationToken.None)).State.Should().Be("build");
 
         Parcel underCased = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "After", "build", CancellationToken.None);
         underCased.TypeName.Should().Be("Task");
+        await parcels.BriefAsync(Principal.LocalOwner, "alpha", underCased.Id, cancellationToken: CancellationToken.None);
         await definitions.RetireAsync(Principal.LocalOwner, "alpha", cased.Id, CancellationToken.None);
 
         (await parcels.MoveAsync(Principal.LocalOwner, "alpha", underCased.Id, "review", CancellationToken.None)).State.Should().Be("review");

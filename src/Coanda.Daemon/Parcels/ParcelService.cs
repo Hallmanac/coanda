@@ -17,12 +17,12 @@ namespace Coanda.Daemon.Parcels;
 /// is created only in a project that has a record. A new parcel's type is whatever
 /// <see cref="DefinitionResolver"/> resolves for its project; an existing parcel keeps the version
 /// whose hash it recorded. Every move runs the gates its type binds to it, from the daemon's gates,
-/// none when it is given none.
+/// the shipped gate set when it is given none.
 /// </summary>
 public sealed class ParcelService(IDocumentStore store, TimeProvider clock, GateSet? gates = null)
 {
     private readonly DefinitionResolver definitions = new(store);
-    private readonly GateSet gates = gates ?? GateSet.None;
+    private readonly GateSet gates = gates ?? GateSet.Shipped;
 
     public Task<Parcel> AddAsync(Principal principal, string project, string typeName, string title, string? state, CancellationToken cancellationToken) =>
         AddAsync(principal, project, typeName, title, state, origin: null, cancellationToken);
@@ -67,6 +67,25 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         await session.SaveChangesAsync(cancellationToken);
 
         parcel.Apply(moved);
+        return parcel;
+    }
+
+    /// <summary>Records a value in one of the parcel's fields, replacing the value it held, under the type version the parcel was created under.</summary>
+    public async Task<Parcel> SetFieldAsync(
+        Principal principal, string project, Guid parcelId, string field, FieldValue value, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("parcel.set-field", principal);
+        string tenant = Tenants.RequireProject(project);
+
+        await using IDocumentSession session = store.LightweightSession(tenant);
+        var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
+        Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
+        ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
+        ParcelFieldSet set = ParcelDecider.SetField(type, parcel, field, value, principal.Id, clock.GetUtcNow());
+        stream.AppendOne(set);
+        await session.SaveChangesAsync(cancellationToken);
+
+        parcel.Apply(set);
         return parcel;
     }
 
@@ -135,6 +154,13 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("type.list", principal);
         return await definitions.ResolveParcelTypeAsync(Tenants.RequireProject(project), name, cancellationToken);
+    }
+
+    /// <summary>The version of a parcel type that the project holds by its hash, or null when it holds none; a parcel reads its fields from the version it was created under.</summary>
+    public async Task<ParcelType?> TypeVersionAsync(Principal principal, string project, string typeHash, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("parcel.show", principal);
+        return await definitions.ResolveParcelTypeByHashAsync(Tenants.RequireProject(project), typeHash, cancellationToken);
     }
 
     /// <summary>The parcel types that resolution returns for the project, ordered by name.</summary>

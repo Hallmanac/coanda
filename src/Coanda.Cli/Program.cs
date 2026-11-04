@@ -45,6 +45,10 @@ app.Configure(config =>
         parcel.AddCommand<ParcelListCommand>("list").WithDescription("List the project's open parcels.").WithExample("parcel", "list");
         parcel.AddCommand<ParcelShowCommand>("show").WithDescription("Show one parcel.").WithExample("parcel", "show", "0192a3b4");
         parcel.AddCommand<ParcelMoveCommand>("move").WithDescription("Move a parcel to a state its type allows.").WithExample("parcel", "move", "0192a3b4", "build");
+        parcel.AddCommand<ParcelSetCommand>("set").WithDescription("Set one of a parcel's fields, replacing its value.")
+            .WithExample("parcel", "set", "0192a3b4", "objective", "--text", "\"Teach the daemon fields\"")
+            .WithExample("parcel", "set", "0192a3b4", "criteria", "--item", "\"It builds\"", "--item", "\"It tests\"")
+            .WithExample("parcel", "set", "0192a3b4", "pull-request", "--ref", "42", "--url", "https://github.com/o/r/pull/42");
         parcel.AddCommand<ParcelCloseCommand>("close").WithDescription("Close a parcel with a resolution and a reason.").WithExample("parcel", "close", "0192a3b4", "-r", "completed", "--reason", "\"Merged\"");
     });
 

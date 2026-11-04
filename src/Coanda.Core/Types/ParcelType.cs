@@ -2,15 +2,16 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Coanda.Core.Contours;
 
 namespace Coanda.Core.Types;
 
 /// <summary>
 /// The definition of a kind of parcel: its lifecycle (states, allowed moves, entry states, the
-/// one terminal state and its resolutions), the paused state reachable from any live state, and
-/// its bindings: a contour to start when a parcel enters a state, and a gate that must pass before a
-/// move. Fields arrive later in phase 1. A type is data; the types the binary ships and a user's
-/// type are the same shape.
+/// one terminal state and its resolutions), the paused state reachable from any live state, its
+/// fields (each named, of a kind, and required to leave the states it names), and its bindings: a
+/// contour to start when a parcel enters a state, and a gate that must pass before a move. A type is
+/// data; the types the binary ships and a user's type are the same shape.
 /// </summary>
 public sealed record ParcelType
 {
@@ -29,6 +30,9 @@ public sealed record ParcelType
     /// <summary>The gates that must pass before a move the move table holds, or before a close from a live state.</summary>
     public IReadOnlyList<GateBinding> GateBindings { get; init; } = [];
 
+    /// <summary>The fields a parcel of the type holds values in, in the order the type declares them.</summary>
+    public IReadOnlyList<FieldDeclaration> Fields { get; init; } = [];
+
     /// <summary>Content hash of the definition, recorded on every parcel created under it; computed, so never written into content.</summary>
     [JsonIgnore]
     public string Hash => ComputeHash();
@@ -42,6 +46,9 @@ public sealed record ParcelType
     public bool IsEntry(string state) => EntryStates.Contains(state, StringComparer.Ordinal);
 
     public bool IsResolution(string resolution) => Resolutions.Contains(resolution, StringComparer.Ordinal);
+
+    /// <summary>The field the type declares by that name, or null when it declares none.</summary>
+    public FieldDeclaration? Field(string name) => Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
 
     /// <summary>
     /// The gates a move from <paramref name="from"/> to <paramref name="to"/> must pass. A move out of
@@ -131,8 +138,48 @@ public sealed record ParcelType
             }
         }
 
+        ValidateFields();
         ValidateContourBindings();
         ValidateGateBindings(knownGates);
+    }
+
+    private void ValidateFields()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (FieldDeclaration? field in Fields)
+        {
+            // Read content can carry a null element or a missing field, whatever the annotations say.
+            if (field is null)
+            {
+                throw new DomainException($"Parcel type '{Name}' has a field that is null; each field is an object naming the field and its kind.");
+            }
+
+            if (!Contour.IsPlainName(field.Name))
+            {
+                throw new DomainException(
+                    $"Parcel type '{Name}' declares a field named '{field.Name}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
+            }
+
+            if (!seen.Add(field.Name))
+            {
+                throw new DomainException($"Parcel type '{Name}' declares two fields named '{field.Name}'; a type's field names are unique.");
+            }
+
+            if (!FieldKinds.IsKnown(field.Kind))
+            {
+                throw new DomainException(
+                    $"Field '{field.Name}' of parcel type '{Name}' is of the kind '{field.Kind}'; a field's kind is one of {string.Join(", ", FieldKinds.All)}.");
+            }
+
+            foreach (string? state in field.RequiredToLeave)
+            {
+                if (state is null || !IsState(state) || IsTerminal(state) || IsPaused(state))
+                {
+                    throw new DomainException(
+                        $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{state}', which is not one of its live states; a field is required to leave only a state the type has, never its terminal or paused state.");
+                }
+            }
+        }
     }
 
     private void ValidateContourBindings()
@@ -191,10 +238,10 @@ public sealed record ParcelType
     }
 
     /// <summary>
-    /// The bindings join the hashed shape only when the type has some, so adding bindings to the
-    /// shape left the hash of a type that binds nothing as it was. That holds for bindings alone: a
-    /// change to the lifecycle's own keys or states (the paused state of 2026-11-03, for one) changes
-    /// every type's hash, and a record written before such a change is not read across it.
+    /// The fields and the bindings join the hashed shape only when the type has some, so adding either
+    /// to the shape left the hash of a type that declares neither as it was. That holds for fields and
+    /// bindings alone: a change to the lifecycle's own keys or states (the paused state of 2026-11-03,
+    /// for one) changes every type's hash, and a record written before such a change is not read across it.
     /// </summary>
     private string ComputeHash()
     {
@@ -208,6 +255,11 @@ public sealed record ParcelType
             ["paused"] = PausedState,
             ["moves"] = Moves.OrderBy(m => m.Key, StringComparer.Ordinal).ToDictionary(m => m.Key, m => m.Value),
         };
+        if (Fields.Count > 0)
+        {
+            lifecycle["fields"] = Fields.Select(f => new { name = f.Name, kind = f.Kind, requiredToLeave = f.RequiredToLeave }).ToList();
+        }
+
         if (ContourBindings.Count > 0)
         {
             lifecycle["contours"] = ContourBindings.Select(b => new[] { b.State, b.Contour }).ToList();

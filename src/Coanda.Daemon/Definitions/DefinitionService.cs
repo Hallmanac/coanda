@@ -16,7 +16,8 @@ namespace Coanda.Daemon.Definitions;
 /// definitions live in the node tenant (<see cref="Tenants.Node"/>). Writes are serialized so that
 /// two drafts of one name cannot be handed the same version. A drafted parcel type is validated
 /// against the names of the gates the daemon runs, and a drafted or seeded contour against the
-/// names of the actions it registered; none of either when it is given none.
+/// names of the actions it registered; the shipped gate set when it is given no gates, and no
+/// actions when it is given none.
 /// </summary>
 public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null, IReadOnlySet<string>? actions = null)
 {
@@ -58,7 +59,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
                 : await ShippedVersionsAsync(kind, cancellationToken);
             DefinitionDrafted drafted = DefinitionDecider.Draft(
                 kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(),
-                (gates ?? GateSet.None).Names, actions, shippedVersions);
+                (gates ?? GateSet.Shipped).Names, actions, shippedVersions);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);

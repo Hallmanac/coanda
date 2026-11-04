@@ -8,9 +8,15 @@ public static class Flowing
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
 
-    public static async Task<ParcelView> TaskAtBuildAsync(DaemonClient client, string project, string title)
+    /// <summary>
+    /// Adds a task, sets the objective and criteria its move out of refine requires and, unless
+    /// <paramref name="pullRequest"/> is false, the pull request its move out of build requires, and
+    /// moves it to build.
+    /// </summary>
+    public static async Task<ParcelView> TaskAtBuildAsync(DaemonClient client, string project, string title, bool pullRequest = true)
     {
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(project, "task", title, null), CancellationToken.None);
+        await client.BriefAsync(project, parcel.Id, pullRequest, CancellationToken.None);
         return await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(project, parcel.Id, "build"), CancellationToken.None);
     }
 

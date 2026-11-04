@@ -1,3 +1,4 @@
+using Coanda.Core.Parcels;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Software;
@@ -7,7 +8,10 @@ namespace Coanda.Core.Software;
 /// either carries forward or derives tasks and closes as split; a task goes refine, build, review,
 /// closed. Both are ordinary <see cref="ParcelType"/> data with no privileges a user's type lacks.
 /// Entering discovery starts the discovery contour and entering build starts the build contour; no other
-/// state carries a contour, and neither type binds a gate.
+/// state carries a contour. A task declares an objective and criteria, required to leave refine,
+/// non-goals, required to leave no state, and a pull request, required to leave build; it binds the
+/// required-fields gate to the moves out of refine and out of build. The idea declares no field and
+/// binds no gate.
 /// </summary>
 public static class ShippedTypes
 {
@@ -43,7 +47,19 @@ public static class ShippedTypes
             ["build"] = ["review"],
             ["review"] = ["build"],
         },
+        Fields =
+        [
+            new FieldDeclaration { Name = "objective", Kind = FieldKinds.Text, RequiredToLeave = ["refine"] },
+            new FieldDeclaration { Name = "criteria", Kind = FieldKinds.TextList, RequiredToLeave = ["refine"] },
+            new FieldDeclaration { Name = "non-goals", Kind = FieldKinds.TextList },
+            new FieldDeclaration { Name = "pull-request", Kind = FieldKinds.Reference, RequiredToLeave = ["build"] },
+        ],
         ContourBindings = [new ContourBinding("build", "build")],
+        GateBindings =
+        [
+            new GateBinding("refine", "build", RequiredFieldsGate.GateName),
+            new GateBinding("build", "review", RequiredFieldsGate.GateName),
+        ],
     };
 
     public static readonly IReadOnlyList<ParcelType> All = [Idea, Task];
