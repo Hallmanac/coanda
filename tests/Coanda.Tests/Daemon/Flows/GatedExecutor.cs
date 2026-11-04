@@ -9,7 +9,8 @@ namespace Coanda.Tests.Daemon.Flows;
 /// held in progress; one never opened is an executor that never answers. It records whether the
 /// token each stop received was already cancelled, and can fail its first spawns, give up its
 /// collects on its own, let its first collects pass the gate, hold a collect past its token's
-/// cancellation, and report a usage for an attempt in progress when its session is stopped.
+/// cancellation, report a usage for an attempt in progress when its session is stopped, and call a
+/// test back before each stop.
 /// </summary>
 public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 {
@@ -31,7 +32,10 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
     /// <summary>How many of the first spawns fail before returning a handle, as an executor that cannot launch the agent would.</summary>
     public int FailingSpawns { get; init; }
 
-    /// <summary>When set, every collect throws <see cref="OperationCanceledException"/> of its own accord, with no token cancelled.</summary>
+    /// <summary>
+    /// When set, every collect throws <see cref="TaskCanceledException"/> of its own accord, with no
+    /// token cancelled, as an executor whose own timeout or I/O gives up would.
+    /// </summary>
     public bool CollectsGiveUp { get; init; }
 
     /// <summary>How many of the first collects pass without waiting at the gate.</summary>
@@ -48,6 +52,9 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     /// <summary>Whether what a stop reports for an attempt in progress holds its cost; when not, the usage is tokens and turns alone.</summary>
     public bool InProgressCostReported { get; init; } = true;
+
+    /// <summary>Called with each stop's handle before the stop is made, so a test can read what was recorded by then.</summary>
+    public Func<SessionHandle, Task>? BeforeStop { get; init; }
 
     /// <summary>Completes once the first session has been spawned.</summary>
     public Task Spawned => spawned.Task;
@@ -95,7 +102,7 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
         collecting.TrySetResult();
         if (CollectsGiveUp)
         {
-            throw new OperationCanceledException($"The executor gave up collecting session {handle.Id}.");
+            throw new TaskCanceledException($"The executor gave up collecting session {handle.Id}.");
         }
 
         if (Interlocked.Increment(ref collects) > FreeCollects)
@@ -133,6 +140,11 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     public async ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
+        if (BeforeStop is { } before)
+        {
+            await before(handle);
+        }
+
         bool attempting;
         lock (records)
         {

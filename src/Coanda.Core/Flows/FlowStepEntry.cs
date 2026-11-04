@@ -82,6 +82,19 @@ public sealed record FlowStepEntry
     public bool IsRecorded => RecordedAt is not null;
 
     /// <summary>
+    /// Whether this judgment visit launched its agent since it was last resumed and has recorded no
+    /// answer: the state a daemon restart finds a judgment in that was running when the daemon
+    /// stopped. Such a visit is never launched again on the spawn it already used; its session is
+    /// reattached, or the flow pauses when it was lost. A visit resumed since its launch holds
+    /// <see cref="ResumedAt"/>, so it is not in this state and is performed as a resume.
+    /// </summary>
+    public bool AwaitsLaunchedSession =>
+        Kind == StepKind.Judgment
+        && SpawnedAt is not null
+        && ResumedAt is null
+        && !IsRecorded;
+
+    /// <summary>
     /// Whether this visit expects what <paramref name="sessionId"/> reports: it is the session the
     /// visit's latest launch returned, and the visit has not been resumed since that launch. A
     /// resume performs the step again with a new spawn, so the session it found running is no
