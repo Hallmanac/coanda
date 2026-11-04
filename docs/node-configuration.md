@@ -121,14 +121,17 @@ can still start one, as any parcel move can: moving a parcel into a state its ty
 contour starts that contour's flow under the binding's principal, not the session's. The
 token resolves until the launch's answer is recorded, its flow pauses, stops, or ends, or the
 judgment launches again; after that it is refused like any token the daemon did not issue, even
-once the flow is resumed. The daemon keeps only a hash of each token, in memory, so a token does not
-survive a daemon restart.
+once the flow is resumed. The daemon keeps only the SHA-256 hash of each token, in its store, bound
+to the token's project, flow, and launch; the daemon never writes the token itself to disk.
 
-When a restarted daemon reattaches a session, it issues that session a new token for the same
-launch, and the session's retry, if it needs one, starts with the new token and the other variables
-above. The process that was already running across the restart keeps the token the earlier daemon
-issued, which the new daemon refuses, so that process's `coa` calls back to the daemon fail until
-it exits. Its answer is still collected from the transcript.
+Because the binding is in the store, a token survives a daemon restart. When a restarted daemon
+reattaches a session, the token the session's running process was started with resolves again,
+under the same rule as before the restart, so that process's `coa` calls reach the new daemon as
+the same principal. The restarted daemon also issues the session a new token for the same launch,
+and a process the reattached Claude Code session starts after the restart, such as its retry,
+carries that new token rather than the one its first process was given. Every token for a launch is
+removed from the store when its judgment ends, unless a daemon stop ended it, and the daemon's next
+start removes any token whose launch its flow no longer expects.
 
 The token governs what a session's calls may record. It does not confine the session's process,
 which runs as your user and can read whatever you can; the tool guard below keeps the session's own
