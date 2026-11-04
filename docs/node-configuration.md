@@ -5,7 +5,7 @@ directory `COANDA_HOME` names). The daemon reads it once, when `coa daemon run` 
 also what `coa daemon start` launches. A change takes effect at the next start; nothing reloads it
 while the daemon runs.
 
-The file is optional. Without it, the daemon runs every judgment on Claude Code, starting the
+The file is optional. Without it, the daemon runs every agent step on Claude Code, starting the
 `claude` executable it finds on the PATH, and holds no credential profiles.
 
 ```json
@@ -24,22 +24,22 @@ The file is optional. Without it, the daemon runs every judgment on Claude Code,
 
 ## The executor
 
-`executor` names the executor judgments run through, by key, and it is required when the file
+`executor` names the executor agent steps run through, by key, and it is required when the file
 exists. There are two keys:
 
-- `claude-code` runs each judgment as a headless Claude Code session: a `claude` process in print
+- `claude-code` runs each agent step as a headless Claude Code session: a `claude` process in print
   mode, started in the flow run's work directory under the node home. `claudeExecutable` is optional
   and names the executable to start. A bare name such as `claude` is looked up on the PATH of the
-  daemon's environment when a judgment spawns; a path is used as given, and a relative one is
+  daemon's environment when an agent step spawns; a path is used as given, and a relative one is
   resolved against the node home. Without it, the daemon starts `claude` from the PATH. On Windows,
-  name the native `claude.exe`: a `.cmd` or `.bat` file is refused when a judgment spawns, because
+  name the native `claude.exe`: a `.cmd` or `.bat` file is refused when an agent step spawns, because
   it would run through a command interpreter, and the flow run pauses naming the path.
-- `scripted` runs a scripted executor with no entries, so every judgment pauses. It takes no
+- `scripted` runs a scripted executor with no entries, so every agent step pauses. It takes no
   `claudeExecutable`.
 
 ### How a Claude Code session runs
 
-Each judgment's session gets the agent's persona as the text appended to Claude Code's system
+Each agent step's session gets the agent's persona as the text appended to Claude Code's system
 prompt, the model and effort its model spec names, and exactly the tools its tool set maps to (read
 to Read; search to Glob and Grep; edit to Edit and Write; shell to Bash; web to WebFetch and
 WebSearch), all of them pre-approved. Any call that would need a permission answer is denied rather
@@ -54,7 +54,7 @@ Before each spawn the daemon writes `.coanda/task.md` (the parcel record) and `.
 `.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the
 retry resumes the session, and never reads any of them back. Each session's
 stream output is kept as a transcript in `transcripts/<project>/<flow run id>/` under the node home,
-outside the work directory; a judgment that gives no valid answer after its one retry pauses with
+outside the work directory; an agent step that gives no valid answer after its one retry pauses with
 that transcript's path as its lever.
 
 Each session runs under a spend cap: what is left of the flow run's budget, or of its chain's budget
@@ -67,10 +67,10 @@ started apart from the daemon: it reads its prompt from a file, writes its outpu
 the transcript, and is in a process group of its own (on Windows, it has a hidden console of its
 own), so neither the daemon's exit nor an interrupt you type in the daemon's terminal reaches it.
 The daemon keeps a record of each running session in `sessions/` under the node home. When the
-daemon starts again, a flow run whose judgment was running reattaches its session: the daemon collects
+daemon starts again, a flow run whose agent step was running reattaches its session: the daemon collects
 the session's answer, retrying it once if it is invalid, and records it with what the whole session
 spent, without launching the agent again. A session the daemon stopped during its retry is not
-retried a second time, and the turn before the retry counts toward what it spent. The judgment's
+retried a second time, and the turn before the retry counts toward what it spent. The agent step's
 wall-clock limit still runs from when its session was launched. A session that finished while the
 daemon was down is collected the same way, even when the limit has passed since: it ran no longer
 than it did, so its answer is recorded. Only a retry it would need is refused once the limit has
@@ -99,7 +99,7 @@ of a session, the retry's included, starts with these variables set:
 
 | Variable | Holds |
 | --- | --- |
-| `COANDA_SESSION_TOKEN` | A session token issued for this flow run and this launch of the judgment |
+| `COANDA_SESSION_TOKEN` | A session token issued for this flow run and this launch of the agent step |
 | `COANDA_HOME` | The node home of the daemon that spawned the session |
 | `COANDA_SESSION_HOME` | The same node home, naming the one daemon the session token belongs to |
 | `COANDA_PROJECT` | The flow run's project, which `coa` uses when no `--project` is given |
@@ -117,10 +117,10 @@ moves, and drafting a definition are open to it in any project, as they are to a
 recording entries (a step, a launch, the session a launch returned, an answer, the usage a session
 reported, a result, a pause, an end) are open to it only on its own flow run, and only while its launch
 is the one the flow run expects. It can never start or follow a flow run directly. A parcel move it makes
-can still start one, as any parcel move can: moving a parcel into a state its type binds to a
+can still start one, as any parcel move can: moving a parcel into a stage its type binds to a
 flow starts that flow's flow run under the binding's principal, not the session's. The
 token resolves until the launch's answer is recorded, its flow run pauses, stops, or ends, or the
-judgment launches again; after that it is refused like any token the daemon did not issue, even
+agent step launches again; after that it is refused like any token the daemon did not issue, even
 once the flow run is resumed. The daemon keeps only the SHA-256 hash of each token, in its store, bound
 to the token's project, flow run, and launch; the daemon never writes the token itself to disk.
 
@@ -130,7 +130,7 @@ under the same rule as before the restart, so that process's `coa` calls reach t
 the same principal. The restarted daemon also issues the session a new token for the same launch,
 and a process the reattached Claude Code session starts after the restart, such as its retry,
 carries that new token rather than the one its first process was given. Every token for a launch is
-removed from the store when its judgment ends, unless a daemon stop ended it, and the daemon's next
+removed from the store when its agent step ends, unless a daemon stop ended it, and the daemon's next
 start removes any token whose launch its flow run no longer expects.
 
 The token governs what a session's calls may record. It does not confine the session's process,
@@ -263,12 +263,12 @@ coa project set-profile try-coanda work
 coa project show try-coanda
 ```
 
-`coa project set-profile <project> <profile>` names the profile the project's judgments spawn with on
+`coa project set-profile <project> <profile>` names the profile the project's agent steps spawn with on
 this node; only the node's owner may run it. The project must be registered, and the profile must
 be one the running daemon's configuration holds. A later call replaces the name, and `coa project
 show` prints it, or says that none is set.
 
-The setting belongs to this node and is never part of what the project replicates. A judgment's spawn
+The setting belongs to this node and is never part of what the project replicates. An agent step's spawn
 receives the profile with that name under the vendor of its agent's model spec. When the project
 names no profile, the spawn receives none. When it names one the configuration no longer holds under
 that vendor (because the file changed between starts), nothing is spawned and the flow run pauses with a
