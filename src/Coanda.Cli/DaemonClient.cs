@@ -10,9 +10,11 @@ namespace Coanda.Cli;
 
 /// <summary>
 /// The CLI's only way to the record: the daemon's loopback API. Starts the daemon when it is not
-/// running, so a user never has to. Inside a judgment's session, where the session token variable
-/// is set, every call presents that token instead of the daemon token, and a daemon that does not
-/// answer is never started: the one that started the session is the only one that resolves it.
+/// running, so a user never has to. Inside a judgment's session, a client for the node home whose
+/// daemon issued the session token presents that token instead of the daemon token, and never
+/// starts a daemon that does not answer: the one that started the session is the only one that
+/// resolves it. A client for any other home never sees the token and works as it would outside a
+/// session.
 /// </summary>
 public sealed class DaemonClient : IDisposable
 {
@@ -23,9 +25,17 @@ public sealed class DaemonClient : IDisposable
 
     private readonly string? sessionToken;
 
-    /// <summary>A client for <paramref name="home"/> that presents the session token the environment holds, if any.</summary>
+    /// <summary>
+    /// A client for <paramref name="home"/> that presents the session token the environment holds
+    /// when the environment also names <paramref name="home"/> as the home that token belongs to.
+    /// </summary>
     public DaemonClient(NodeHome home)
-        : this(home, Environment.GetEnvironmentVariable(SessionAccess.TokenVariable))
+        : this(
+            home,
+            SessionTokenFor(
+                home,
+                Environment.GetEnvironmentVariable(SessionAccess.TokenVariable),
+                Environment.GetEnvironmentVariable(SessionAccess.HomeVariable)))
     {
     }
 
@@ -40,6 +50,27 @@ public sealed class DaemonClient : IDisposable
     }
 
     public NodeHome Home { get; }
+
+    /// <summary>
+    /// The session token a client for <paramref name="home"/> presents: <paramref name="token"/> when
+    /// <paramref name="issuingHome"/> is the same home, and null otherwise, so a token is only ever
+    /// sent to the daemon that issued it. Paths are compared in full, without regard to case on
+    /// Windows.
+    /// </summary>
+    internal static string? SessionTokenFor(NodeHome home, string? token, string? issuingHome)
+    {
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(issuingHome))
+        {
+            return null;
+        }
+
+        StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(Normalized(home.Path), Normalized(issuingHome), comparison)
+            ? token
+            : null;
+    }
+
+    private static string Normalized(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
     public async Task<DaemonInfo?> FindRunningAsync(CancellationToken cancellationToken)
     {

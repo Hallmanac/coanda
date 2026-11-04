@@ -250,6 +250,33 @@ public sealed class SessionPrincipalTests
         File.Exists(temp.Home.LogPath).Should().BeFalse("no detached daemon was started to write its log");
     }
 
+    [Fact]
+    public void A_client_presents_the_session_token_only_to_the_home_whose_daemon_issued_it()
+    {
+        using var temp = new TemporaryHome();
+        string other = Path.Combine(temp.Home.Path, "elsewhere");
+
+        DaemonClient.SessionTokenFor(temp.Home, "a-session-token", temp.Home.Path).Should().Be("a-session-token");
+        DaemonClient.SessionTokenFor(temp.Home, "a-session-token", temp.Home.Path + Path.DirectorySeparatorChar).Should().Be("a-session-token");
+        DaemonClient.SessionTokenFor(temp.Home with { Path = other }, "a-session-token", temp.Home.Path).Should().BeNull("another home's daemon did not issue the token");
+        DaemonClient.SessionTokenFor(temp.Home, "a-session-token", null).Should().BeNull("a token that names no home is sent nowhere");
+        DaemonClient.SessionTokenFor(temp.Home, null, temp.Home.Path).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_client_for_another_home_reaches_its_daemon_with_that_daemons_own_token()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        string? token = DaemonClient.SessionTokenFor(temp.Home, "a-session-token", Path.Combine(temp.Home.Path, "the-session-home"));
+        using var client = new DaemonClient(temp.Home, token);
+
+        List<ProjectView> projects = await client.GetAsync<List<ProjectView>>("/projects", None);
+
+        projects.Should().NotBeNull("the call carried the daemon token, not a token this daemon never issued");
+        await daemon.StopAsync(None);
+    }
+
     private static ScriptedExecutor BuildScript(params ScriptEntry[] entries) =>
         new(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = entries });
 

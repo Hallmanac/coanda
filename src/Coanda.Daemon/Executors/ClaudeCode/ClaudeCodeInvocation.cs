@@ -164,7 +164,7 @@ public static partial class ClaudeCodeInvocation
     /// The environment of every process of a session: the inherited one less every variable an
     /// enclosing Claude Code session set for itself, and, when the spawn carries a profile, less the
     /// credential variables too, with the profile's config directory set. With no profile nothing
-    /// credential-related is set or removed. An inherited session token never reaches the session;
+    /// credential-related is set or removed. An inherited session token, or the home it belongs to, never reaches the session;
     /// the <paramref name="access"/> the spawn carries sets its own token, the node home, and the
     /// project. A <paramref name="coaDirectory"/>, when given, goes first on the PATH, whose name is
     /// matched without regard to case on Windows.
@@ -177,7 +177,7 @@ public static partial class ClaudeCodeInvocation
     {
         ArgumentNullException.ThrowIfNull(inherited);
         StringComparer names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-        var removed = new HashSet<string>([.. EnclosingSessionVariables, SessionAccess.TokenVariable], names);
+        var removed = new HashSet<string>([.. EnclosingSessionVariables, SessionAccess.TokenVariable, SessionAccess.HomeVariable], names);
         if (profile is not null)
         {
             removed.UnionWith(CredentialVariables);
