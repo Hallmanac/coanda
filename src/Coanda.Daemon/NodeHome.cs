@@ -16,6 +16,12 @@ public sealed record NodeHome(string Path)
     public string DaemonInfoPath => System.IO.Path.Combine(Path, "daemon.json");
     public string LogPath => System.IO.Path.Combine(Path, "coanda.log");
 
+    /// <summary>
+    /// Where a daemon the CLI starts detached prints whatever does not reach its log, such as a
+    /// failure before the log is open. Each start appends to it, and it is kept after the start.
+    /// </summary>
+    public string DaemonOutputPath => System.IO.Path.Combine(Path, "daemon.out");
+
     /// <summary>The node configuration <see cref="Api.NodeConfiguration"/> reads when <c>coa daemon run</c> starts; it may be absent.</summary>
     public string ConfigurationPath => System.IO.Path.Combine(Path, "node.json");
 
@@ -23,7 +29,7 @@ public sealed record NodeHome(string Path)
     public IReadOnlyList<string> DatabaseCompanionPaths => [DatabasePath + "-wal", DatabasePath + "-shm", DatabasePath + "-journal"];
 
     /// <summary>Every file in the home that only its owner may read or write.</summary>
-    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath];
+    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath];
 
     /// <summary>
     /// Where a flow run's agent steps work: <c>work/&lt;project&gt;/&lt;flow run id&gt;</c> under the home.
@@ -105,8 +111,9 @@ public sealed record NodeHome(string Path)
     /// <summary>
     /// Creates the home if it is absent and narrows to owner-only access anything an earlier run
     /// left wider: on Windows the directory itself, whose access list every file created in it
-    /// inherits, and on every platform the token file, the database and its companion files, and
-    /// the log. Called before anything opens the database or writes to any of those files.
+    /// inherits, and on every platform the token file, the database and its companion files, the
+    /// log, and the detached daemon's output. Called before anything opens the database or writes
+    /// to any of those files.
     /// </summary>
     public NodeHome EnsureExists()
     {
