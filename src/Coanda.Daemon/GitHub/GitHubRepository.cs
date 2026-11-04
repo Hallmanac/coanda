@@ -45,8 +45,11 @@ public sealed partial record GitHubRepository
     }
 
     /// <summary>
-    /// The remote as a message may quote it: with whatever precedes the last <c>@</c> before its path
-    /// removed, after the scheme when it has one, so a credential written into it is never quoted.
+    /// The remote as a message may quote it, with any credential written into it removed. The user
+    /// information is what precedes the last <c>@</c> before the first <c>/</c> after the scheme (or
+    /// the start, for the <c>user@host:path</c> form), so an <c>@</c> in the path is kept. A remote
+    /// with a scheme whose host part holds no <c>@</c> but does hold a <c>:</c> that starts no port
+    /// reads as a password with a <c>/</c> in it, so there everything up to the last <c>@</c> goes.
     /// </summary>
     public static string Redact(string remote)
     {
@@ -54,11 +57,27 @@ public sealed partial record GitHubRepository
         int start = scheme < 0
             ? 0
             : scheme + 3;
-        int at = remote.LastIndexOf('@');
+        int slash = remote.IndexOf('/', start);
+        string authority = slash < 0
+            ? remote[start..]
+            : remote[start..slash];
+        int at = authority.LastIndexOf('@') switch
+        {
+            >= 0 and int inAuthority => start + inAuthority,
+            _ when scheme >= 0 && HasPassword(authority) => remote.LastIndexOf('@'),
+            _ => -1,
+        };
         string kept = at < start
             ? remote
             : remote[..start] + remote[(at + 1)..];
         return OutputText.Redact(kept);
+    }
+
+    /// <summary>Whether a host part holds a <c>:</c> followed by anything but a port's digits.</summary>
+    private static bool HasPassword(string authority)
+    {
+        int colon = authority.IndexOf(':');
+        return colon >= 0 && !(authority.Length > colon + 1 && authority[(colon + 1)..].All(char.IsAsciiDigit));
     }
 
     public override string ToString() => $"{Owner}/{Name}";

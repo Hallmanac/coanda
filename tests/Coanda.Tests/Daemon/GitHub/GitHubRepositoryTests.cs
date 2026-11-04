@@ -68,6 +68,11 @@ public sealed class GitHubRepositoryTests
     [InlineData("secret@example.com:a/b.git", "example.com:a/b.git")]
     [InlineData("https://a:b/c@github.com/example/repo", "https://github.com/example/repo")]
     [InlineData("https://example.invalid/repo.git", "https://example.invalid/repo.git")]
+    [InlineData("https://gitlab.example.com/group/repo@v2.git", "https://gitlab.example.com/group/repo@v2.git")]
+    [InlineData("https://gitlab.example.com:8443/group/repo@v2.git", "https://gitlab.example.com:8443/group/repo@v2.git")]
+    [InlineData("https://token@gitlab.example.com/group/repo@v2.git", "https://gitlab.example.com/group/repo@v2.git")]
+    [InlineData("git@gitlab.example.com:group/repo@v2.git", "gitlab.example.com:group/repo@v2.git")]
+    [InlineData("gitlab.example.com:group/repo@v2.git", "gitlab.example.com:group/repo@v2.git")]
     public void Redacting_a_remote_removes_whatever_precedes_the_at_before_its_host(string remote, string redacted)
     {
         GitHubRepository.Redact(remote).Should().Be(redacted);
