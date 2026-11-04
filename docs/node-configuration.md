@@ -43,11 +43,31 @@ Each agent step's session gets the agent's persona as the text appended to Claud
 prompt, the model and effort its model spec names, and exactly the tools its tool set maps to (read
 to Read; search to Glob and Grep; edit to Edit and Write; shell to Bash; web to WebFetch and
 WebSearch), all of them pre-approved. Any call that would need a permission answer is denied rather
-than left waiting, whatever your own Claude Code settings say. No user, project, or local settings,
+than left waiting, whatever your own Claude Code settings say. The tools are pre-approved by
+permission rules inside the settings document the daemon passes the session inline (its
+`permissions.allow` list), not by a command-line flag, so a Claude Code that skips that document
+approves none of them and refuses any call that needs approval. Claude Code 2.1.318 still runs the
+calls it needs no approval for, which are reads that stay inside the work directory, and the tool
+guard allows those too. No user, project, or local settings,
 hooks, or MCP servers are loaded, and automatic memory is off, so a session never reads or writes
 your own Claude Code configuration. The repository's `CLAUDE.md` and `AGENTS.md` are not loaded
 either (seen with Claude Code 2.1.318), so a session reads the project's guidance only when its
 persona tells it to, as every shipped agent's persona does.
+
+A session runs only when its Claude Code applied that settings document, because the document is
+what carries the session's tool guard and its tool approvals. Claude Code skips the whole document,
+hooks included, when it holds a value that version rejects, and then runs the session anyway: it
+prints no warning in the stream mode the daemon uses and exits as though nothing were wrong. So the
+document also registers a session-start hook, run as `coa settings-evidence`, that prints a fixed
+marker on its standard error, which Claude Code quotes on the session's output stream before the
+session's init event. While the daemon waits for a process of the session, the spawn's or a
+resume's, it reads the transcript every 50 milliseconds. A process whose init event comes without
+the marker, or that ends printing neither, has not applied the document: the daemon stops it at
+once if it is still running, collects no answer from it, and the agent step pauses saying that the
+session's settings document, and with it its tool guard, was not applied. The reason names the
+Claude Code version the init event reports, or, when the process printed no init event, says so and
+quotes the last line of its error output. A session the daemon reattaches after a restart is checked
+the same way, from its transcript, before any answer is collected from it.
 
 A session adds no attribution to the commits or pull requests it makes: no `Co-Authored-By`
 trailer on a commit and no generated-with line in a pull request's description. The daemon's
@@ -218,7 +238,9 @@ The guard keeps an agent's ordinary tool calls away from those files. It is not 
 a command starts reads what it likes (`git` reads the clone, and `coa` reads `daemon.json` for the
 daemon's port), and a command written to evade the guard can. The hook is passed inline on Claude
 Code's command line with hooks explicitly left on, so your own settings files cannot switch it off,
-and a guard that cannot run blocks the call rather than letting it through. Managed settings that
+and a guard that cannot run blocks the call rather than letting it through. A session whose Claude
+Code skipped the document that carries the hook is stopped as soon as its stream shows it, as
+described under how a Claude Code session runs. Managed settings that
 disable hooks still do, since they outrank everything else.
 
 ## Credential profiles
