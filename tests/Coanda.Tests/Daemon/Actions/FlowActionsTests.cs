@@ -1,8 +1,6 @@
 using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Contours;
-using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
@@ -24,14 +22,12 @@ public sealed class FlowActionsTests : IAsyncLifetime
     private readonly RecordingClock clock = new();
     private IDocumentStore store = null!;
     private ParcelService parcels = null!;
-    private FlowService flows = null!;
     private FlowActions actions = null!;
 
     public async Task InitializeAsync()
     {
-        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
+        store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         parcels = new ParcelService(store, TimeProvider.System);
-        flows = new FlowService(store, TimeProvider.System);
         actions = FlowActions.Shipped(parcels, clock);
     }
 
@@ -57,9 +53,9 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [Fact]
     public async Task Move_parcel_moves_the_parcel_as_the_flows_principal_and_answers_done()
     {
-        (Parcel parcel, Guid flow) = await HeldTaskAtAsync("build");
+        Parcel parcel = await TaskAtAsync("build");
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id, flow);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id);
 
         JsonElement result = DoneResult(outcome);
         result.GetProperty("moved").GetBoolean().Should().BeTrue();
@@ -72,9 +68,9 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [Fact]
     public async Task Move_parcel_answers_done_without_a_move_when_the_parcel_is_already_there()
     {
-        (Parcel parcel, Guid flow) = await HeldTaskAtAsync("build");
+        Parcel parcel = await TaskAtAsync("build");
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("build"))), parcel.Id, flow);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("build"))), parcel.Id);
 
         DoneResult(outcome).GetProperty("moved").GetBoolean().Should().BeFalse();
         (await MovesAsync(parcel.Id)).Should().ContainSingle("only the arrange step's move to build is recorded");
@@ -83,27 +79,13 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [Fact]
     public async Task Move_parcel_pauses_quoting_the_rule_when_the_type_refuses_the_move()
     {
-        (Parcel parcel, Guid flow) = await HeldTaskAtAsync("refine");
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Still refining", null, CancellationToken.None);
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id, flow);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id);
 
         ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
         paused.Lever.Should().Be(FlowLevers.PerformAgain("act"));
-    }
-
-    [Fact]
-    public async Task Move_parcel_pauses_and_moves_nothing_for_a_flow_stopped_before_its_move()
-    {
-        (Parcel parcel, Guid flow) = await HeldTaskAtAsync("build");
-        await flows.StopAsync(Principal.LocalOwner, Project, flow, "Taking this by hand.", CancellationToken.None);
-
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id, flow);
-
-        ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
-        paused.Reason.Should().Contain($"held by no flow, so flow {Ids.Short(flow)} does not move it");
-        Parcel? after = await parcels.ShowAsync(Principal.LocalOwner, Project, parcel.Id, CancellationToken.None);
-        after?.State.Should().Be("build");
     }
 
     [Fact]
@@ -186,17 +168,12 @@ public sealed class FlowActionsTests : IAsyncLifetime
         clock.Waits.Should().BeEmpty();
     }
 
-    /// <summary>A task at <paramref name="state"/> that a flow holds, as every parcel a move-parcel step acts on is.</summary>
-    private async Task<(Parcel Parcel, Guid FlowId)> HeldTaskAtAsync(string state)
+    private async Task<Parcel> TaskAtAsync(string state)
     {
-        Parcel added = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Act on me", null, CancellationToken.None);
-        Parcel parcel = state == added.State
-            ? added
-            : await parcels.MoveAsync(Principal.LocalOwner, Project, added.Id, state, CancellationToken.None);
-
-        // A flow the service starts is not advanced, so it holds the parcel and does nothing else.
-        Flow flow = await flows.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", CancellationToken.None);
-        return (parcel, flow.Id);
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Act on me", null, CancellationToken.None);
+        return state == parcel.State
+            ? parcel
+            : await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, state, CancellationToken.None);
     }
 
     private async Task<IReadOnlyList<ParcelMoved>> MovesAsync(Guid parcelId)
@@ -207,11 +184,8 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     private ValueTask<ActionOutcome> PerformAsync(ContourStep step, Guid parcelId, bool resumed = false) =>
-        PerformAsync(step, parcelId, Ids.New(), resumed);
-
-    private ValueTask<ActionOutcome> PerformAsync(ContourStep step, Guid parcelId, Guid flowId, bool resumed = false) =>
         actions.PerformAsync(
-            new ActionRequest(FlowPrincipal, Project, flowId, parcelId, ShippedContours.Build, step, resumed),
+            new ActionRequest(FlowPrincipal, Project, Ids.New(), parcelId, ShippedContours.Build, step, resumed),
             CancellationToken.None);
 
     private static JsonElement DoneResult(ActionOutcome outcome)
