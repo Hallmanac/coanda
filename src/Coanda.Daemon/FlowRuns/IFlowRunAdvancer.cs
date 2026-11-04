@@ -2,8 +2,8 @@ namespace Coanda.Daemon.FlowRuns;
 
 /// <summary>
 /// The daemon's requests of the worker that advances a flow run by its id. The start endpoint, a
-/// resume, and the daemon's own start ask for an advance; a person's pause asks for the judgment in
-/// progress to end, and a person's stop for the judgment or action in progress to end and the
+/// resume, and the daemon's own start ask for an advance; a person's pause asks for the agent step in
+/// progress to end, and a person's stop for the agent step or system step in progress to end and the
 /// flow run's worktree to be removed. <see cref="FlowRunAdvancer"/> answers all three.
 /// </summary>
 public interface IFlowRunAdvancer
@@ -17,16 +17,16 @@ public interface IFlowRunAdvancer
 
     /// <summary>
     /// Tells the worker advancing the flow run that a person's pause or stop of it was saved, so the
-    /// judgment it is running ends now, its session stopped through the executor, rather than when
+    /// agent step it is running ends now, its session stopped through the executor, rather than when
     /// the agent answers or the wall-clock limit passes. It returns without waiting for that, and
-    /// does nothing when no judgment of the flow run is running.
+    /// does nothing when no agent step of the flow run is running.
     /// </summary>
-    void EndJudgment(Guid flowRunId);
+    void EndAgentStep(Guid flowRunId);
 
     /// <summary>
-    /// Tells the worker advancing the flow run that a person's stop of it was saved: the judgment it is
-    /// running ends as for <see cref="EndJudgment"/>, the action it is performing is cancelled, ending
-    /// any command the action runs and every process that command started, and the flow run's worktree is
+    /// Tells the worker advancing the flow run that a person's stop of it was saved: the agent step it is
+    /// running ends as for <see cref="EndAgentStep"/>, the system step it is performing is cancelled, ending
+    /// any command the system step runs and every process that command started, and the flow run's worktree is
     /// removed once the worker has returned from its step. It returns without waiting for any of that.
     /// </summary>
     void Stopped(string project, Guid flowRunId);

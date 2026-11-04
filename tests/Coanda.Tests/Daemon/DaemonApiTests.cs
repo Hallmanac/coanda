@@ -110,7 +110,7 @@ public sealed class DaemonApiTests
             $"/flow-runs/{flowRun.Id}/resume", new FlowRunResumeRequest("coanda", "Carry on."), CancellationToken.None);
         resumed.Status.Should().Be("running");
 
-        // The stock executor holds no script, so the resumed flow run pauses again at its first judgment;
+        // The stock executor holds no script, so the resumed flow run pauses again at its first agent step;
         // waiting for that keeps the stop below from racing the runner's own writes.
         await FlowRunDriver.UntilAsync(client, "coanda", flowRun.Id, "paused");
 

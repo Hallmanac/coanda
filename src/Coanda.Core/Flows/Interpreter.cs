@@ -21,7 +21,7 @@ public static class Interpreter
 
     /// <summary>
     /// The position after <paramref name="move"/>: one more visit to the step entered, and one more
-    /// spawn when that step is a judgment.
+    /// spawn when that step is an agent step.
     /// </summary>
     public static FlowRunPosition Apply(Flow flow, FlowRunPosition position, FlowRunMove.GoTo move)
     {
@@ -73,10 +73,10 @@ public static class Interpreter
 
     private static FlowRunMove GoTo(Flow flow, FlowRunPosition position, string target)
     {
-        bool spawns = flow.Step(target) is { IsJudgment: true };
+        bool spawns = flow.Step(target) is { IsAgentStep: true };
         return spawns && position.Spawns >= flow.SpawnCap
             ? new FlowRunMove.Pause(
-                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; going to judgment step '{target}' would spawn another agent.")
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; going to agent step '{target}' would spawn another agent.")
             : new FlowRunMove.GoTo(target);
     }
 
@@ -88,7 +88,7 @@ public static class Interpreter
         new(
             step.Name,
             visits.SetItem(step.Name, visits.GetValueOrDefault(step.Name) + 1),
-            step.IsJudgment ? spawns + 1 : spawns);
+            step.IsAgentStep ? spawns + 1 : spawns);
 
     private static bool Matches(JsonElement answer, FlowTransition transition) =>
         answer.TryGetProperty(transition.Field, out JsonElement value) && Equal(value, transition.Value);

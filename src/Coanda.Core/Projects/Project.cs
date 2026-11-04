@@ -4,7 +4,7 @@ using Coanda.Core.Projects.Events;
 namespace Coanda.Core.Projects;
 
 /// <summary>
-/// A project's record: the repository its software actions act on, the build and test commands
+/// A project's record: the repository its software system steps act on, the build and test commands
 /// its gates run there, which default to <see cref="DefaultBuild"/> and <see cref="DefaultTest"/>,
 /// and the checks a merge waits for, which are none until they are set. It lives in the project's own
 /// tenant, one per project. State changes only through <c>Apply</c>; the rules live in

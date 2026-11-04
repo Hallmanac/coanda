@@ -109,7 +109,7 @@ public sealed class ProjectApiTests
             "the registered project's subscription created its parcel");
         (await client.GetAsync<List<ParcelView>>("/parcels?project=unregistered", None)).Should().BeEmpty();
 
-        // The stock daemon's empty scripted executor pauses the flow run at its first judgment; waiting for that keeps the stop from racing the runner.
+        // The stock daemon's empty scripted executor pauses the flow run at its first agent step; waiting for that keeps the stop from racing the runner.
         ParcelView alpha = (await client.GetAsync<List<ParcelView>>("/parcels?project=alpha", None)).Single();
         FlowRunView bound = await FlowRunDriver.BoundAsync(client, "alpha", alpha.Id);
         await FlowRunDriver.UntilAsync(client, "alpha", bound.Id, "paused");

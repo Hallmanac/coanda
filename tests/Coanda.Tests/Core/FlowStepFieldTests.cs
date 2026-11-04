@@ -4,7 +4,7 @@ using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
-/// <summary>A judgment step declares the parcel fields its context carries; an action step declares none.</summary>
+/// <summary>An agent step declares the parcel fields its context carries; a system step declares none.</summary>
 public sealed class FlowStepFieldTests
 {
     private static readonly IReadOnlySet<string> Known = new HashSet<string> { "do-thing" };
@@ -22,28 +22,28 @@ public sealed class FlowStepFieldTests
         Steps =
         [
             new FlowStep { Name = "judge", Agent = "an-agent", AnswerSchema = "a-schema", Fields = judgeFields, Transitions = [On("done", "act")] },
-            new FlowStep { Name = "act", Action = "do-thing", Fields = actFields ?? [], Transitions = [On("done", Flow.End)] },
+            new FlowStep { Name = "act", SystemStep = "do-thing", Fields = actFields ?? [], Transitions = [On("done", Flow.End)] },
         ],
     };
 
     [Fact]
-    public void A_judgment_declaring_plain_distinct_fields_loads()
+    public void An_agent_step_declaring_plain_distinct_fields_loads()
     {
         FluentActions.Invoking(() => With(["objective", "non-goals", "pull_request2"]).Validate(Known)).Should().NotThrow();
     }
 
     [Fact]
-    public void An_action_step_declaring_a_field_is_refused_quoting_the_rule()
+    public void A_system_step_declaring_a_field_is_refused_quoting_the_rule()
     {
         FluentActions.Invoking(() => With([], actFields: ["objective"]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Action step 'act' of flow 'sample' declares fields; only a judgment step declares the fields its context carries.");
+            .WithMessage("System step 'act' of flow 'sample' declares fields; only an agent step declares the fields its context carries.");
     }
 
     [Fact]
     public void A_field_declared_twice_is_refused_quoting_the_rule()
     {
         FluentActions.Invoking(() => With(["objective", "criteria", "objective"]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Judgment step 'judge' of flow 'sample' declares the field 'objective' twice; a step declares each field once.");
+            .WithMessage("Agent step 'judge' of flow 'sample' declares the field 'objective' twice; a step declares each field once.");
     }
 
     [Theory]
@@ -53,7 +53,7 @@ public sealed class FlowStepFieldTests
     public void A_field_whose_name_is_not_plain_is_refused_quoting_the_rule(string name)
     {
         FluentActions.Invoking(() => With([name]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage($"Judgment step 'judge' of flow 'sample' declares the field '{name}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
+            .WithMessage($"Agent step 'judge' of flow 'sample' declares the field '{name}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
     }
 
     [Fact]
@@ -79,17 +79,17 @@ public sealed class FlowStepFieldTests
     }
 
     [Fact]
-    public void The_shipped_build_flow_briefs_its_judgments_with_the_objective_criteria_and_non_goals()
+    public void The_shipped_build_flow_briefs_its_agent_steps_with_the_objective_criteria_and_non_goals()
     {
         Flow build = ShippedFlows.Build;
 
         foreach (string step in new[] { "build", "fix", "adversarial-review", "conformance-review" })
         {
-            build.Step(step)?.Fields.Should().Equal(["objective", "criteria", "non-goals"], $"step '{step}' is a judgment the task's brief informs");
+            build.Step(step)?.Fields.Should().Equal(["objective", "criteria", "non-goals"], $"step '{step}' is an agent step the task's brief informs");
         }
 
-        build.Steps.Where(s => s.IsAction).Should().OnlyContain(s => s.Fields.Count == 0);
-        build.Validate(ShippedActions.Names);
+        build.Steps.Where(s => s.IsSystemStep).Should().OnlyContain(s => s.Fields.Count == 0);
+        build.Validate(ShippedSystemSteps.Names);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class FlowStepFieldTests
         Flow declared = PreviousFlows.BuildWithGatedMerge;
         Flow undeclared = declared with { Steps = [.. declared.Steps.Select(s => s with { Fields = [], Sources = [] })] };
 
-        undeclared.Hash.Should().Be("518ab4488e642800", "a flow none of whose steps declares fields leaves fields out of its hash");
+        undeclared.Hash.Should().Be("aa5f4bb96eec30da", "a flow none of whose steps declares fields leaves fields out of its hash");
         declared.Hash.Should().NotBe(undeclared.Hash);
     }
 }

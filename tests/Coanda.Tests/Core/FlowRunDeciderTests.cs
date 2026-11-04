@@ -28,16 +28,16 @@ public sealed class FlowRunDeciderTests
 
     /// <summary>
     /// A well-formed answer from the build agent for <paramref name="step"/>, from the session the
-    /// visit expects: the flow run's current judgment is launched and its session opened first when it
+    /// visit expects: the flow run's current agent step is launched and its session opened first when it
     /// holds none.
     /// </summary>
-    private static JudgmentAnswered AnswerAt(FlowRun flowRun, string step) =>
+    private static AgentStepAnswered AnswerAt(FlowRun flowRun, string step) =>
         FlowRunDecider.Answer(Build, flowRun, step, "build", Launched(flowRun), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now);
 
-    /// <summary>The session the flow run's current visit expects, launching it and opening one when an unrecorded running judgment holds none.</summary>
+    /// <summary>The session the flow run's current visit expects, launching it and opening one when an unrecorded running agent step holds none.</summary>
     private static Guid Launched(FlowRun flowRun)
     {
-        if (flowRun is { Status: FlowRunStatus.Running, Current: { Kind: StepKind.Judgment, IsRecorded: false, SessionId: null } current })
+        if (flowRun is { Status: FlowRunStatus.Running, Current: { Kind: StepKind.AgentStep, IsRecorded: false, SessionId: null } current })
         {
             flowRun.Apply(FlowRunDecider.Spawn(Build, flowRun, current.Step, "agenthash", Model, Now));
             flowRun.Apply(FlowRunDecider.OpenSession(Build, flowRun, current.Step, Ids.New(), Now));
@@ -46,15 +46,15 @@ public sealed class FlowRunDeciderTests
         return flowRun.Current?.SessionId ?? Ids.New();
     }
 
-    /// <summary>A build flow run started on a fresh parcel, standing at its first step, the worktree action.</summary>
+    /// <summary>A build flow run started on a fresh parcel, standing at its first step, the worktree system step.</summary>
     private static FlowRun Started(Flow? flow = null)
     {
         (FlowRunStarted started, _) = FlowRunDecider.Start(flow ?? Build, 1, ParcelOf(), "owner", Now);
         return FlowRun.Create(started);
     }
 
-    /// <summary>A build flow run at its judgment step, 'build'.</summary>
-    private static FlowRun AtJudgment()
+    /// <summary>A build flow run at its agent step, 'build'.</summary>
+    private static FlowRun AtAgentStep()
     {
         FlowRun flowRun = Started();
         flowRun.Apply(FlowRunDecider.StartStep(Build, flowRun, "build", Now));
@@ -93,14 +93,14 @@ public sealed class FlowRunDeciderTests
             Build, Interpreter.Apply(Build, Interpreter.Start(Build), new FlowRunMove.GoTo("build")), new FlowRunMove.GoTo("gates"));
         flowRun.Position.Should().Be(expected);
         flowRun.Position.Step.Should().Be("gates");
-        flowRun.Position.Spawns.Should().Be(1, "only the judgment step 'build' spawned an agent");
+        flowRun.Position.Spawns.Should().Be(1, "only the agent step 'build' spawned an agent");
         flowRun.Position.VisitsTo("worktree").Should().Be(1);
         flowRun.Position.VisitsTo("build").Should().Be(1);
         flowRun.Position.VisitsTo("gates").Should().Be(1);
     }
 
     [Fact]
-    public void A_flow_run_whose_first_step_is_a_judgment_counts_one_spawn_at_start()
+    public void A_flow_run_whose_first_step_is_an_agent_step_counts_one_spawn_at_start()
     {
         FlowRun flowRun = Started(ShippedFlows.ReviewOnAssignment);
 
@@ -112,9 +112,9 @@ public sealed class FlowRunDeciderTests
     public void Replay_reads_the_events_alone_and_never_the_flow()
     {
         FlowRun flowRun = FlowRun.Create(new FlowRunStarted(
-            Ids.New(), Ids.New(), "any", 1, "h", "owner", "ask", StepKind.Judgment, "an-agent", Now));
-        flowRun.Apply(new StepStarted(flowRun.Id, "do", StepKind.Action, "an-action", Now));
-        flowRun.Apply(new StepStarted(flowRun.Id, "ask", StepKind.Judgment, "an-agent", Now));
+            Ids.New(), Ids.New(), "any", 1, "h", "owner", "ask", StepKind.AgentStep, "an-agent", Now));
+        flowRun.Apply(new StepStarted(flowRun.Id, "do", StepKind.SystemStep, "a-system-step", Now));
+        flowRun.Apply(new StepStarted(flowRun.Id, "ask", StepKind.AgentStep, "an-agent", Now));
 
         flowRun.Position.Step.Should().Be("ask");
         flowRun.Position.VisitsTo("ask").Should().Be(2);
@@ -132,8 +132,8 @@ public sealed class FlowRunDeciderTests
         started.FlowVersion.Should().Be(3);
         started.FlowHash.Should().Be(Build.Hash);
         started.FirstStep.Should().Be("worktree");
-        started.FirstStepKind.Should().Be(StepKind.Action);
-        started.FirstStepPerformer.Should().Be(SoftwareActions.Worktree);
+        started.FirstStepKind.Should().Be(StepKind.SystemStep);
+        started.FirstStepPerformer.Should().Be(SoftwareSystemSteps.Worktree);
         attached.FlowRunId.Should().Be(started.FlowRunId);
         attached.ParcelId.Should().Be(parcel.Id);
     }
@@ -192,7 +192,7 @@ public sealed class FlowRunDeciderTests
         {
             "step" => () => FlowRunDecider.StartStep(Build, flowRun, "build", Now),
             "answer" => () => FlowRunDecider.Answer(Build, flowRun, "worktree", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now),
-            "result" => () => FlowRunDecider.Complete(Build, flowRun, "worktree", SoftwareActions.Worktree, Json("{}"), Now),
+            "result" => () => FlowRunDecider.Complete(Build, flowRun, "worktree", SoftwareSystemSteps.Worktree, Json("{}"), Now),
             "pause" => () => FlowRunDecider.Pause(Build, flowRun, "why", "lever", "owner", Now),
             "end" => () => FlowRunDecider.End(Build, flowRun, Build.Outcome, "owner", Now),
             _ => throw new ArgumentOutOfRangeException(nameof(intent)),
@@ -212,7 +212,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void An_answer_for_a_step_other_than_the_current_one_is_refused()
     {
-        Action answer = () => AnswerAt(AtJudgment(), "fix");
+        Action answer = () => AnswerAt(AtAgentStep(), "fix");
 
         answer.Should().Throw<DomainException>().WithMessage("*is at step 'build'; an answer is recorded only for the current step, not 'fix'.");
     }
@@ -220,32 +220,32 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_result_for_a_step_other_than_the_current_one_is_refused()
     {
-        Action result = () => FlowRunDecider.Complete(Build, Started(), "gates", SoftwareActions.Gates, Json("{}"), Now);
+        Action result = () => FlowRunDecider.Complete(Build, Started(), "gates", SoftwareSystemSteps.Gates, Json("{}"), Now);
 
         result.Should().Throw<DomainException>().WithMessage("*is at step 'worktree'; a result is recorded only for the current step, not 'gates'.");
     }
 
     [Fact]
-    public void An_answer_on_an_action_step_is_refused()
+    public void An_answer_on_a_system_step_is_refused()
     {
         Action answer = () => FlowRunDecider.Answer(Build, Started(), "worktree", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
 
-        answer.Should().Throw<DomainException>().WithMessage("Step 'worktree' is an action step; it takes a result, not an answer.");
+        answer.Should().Throw<DomainException>().WithMessage("Step 'worktree' is a system step; it takes a result, not an answer.");
     }
 
     [Fact]
-    public void A_result_on_a_judgment_step_is_refused()
+    public void A_result_on_an_agent_step_is_refused()
     {
-        Action result = () => FlowRunDecider.Complete(Build, AtJudgment(), "build", "build", Json("{}"), Now);
+        Action result = () => FlowRunDecider.Complete(Build, AtAgentStep(), "build", "build", Json("{}"), Now);
 
-        result.Should().Throw<DomainException>().WithMessage("Step 'build' is a judgment step; it takes an answer, not a result.");
+        result.Should().Throw<DomainException>().WithMessage("Step 'build' is an agent step; it takes an answer, not a result.");
     }
 
     [Fact]
     public void An_answer_records_the_agent_its_hash_the_model_the_document_and_the_measurement()
     {
-        FlowRun flowRun = AtJudgment();
-        JudgmentAnswered answered = AnswerAt(flowRun, "build");
+        FlowRun flowRun = AtAgentStep();
+        AgentStepAnswered answered = AnswerAt(flowRun, "build");
         flowRun.Apply(answered);
 
         answered.Agent.Should().Be("build");
@@ -263,7 +263,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_second_answer_on_the_same_visit_is_refused()
     {
-        FlowRun flowRun = AtJudgment();
+        FlowRun flowRun = AtAgentStep();
         flowRun.Apply(AnswerAt(flowRun, "build"));
 
         Action again = () => AnswerAt(flowRun, "build");
@@ -274,7 +274,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void An_answer_from_an_agent_the_step_does_not_name_is_refused()
     {
-        Action answer = () => FlowRunDecider.Answer(Build, AtJudgment(), "build", "fix", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
+        Action answer = () => FlowRunDecider.Answer(Build, AtAgentStep(), "build", "fix", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
 
         answer.Should().Throw<DomainException>().WithMessage("Step 'build' names the agent 'build'; an answer from 'fix' is not its answer.");
     }
@@ -283,7 +283,7 @@ public sealed class FlowRunDeciderTests
     public void A_negative_measurement_is_refused()
     {
         Action answer = () => FlowRunDecider.Answer(
-            Build, AtJudgment(), "build", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend with { CostUsd = -1m }, Now);
+            Build, AtAgentStep(), "build", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend with { CostUsd = -1m }, Now);
 
         answer.Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
     }
@@ -362,7 +362,7 @@ public sealed class FlowRunDeciderTests
         step.Should().Throw<DomainException>().WithMessage("*a flow run keeps the flow it started under.");
     }
 
-    /// <summary>A flow run of <paramref name="flow"/> at its judgment step 'build', launched, paused without an answer and resumed.</summary>
+    /// <summary>A flow run of <paramref name="flow"/> at its agent step 'build', launched, paused without an answer and resumed.</summary>
     private static FlowRun ResumedUnanswered(Flow flow, bool launched = true)
     {
         FlowRun flowRun = Started(flow);
@@ -378,7 +378,7 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void A_respawn_of_a_resumed_unanswered_judgment_counts_one_spawn_and_no_visit_once_per_resume()
+    public void A_respawn_of_a_resumed_unanswered_agent_step_counts_one_spawn_and_no_visit_once_per_resume()
     {
         FlowRun flowRun = ResumedUnanswered(Build);
         int spawns = flowRun.Spawns;
@@ -401,7 +401,7 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void A_resumed_judgment_that_paused_before_it_launched_uses_its_counted_spawn_rather_than_counting_another()
+    public void A_resumed_agent_step_that_paused_before_it_launched_uses_its_counted_spawn_rather_than_counting_another()
     {
         Flow capped = Build with { SpawnCap = 1 };
         FlowRun flowRun = ResumedUnanswered(capped, launched: false);
@@ -417,27 +417,27 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void A_respawn_is_refused_at_the_spawn_cap_before_a_resume_and_for_an_action_step()
+    public void A_respawn_is_refused_at_the_spawn_cap_before_a_resume_and_for_a_system_step()
     {
         Flow capped = Build with { SpawnCap = 1 };
         FluentActions.Invoking(() => FlowRunDecider.Respawn(capped, ResumedUnanswered(capped), "build", Now))
             .Should().Throw<DomainException>()
-            .WithMessage("Flow 'build' reached its spawn cap of 1; performing judgment step 'build' again would spawn another agent.");
+            .WithMessage("Flow 'build' reached its spawn cap of 1; performing agent step 'build' again would spawn another agent.");
 
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, AtJudgment(), "build", Now))
+        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, AtAgentStep(), "build", Now))
             .Should().Throw<DomainException>().WithMessage("*has not been resumed since it was entered*");
 
-        FlowRun atAction = Started();
-        atAction.Apply(FlowRunDecider.Pause(Build, atAction, "waiting", "lever", "owner", Now));
-        atAction.Apply(FlowRunDecider.Resume(Build, atAction, "go on", "owner", Now));
-        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, atAction, "worktree", Now))
-            .Should().Throw<DomainException>().WithMessage("*only a judgment step spawns an agent*");
+        FlowRun atSystemStep = Started();
+        atSystemStep.Apply(FlowRunDecider.Pause(Build, atSystemStep, "waiting", "lever", "owner", Now));
+        atSystemStep.Apply(FlowRunDecider.Resume(Build, atSystemStep, "go on", "owner", Now));
+        FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, atSystemStep, "worktree", Now))
+            .Should().Throw<DomainException>().WithMessage("*only an agent step spawns an agent*");
     }
 
     [Fact]
     public void A_launch_carries_the_agents_hash_and_model_spec_and_its_session_is_recorded_once_until_the_next_launch()
     {
-        FlowRun flowRun = AtJudgment();
+        FlowRun flowRun = AtAgentStep();
         FluentActions.Invoking(() => FlowRunDecider.OpenSession(Build, flowRun, "build", Ids.New(), Now))
             .Should().Throw<DomainException>().WithMessage("*has not recorded the launch of its agent*");
 
@@ -463,7 +463,7 @@ public sealed class FlowRunDeciderTests
     public void A_resumes_counted_spawn_clears_the_session_of_the_launch_before_it()
     {
         FlowRun flowRun = ResumedUnanswered(Build);
-        flowRun.Apply(new JudgmentSessionOpened(flowRun.Id, "build", Ids.New(), Now.AddMinutes(1)));
+        flowRun.Apply(new AgentStepSessionOpened(flowRun.Id, "build", Ids.New(), Now.AddMinutes(1)));
 
         flowRun.Apply(FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(2)));
 
@@ -474,17 +474,17 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_launch_with_no_agent_hash_or_model_spec_is_refused()
     {
-        FluentActions.Invoking(() => FlowRunDecider.Spawn(Build, AtJudgment(), "build", " ", Model, Now))
+        FluentActions.Invoking(() => FlowRunDecider.Spawn(Build, AtAgentStep(), "build", " ", Model, Now))
             .Should().Throw<DomainException>().WithMessage("*content hash of the agent it launches*");
-        FluentActions.Invoking(() => FlowRunDecider.Spawn(Build, AtJudgment(), "build", "agenthash", Model with { Effort = "" }, Now))
+        FluentActions.Invoking(() => FlowRunDecider.Spawn(Build, AtAgentStep(), "build", "agenthash", Model with { Effort = "" }, Now))
             .Should().Throw<DomainException>().WithMessage("*model spec its agent runs on*");
     }
 
     [Fact]
     public void A_launch_recorded_before_it_carried_the_agent_replays_with_neither_hash_nor_model_spec()
     {
-        FlowRun flowRun = AtJudgment();
-        JudgmentSpawned old = JsonSerializer.Deserialize<JudgmentSpawned>(
+        FlowRun flowRun = AtAgentStep();
+        AgentStepSpawned old = JsonSerializer.Deserialize<AgentStepSpawned>(
             $$"""{"FlowRunId":"{{flowRun.Id}}","Step":"build","Agent":"build","SpawnedAt":"2026-11-03T12:00:00+00:00"}""")
             ?? throw new InvalidOperationException("The launch did not read back.");
 
@@ -498,7 +498,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void An_answer_from_the_session_a_resume_moved_past_is_refused_even_on_the_same_step_and_visit()
     {
-        FlowRun flowRun = AtJudgment();
+        FlowRun flowRun = AtAgentStep();
         Guid held = Launched(flowRun);
         flowRun.Apply(FlowRunDecider.Pause(Build, flowRun, "Hold on.", "resume", "owner", Now));
         flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, "owner", Now));
@@ -513,13 +513,13 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void An_answer_from_a_session_the_latest_launch_did_not_return_is_refused()
     {
-        FlowRun flowRun = AtJudgment();
+        FlowRun flowRun = AtAgentStep();
         Launched(flowRun);
 
         FluentActions.Invoking(() => FlowRunDecider.Answer(Build, flowRun, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
             .Should().Throw<DomainException>().WithMessage("Step 'build' expects session *; an answer from session * is not recorded on this visit.");
 
-        FlowRun unopened = AtJudgment();
+        FlowRun unopened = AtAgentStep();
         unopened.Apply(FlowRunDecider.Spawn(Build, unopened, "build", "agenthash", Model, Now));
         FluentActions.Invoking(() => FlowRunDecider.Answer(Build, unopened, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
             .Should().Throw<DomainException>().WithMessage("Step 'build' holds no session for its latest launch; an answer from session * is not recorded on this visit.");
@@ -529,9 +529,9 @@ public sealed class FlowRunDeciderTests
     [InlineData(FlowRunStatus.Running)]
     [InlineData(FlowRunStatus.Paused)]
     [InlineData(FlowRunStatus.Stopped)]
-    public void A_dropped_judgments_usage_counts_once_in_the_cost_and_leaves_the_rest_of_the_flow_run_as_it_was(FlowRunStatus status)
+    public void A_dropped_agent_steps_usage_counts_once_in_the_cost_and_leaves_the_rest_of_the_flow_run_as_it_was(FlowRunStatus status)
     {
-        FlowRun flowRun = AtJudgment();
+        FlowRun flowRun = AtAgentStep();
         Guid session = Launched(flowRun);
         var usage = new Measurement(20, 2.25m, 2, TimeSpan.FromSeconds(2));
         switch (status)
@@ -550,7 +550,7 @@ public sealed class FlowRunDeciderTests
         Measurement? pauseUsage = flowRun.PauseUsage;
         FlowRunStepEntry? visit = flowRun.Current;
 
-        JudgmentUsageRecorded recorded = FlowRunDecider.RecordUsage(Build, flowRun, "build", "build", session, usage, Now.AddMinutes(1));
+        AgentStepUsageRecorded recorded = FlowRunDecider.RecordUsage(Build, flowRun, "build", "build", session, usage, Now.AddMinutes(1));
         flowRun.Apply(recorded);
 
         recorded.Usage.Should().Be(usage);
@@ -563,17 +563,17 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void A_dropped_judgments_usage_is_refused_on_an_ended_flow_run_another_step_or_an_action()
+    public void A_dropped_agent_steps_usage_is_refused_on_an_ended_flow_run_another_step_or_a_system_step()
     {
         FlowRun ended = InStatus(FlowRunStatus.Ended);
         FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, ended, "worktree", "build", Ids.New(), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*has ended; a judgment's usage is recorded on a running, paused, or stopped flow run.");
+            .Should().Throw<DomainException>().WithMessage("*has ended; an agent step's usage is recorded on a running, paused, or stopped flow run.");
 
-        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, AtJudgment(), "worktree", "build", Ids.New(), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*is at step 'build'; a judgment's usage is recorded only for the current step, not 'worktree'.");
+        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, AtAgentStep(), "worktree", "build", Ids.New(), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("*is at step 'build'; an agent step's usage is recorded only for the current step, not 'worktree'.");
         FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, Started(), "worktree", "worktree", Ids.New(), Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("Step 'worktree' is an action step; only a judgment step reports usage.");
-        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, AtJudgment(), "build", "build", Ids.New(), Spend with { Tokens = -1 }, Now))
+            .Should().Throw<DomainException>().WithMessage("Step 'worktree' is a system step; only an agent step reports usage.");
+        FluentActions.Invoking(() => FlowRunDecider.RecordUsage(Build, AtAgentStep(), "build", "build", Ids.New(), Spend with { Tokens = -1 }, Now))
             .Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
     }
 }

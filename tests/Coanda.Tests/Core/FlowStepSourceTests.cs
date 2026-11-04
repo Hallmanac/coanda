@@ -6,7 +6,7 @@ using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
-/// <summary>A judgment step declares the steps of its flow whose latest recordings its context carries; an action step declares none.</summary>
+/// <summary>An agent step declares the steps of its flow whose latest recordings its context carries; a system step declares none.</summary>
 public sealed class FlowStepSourceTests
 {
     private static readonly IReadOnlySet<string> Known = new HashSet<string> { "do-thing" };
@@ -25,14 +25,14 @@ public sealed class FlowStepSourceTests
         SpawnCap = 2,
         Steps =
         [
-            new FlowStep { Name = "act", Action = "do-thing", Sources = actSources ?? [], Transitions = [On("done", "judge")] },
+            new FlowStep { Name = "act", SystemStep = "do-thing", Sources = actSources ?? [], Transitions = [On("done", "judge")] },
             new FlowStep { Name = "judge", Agent = "an-agent", AnswerSchema = "a-schema", Sources = judgeSources, Transitions = [On("done", "check")] },
             new FlowStep { Name = "check", Agent = "an-agent", AnswerSchema = "a-schema", Transitions = [On("done", Flow.End)] },
         ],
     };
 
     [Fact]
-    public void A_judgment_declaring_distinct_steps_of_its_flow_loads()
+    public void An_agent_step_declaring_distinct_steps_of_its_flow_loads()
     {
         FluentActions.Invoking(() => With([From("check"), From("act")]).Validate(Known)).Should().NotThrow();
     }
@@ -62,7 +62,7 @@ public sealed class FlowStepSourceTests
         string content = Flow.CanonicalJson(With([From("act")]));
 
         content.Should().Contain("\"Sources\": [").And.Contain("\"Step\": \"act\"");
-        Flow.FromJson("""{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Steps":[{"Name":"a","Action":"do-thing","Transitions":[{"Field":"verdict","Value":"done","VisitCap":1,"Target":"j"}]},{"Name":"j","Agent":"x","AnswerSchema":"y","Sources":[{"Step":"a"}],"Transitions":[{"Field":"verdict","Value":"done","VisitCap":1,"Target":"end"}]}]}""")
+        Flow.FromJson("""{"Name":"sample","Accepts":["task"],"Outcome":"o","Budget":1,"SpawnCap":1,"Steps":[{"Name":"a","SystemStep":"do-thing","Transitions":[{"Field":"verdict","Value":"done","VisitCap":1,"Target":"j"}]},{"Name":"j","Agent":"x","AnswerSchema":"y","Sources":[{"Step":"a"}],"Transitions":[{"Field":"verdict","Value":"done","VisitCap":1,"Target":"end"}]}]}""")
             .Steps[1].Sources.Should().Equal(From("a"));
     }
 
@@ -80,10 +80,10 @@ public sealed class FlowStepSourceTests
     }
 
     [Fact]
-    public void An_action_step_declaring_a_source_is_refused_quoting_the_rule()
+    public void A_system_step_declaring_a_source_is_refused_quoting_the_rule()
     {
         FluentActions.Invoking(() => With([], actSources: [From("check")]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Action step 'act' of flow 'sample' declares sources; only a judgment step declares the sources its context carries.");
+            .WithMessage("System step 'act' of flow 'sample' declares sources; only an agent step declares the sources its context carries.");
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class FlowStepSourceTests
         string content = Flow.CanonicalJson(With([From("act"), From("check")])).ReplaceLineEndings("\n").Replace("{\n          \"Step\": \"check\"\n        }", "null", StringComparison.Ordinal);
 
         FluentActions.Invoking(() => Flow.FromJson(content).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Judgment step 'judge' of flow 'sample' declares source 2 as null; each source is an object naming the step it reads.");
+            .WithMessage("Agent step 'judge' of flow 'sample' declares source 2 as null; each source is an object naming the step it reads.");
     }
 
     [Theory]
@@ -106,14 +106,14 @@ public sealed class FlowStepSourceTests
         content.Should().Contain(source, "the test replaced the second source");
 
         FluentActions.Invoking(() => Flow.FromJson(content).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Judgment step 'judge' of flow 'sample' declares source 2, which names no step; a source names the step of the flow whose latest recording its context carries.");
+            .WithMessage("Agent step 'judge' of flow 'sample' declares source 2, which names no step; a source names the step of the flow whose latest recording its context carries.");
     }
 
     [Fact]
     public void A_source_naming_no_step_of_the_flow_is_refused_naming_it()
     {
         FluentActions.Invoking(() => With([From("act"), From("elsewhere")]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Judgment step 'judge' of flow 'sample' declares the source step 'elsewhere', which is not a step of the flow.");
+            .WithMessage("Agent step 'judge' of flow 'sample' declares the source step 'elsewhere', which is not a step of the flow.");
         FluentActions.Invoking(() => With([From("Act")]).Validate(Known)).Should().Throw<DomainException>()
             .WithMessage("*the source step 'Act', which is not a step of the flow.", "a step is named as the flow names it");
     }
@@ -122,14 +122,14 @@ public sealed class FlowStepSourceTests
     public void A_source_naming_the_declaring_step_is_refused()
     {
         FluentActions.Invoking(() => With([From("act"), From("judge")]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Judgment step 'judge' of flow 'sample' declares itself as a source; a step's own earlier visits are not a source.");
+            .WithMessage("Agent step 'judge' of flow 'sample' declares itself as a source; a step's own earlier visits are not a source.");
     }
 
     [Fact]
     public void A_source_naming_the_same_step_as_an_earlier_one_is_refused_naming_it()
     {
         FluentActions.Invoking(() => With([From("act"), From("check"), From("act")]).Validate(Known)).Should().Throw<DomainException>()
-            .WithMessage("Judgment step 'judge' of flow 'sample' declares the source step 'act' twice; a step declares each source once.");
+            .WithMessage("Agent step 'judge' of flow 'sample' declares the source step 'act' twice; a step declares each source once.");
     }
 
     [Fact]
@@ -139,8 +139,8 @@ public sealed class FlowStepSourceTests
 
         FluentActions.Invoking(() => DefinitionDecider.Draft(
                 DefinitionKind.Flow, broken.Name, DefinitionScope.Project, "alpha", 0,
-                Flow.CanonicalJson(broken), broken.Hash, null, "brian", DateTimeOffset.UnixEpoch, knownActions: Known))
-            .Should().Throw<DomainException>().WithMessage("Judgment step 'judge' of flow 'sample' declares itself as a source*");
+                Flow.CanonicalJson(broken), broken.Hash, null, "brian", DateTimeOffset.UnixEpoch, knownSystemSteps: Known))
+            .Should().Throw<DomainException>().WithMessage("Agent step 'judge' of flow 'sample' declares itself as a source*");
     }
 
     [Fact]
@@ -163,6 +163,6 @@ public sealed class FlowStepSourceTests
 
         ShippedFlows.All.SelectMany(c => c.Steps.Where(s => !(c == ShippedFlows.Build && s.Name == "fix")))
             .Should().OnlyContain(s => s.Sources.Count == 0);
-        ShippedFlows.Build.Validate(ShippedActions.Names);
+        ShippedFlows.Build.Validate(ShippedSystemSteps.Names);
     }
 }

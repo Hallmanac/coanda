@@ -9,7 +9,7 @@ namespace Coanda.Core.FlowRuns;
 /// One execution of a flow on a parcel. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="FlowRunDecider"/>. Replaying the events alone, without the flow, yields the same
 /// <see cref="Position"/> the interpreter's start and apply produce, because every step entered
-/// carries its kind. The one exception is <see cref="JudgmentRespawned"/>: a resumed judgment that
+/// carries its kind. The one exception is <see cref="AgentStepRespawned"/>: a resumed agent step that
 /// paused without an answer spawns again on the same visit, a position the interpreter never
 /// produces, so the spawns count one more than the interpreter's entries alone would while the
 /// visits stay as they were. The store snapshots this class inline, so it is also the document the
@@ -74,27 +74,27 @@ public sealed class FlowRun
     [JsonInclude]
     public int Depth { get; private set; }
 
-    /// <summary>What the judgments that paused the flow run without an answer reported spending, in US dollars.</summary>
+    /// <summary>What the agent steps that paused the flow run without an answer reported spending, in US dollars.</summary>
     [JsonInclude]
     public decimal PausedCost { get; private set; }
 
     /// <summary>
-    /// What the judgments whose answer or pause was not recorded reported spending, in US dollars:
+    /// What the agent steps whose answer or pause was not recorded reported spending, in US dollars:
     /// those a person's pause or stop ended, and those whose visit no longer expected their session.
     /// </summary>
     [JsonInclude]
     public decimal UnrecordedCost { get; private set; }
 
     /// <summary>
-    /// What the flow run has recorded spending, in US dollars: the cost of every answered judgment, the
-    /// usage every paused judgment reported, and the usage of every judgment whose answer or pause
+    /// What the flow run has recorded spending, in US dollars: the cost of every answered agent step, the
+    /// usage every paused agent step reported, and the usage of every agent step whose answer or pause
     /// was not recorded. It is read from the recorded visits rather than kept as a running total, so
     /// a flow run recorded before costs were totalled counts its spend too.
     /// </summary>
     [JsonIgnore]
     public decimal Cost => Steps.Sum(entry => entry.Measurement?.CostUsd ?? 0m) + PausedCost + UnrecordedCost;
 
-    /// <summary>The usage the judgment that paused the flow run reported, or null when the pause was not a judgment's.</summary>
+    /// <summary>The usage the agent step that paused the flow run reported, or null when the pause was not an agent step's.</summary>
     [JsonInclude]
     public Measurement? PauseUsage { get; private set; }
 
@@ -143,7 +143,7 @@ public sealed class FlowRun
     public void Apply(StepStarted started) =>
         Enter(started.Step, started.Kind, started.Performer, started.StartedAt);
 
-    public void Apply(JudgmentAnswered answered)
+    public void Apply(AgentStepAnswered answered)
     {
         Record(entry => entry with
         {
@@ -158,7 +158,7 @@ public sealed class FlowRun
     }
 
     /// <summary>One more spawn on the current visit, and no visit, since the step was not entered again.</summary>
-    public void Apply(JudgmentRespawned respawned)
+    public void Apply(AgentStepRespawned respawned)
     {
         Spawns += 1;
         Record(entry => entry with { RespawnedAt = respawned.RespawnedAt, SpawnedAt = null, SessionId = null, LaunchId = null });
@@ -171,7 +171,7 @@ public sealed class FlowRun
     /// resume. The visit holds the launched agent's hash and model spec, and no session until the
     /// executor returns one for this launch.
     /// </summary>
-    public void Apply(JudgmentSpawned spawned)
+    public void Apply(AgentStepSpawned spawned)
     {
         Record(entry => entry with
         {
@@ -186,13 +186,13 @@ public sealed class FlowRun
     }
 
     /// <summary>The current visit's latest launch returned its session.</summary>
-    public void Apply(JudgmentSessionOpened opened)
+    public void Apply(AgentStepSessionOpened opened)
     {
         Record(entry => entry with { SessionId = opened.SessionId });
         UpdatedAt = opened.OpenedAt;
     }
 
-    public void Apply(ActionCompleted completed)
+    public void Apply(SystemStepCompleted completed)
     {
         Record(entry => entry with { Result = completed.Result, RecordedAt = completed.CompletedAt, ResumedAt = null });
         UpdatedAt = completed.CompletedAt;
@@ -208,8 +208,8 @@ public sealed class FlowRun
         UpdatedAt = paused.PausedAt;
     }
 
-    /// <summary>Only what the judgment spent is kept; the pause, the visit, and the status stay as they are.</summary>
-    public void Apply(JudgmentUsageRecorded recorded)
+    /// <summary>Only what the agent step spent is kept; the pause, the visit, and the status stay as they are.</summary>
+    public void Apply(AgentStepUsageRecorded recorded)
     {
         UnrecordedCost += recorded.Usage.CostUsd;
         UpdatedAt = recorded.RecordedAt;
@@ -239,12 +239,12 @@ public sealed class FlowRun
         UpdatedAt = stopped.StoppedAt;
     }
 
-    /// <summary>One more visit to the step entered, and one more spawn when it is a judgment, as the interpreter counts them.</summary>
+    /// <summary>One more visit to the step entered, and one more spawn when it is an agent step, as the interpreter counts them.</summary>
     private void Enter(string step, StepKind kind, string performer, DateTimeOffset at)
     {
         CurrentStep = step;
         Visits[step] = Visits.GetValueOrDefault(step) + 1;
-        Spawns += kind == StepKind.Judgment ? 1 : 0;
+        Spawns += kind == StepKind.AgentStep ? 1 : 0;
         Steps.Add(new FlowRunStepEntry { Step = step, Kind = kind, Performer = performer, StartedAt = at });
         UpdatedAt = at;
     }

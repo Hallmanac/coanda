@@ -21,7 +21,7 @@ public static class PreviousFlows
             FlowStep gatedMerge = new()
             {
                 Name = "gated-merge",
-                Action = SoftwareActions.GatedMerge,
+                SystemStep = SoftwareSystemSteps.GatedMerge,
                 Transitions = [onward with { Value = FlowValue.Of("done") }],
             };
             return build with
@@ -55,13 +55,13 @@ public static class PreviousFlows
             new FlowStep
             {
                 Name = "gated-merge",
-                Action = SoftwareActions.GatedMerge,
+                SystemStep = SoftwareSystemSteps.GatedMerge,
                 Transitions = [On("merged", Flow.End, 120), On("pending", "wait-for-checks", 20)],
             },
             new FlowStep
             {
                 Name = "wait-for-checks",
-                Action = CoreActions.Timer,
+                SystemStep = CoreSystemSteps.Timer,
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(60) },
                 Transitions = [On("done", "gated-merge", 20)],
             },

@@ -78,14 +78,14 @@ public sealed class PhaseOneGateTests
             FieldValue.OfReference(FakeGitHub.Number.ToString(CultureInfo.InvariantCulture), FakeGitHub.Url));
         github.Requests.Count(r => r.IsOpen).Should().Be(1);
         github.Unexpected.Should().BeEmpty();
-        FlowRunStepView[] judgments = [.. flowRun.Steps.Where(s => s.Kind == "judgment")];
-        judgments.Select(s => s.Performer).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance");
-        foreach ((FlowRunStepView judgment, int ordinal) in judgments.Select((j, i) => (j, i + 1)))
+        FlowRunStepView[] agentSteps = [.. flowRun.Steps.Where(s => s.Kind == "agent-step")];
+        agentSteps.Select(s => s.Performer).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance");
+        foreach ((FlowRunStepView agentStep, int ordinal) in agentSteps.Select((j, i) => (j, i + 1)))
         {
-            AgentDefinition agent = ShippedAgents.All.Single(a => a.Name == judgment.Performer);
-            judgment.AgentHash.Should().Be(agent.Hash);
-            judgment.Model.Should().Be(agent.Model);
-            judgment.Measurement.Should().Be(Scripts.Usage(ordinal), "tokens, cost, turns, and duration are recorded as the executor reported them");
+            AgentDefinition agent = ShippedAgents.All.Single(a => a.Name == agentStep.Performer);
+            agentStep.AgentHash.Should().Be(agent.Hash);
+            agentStep.Model.Should().Be(agent.Model);
+            agentStep.Measurement.Should().Be(Scripts.Usage(ordinal), "tokens, cost, turns, and duration are recorded as the executor reported them");
         }
 
         string context = executor.Spawns.First(spawn => spawn.Agent == "build").Context;
@@ -185,7 +185,7 @@ public sealed class PhaseOneGateTests
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.FlowHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
-        paused.PauseReason.Should().Be("Flow 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
+        paused.PauseReason.Should().Be("Flow 'build' reached its spawn cap of 4; going to agent step 'fix' would spawn another agent.");
         paused.Lever.Should().NotBeNullOrWhiteSpace();
         paused.Steps.Count(s => s.Step == "adversarial-review").Should().BeLessThan(4, "the visit cap of 3 was never reached");
         executor.Spawns.Should().HaveCount(4);
@@ -237,7 +237,7 @@ public sealed class PhaseOneGateTests
     // 5. The per-flow-run budget and the budget a chain shares.
 
     [Fact]
-    public async Task A_build_flow_run_whose_first_judgment_costs_its_whole_budget_pauses_at_its_next_judgment_without_spawning()
+    public async Task A_build_flow_run_whose_first_agent_step_costs_its_whole_budget_pauses_at_its_next_agent_step_without_spawning()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(
@@ -253,7 +253,7 @@ public sealed class PhaseOneGateTests
 
         paused.CurrentStep.Should().Be("adversarial-review");
         paused.PauseReason.Should().Be(
-            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flow run performs no judgment once its recorded cost reaches its flow's budget.");
+            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flow run performs no agent step once its recorded cost reaches its flow's budget.");
         paused.Lever.Should().Be(FlowRunLevers.BudgetReached());
         paused.Steps[^1].Answer.Should().BeNull();
         executor.Spawns.Select(s => s.Agent).Should().Equal("build");
@@ -262,7 +262,7 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_chain_whose_flow_runs_stay_under_their_own_budgets_pauses_at_its_next_judgment_once_together_they_reach_the_roots_budget()
+    public async Task A_chain_whose_flow_runs_stay_under_their_own_budgets_pauses_at_its_next_agent_step_once_together_they_reach_the_roots_budget()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 4).Select(n => Costing("clean", 0.6m, n))]));
@@ -280,7 +280,7 @@ public sealed class PhaseOneGateTests
         flowRuns.Select(f => (f.FlowName, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
         flowRuns.Should().OnlyContain(f => f.Cost < 1m, "each flow run stays under its own budget");
         paused.PauseReason.Should().Be(
-            $"The chain of flow run {Ids.Short(paused.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flow runs, which reaches the budget of $1.00 of flow 'seed' that its root flow run follows; a chain performs no judgment once its recorded cost reaches that budget.");
+            $"The chain of flow run {Ids.Short(paused.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flow runs, which reaches the budget of $1.00 of flow 'seed' that its root flow run follows; a chain performs no agent step once its recorded cost reaches that budget.");
         paused.Lever.Should().Be(FlowRunLevers.BudgetReached());
         executor.Spawns.Should().HaveCount(2);
 
@@ -288,7 +288,7 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_judgment_that_pauses_after_its_retry_records_the_summed_usage_and_a_resume_pauses_on_the_budget_without_spawning()
+    public async Task An_agent_step_that_pauses_after_its_retry_records_the_summed_usage_and_a_resume_pauses_on_the_budget_without_spawning()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("build",
@@ -313,7 +313,7 @@ public sealed class PhaseOneGateTests
         FlowRunView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(
-            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flow run performs no judgment once its recorded cost reaches its flow's budget.");
+            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flow run performs no agent step once its recorded cost reaches its flow's budget.");
         again.Steps.Count(s => s.Step == "build").Should().Be(1);
         executor.Spawns.Should().ContainSingle("a resume of a spent flow run spawns nothing");
 
@@ -345,7 +345,7 @@ public sealed class PhaseOneGateTests
         missing.Should().NotBeNullOrEmpty();
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
-        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
         Flow read = Flow.FromJson(content);
         long before = await store.Database.FetchHighestEventSequenceNumber(None);
 

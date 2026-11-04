@@ -133,7 +133,7 @@ public sealed class WorktreeFlowRunTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         await running.Task.WaitAsync(Patience);
 
-        // A pause does not cancel an action in progress.
+        // A pause does not cancel a system step in progress.
         await FlowRunDriver.PauseAsync(client, Project, started.Id, "Look first.");
         await Task.Delay(TimeSpan.FromMilliseconds(200), None);
         ended.Task.IsCompleted.Should().BeFalse("a pause lets the gates command run on");
@@ -146,7 +146,7 @@ public sealed class WorktreeFlowRunTests
         FlowRunView stopped = await FlowRunDriver.ShowAsync(client, Project, started.Id);
         stopped.Status.Should().Be("stopped");
         stopped.Steps.Select(s => s.Step).Should().Equal("worktree", "build", "gates");
-        stopped.Steps[2].Result.Should().BeNull("a stopped action records nothing");
+        stopped.Steps[2].Result.Should().BeNull("a stopped system step records nothing");
         runner.ShellLines.Should().Equal([ProjectDefaults.DefaultBuild], "the test command never runs");
 
         await daemon.StopAsync(None);
@@ -293,7 +293,7 @@ public sealed class WorktreeFlowRunTests
 
         paused.CurrentStep.Should().Be("worktree");
         paused.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        paused.PauseReason.Should().StartWith("Step 'worktree' could not perform the action 'worktree': git --git-dir=")
+        paused.PauseReason.Should().StartWith("Step 'worktree' could not perform the system step 'worktree': git --git-dir=")
             .And.Contain("exited with code 128")
             .And.Contain("fatal: unable to access 'https://example.invalid/repo.git/': Could not resolve host")
             .And.NotContain("s3cret");

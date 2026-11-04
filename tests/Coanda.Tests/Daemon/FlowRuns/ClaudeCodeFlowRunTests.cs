@@ -14,7 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
 
-/// <summary>Flow runs whose judgments run on the Claude Code adapter, against the fake claude executable.</summary>
+/// <summary>Flow runs whose agent steps run on the Claude Code adapter, against the fake claude executable.</summary>
 public sealed class ClaudeCodeFlowRunTests
 {
     private const string Project = "alpha";
@@ -23,7 +23,7 @@ public sealed class ClaudeCodeFlowRunTests
     private static readonly CancellationToken None = CancellationToken.None;
 
     [Fact]
-    public async Task A_judgment_with_no_valid_answer_after_its_retry_pauses_on_its_transcript_in_the_flow_runs_transcript_directory_and_a_resume_writes_the_record_again()
+    public async Task An_agent_step_with_no_valid_answer_after_its_retry_pauses_on_its_transcript_in_the_flow_runs_transcript_directory_and_a_resume_writes_the_record_again()
     {
         using var temp = new TemporaryHome();
         using var fake = new FakeClaude(
@@ -96,7 +96,7 @@ public sealed class ClaudeCodeFlowRunTests
     }
 
     [Fact]
-    public async Task A_judgment_past_the_wall_clock_limit_during_its_retry_pauses_with_the_first_attempts_usage_and_what_the_retry_printed_but_no_cost_for_it()
+    public async Task An_agent_step_past_the_wall_clock_limit_during_its_retry_pauses_with_the_first_attempts_usage_and_what_the_retry_printed_but_no_cost_for_it()
     {
         using var temp = new TemporaryHome();
         using var fake = new FakeClaude(
@@ -119,7 +119,7 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView paused = await UntilPausedAsync(client, started.Id);
 
         paused.PauseReason.Should().Be(
-            "Step 'build' ran past the wall-clock limit of 5 seconds for one judgment, so its session was stopped. "
+            "Step 'build' ran past the wall-clock limit of 5 seconds for one agent step, so its session was stopped. "
             + "The session did not report the cost of its attempt in progress, so none is recorded for it; the spawn ran under a cost ceiling of $3.00.");
         Measurement usage = paused.PauseUsage ?? throw new InvalidOperationException("The pause recorded no usage.");
         usage.Tokens.Should().Be(100 + (1 + 9 + 0 + 50) + (2 + 3 + 4 + 60), "msg_a printed twice is counted once, at its last figure");
@@ -240,7 +240,7 @@ public sealed class ClaudeCodeFlowRunTests
 
     private static async Task<RunningDaemon> StartAsync(TemporaryHome temp, FakeClaude fake, TimeSpan? limit = null)
     {
-        var options = new DaemonOptions { Executor = fake.Executor(temp.Home), JudgmentLimit = limit ?? DaemonOptions.DefaultJudgmentLimit };
+        var options = new DaemonOptions { Executor = fake.Executor(temp.Home), AgentStepLimit = limit ?? DaemonOptions.DefaultAgentStepLimit };
         RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         return daemon;
@@ -266,7 +266,7 @@ public sealed class ClaudeCodeFlowRunTests
     });
 
     /// <summary>
-    /// Starts a daemon on the fake, starts a flow run whose judgment's session is held running by the
+    /// Starts a daemon on the fake, starts a flow run whose agent step's session is held running by the
     /// fake, and stops the daemon once the flow run names the session, returning the flow run and the
     /// session's process id.
     /// </summary>

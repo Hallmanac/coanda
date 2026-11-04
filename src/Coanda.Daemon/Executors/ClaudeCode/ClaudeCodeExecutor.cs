@@ -10,7 +10,7 @@ using Coanda.Core.FlowRuns;
 namespace Coanda.Daemon.Executors.ClaudeCode;
 
 /// <summary>
-/// Runs each judgment as a headless Claude Code session: a <c>claude</c> process in print mode with
+/// Runs each agent step as a headless Claude Code session: a <c>claude</c> process in print mode with
 /// stream-json output, started in the flow run's work directory, given its prompt on standard input and
 /// nothing after it. A resume starts another process on the same session id with the same
 /// arguments, working directory, and environment. Every process writes its stream output straight
@@ -208,7 +208,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             ClaudeResult result = stream.Result ?? throw new InvalidOperationException(NoResult(attempt));
             if (result.IsError)
             {
-                // Not collected: the attempt stays in progress, so the stop the judgment makes after
+                // Not collected: the attempt stays in progress, so the stop the agent step makes after
                 // this failure reports its usage.
                 string subtype = result.Subtype is null or "success" ? string.Empty : $" ({result.Subtype})";
                 throw new InvalidOperationException(
@@ -268,7 +268,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             if (live)
             {
                 // What the previous attempt's collect returned is now an earlier attempt's usage.
-                session.EarlierUsage = Judgment.Sum(session.EarlierUsage, previousUsage);
+                session.EarlierUsage = AgentStep.Sum(session.EarlierUsage, previousUsage);
                 session.Current = next;
             }
         }

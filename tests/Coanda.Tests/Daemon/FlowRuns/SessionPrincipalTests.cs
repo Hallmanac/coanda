@@ -22,7 +22,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
-/// A judgment's session reaches the daemon with a token of its own, which resolves to an Agent-role
+/// An agent step's session reaches the daemon with a token of its own, which resolves to an Agent-role
 /// principal bound to its flow run and launch: it may record on that flow run alone while that launch runs,
 /// and stops resolving, for good, once the launch ends.
 /// </summary>
@@ -30,7 +30,7 @@ public sealed class SessionPrincipalTests
 {
     private const string Project = "alpha";
     private const string Other = "beta";
-    private const string Single = "one-judgment";
+    private const string Single = "one-agent-step";
     private const string NoValidToken = "The call carried no valid daemon token.";
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
@@ -68,7 +68,7 @@ public sealed class SessionPrincipalTests
             .Should().ThrowAsync<DomainException>().WithMessage(NoValidToken);
 
         // The daemon token still acts as the owner: stop is closed to the Agent role.
-        await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the paused judgment's session is stopped");
+        await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the paused agent step's session is stopped");
         await FlowRunDriver.StopAsync(owner, Project, flowRun.Id, "Taking it by hand.");
         (await EventsAsync(daemon, Project, flowRun.Id)).OfType<FlowRunStopped>().Should().ContainSingle()
             .Which.StoppedBy.Should().Be(Environment.UserName);
@@ -101,7 +101,7 @@ public sealed class SessionPrincipalTests
         FlowRunView own = await StartSingleAsync(owner, Project, "Its own");
         FlowRunView sibling = await StartSingleAsync(owner, Project, "A sibling");
         FlowRunView elsewhere = await StartSingleAsync(owner, Other, "Elsewhere");
-        await FlowRunDriver.UntilAsync(() => executor.Inner.Spawns.Count == 3, "every flow run has launched its judgment");
+        await FlowRunDriver.UntilAsync(() => executor.Inner.Spawns.Count == 3, "every flow run has launched its agent step");
 
         SessionAccess access = AccessOf(executor, own.Id);
         using var session = new DaemonClient(temp.Home, access.Token);
@@ -213,9 +213,9 @@ public sealed class SessionPrincipalTests
         (await EventsAsync(daemon, Project, flowRun.Id)).Should().HaveCount(recorded);
 
         // The gate stays shut, so the relaunch's collect is held as the first one was.
-        await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the paused judgment's session is stopped");
+        await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the paused agent step's session is stopped");
         await FlowRunDriver.ResumeAsync(owner, Project, flowRun.Id, "Go on.");
-        await FlowRunDriver.UntilAsync(() => executor.Inner.Spawns.Count == 2, "the resumed judgment launches again");
+        await FlowRunDriver.UntilAsync(() => executor.Inner.Spawns.Count == 2, "the resumed agent step launches again");
         await FlowRunDriver.UntilAsync(
             async () => await LaunchOfAsync(daemon, Project, flowRun.Id) != firstLaunch && (await FlowRunDriver.ShowAsync(owner, Project, flowRun.Id)).Status == "running",
             "the relaunch is recorded");
@@ -352,7 +352,7 @@ public sealed class SessionPrincipalTests
             own = await StartSingleAsync(starter, Project, "Its own");
             sibling = await StartSingleAsync(starter, Project, "A sibling");
             elsewhere = await StartSingleAsync(starter, Other, "Elsewhere");
-            await FlowRunDriver.UntilAsync(() => stalled.Inner.Spawns.Count == 3, "every flow run has launched its judgment");
+            await FlowRunDriver.UntilAsync(() => stalled.Inner.Spawns.Count == 3, "every flow run has launched its agent step");
             await SettledAsync(first, Project, own.Id);
             await SettledAsync(first, Project, sibling.Id);
             await SettledAsync(first, Other, elsewhere.Id);
@@ -380,7 +380,7 @@ public sealed class SessionPrincipalTests
             FlowRunService flowRuns = second.Services.GetRequiredService<FlowRunService>();
             Guid sessionId = held.Inner.Spawns.Single(s => s.Access == access).Handle.Id;
             await flowRuns.RecordUsageAsync(principal, Project, own.Id, "build", "build", sessionId, Scripts.Usage(1), None);
-            (await EventsAsync(second, Project, own.Id)).OfType<JudgmentUsageRecorded>().Should().ContainSingle();
+            (await EventsAsync(second, Project, own.Id)).OfType<AgentStepUsageRecorded>().Should().ContainSingle();
 
             // A reattach records nothing, and every other flow run recorded its session before the stop.
             await SettledAsync(second, Project, sibling.Id);
@@ -420,8 +420,8 @@ public sealed class SessionPrincipalTests
         (await StatusAsync(third, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
         await FlowRunDriver.UntilAsync(
             async () => (await BindingsOfAsync(third, launch)).Count == 0,
-            "the ended judgment's bindings are removed");
-        answering.Inner.Spawns.Should().HaveCount(3, "no flow run launched its judgment again");
+            "the ended agent step's bindings are removed");
+        answering.Inner.Spawns.Should().HaveCount(3, "no flow run launched its agent step again");
 
         await third.StopAsync(None);
     }
@@ -481,8 +481,8 @@ public sealed class SessionPrincipalTests
     }
 
     /// <summary>
-    /// Starts a daemon, launches the one judgment of a flow run on <paramref name="stalled"/>, and stops
-    /// the daemon while that judgment's collect is held, once the flow run has recorded its session.
+    /// Starts a daemon, launches the one agent step of a flow run on <paramref name="stalled"/>, and stops
+    /// the daemon while that agent step's collect is held, once the flow run has recorded its session.
     /// </summary>
     private static async Task<(Guid FlowRunId, SessionAccess Access, Guid Launch)> StopDuringCollectAsync(
         TemporaryHome temp, GatedExecutor stalled, string title)
@@ -573,7 +573,7 @@ public sealed class SessionPrincipalTests
     /// </summary>
     private static Task SettledAsync(RunningDaemon daemon, string project, Guid flowRunId) =>
         FlowRunDriver.UntilAsync(
-            async () => (await EventsAsync(daemon, project, flowRunId)).OfType<JudgmentSessionOpened>().Any(),
+            async () => (await EventsAsync(daemon, project, flowRunId)).OfType<AgentStepSessionOpened>().Any(),
             $"flow run {Ids.Short(flowRunId)} in project '{project}' has recorded its session");
 
     private static HttpClient Http(RunningDaemon daemon) => new() { BaseAddress = new Uri(daemon.Info.BaseAddress) };

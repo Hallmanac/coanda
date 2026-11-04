@@ -36,7 +36,7 @@ public interface IAgentExecutor
     /// Ends the session, and reports the usage of its attempt in progress, the one no collect has
     /// returned since the last spawn or resume, or null when the executor reports none. A stop after
     /// a collect returned has no attempt in progress; a collect that failed returned nothing, so its
-    /// attempt is still in progress. What the report says is the only way the usage of a judgment
+    /// attempt is still in progress. What the report says is the only way the usage of an agent step
     /// that ended before it answered reaches its flow run, and it says when that usage holds no cost.
     /// </summary>
     ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken);

@@ -45,13 +45,13 @@ public sealed class MergeFlowRunTests
             new FlowStep
             {
                 Name = "gated-merge",
-                Action = SoftwareActions.GatedMerge,
+                SystemStep = SoftwareSystemSteps.GatedMerge,
                 Transitions = [On("merged", Flow.End, LapCap + 5), On("pending", "wait-for-checks", LapCap)],
             },
             new FlowStep
             {
                 Name = "wait-for-checks",
-                Action = CoreActions.Timer,
+                SystemStep = CoreSystemSteps.Timer,
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(0.01) },
                 Transitions = [On("done", "gated-merge", LapCap)],
             },
@@ -69,18 +69,18 @@ public sealed class MergeFlowRunTests
             new FlowStep
             {
                 Name = "gated-merge",
-                Action = SoftwareActions.GatedMerge,
+                SystemStep = SoftwareSystemSteps.GatedMerge,
                 Transitions = [On("merged", Flow.End, 11), On("pending", "wait-for-checks", 6), On("behind", "worktree", 6)],
             },
             new FlowStep
             {
                 Name = "wait-for-checks",
-                Action = CoreActions.Timer,
+                SystemStep = CoreSystemSteps.Timer,
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(0.01) },
                 Transitions = [On("done", "gated-merge", 6)],
             },
-            new FlowStep { Name = "worktree", Action = SoftwareActions.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
-            new FlowStep { Name = "rebase", Action = SoftwareActions.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
+            new FlowStep { Name = "worktree", SystemStep = SoftwareSystemSteps.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
+            new FlowStep { Name = "rebase", SystemStep = SoftwareSystemSteps.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
         ],
     };
 

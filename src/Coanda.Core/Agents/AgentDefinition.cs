@@ -6,7 +6,7 @@ namespace Coanda.Core.Agents;
 
 /// <summary>
 /// The definition of an agent: a persona in five parts, a model spec, a tool set, skills and MCP
-/// servers by name, and the name of the one answer schema its judgments end in. An agent is data
+/// servers by name, and the name of the one answer schema its agent steps end in. An agent is data
 /// the daemon validates at load; the agents the binary ships and a user's agent are the same
 /// shape.
 /// </summary>

@@ -14,13 +14,13 @@ public sealed class FlowRunResumeMarkTests
     {
         Guid flowRunId = Ids.New();
         FlowRun flowRun = FlowRun.Create(new FlowRunStarted(
-            flowRunId, Ids.New(), "hold", 1, "hash", "owner", "approve", StepKind.Action, "wait-for-human", At));
+            flowRunId, Ids.New(), "hold", 1, "hash", "owner", "approve", StepKind.SystemStep, "wait-for-human", At));
 
         flowRun.Apply(new FlowRunPaused(flowRunId, "Waits for a person.", "Resume it.", "flow-run", At.AddMinutes(1)));
         flowRun.Apply(new FlowRunResumed(flowRunId, "owner", string.Empty, At.AddMinutes(2)));
         flowRun.Current?.ResumedAt.Should().Be(At.AddMinutes(2), "the resumed visit is performed again");
 
-        flowRun.Apply(new ActionCompleted(flowRunId, "approve", "wait-for-human", JsonSerializer.SerializeToElement(new { verdict = "done" }), At.AddMinutes(3)));
+        flowRun.Apply(new SystemStepCompleted(flowRunId, "approve", "wait-for-human", JsonSerializer.SerializeToElement(new { verdict = "done" }), At.AddMinutes(3)));
         flowRun.Current?.ResumedAt.Should().BeNull("a recording consumes the resume, so a restart routes it rather than performing it again");
 
         flowRun.Apply(new FlowRunPaused(flowRunId, "Capped.", "Resume it.", "flow-run", At.AddMinutes(4)));

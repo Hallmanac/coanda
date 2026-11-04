@@ -174,7 +174,7 @@ public sealed record ParcelType
     /// <summary>
     /// Refuses a type that breaks a rule, with a <see cref="DomainException"/> quoting it.
     /// <paramref name="knownGates"/> is every gate name the caller runs; a gate binding naming any
-    /// other is refused, the way a flow is validated against the action names.
+    /// other is refused, the way a flow is validated against the system step names.
     /// </summary>
     public void Validate(IReadOnlySet<string> knownGates)
     {

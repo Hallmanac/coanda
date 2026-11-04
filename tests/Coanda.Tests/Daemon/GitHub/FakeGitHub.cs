@@ -79,7 +79,7 @@ public sealed class FakeGitHub
     /// <summary>The factory the daemon's options take: a new handler over this fake each call, so rotating one disposes nothing shared.</summary>
     public Func<HttpMessageHandler> Handler => () => new Handling(this);
 
-    /// <summary>A client over this fake, as the factory would build it, for a test that builds the action itself.</summary>
+    /// <summary>A client over this fake, as the factory would build it, for a test that builds the system step itself.</summary>
     public GitHubClient Client() => new(new HttpClient(new Handling(this)));
 
     public IReadOnlyList<Sent> Requests

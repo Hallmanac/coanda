@@ -57,7 +57,7 @@ internal static class FlowRunRendering
         return lines;
     }
 
-    /// <summary>The step, the agent or action it names, and, once recorded, what came back.</summary>
+    /// <summary>The step, the agent or system step it names, and, once recorded, what came back.</summary>
     public static string Step(FlowRunStepView step)
     {
         List<string> parts = [step.Step, $"{step.Kind} {step.Performer}"];

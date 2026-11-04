@@ -29,7 +29,7 @@ public sealed class DefinitionStoreTests
         GateBindings = [.. ShippedTypes.Task.GateBindings, new GateBinding("review", "qa", RequiredFieldsGate.GateName)],
     };
 
-    private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System, actions: ShippedActions.Names);
+    private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
 
     private static async Task<Definition> PublishedProjectTypeAsync(DefinitionService definitions, string project, ParcelType type)
     {

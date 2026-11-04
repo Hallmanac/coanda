@@ -35,19 +35,19 @@ public sealed class ShippedFlowsTests
     }
 
     [Fact]
-    public void The_four_shipped_flows_pass_validation_with_the_known_action_names()
+    public void The_four_shipped_flows_pass_validation_with_the_known_system_step_names()
     {
         ShippedFlows.All.Select(f => f.Name).Should().Equal("build", "merge", "discovery", "review-on-assignment");
         foreach (Flow flow in ShippedFlows.All)
         {
-            flow.Validate(ShippedActions.Names);
+            flow.Validate(ShippedSystemSteps.Names);
         }
     }
 
     [Fact]
-    public void The_shipped_actions_are_the_core_catalog_and_the_software_catalog()
+    public void The_shipped_system_steps_are_the_core_catalog_and_the_software_catalog()
     {
-        ShippedActions.Names.Should().BeEquivalentTo(
+        ShippedSystemSteps.Names.Should().BeEquivalentTo(
         [
             "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
             "worktree", "gates", "open-pr", "gated-merge", "rebase",
@@ -77,7 +77,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void No_shipped_flow_holds_an_emit_outcome_step()
     {
-        ShippedFlows.All.SelectMany(f => f.Steps).Should().NotContain(s => s.Action == CoreActions.EmitOutcome);
+        ShippedFlows.All.SelectMany(f => f.Steps).Should().NotContain(s => s.SystemStep == CoreSystemSteps.EmitOutcome);
     }
 
     [Fact]
@@ -92,11 +92,11 @@ public sealed class ShippedFlowsTests
             _ => "done",
         });
 
-        List<string> actions = [.. visited.Select(name => build.Step(name)!.Action ?? build.Step(name)!.Agent!)];
-        actions.Should().Equal("worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel");
-        build.Steps.Should().NotContain(s => s.Action == SoftwareActions.GatedMerge, "the merge is a flow of its own that follows pr-opened");
+        List<string> systemSteps = [.. visited.Select(name => build.Step(name)!.SystemStep ?? build.Step(name)!.Agent!)];
+        systemSteps.Should().Equal("worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel");
+        build.Steps.Should().NotContain(s => s.SystemStep == SoftwareSystemSteps.GatedMerge, "the merge is a flow of its own that follows pr-opened");
         build.First!.Name.Should().Be("worktree");
-        build.Steps.Count(s => s.Action == CoreActions.MoveParcel).Should().Be(1);
+        build.Steps.Count(s => s.SystemStep == CoreSystemSteps.MoveParcel).Should().Be(1);
 
         FlowStep move = build.Step(visited[^1])!;
         move.Arguments.Should().ContainSingle().Which.Key.Should().Be("stage");
@@ -142,7 +142,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_flow_names_the_agents_and_schemas_the_agent_definitions_seed()
     {
-        ShippedFlows.Build.Steps.Where(s => s.IsJudgment).Select(s => (s.Name, s.Agent, s.AnswerSchema)).Should().Equal(
+        ShippedFlows.Build.Steps.Where(s => s.IsAgentStep).Select(s => (s.Name, s.Agent, s.AnswerSchema)).Should().Equal(
             ("build", "build", "build"),
             ("adversarial-review", "reviewer-adversarial", "review"),
             ("conformance-review", "reviewer-conformance", "review"),
@@ -150,19 +150,19 @@ public sealed class ShippedFlowsTests
     }
 
     [Fact]
-    public void The_discovery_flow_has_one_judgment_that_derives_or_carries_forward()
+    public void The_discovery_flow_has_one_agent_step_that_derives_or_carries_forward()
     {
         Flow discovery = ShippedFlows.Discovery;
 
-        discovery.Steps.Count(s => s.IsJudgment).Should().Be(1);
-        FlowStep judgment = discovery.First!;
-        judgment.Agent.Should().Be("discovery");
-        judgment.AnswerSchema.Should().Be("discovery");
+        discovery.Steps.Count(s => s.IsAgentStep).Should().Be(1);
+        FlowStep agentStep = discovery.First!;
+        agentStep.Agent.Should().Be("discovery");
+        agentStep.AnswerSchema.Should().Be("discovery");
 
-        string derive = Next(discovery, judgment.Name, "derive");
-        discovery.Step(derive)!.Action.Should().Be(CoreActions.DeriveParcels);
+        string derive = Next(discovery, agentStep.Name, "derive");
+        discovery.Step(derive)!.SystemStep.Should().Be(CoreSystemSteps.DeriveParcels);
         Next(discovery, derive, "done").Should().Be(Flow.End);
-        Next(discovery, judgment.Name, "carry-forward").Should().Be(Flow.End);
+        Next(discovery, agentStep.Name, "carry-forward").Should().Be(Flow.End);
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class ShippedFlowsTests
         merge.Closes.Should().Be("completed");
         ShippedTypes.Task.IsResolution(merge.Closes!).Should().BeTrue();
         merge.Steps.SelectMany(s => s.Transitions).Should().OnlyContain(t => t.VisitCap > 0);
-        merge.First!.Action.Should().Be(SoftwareActions.GatedMerge);
+        merge.First!.SystemStep.Should().Be(SoftwareSystemSteps.GatedMerge);
         Next(merge, "gated-merge", "merged").Should().Be(Flow.End);
     }
 
@@ -190,7 +190,7 @@ public sealed class ShippedFlowsTests
         FlowTransition back = timer.Transitions.Should().ContainSingle().Subject;
         FlowTransition rebaseLaps = RebaseLapCap(merge);
 
-        timer.Action.Should().Be(CoreActions.Timer);
+        timer.SystemStep.Should().Be(CoreSystemSteps.Timer);
         back.Target.Should().Be("gated-merge");
         double seconds = timer.Arguments["seconds"].GetDouble();
         (seconds * (pending.VisitCap - rebaseLaps.VisitCap)).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all once the rebase laps' visits are taken out");
@@ -200,7 +200,7 @@ public sealed class ShippedFlowsTests
     }
 
     [Fact]
-    public void The_merge_flow_routes_a_behind_head_through_a_worktree_and_a_rebase_back_to_the_timer_with_no_judgment()
+    public void The_merge_flow_routes_a_behind_head_through_a_worktree_and_a_rebase_back_to_the_timer_with_no_agent_step()
     {
         Flow merge = ShippedFlows.Merge;
         FlowStep gated = merge.Step("gated-merge")!;
@@ -211,12 +211,12 @@ public sealed class ShippedFlowsTests
         FlowStep rebase = merge.Step(checkedOut.Target)!;
         FlowTransition rebased = rebase.Transitions.Should().ContainSingle().Subject;
 
-        worktree.Action.Should().Be(SoftwareActions.Worktree);
+        worktree.SystemStep.Should().Be(SoftwareSystemSteps.Worktree);
         checkedOut.Value.GetString().Should().Be("done");
-        rebase.Action.Should().Be(SoftwareActions.Rebase);
+        rebase.SystemStep.Should().Be(SoftwareSystemSteps.Rebase);
         rebased.Value.GetString().Should().Be("done");
         rebased.Target.Should().Be(pending.Target, "the rebase waits one timer period before the pull request is inspected again");
-        merge.Steps.Should().NotContain(s => s.IsJudgment, "the lap runs no judgment and re-runs no review");
+        merge.Steps.Should().NotContain(s => s.IsAgentStep, "the lap runs no agent step and re-runs no review");
         behind.VisitCap.Should().Be(pending.VisitCap, "a head is rebased on any visit the pending cap still allows");
         checkedOut.VisitCap.Should().BeGreaterThanOrEqualTo(1).And.BeLessThan(pending.VisitCap);
         rebased.VisitCap.Should().BeGreaterThanOrEqualTo(checkedOut.VisitCap);
@@ -254,9 +254,9 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_discovery_and_review_on_assignment_flows_hash_to_literals()
     {
-        ShippedFlows.Build.Hash.Should().Be("bb708fb3b6aa9401");
-        ShippedFlows.Discovery.Hash.Should().Be("d7e57364f965bce0");
-        ShippedFlows.ReviewOnAssignment.Hash.Should().Be("895e023427d7e4a3");
+        ShippedFlows.Build.Hash.Should().Be("dcbfd639e88354c7");
+        ShippedFlows.Discovery.Hash.Should().Be("c8b01e99a6cc7916");
+        ShippedFlows.ReviewOnAssignment.Hash.Should().Be("fabaabb2eb82ff10");
     }
 
     /// <summary>The visit cap on the merge's worktree step's transition to the rebase, which bounds the rebase laps.</summary>
@@ -311,7 +311,7 @@ public sealed class ShippedFlowsTests
     }
 
     [Fact]
-    public void The_review_on_assignment_flow_is_one_judgment_whose_answers_both_end()
+    public void The_review_on_assignment_flow_is_one_agent_step_whose_answers_both_end()
     {
         Flow review = ShippedFlows.ReviewOnAssignment;
 

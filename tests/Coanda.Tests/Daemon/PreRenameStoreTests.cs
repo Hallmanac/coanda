@@ -210,7 +210,7 @@ public sealed class PreRenameStoreTests
                     new FlowStep
                     {
                         Name = "approve",
-                        Action = CoreActions.WaitForHuman,
+                        SystemStep = CoreSystemSteps.WaitForHuman,
                         Arguments = new Dictionary<string, JsonElement> { ["lever"] = FlowValue.Of("Resume to approve it.") },
                         Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                     },

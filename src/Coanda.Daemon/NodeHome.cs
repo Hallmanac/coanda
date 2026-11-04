@@ -26,7 +26,7 @@ public sealed record NodeHome(string Path)
     public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath];
 
     /// <summary>
-    /// Where a flow run's judgments work: <c>work/&lt;project&gt;/&lt;flow run id&gt;</c> under the home.
+    /// Where a flow run's agent steps work: <c>work/&lt;project&gt;/&lt;flow run id&gt;</c> under the home.
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
     /// </summary>
     public string FlowRunWorkPath(string project, Guid flowRunId) =>

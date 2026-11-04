@@ -10,8 +10,8 @@ namespace Coanda.Core.Flows;
 /// spawn cap, an optional follow, an optional resolution that closes its parcel when a flow run of it
 /// ends, and an ordered list of named steps, the first of which is where a
 /// flow run starts. It routes on an answer field equalling a value and a visit count and never
-/// computes. Validation takes the set of known action names as an input, so this type holds no
-/// action catalog and nothing software-specific.
+/// computes. Validation takes the set of known system step names as an input, so this type holds no
+/// system step catalog and nothing software-specific.
 /// </summary>
 public sealed record Flow
 {
@@ -65,9 +65,9 @@ public sealed record Flow
 
     /// <summary>
     /// Refuses a flow that breaks a rule, with a <see cref="DomainException"/> quoting it.
-    /// <paramref name="knownActions"/> is every action name the caller's catalogs define.
+    /// <paramref name="knownSystemSteps"/> is every system step name the caller's catalogs define.
     /// </summary>
-    public void Validate(IReadOnlySet<string> knownActions)
+    public void Validate(IReadOnlySet<string> knownSystemSteps)
     {
         if (string.IsNullOrWhiteSpace(Name))
         {
@@ -113,7 +113,7 @@ public sealed record Flow
         ValidateStepNames();
         foreach (FlowStep step in Steps)
         {
-            ValidateStep(step, knownActions);
+            ValidateStep(step, knownSystemSteps);
         }
     }
 
@@ -165,34 +165,34 @@ public sealed record Flow
         }
     }
 
-    private void ValidateStep(FlowStep step, IReadOnlySet<string> knownActions)
+    private void ValidateStep(FlowStep step, IReadOnlySet<string> knownSystemSteps)
     {
         bool hasAgent = !string.IsNullOrWhiteSpace(step.Agent);
-        bool hasAction = !string.IsNullOrWhiteSpace(step.Action);
+        bool hasSystemStep = !string.IsNullOrWhiteSpace(step.SystemStep);
         bool hasSchema = !string.IsNullOrWhiteSpace(step.AnswerSchema);
 
-        if (hasAgent == hasAction)
+        if (hasAgent == hasSystemStep)
         {
             throw new DomainException(
-                $"Step '{step.Name}' of flow '{Name}' must name an agent (a judgment) or an action, and exactly one of them.");
+                $"Step '{step.Name}' of flow '{Name}' must name an agent (an agent step) or a system step, and exactly one of them.");
         }
 
         if (hasAgent && !hasSchema)
         {
-            throw new DomainException($"Judgment step '{step.Name}' of flow '{Name}' needs an agent and an answer schema.");
+            throw new DomainException($"Agent step '{step.Name}' of flow '{Name}' needs an agent and an answer schema.");
         }
 
-        if (!string.IsNullOrWhiteSpace(step.Action))
+        if (!string.IsNullOrWhiteSpace(step.SystemStep))
         {
-            ValidateAction(step, step.Action, knownActions, hasSchema);
+            ValidateSystemStep(step, step.SystemStep, knownSystemSteps, hasSchema);
         }
         else if (step.Arguments.Count > 0)
         {
-            throw new DomainException($"Judgment step '{step.Name}' of flow '{Name}' holds no arguments; only an action step does.");
+            throw new DomainException($"Agent step '{step.Name}' of flow '{Name}' holds no arguments; only a system step does.");
         }
 
-        ValidateFields(step, hasAction);
-        ValidateSources(step, hasAction);
+        ValidateFields(step, hasSystemStep);
+        ValidateSources(step, hasSystemStep);
 
         if (step.Transitions.Count == 0)
         {
@@ -212,12 +212,12 @@ public sealed record Flow
         }
     }
 
-    private void ValidateFields(FlowStep step, bool isAction)
+    private void ValidateFields(FlowStep step, bool isSystemStep)
     {
-        if (isAction && step.Fields.Count > 0)
+        if (isSystemStep && step.Fields.Count > 0)
         {
             throw new DomainException(
-                $"Action step '{step.Name}' of flow '{Name}' declares fields; only a judgment step declares the fields its context carries.");
+                $"System step '{step.Name}' of flow '{Name}' declares fields; only an agent step declares the fields its context carries.");
         }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -226,23 +226,23 @@ public sealed record Flow
             if (!IsPlainName(field))
             {
                 throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares the field '{field}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
+                    $"Agent step '{step.Name}' of flow '{Name}' declares the field '{field}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
             }
 
             if (!seen.Add(field))
             {
                 throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares the field '{field}' twice; a step declares each field once.");
+                    $"Agent step '{step.Name}' of flow '{Name}' declares the field '{field}' twice; a step declares each field once.");
             }
         }
     }
 
-    private void ValidateSources(FlowStep step, bool isAction)
+    private void ValidateSources(FlowStep step, bool isSystemStep)
     {
-        if (isAction && step.Sources.Count > 0)
+        if (isSystemStep && step.Sources.Count > 0)
         {
             throw new DomainException(
-                $"Action step '{step.Name}' of flow '{Name}' declares sources; only a judgment step declares the sources its context carries.");
+                $"System step '{step.Name}' of flow '{Name}' declares sources; only an agent step declares the sources its context carries.");
         }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -252,42 +252,42 @@ public sealed record Flow
             string named = source switch
             {
                 null => throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares source {position} as null; each source is an object naming the step it reads."),
+                    $"Agent step '{step.Name}' of flow '{Name}' declares source {position} as null; each source is an object naming the step it reads."),
                 { Step: { } name } when !string.IsNullOrWhiteSpace(name) => name,
                 _ => throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares source {position}, which names no step; a source names the step of the flow whose latest recording its context carries."),
+                    $"Agent step '{step.Name}' of flow '{Name}' declares source {position}, which names no step; a source names the step of the flow whose latest recording its context carries."),
             };
 
             if (Step(named) is null)
             {
                 throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares the source step '{named}', which is not a step of the flow.");
+                    $"Agent step '{step.Name}' of flow '{Name}' declares the source step '{named}', which is not a step of the flow.");
             }
 
             if (string.Equals(named, step.Name, StringComparison.Ordinal))
             {
                 throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares itself as a source; a step's own earlier visits are not a source.");
+                    $"Agent step '{step.Name}' of flow '{Name}' declares itself as a source; a step's own earlier visits are not a source.");
             }
 
             if (!seen.Add(named))
             {
                 throw new DomainException(
-                    $"Judgment step '{step.Name}' of flow '{Name}' declares the source step '{named}' twice; a step declares each source once.");
+                    $"Agent step '{step.Name}' of flow '{Name}' declares the source step '{named}' twice; a step declares each source once.");
             }
         }
     }
 
-    private void ValidateAction(FlowStep step, string action, IReadOnlySet<string> knownActions, bool hasSchema)
+    private void ValidateSystemStep(FlowStep step, string systemStep, IReadOnlySet<string> knownSystemSteps, bool hasSchema)
     {
         if (hasSchema)
         {
-            throw new DomainException($"Action step '{step.Name}' of flow '{Name}' holds no answer schema; only a judgment step does.");
+            throw new DomainException($"System step '{step.Name}' of flow '{Name}' holds no answer schema; only an agent step does.");
         }
 
-        if (!knownActions.Contains(action))
+        if (!knownSystemSteps.Contains(systemStep))
         {
-            throw new DomainException($"Step '{step.Name}' of flow '{Name}' names the action '{action}', which is not a known action.");
+            throw new DomainException($"Step '{step.Name}' of flow '{Name}' names the system step '{systemStep}', which is not a known system step.");
         }
 
         foreach ((string argument, JsonElement value) in step.Arguments)
@@ -373,7 +373,7 @@ public sealed record Flow
             name = step.Name,
             agent = step.Agent,
             answerSchema = step.AnswerSchema,
-            action = step.Action,
+            systemStep = step.SystemStep,
             arguments = step.Arguments.OrderBy(a => a.Key, StringComparer.Ordinal).ToDictionary(a => a.Key, a => a.Value),
             transitions = step.Transitions.Select(t => new { field = t.Field, value = t.Value, visitCap = t.VisitCap, target = t.Target }),
         }) ?? throw new InvalidOperationException("A step's canonical form serialized to nothing.");

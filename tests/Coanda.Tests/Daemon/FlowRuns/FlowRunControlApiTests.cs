@@ -17,7 +17,7 @@ public sealed class FlowRunControlApiTests
     private static readonly CancellationToken None = CancellationToken.None;
 
     [Fact]
-    public async Task A_pause_while_a_judgment_runs_drops_its_answer_and_a_resume_performs_the_step_again_to_its_answer()
+    public async Task A_pause_while_an_agent_step_runs_drops_its_answer_and_a_resume_performs_the_step_again_to_its_answer()
     {
         using var temp = new TemporaryHome();
         // The pause stops the held session before it collects, so the resume's spawn takes the script's first entry.
@@ -31,7 +31,7 @@ public sealed class FlowRunControlApiTests
         using HttpClient http = Http(daemon);
         Flow single = await Publishing.FlowAsync(daemon, Project, new Flow
         {
-            Name = "one-judgment",
+            Name = "one-agent-step",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
@@ -47,11 +47,11 @@ public sealed class FlowRunControlApiTests
                 },
             ],
         });
-        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Paused mid-judgment", null), None);
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Paused mid-agent-step", null), None);
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, single.Name);
 
-        // Collecting, not Spawned: the pause is meant to find the judgment held in its collect, past
+        // Collecting, not Spawned: the pause is meant to find the agent step held in its collect, past
         // the spawn and the session record that follows it.
         await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
 
@@ -71,7 +71,7 @@ public sealed class FlowRunControlApiTests
         held.Status.Should().Be("paused");
         held.PauseReason.Should().Be("Waiting on the API owner.");
         held.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        held.Steps.Should().ContainSingle().Which.Answer.Should().BeNull("the held judgment's late answer is dropped");
+        held.Steps.Should().ContainSingle().Which.Answer.Should().BeNull("the held agent step's late answer is dropped");
         executor.Inner.Spawns.Should().ContainSingle();
 
         FlowRunView resumed = await FlowRunDriver.ResumeAsync(client, Project, started.Id, "The API owner answered.");
@@ -97,7 +97,7 @@ public sealed class FlowRunControlApiTests
         using HttpClient http = Http(daemon);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Stopped by hand", null), None);
 
-        // The stock executor holds no script, so the flow run pauses at its first judgment.
+        // The stock executor holds no script, so the flow run pauses at its first agent step.
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, "build");
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
         string id = Ids.Short(paused.Id);

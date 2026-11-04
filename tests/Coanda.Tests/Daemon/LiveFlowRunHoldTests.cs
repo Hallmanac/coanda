@@ -4,7 +4,7 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
-using Coanda.Daemon.Actions;
+using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Fisher;
@@ -106,13 +106,13 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
         (Parcel parcel, FlowRun flowRun) = await HeldAtBuildAsync();
         FlowStep step = ShippedFlows.Build.Step("move-to-review")
             ?? throw new InvalidOperationException("The build flow has no move-to-review step.");
-        var action = new MoveParcelAction(parcels);
+        var systemStep = new MoveParcelSystemStep(parcels);
 
-        ActionOutcome outcome = await action.PerformAsync(
-            new ActionRequest(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
+        SystemStepOutcome outcome = await systemStep.PerformAsync(
+            new SystemStepRequest(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
             None);
 
-        outcome.Should().BeOfType<ActionOutcome.Done>();
+        outcome.Should().BeOfType<SystemStepOutcome.Done>();
         Parcel? moved = await parcels.ShowAsync(Person, Project, parcel.Id, None);
         moved.Should().NotBeNull();
         moved.Stage.Should().Be("review");

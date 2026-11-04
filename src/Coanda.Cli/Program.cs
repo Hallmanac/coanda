@@ -7,7 +7,7 @@ using Spectre.Console.Cli;
 
 if (args is [ToolGuardRules.Command, ..])
 {
-    // The pre-tool-use hook of a judgment's session. It is answered before the command app is
+    // The pre-tool-use hook of an agent step's session. It is answered before the command app is
     // built, so neither Spectre's parse errors nor its exception handler decide the exit code, and
     // it starts no daemon.
     return ToolGuardHost.Run(args);
@@ -46,7 +46,7 @@ app.Configure(config =>
             .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git", "--branch", "main");
         project.AddCommand<ProjectSetCommand>("set").WithDescription("Replace the checks a merge of the project's pull requests waits for.")
             .WithExample("project", "set", "coanda", "--required-check", "build-test (ubuntu-latest)", "--required-check", "build-test (windows-latest)");
-        project.AddCommand<ProjectSetProfileCommand>("set-profile").WithDescription("Name the credential profile this node spawns the project's judgments with.")
+        project.AddCommand<ProjectSetProfileCommand>("set-profile").WithDescription("Name the credential profile this node spawns the project's agent steps with.")
             .WithExample("project", "set-profile", "coanda", "work");
         project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
         project.AddCommand<ProjectListCommand>("list").WithDescription("List the projects registered on this node.").WithExample("project", "list");

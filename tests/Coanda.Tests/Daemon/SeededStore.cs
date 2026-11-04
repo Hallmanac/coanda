@@ -19,7 +19,7 @@ public static class SeededStore
     public static async Task<IDocumentStore> OpenAsync(string databasePath, IReadOnlyCollection<ShippedDefinition> shipped)
     {
         IDocumentStore store = StoreConfiguration.Open(databasePath);
-        await new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names).SeedAsync(shipped, CancellationToken.None);
+        await new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names).SeedAsync(shipped, CancellationToken.None);
         return store;
     }
 }

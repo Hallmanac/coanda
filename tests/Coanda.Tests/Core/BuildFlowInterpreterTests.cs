@@ -17,7 +17,7 @@ public sealed class BuildFlowInterpreterTests
         ?? throw new InvalidOperationException($"No step '{step}'.");
 
     /// <summary>
-    /// The review that can send work back: the first judgment on the clean path with a later
+    /// The review that can send work back: the first agent step on the clean path with a later
     /// transition to another step, and that transition.
     /// </summary>
     private static (string Review, FlowTransition ToFix) ReviewToFix()
@@ -26,7 +26,7 @@ public sealed class BuildFlowInterpreterTests
         {
             FlowStep step = Build.Step(name) ?? throw new InvalidOperationException($"No step '{name}'.");
             FlowTransition? back = step.Transitions.Skip(1).FirstOrDefault(t => Build.Step(t.Target) is not null);
-            if (step.IsJudgment && back is not null)
+            if (step.IsAgentStep && back is not null)
             {
                 return (name, back);
             }

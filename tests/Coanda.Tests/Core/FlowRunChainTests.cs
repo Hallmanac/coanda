@@ -30,7 +30,7 @@ public sealed class FlowRunChainTests
             new FlowStep
             {
                 Name = "look",
-                Action = SoftwareActions.Worktree,
+                SystemStep = SoftwareSystemSteps.Worktree,
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
@@ -120,7 +120,7 @@ public sealed class FlowRunChainTests
     }
 
     [Fact]
-    public void The_cost_a_flow_run_records_sums_its_answers_and_the_usage_of_a_paused_judgment()
+    public void The_cost_a_flow_run_records_sums_its_answers_and_the_usage_of_a_paused_agent_step()
     {
         FlowRun flowRun = FlowRun.Create(FlowRunDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
         flowRun.Apply(FlowRunDecider.StartStep(Build, flowRun, "build", Now));
