@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -78,6 +79,11 @@ public sealed class DaemonStartCommand : AsyncCommand
         DaemonInfo? already = await client.FindRunningAsync(cancellationToken);
         if (already is not null)
         {
+            if (DaemonClient.RefusalToStartBeside(already) is { } refusal)
+            {
+                throw new DomainException(refusal);
+            }
+
             AnsiConsole.MarkupLineInterpolated($"The daemon is already running on {already.BaseAddress} (pid {already.Pid}).");
             return 0;
         }
@@ -104,17 +110,16 @@ public sealed class DaemonStatusCommand : AsyncCommand
     protected override async Task<int> ExecuteAsync(CommandContext context, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
-        DaemonInfo? info = await client.FindRunningAsync(cancellationToken);
-        if (info is null)
+        DaemonStatusView? status = await client.StatusAsync(cancellationToken);
+        if (status is null)
         {
             AnsiConsole.MarkupLineInterpolated($"No daemon is running. Home: {client.Home.Path}");
             return 0;
         }
 
-        DaemonStatusView status = await client.GetAsync<DaemonStatusView>("/status", cancellationToken);
         var table = new Table().HideHeaders().AddColumns("k", "v");
-        table.AddRow("Version", status.Version);
-        table.AddRow("Address", info.BaseAddress);
+        table.AddRow("Version", Markup.Escape(string.IsNullOrWhiteSpace(status.Version) ? "(none recorded)" : status.Version));
+        table.AddRow("Address", $"http://127.0.0.1:{status.Port}");
         table.AddRow("Pid", status.Pid.ToString());
         table.AddRow("Started", status.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm zzz"));
         table.AddRow("Home", status.Home);
