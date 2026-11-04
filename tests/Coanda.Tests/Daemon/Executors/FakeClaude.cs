@@ -111,8 +111,8 @@ public sealed class FakeClaude : IDisposable
         sinceLast = new Dictionary<string, object> { ["claude-test"] = new { input, output, cacheCreation, cacheRead, cost } },
     };
 
-    /// <summary>One start's record: its arguments, environment, working directory, and standard input.</summary>
-    public sealed record Start(int Pid, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment, string WorkingDirectory, string Input)
+    /// <summary>One start's record: its arguments, environment, working directory, standard input, and the persona file it found, or null when there was none.</summary>
+    public sealed record Start(int Pid, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment, string WorkingDirectory, string Input, string? Persona)
     {
         /// <summary>The value after <paramref name="flag"/>, or null when the arguments do not hold it.</summary>
         public string? After(string flag)
@@ -148,7 +148,8 @@ public sealed class FakeClaude : IDisposable
                 [.. (record["arguments"]?.AsArray() ?? []).Select(a => (string?)a ?? string.Empty)],
                 (record["environment"]?.AsObject() ?? []).ToDictionary(e => e.Key, e => (string?)e.Value ?? string.Empty),
                 (string?)record["workingDirectory"] ?? string.Empty,
-                (string?)record["input"] ?? string.Empty);
+                (string?)record["input"] ?? string.Empty,
+                (string?)record["persona"]);
         }
     }
 }

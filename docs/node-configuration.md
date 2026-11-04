@@ -51,7 +51,8 @@ persona tells it to, as the shipped build agent's does.
 
 Before each spawn the daemon writes `.coanda/task.md` (the parcel record) and `.coanda/prompt.md`
 (the context the step carries) at the root of the work directory, and the session's persona as
-`.coanda/persona.md`. It writes them fresh at every spawn and never reads them back. Each session's
+`.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the
+retry resumes the session, and never reads any of them back. Each session's
 stream output is kept as a transcript in `transcripts/<project>/<flow id>/` under the node home,
 outside the work directory; a judgment that gives no valid answer after its one retry pauses with
 that transcript's path as its lever.
@@ -60,6 +61,10 @@ Each session runs under a spend cap: what is left of the flow's budget, or of it
 when that is smaller. Claude Code checks the cap between turns, so one turn can go past it. A
 session that ends with an error (its spend cap reached, or no login) is not retried; the flow pauses
 quoting the error, and what the session spent is still recorded on the flow.
+
+Stopping the daemon ends every Claude Code session it is running, together with whatever each
+session started. The step that was in progress records nothing and is performed again, in a new
+session, at the next start; what the ended session spent before the stop is not recorded.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
 for itself, so a daemon started from inside Claude Code runs its sessions as independent ones.
