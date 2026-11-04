@@ -53,4 +53,71 @@ public sealed class ClaudeStreamTests
 
         stream.MessageCount.Should().Be(0);
     }
+
+    private const string Init = """{"type":"system","subtype":"init","session_id":"s","claude_code_version":"2.1.318"}""";
+
+    [Fact]
+    public void The_settings_document_reads_as_applied_only_once_its_evidence_comes_before_the_init_event()
+    {
+        ClaudeStream stream = new();
+        stream.SettingsApplied.Should().BeNull("the stream holds neither yet");
+
+        stream.Read(Hook("SessionStart", "SessionStart:startup", $"{SettingsEvidence.Marker}\\n"));
+        stream.Read(Init);
+
+        stream.SettingsApplied.Should().BeTrue();
+        stream.Initialized.Should().BeTrue();
+        stream.CliVersion.Should().Be("2.1.318");
+    }
+
+    [Fact]
+    public void An_init_event_without_the_evidence_before_it_reads_as_not_applied_whatever_comes_after()
+    {
+        ClaudeStream stream = new();
+
+        stream.Read(Init);
+        stream.Read(Hook("SessionStart", "SessionStart:startup", $"{SettingsEvidence.Marker}\\n"));
+
+        stream.SettingsApplied.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("SessionStart", "", "nothing on its standard error")]
+    [InlineData("SessionStart", "another hook ran", "another hook's output")]
+    [InlineData("SessionStart", "coanda-settings-document-applied-not", "a line that only begins with the marker")]
+    [InlineData("PreToolUse", "coanda-settings-document-applied", "a hook of another event")]
+    public void A_hook_response_that_does_not_quote_the_marker_from_a_session_start_hook_is_not_evidence(string hookEvent, string stderr, string what)
+    {
+        ClaudeStream stream = new();
+
+        stream.Read(Hook(hookEvent, $"{hookEvent}:startup", stderr));
+        stream.Read(Init);
+
+        stream.SettingsApplied.Should().BeFalse(what);
+    }
+
+    [Fact]
+    public void The_marker_on_a_hooks_standard_output_alone_is_not_evidence()
+    {
+        ClaudeStream stream = new();
+
+        stream.Read($$"""{"type":"system","subtype":"hook_response","hook_name":"SessionStart:startup","hook_event":"SessionStart","output":"{{SettingsEvidence.Marker}}\n","stdout":"{{SettingsEvidence.Marker}}\n","stderr":"","exit_code":0}""");
+        stream.Read(Init);
+
+        stream.SettingsApplied.Should().BeFalse("standard output reaches the session's context, so the evidence is read from standard error alone");
+    }
+
+    [Fact]
+    public void The_marker_among_other_lines_of_a_session_start_hooks_standard_error_is_evidence()
+    {
+        ClaudeStream stream = new();
+
+        stream.Read(Hook("SessionStart", "SessionStart:resume", $"warming up\\r\\n{SettingsEvidence.Marker}\\r\\n"));
+
+        stream.SettingsApplied.Should().BeTrue();
+        stream.Initialized.Should().BeFalse();
+    }
+
+    private static string Hook(string hookEvent, string name, string stderr) =>
+        $$"""{"type":"system","subtype":"hook_response","hook_name":"{{name}}","hook_event":"{{hookEvent}}","output":"{{stderr}}","stdout":"","stderr":"{{stderr}}","exit_code":0}""";
 }

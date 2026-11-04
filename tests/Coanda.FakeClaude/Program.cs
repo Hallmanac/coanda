@@ -211,25 +211,38 @@ public static class Program
     private static int Play(string control, string[] args, JsonObject entry)
     {
         string session = After(args, "--session-id") ?? After(args, "--resume") ?? "no-session";
-        Print(new JsonObject
+        if ((string?)entry["holdInit"] is { } held)
         {
-            ["type"] = "system",
-            ["subtype"] = "init",
-            ["cwd"] = Directory.GetCurrentDirectory(),
-            ["session_id"] = session,
-            ["tools"] = new JsonArray([.. (After(args, "--tools") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries).Select(t => (JsonNode?)JsonValue.Create(t))]),
-            ["mcp_servers"] = new JsonArray(),
-            ["model"] = After(args, "--model"),
-            ["permissionMode"] = After(args, "--permission-mode"),
-            ["apiKeySource"] = (string?)entry["apiKeySource"] ?? "none",
-            ["claude_code_version"] = "2.1.318",
-        });
-        Print(new JsonObject
+            WaitFor(Path.Combine(control, held));
+        }
+
+        if ((string?)entry["settings"] != "skipped")
         {
-            ["type"] = "rate_limit_event",
-            ["rate_limit_info"] = new JsonObject { ["status"] = "allowed", ["rateLimitType"] = "five_hour" },
-            ["session_id"] = session,
-        });
+            SessionStartHooks(args, session);
+        }
+
+        if ((bool?)entry["init"] != false)
+        {
+            Print(new JsonObject
+            {
+                ["type"] = "system",
+                ["subtype"] = "init",
+                ["cwd"] = Directory.GetCurrentDirectory(),
+                ["session_id"] = session,
+                ["tools"] = new JsonArray([.. (After(args, "--tools") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries).Select(t => (JsonNode?)JsonValue.Create(t))]),
+                ["mcp_servers"] = new JsonArray(),
+                ["model"] = After(args, "--model"),
+                ["permissionMode"] = After(args, "--permission-mode"),
+                ["apiKeySource"] = (string?)entry["apiKeySource"] ?? "none",
+                ["claude_code_version"] = (string?)entry["version"] ?? "2.1.318",
+            });
+            Print(new JsonObject
+            {
+                ["type"] = "rate_limit_event",
+                ["rate_limit_info"] = new JsonObject { ["status"] = "allowed", ["rateLimitType"] = "five_hour" },
+                ["session_id"] = session,
+            });
+        }
 
         if (entry["rewrite"] is JsonObject rewrite)
         {
@@ -275,12 +288,7 @@ public static class Program
         if ((string?)entry["waitFor"] is { } release)
         {
             // Holds the session in progress until the test writes the release file, as a long turn would.
-            string released = Path.Combine(control, release);
-            DateTime deadline = DateTime.UtcNow.AddSeconds(120);
-            while (!File.Exists(released) && DateTime.UtcNow < deadline)
-            {
-                Thread.Sleep(20);
-            }
+            WaitFor(Path.Combine(control, release));
         }
 
         int exitCode = (int?)entry["exitCode"] ?? 0;
@@ -332,6 +340,67 @@ public static class Program
 
         Print(result);
         return exitCode;
+    }
+
+    /// <summary>Waits until the file exists, or two minutes pass.</summary>
+    private static void WaitFor(string path)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(120);
+        while (!File.Exists(path) && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(20);
+        }
+    }
+
+    /// <summary>
+    /// Prints what Claude Code prints for each session-start hook the <c>--settings</c> document
+    /// registers before its init event: a <c>hook_started</c> and a <c>hook_response</c> event, named
+    /// for a startup or a resume. A hook that runs <c>coa settings-evidence &lt;marker&gt;</c> is quoted
+    /// as having printed the marker on its standard error, as <c>coa</c> does; any other prints nothing.
+    /// The fake runs no hook itself.
+    /// </summary>
+    private static void SessionStartHooks(string[] args, string session)
+    {
+        if (After(args, "--settings") is not { } document || JsonNode.Parse(document)?["hooks"]?["SessionStart"] is not JsonArray groups)
+        {
+            return;
+        }
+
+        string name = After(args, "--resume") is null ? "SessionStart:startup" : "SessionStart:resume";
+        foreach (JsonNode? hook in groups.SelectMany(group => group?["hooks"]?.AsArray() ?? []))
+        {
+            if ((string?)hook?["type"] != "command")
+            {
+                continue;
+            }
+
+            string[] arguments = [.. (hook?["args"]?.AsArray() ?? []).Select(a => (string?)a ?? string.Empty)];
+            string stderr = arguments is ["settings-evidence", string marker] ? marker + "\n" : string.Empty;
+            string id = Guid.NewGuid().ToString();
+            Print(new JsonObject
+            {
+                ["type"] = "system",
+                ["subtype"] = "hook_started",
+                ["hook_id"] = id,
+                ["hook_name"] = name,
+                ["hook_event"] = "SessionStart",
+                ["session_id"] = session,
+            });
+            Print(new JsonObject
+            {
+                ["type"] = "system",
+                ["subtype"] = "hook_response",
+                ["hook_id"] = id,
+                ["hook_name"] = name,
+                ["hook_event"] = "SessionStart",
+                ["output"] = stderr,
+                ["stdout"] = string.Empty,
+                ["stderr"] = stderr,
+                ["exit_code"] = 0,
+                ["outcome"] = "success",
+                ["session_id"] = session,
+            });
+        }
     }
 
     private static JsonObject Usage(JsonNode? figures) => new()

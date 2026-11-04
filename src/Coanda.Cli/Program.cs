@@ -13,6 +13,14 @@ if (args is [ToolGuardRules.Command, ..])
     return ToolGuardHost.Run(args);
 }
 
+if (args is [SettingsEvidence.Command, ..])
+{
+    // The session-start hook that shows a session's CLI applied its settings document. It prints
+    // only on standard error, which the CLI quotes on its output stream and keeps out of the
+    // session's context, and it is answered before the command app is built for the same reasons.
+    return SettingsEvidence.Run(args, Console.Error);
+}
+
 var app = new CommandApp();
 app.Configure(config =>
 {

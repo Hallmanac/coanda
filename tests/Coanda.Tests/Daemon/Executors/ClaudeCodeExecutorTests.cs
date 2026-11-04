@@ -944,6 +944,14 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             Path.IsPathFullyQualified(hook.GetProperty("command").GetString() ?? string.Empty).Should().BeTrue();
             hook.GetProperty("onFailure").GetString().Should().Be("block");
 
+            JsonElement evidence = settings.GetProperty("hooks").GetProperty("SessionStart").EnumerateArray().Should().ContainSingle().Subject
+                .GetProperty("hooks").EnumerateArray().Should().ContainSingle().Subject;
+            evidence.GetProperty("type").GetString().Should().Be("command");
+            evidence.GetProperty("command").GetString().Should().Be(ClaudeCodeExecutor.CoaExecutable(coaDirectory), "the evidence hook runs the same coa as the guard, in the same exec form");
+            evidence.GetProperty("onFailure").GetString().Should().Be("block");
+            evidence.TryGetProperty("matcher", out _).Should().BeFalse("it runs on every session start, a resume's included");
+            evidence.GetProperty("args").EnumerateArray().Select(a => a.GetString()).Should().Equal(SettingsEvidence.Arguments);
+
             List<string> arguments = [.. hook.GetProperty("args").EnumerateArray().Select(a => a.GetString() ?? string.Empty)];
             ToolGuardRules rules = ToolGuardRules.Parse(arguments, out string? problem).Should().NotBeNull(problem).And.Subject.As<ToolGuardRules>();
             rules.NodeHome.Should().Be(temp.Home.Path);
@@ -999,6 +1007,153 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     /// <summary>The arguments with the tool guard and the setting that keeps hooks on taken out of the settings document.</summary>
+    [Fact]
+    public async Task A_spawn_and_its_resume_are_answered_once_each_process_prints_the_evidence_its_settings_document_registers()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.1m, totalCost: 0.1m),
+            FakeClaude.Answering(ValidBuild, cost: 0.1m, totalCost: 0.2m));
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
+
+        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
+        answered.Answer.Should().Be(ValidBuild);
+        fake.Starts.Should().HaveCount(2);
+        List<JsonElement> events = [.. (await File.ReadAllLinesAsync(answered.TranscriptPath)).Select(l => JsonDocument.Parse(l).RootElement)];
+        List<string> sequence = [.. events
+            .Where(e => e.GetProperty("type").GetString() == "system")
+            .Select(e => e.GetProperty("subtype").GetString() == "hook_response"
+                ? $"{e.GetProperty("hook_name").GetString()}:{e.GetProperty("stderr").GetString()}"
+                : e.GetProperty("subtype").GetString() ?? string.Empty)
+            .Where(e => e != "hook_started")];
+        sequence.Should().Equal(
+            $"SessionStart:startup:{SettingsEvidence.Marker}\n",
+            "init",
+            $"SessionStart:resume:{SettingsEvidence.Marker}\n",
+            "init");
+    }
+
+    [Fact]
+    public async Task A_spawn_whose_cli_skipped_its_settings_document_is_stopped_once_its_init_event_shows_it_and_reports_what_it_may_have_spent()
+    {
+        using var fake = new FakeClaude(new { settings = "skipped", version = "2.1.999", result = "hang" });
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+
+        InvalidOperationException failure = (await FluentActions.Awaiting(() => executor.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30)))
+            .Should().ThrowAsync<InvalidOperationException>()).Which;
+
+        failure.Message.Should().Be(
+            "The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.999: its init event came without the evidence "
+            + "the document's SessionStart hook prints, so its process was stopped and no answer was collected from it.");
+        int pid = fake.Starts.Should().ContainSingle().Subject.Pid;
+        await Until(() => FakeClaude.Finished(pid));
+        StopReport? report = await executor.StopAsync(handle, None);
+        report.Should().NotBeNull("the collect stopped the process while it ran, so its turn may already have been billed, though it had exited by the stop");
+        report?.CostReported.Should().BeFalse();
+        report?.Usage.Turns.Should().Be(0);
+        (await executor.ListAsync(None)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_resumed_process_whose_cli_skipped_the_settings_document_is_stopped_and_its_answer_is_not_collected()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.1m, totalCost: 0.1m),
+            new { settings = "skipped", result = "hang" });
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+
+        InvalidOperationException failure = (await FluentActions.Awaiting(
+                () => AgentStep.RunAsync(executor, Request(), None).WaitAsync(TimeSpan.FromSeconds(30)))
+            .Should().ThrowAsync<InvalidOperationException>()).Which;
+
+        failure.Message.Should().StartWith("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.318:");
+        fake.Starts.Should().HaveCount(2);
+        fake.Starts[1].After("--resume").Should().NotBeNull();
+        await Until(() => !FakeClaude.Running(fake.Starts[1].Pid));
+    }
+
+    [Fact]
+    public async Task A_session_a_new_executor_reattaches_from_its_record_is_checked_from_its_transcript_before_its_answer_is_collected()
+    {
+        using var fake = new FakeClaude(new { settings = "skipped", holdInit = "release", result = "hang" });
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Subject;
+        fake.Release();
+        InvalidOperationException failure = (await FluentActions.Awaiting(
+                () => AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None).WaitAsync(TimeSpan.FromSeconds(30)))
+            .Should().ThrowAsync<InvalidOperationException>()).Which;
+
+        failure.Message.Should().StartWith("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.318:");
+        await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
+        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse("the agent step stopped the session");
+    }
+
+    [Fact]
+    public async Task A_session_that_answered_without_the_evidence_while_no_daemon_ran_has_no_answer_collected_from_it()
+    {
+        using var fake = new FakeClaude(new { settings = "skipped", reply = ValidBuild, totalCost = 0.3m });
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1 && FakeClaude.Finished(fake.Starts[0].Pid));
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Which.Finished.Should().BeTrue();
+
+        InvalidOperationException failure = (await FluentActions.Awaiting(() => restarted.CollectAsync(handle, None).AsTask())
+            .Should().ThrowAsync<InvalidOperationException>()).Which;
+        failure.Message.Should().EndWith("so no answer was collected from its process.");
+        (await restarted.StopAsync(handle, None)).Should().NotBeNull("its result was never collected, so the stop reports its usage");
+    }
+
+    [Fact]
+    public async Task A_process_that_exits_printing_no_init_event_and_no_evidence_has_not_applied_the_document_and_quotes_its_last_error_line()
+    {
+        using var fake = new FakeClaude(new { settings = "skipped", init = false, result = "none", stderr = new[] { "first", "Error: settings rejected", "" }, exitCode = 1 });
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+
+        InvalidOperationException failure = (await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), None))
+            .Should().ThrowAsync<InvalidOperationException>()).Which;
+
+        failure.Message.Should().Be(
+            "The session's settings document, and with it its tool guard, was not applied: the claude process exited with code 1 without printing its init event "
+            + "or the evidence the document's SessionStart hook prints; the last line of its error output was: Error: settings rejected");
+    }
+
+    [Fact]
+    public async Task Coa_prints_the_evidence_on_its_error_output_alone_and_only_for_the_arguments_the_document_registers()
+    {
+        string coa = ClaudeCodeExecutor.CoaExecutable(AppContext.BaseDirectory);
+
+        (int code, string output, string error) = await RunAsync(coa, SettingsEvidence.Arguments);
+        code.Should().Be(0);
+        output.Should().BeEmpty("the CLI adds a hook's standard output to the session's context");
+        error.Should().Be(SettingsEvidence.Marker + "\n");
+
+        (int otherCode, string otherOutput, string otherError) = await RunAsync(coa, [SettingsEvidence.Command, "something-else"]);
+        otherCode.Should().NotBe(0);
+        (otherOutput + otherError).Should().BeEmpty();
+    }
+
+    private static async Task<(int Code, string Output, string Error)> RunAsync(string executable, IReadOnlyList<string> arguments)
+    {
+        var start = new ProcessStartInfo(executable) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false };
+        foreach (string argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException("coa did not start.");
+        process.StandardInput.Close();
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        return (process.ExitCode, await output, await error);
+    }
+
     private static List<string> WithoutGuard(IReadOnlyList<string> arguments)
     {
         List<string> stripped = [.. arguments];
