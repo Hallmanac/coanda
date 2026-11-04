@@ -7,7 +7,7 @@ namespace Coanda.Daemon.Executors;
 /// <summary>
 /// Runs one judgment through an executor: spawn once, collect, and validate the answer against the
 /// spawn's answer schema. A missing or invalid answer is retried once by resuming the same
-/// session, never by a second spawn; a second failure parks with the transcript as the lever. It
+/// session, never by a second spawn; a second failure pauses with the transcript as the lever. It
 /// records nothing and leaves the session open on either outcome, returning its handle: the runner
 /// records the flight's events and decides when a session ends. If the judgment fails after the
 /// spawn, it stops the session rather than leave one nobody holds, except when the caller already
@@ -86,7 +86,7 @@ public static class Judgment
         IReadOnlyList<string> secondFailures = Check(request.AnswerSchema, second.Answer);
         return second.Answer is { } secondAnswer && secondFailures.Count == 0
             ? new JudgmentOutcome.Answered(handle, secondAnswer, second.TranscriptPath, usage)
-            : new JudgmentOutcome.Parked(
+            : new JudgmentOutcome.Paused(
                 handle,
                 $"Agent '{request.Agent.Name}' gave no valid '{request.AnswerSchema}' answer after one retry: {string.Join("; ", secondFailures)}.",
                 second.TranscriptPath,

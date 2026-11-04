@@ -70,7 +70,7 @@ public sealed class PhaseOneGateTests
         ("fix", [.. Enumerable.Range(1, 6).Select(n => Costing("done", 0.5m, n))]));
 
     [Fact]
-    public async Task A_review_that_is_never_clean_parks_the_shipped_build_flow_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
+    public async Task A_review_that_is_never_clean_pauses_the_shipped_build_flow_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
@@ -78,19 +78,19 @@ public sealed class PhaseOneGateTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never clean");
 
-        FlightView parked = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "parked");
+        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        parked.ParkReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
-        parked.Lever.Should().NotBeNullOrWhiteSpace();
-        parked.Spawns.Should().BeLessThan(ShippedFlows.Build.SpawnCap, "the visit cap binds before the spawn cap");
-        parked.Cost.Should().BeLessThan(ShippedFlows.Build.Budget);
-        executor.Spawns.Should().HaveCount(parked.Spawns);
+        paused.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
+        paused.Lever.Should().NotBeNullOrWhiteSpace();
+        paused.Spawns.Should().BeLessThan(ShippedFlows.Build.SpawnCap, "the visit cap binds before the spawn cap");
+        paused.Cost.Should().BeLessThan(ShippedFlows.Build.Budget);
+        executor.Spawns.Should().HaveCount(paused.Spawns);
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_project_copy_of_the_build_flow_whose_spawn_cap_binds_first_parks_on_the_same_script_naming_the_spawn_cap()
+    public async Task A_project_copy_of_the_build_flow_whose_spawn_cap_binds_first_pauses_on_the_same_script_naming_the_spawn_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
@@ -99,12 +99,12 @@ public sealed class PhaseOneGateTests
         FlowDefinition copy = await Publishing.FlowAsync(daemon, Project, ShippedFlows.Build with { SpawnCap = 4 });
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
 
-        FlightView parked = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "parked");
+        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        parked.FlowHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
-        parked.ParkReason.Should().Be("Flow 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
-        parked.Lever.Should().NotBeNullOrWhiteSpace();
-        parked.Steps.Count(s => s.Step == "adversarial-review").Should().BeLessThan(4, "the visit cap of 3 was never reached");
+        paused.FlowHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
+        paused.PauseReason.Should().Be("Flow 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
+        paused.Lever.Should().NotBeNullOrWhiteSpace();
+        paused.Steps.Count(s => s.Step == "adversarial-review").Should().BeLessThan(4, "the visit cap of 3 was never reached");
         executor.Spawns.Should().HaveCount(4);
 
         await daemon.StopAsync(None);
@@ -113,7 +113,7 @@ public sealed class PhaseOneGateTests
     // 4. The depth cap on composition.
 
     [Fact]
-    public async Task A_flow_following_its_own_outcome_runs_to_its_depth_cap_and_parks_the_next_link_before_any_step_even_when_resumed()
+    public async Task A_flow_following_its_own_outcome_runs_to_its_depth_cap_and_pauses_the_next_link_before_any_step_even_when_resumed()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 5).Select(n => Costing("clean", 0.1m, n))]));
@@ -124,14 +124,14 @@ public sealed class PhaseOneGateTests
 
         FlightView root = await Flying.StartAsync(client, Project, parcel.Id, loop.Name);
         FlightView capped = await AtDepthAsync(client, parcel.Id, 3);
-        capped = await Flying.UntilAsync(client, Project, capped.Id, "parked");
+        capped = await Flying.UntilAsync(client, Project, capped.Id, "paused");
 
         List<FlightView> flights = await Flying.OfParcelAsync(client, Project, parcel.Id);
         flights.Select(f => f.Depth).Should().Equal(0, 1, 2, 3);
         flights.Take(3).Should().OnlyContain(f => f.Status == "ended" && f.Outcome == "looped");
         flights.Should().OnlyContain(f => f.RootFlightId == root.Id);
         capped.ParentFlightId.Should().Be(flights[2].Id);
-        capped.ParkReason.Should().Be(
+        capped.PauseReason.Should().Be(
             $"Flight {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of flow 'loop'; a flight deeper than its follow's depth cap performs no step.");
         capped.Lever.Should().Be(FlightLevers.DepthCapReached("loop"));
         FlightStepView first = capped.Steps.Should().ContainSingle().Subject;
@@ -141,9 +141,9 @@ public sealed class PhaseOneGateTests
 
         FlightService service = daemon.Services.GetRequiredService<FlightService>();
         Flight resumed = await service.ResumeAsync(Principal.LocalOwner, Project, capped.Id, "Go on anyway.", None);
-        FlightView again = await ParkedAfterAsync(client, capped.Id, resumed.UpdatedAt);
+        FlightView again = await PausedAfterAsync(client, capped.Id, resumed.UpdatedAt);
 
-        again.ParkReason.Should().Be(capped.ParkReason, "a resume is no override of the depth cap");
+        again.PauseReason.Should().Be(capped.PauseReason, "a resume is no override of the depth cap");
         again.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
         executor.Spawns.Should().HaveCount(3, "the depth-capped flight never spawns");
         (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "no flight starts at depth 4");
@@ -154,7 +154,7 @@ public sealed class PhaseOneGateTests
     // 5. The per-flight budget and the budget a chain shares.
 
     [Fact]
-    public async Task A_build_flight_whose_first_judgment_costs_its_whole_budget_parks_at_its_next_judgment_without_spawning()
+    public async Task A_build_flight_whose_first_judgment_costs_its_whole_budget_pauses_at_its_next_judgment_without_spawning()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(
@@ -165,20 +165,20 @@ public sealed class PhaseOneGateTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Spent at once");
 
-        FlightView parked = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "parked");
+        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        parked.CurrentStep.Should().Be("adversarial-review");
-        parked.ParkReason.Should().Be(
-            $"Flight {Ids.Short(parked.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flight performs no judgment once its recorded cost reaches its flow's budget.");
-        parked.Lever.Should().Be(FlightLevers.BudgetReached());
-        parked.Steps[^1].Answer.Should().BeNull();
+        paused.CurrentStep.Should().Be("adversarial-review");
+        paused.PauseReason.Should().Be(
+            $"Flight {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flight performs no judgment once its recorded cost reaches its flow's budget.");
+        paused.Lever.Should().Be(FlightLevers.BudgetReached());
+        paused.Steps[^1].Answer.Should().BeNull();
         executor.Spawns.Select(s => s.Agent).Should().Equal("build");
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_chain_whose_flights_stay_under_their_own_budgets_parks_at_its_next_judgment_once_together_they_reach_the_roots_budget()
+    public async Task A_chain_whose_flights_stay_under_their_own_budgets_pauses_at_its_next_judgment_once_together_they_reach_the_roots_budget()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 4).Select(n => Costing("clean", 0.6m, n))]));
@@ -189,21 +189,21 @@ public sealed class PhaseOneGateTests
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Shared purse", null), None);
 
         FlightView root = await Flying.StartAsync(client, Project, parcel.Id, seed.Name);
-        FlightView parked = await Flying.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "parked");
+        FlightView paused = await Flying.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "paused");
 
         List<FlightView> flights = await Flying.OfParcelAsync(client, Project, parcel.Id);
-        flights.Select(f => (f.Flow, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "parked"));
+        flights.Select(f => (f.Flow, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
         flights.Should().OnlyContain(f => f.Cost < 1m, "each flight stays under its own budget");
-        parked.ParkReason.Should().Be(
-            $"The chain of flight {Ids.Short(parked.Id)}, rooted at flight {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flights, which reaches the budget of $1.00 of flow 'seed' that its root flight runs; a chain performs no judgment once its recorded cost reaches that budget.");
-        parked.Lever.Should().Be(FlightLevers.BudgetReached());
+        paused.PauseReason.Should().Be(
+            $"The chain of flight {Ids.Short(paused.Id)}, rooted at flight {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flights, which reaches the budget of $1.00 of flow 'seed' that its root flight runs; a chain performs no judgment once its recorded cost reaches that budget.");
+        paused.Lever.Should().Be(FlightLevers.BudgetReached());
         executor.Spawns.Should().HaveCount(2);
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_judgment_that_parks_after_its_retry_records_the_summed_usage_and_a_resume_parks_on_the_budget_without_spawning()
+    public async Task A_judgment_that_pauses_after_its_retry_records_the_summed_usage_and_a_resume_pauses_on_the_budget_without_spawning()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("build",
@@ -216,18 +216,18 @@ public sealed class PhaseOneGateTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never answers");
 
-        FlightView parked = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "parked");
+        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        parked.CurrentStep.Should().Be("build");
-        parked.ParkReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry");
-        parked.ParkUsage.Should().Be(new Measurement(1000, 25m, 5, TimeSpan.FromSeconds(60)), "the park records both attempts' usage");
-        parked.Cost.Should().Be(25m);
+        paused.CurrentStep.Should().Be("build");
+        paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry");
+        paused.PauseUsage.Should().Be(new Measurement(1000, 25m, 5, TimeSpan.FromSeconds(60)), "the pause records both attempts' usage");
+        paused.Cost.Should().Be(25m);
 
-        Flight resumed = await daemon.Services.GetRequiredService<FlightService>().ResumeAsync(Principal.LocalOwner, Project, parked.Id, "Try once more.", None);
-        FlightView again = await ParkedAfterAsync(client, parked.Id, resumed.UpdatedAt);
+        Flight resumed = await daemon.Services.GetRequiredService<FlightService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Try once more.", None);
+        FlightView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
 
-        again.ParkReason.Should().Be(
-            $"Flight {Ids.Short(parked.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flight performs no judgment once its recorded cost reaches its flow's budget.");
+        again.PauseReason.Should().Be(
+            $"Flight {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flight performs no judgment once its recorded cost reaches its flow's budget.");
         again.Steps.Count(s => s.Step == "build").Should().Be(1);
         executor.Spawns.Should().ContainSingle("a resume of a spent flight spawns nothing");
 
@@ -322,17 +322,17 @@ public sealed class PhaseOneGateTests
         return found ?? throw new InvalidOperationException("The wait ended with no flight at that depth.");
     }
 
-    /// <summary>Waits for the flight to park again after a resume recorded at <paramref name="resumedAt"/>.</summary>
-    private static async Task<FlightView> ParkedAfterAsync(DaemonClient client, Guid flightId, DateTimeOffset resumedAt)
+    /// <summary>Waits for the flight to pause again after a resume recorded at <paramref name="resumedAt"/>.</summary>
+    private static async Task<FlightView> PausedAfterAsync(DaemonClient client, Guid flightId, DateTimeOffset resumedAt)
     {
         FlightView? found = null;
         await Flying.UntilAsync(
             async () =>
             {
                 found = await Flying.ShowAsync(client, Project, flightId);
-                return found is { Status: "parked" } && found.UpdatedAt > resumedAt;
+                return found is { Status: "paused" } && found.UpdatedAt > resumedAt;
             },
-            $"flight {flightId} parks again after its resume");
+            $"flight {flightId} pauses again after its resume");
         return found ?? throw new InvalidOperationException("The wait ended with no flight.");
     }
 }

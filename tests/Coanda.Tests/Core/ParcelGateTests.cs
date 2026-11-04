@@ -49,22 +49,22 @@ public sealed class ParcelGateTests
         var gates = new GateSet([gate]);
         Parcel parcel = Create("unready work", gates);
 
-        ParcelDecider.Move(Gated, gates, parcel, "parked", "brian", Now).ToState.Should().Be("parked");
+        ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now).ToState.Should().Be("paused");
         gate.Checks.Should().BeEmpty();
     }
 
     [Fact]
-    public void A_move_out_of_parked_runs_every_gate_bound_to_a_move_into_the_target_so_parking_bypasses_none()
+    public void A_move_out_of_paused_runs_every_gate_bound_to_a_move_into_the_target_so_pausing_bypasses_none()
     {
         var gate = new StandInGate();
         var gates = new GateSet([gate]);
         Parcel parcel = Create("unready work", gates);
-        parcel.Apply(ParcelDecider.Move(Gated, gates, parcel, "parked", "brian", Now));
+        parcel.Apply(ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now));
 
         FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
             .Should().Throw<DomainException>()
-            .WithMessage($"The gate 'stand-in' refused the move from 'parked' to 'build': {StandInGate.Reason}");
-        gate.Checks.Should().Equal(("parked", "build"));
+            .WithMessage($"The gate 'stand-in' refused the move from 'paused' to 'build': {StandInGate.Reason}");
+        gate.Checks.Should().Equal(("paused", "build"));
         ParcelDecider.Move(Gated, gates, parcel, "review", "brian", Now).ToState.Should().Be("review", "no gate is bound to a move into review");
     }
 
@@ -112,12 +112,12 @@ public sealed class ParcelGateTests
     }
 
     [Fact]
-    public void A_close_out_of_parked_runs_the_gate_bound_to_the_close_and_a_close_from_another_state_does_not()
+    public void A_close_out_of_paused_runs_the_gate_bound_to_the_close_and_a_close_from_another_state_does_not()
     {
         var gate = new StandInGate();
         var gates = new GateSet([gate]);
         Parcel parcel = InReview(GatedClose, gates);
-        parcel.Apply(ParcelDecider.Move(GatedClose, gates, parcel, "parked", "brian", Now));
+        parcel.Apply(ParcelDecider.Move(GatedClose, gates, parcel, "paused", "brian", Now));
 
         FluentActions.Invoking(() => ParcelDecider.Close(GatedClose, gates, parcel, "completed", "done", "brian", Now))
             .Should().Throw<DomainException>().WithMessage("The gate 'stand-in' refused*");

@@ -76,15 +76,15 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Move_parcel_parks_quoting_the_rule_when_the_type_refuses_the_move()
+    public async Task Move_parcel_pauses_quoting_the_rule_when_the_type_refuses_the_move()
     {
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Still refining", null, CancellationToken.None);
 
         ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("review"))), parcel.Id);
 
-        ActionOutcome.Parked parked = outcome.Should().BeOfType<ActionOutcome.Parked>().Subject;
-        parked.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
-        parked.Lever.Should().Be(FlightLevers.PerformAgain("act"));
+        ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
+        paused.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
+        paused.Lever.Should().Be(FlightLevers.PerformAgain("act"));
     }
 
     [Fact]
@@ -97,25 +97,25 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Wait_for_human_parks_with_its_lever_argument_and_answers_done_once_resumed()
+    public async Task Wait_for_human_pauses_with_its_lever_argument_and_answers_done_once_resumed()
     {
         FlowStep step = Step(CoreActions.WaitForHuman, ("lever", FlowValue.Of("Approve the plan in the journal.")));
 
-        ActionOutcome.Parked parked = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Parked>().Subject;
-        parked.Reason.Should().Contain("Step 'act'");
-        parked.Lever.Should().Be("Approve the plan in the journal.");
+        ActionOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Paused>().Subject;
+        paused.Reason.Should().Contain("Step 'act'");
+        paused.Lever.Should().Be("Approve the plan in the journal.");
 
         DoneResult(await PerformAsync(step, Ids.New(), resumed: true));
     }
 
     [Fact]
-    public async Task Wait_for_external_event_parks_naming_its_event_and_answers_done_once_resumed()
+    public async Task Wait_for_external_event_pauses_naming_its_event_and_answers_done_once_resumed()
     {
         FlowStep step = Step(CoreActions.WaitForExternalEvent, ("event", FlowValue.Of("ci-finished")));
 
-        ActionOutcome.Parked parked = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Parked>().Subject;
-        parked.Reason.Should().Contain("'ci-finished'").And.Contain("Step 'act'");
-        parked.Lever.Should().Be(FlightLevers.PerformAgain("act"));
+        ActionOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Paused>().Subject;
+        paused.Reason.Should().Contain("'ci-finished'").And.Contain("Step 'act'");
+        paused.Lever.Should().Be(FlightLevers.PerformAgain("act"));
 
         DoneResult(await PerformAsync(step, Ids.New(), resumed: true)).GetProperty("event").GetString().Should().Be("ci-finished");
     }
@@ -155,15 +155,15 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [InlineData(CoreActions.WaitForHuman, "lever", true)]
     [InlineData(CoreActions.WaitForExternalEvent, "event", null)]
     [InlineData(CoreActions.WaitForExternalEvent, "event", 1.0)]
-    public async Task A_missing_or_ill_kinded_argument_parks_naming_the_step_and_the_argument(string action, string argument, object? value)
+    public async Task A_missing_or_ill_kinded_argument_pauses_naming_the_step_and_the_argument(string action, string argument, object? value)
     {
         FlowStep step = value is null ? Step(action) : Step(action, (argument, JsonSerializer.SerializeToElement(value)));
 
         ActionOutcome outcome = await PerformAsync(step, Ids.New());
 
-        ActionOutcome.Parked parked = outcome.Should().BeOfType<ActionOutcome.Parked>().Subject;
-        parked.Reason.Should().Contain("Step 'act'").And.Contain($"argument '{argument}'");
-        parked.Lever.Should().Be(FlightLevers.PerformAgain("act"));
+        ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
+        paused.Reason.Should().Contain("Step 'act'").And.Contain($"argument '{argument}'");
+        paused.Lever.Should().Be(FlightLevers.PerformAgain("act"));
         clock.Waits.Should().BeEmpty();
     }
 

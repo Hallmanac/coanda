@@ -16,14 +16,14 @@ public sealed class FlightResumeMarkTests
         Flight flight = Flight.Create(new FlightStarted(
             flightId, Ids.New(), "hold", 1, "hash", "owner", "approve", StepKind.Action, "wait-for-human", At));
 
-        flight.Apply(new FlightParked(flightId, "Waits for a person.", "Resume it.", "flight", At.AddMinutes(1)));
+        flight.Apply(new FlightPaused(flightId, "Waits for a person.", "Resume it.", "flight", At.AddMinutes(1)));
         flight.Apply(new FlightResumed(flightId, "owner", string.Empty, At.AddMinutes(2)));
         flight.Current?.ResumedAt.Should().Be(At.AddMinutes(2), "the resumed visit is performed again");
 
         flight.Apply(new ActionCompleted(flightId, "approve", "wait-for-human", JsonSerializer.SerializeToElement(new { verdict = "done" }), At.AddMinutes(3)));
         flight.Current?.ResumedAt.Should().BeNull("a recording consumes the resume, so a restart routes it rather than performing it again");
 
-        flight.Apply(new FlightParked(flightId, "Capped.", "Resume it.", "flight", At.AddMinutes(4)));
+        flight.Apply(new FlightPaused(flightId, "Capped.", "Resume it.", "flight", At.AddMinutes(4)));
         flight.Apply(new FlightResumed(flightId, "owner", string.Empty, At.AddMinutes(5)));
         flight.Current?.IsRecorded.Should().BeTrue();
         flight.Current?.ResumedAt.Should().Be(At.AddMinutes(5), "a resume after the recording asks for the step to be performed again");

@@ -56,7 +56,7 @@ public sealed class JudgmentTests
     }
 
     [Fact]
-    public async Task A_missing_first_answer_and_an_invalid_second_park_with_the_second_transcript()
+    public async Task A_missing_first_answer_and_an_invalid_second_pause_with_the_second_transcript()
     {
         ScriptedExecutor executor = Executor(
             new ScriptEntry(null, "/t/1.jsonl", FirstUsage),
@@ -68,34 +68,34 @@ public sealed class JudgmentTests
         executor.Spawns.Should().ContainSingle();
         executor.Resumes.Should().ContainSingle()
             .Which.Message.Should().Contain("No answer document was found").And.Contain("'review'");
-        JudgmentOutcome.Parked park = outcome.Should().BeOfType<JudgmentOutcome.Parked>().Subject;
-        park.Reason.Should().Contain($"'{Agent}'").And.Contain("'review'").And.Contain(failure);
-        park.Lever.Should().Be("/t/2.jsonl");
-        park.Usage.Should().Be(Summed);
+        JudgmentOutcome.Paused pause = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
+        pause.Reason.Should().Contain($"'{Agent}'").And.Contain("'review'").And.Contain(failure);
+        pause.Lever.Should().Be("/t/2.jsonl");
+        pause.Usage.Should().Be(Summed);
     }
 
     [Fact]
-    public async Task An_invalid_first_answer_and_an_invalid_second_park_with_the_second_attempts_failures()
+    public async Task An_invalid_first_answer_and_an_invalid_second_pause_with_the_second_attempts_failures()
     {
         ScriptedExecutor executor = Executor(
             new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
             new ScriptEntry(InvalidAgain, "/t/2.jsonl", SecondUsage));
         string firstFailure = AnswerValidator.Validate(AnswerSchemas.Review, Invalid).Failures[0];
         string secondFailure = AnswerValidator.Validate(AnswerSchemas.Review, InvalidAgain).Failures[0];
-        firstFailure.Should().NotBe(secondFailure, "the park must be shown to quote the second attempt");
+        firstFailure.Should().NotBe(secondFailure, "the pause must be shown to quote the second attempt");
 
         JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request, CancellationToken.None);
 
         executor.Spawns.Should().ContainSingle();
         executor.Resumes.Should().ContainSingle().Which.Message.Should().Contain("'review'").And.Contain(firstFailure);
-        JudgmentOutcome.Parked park = outcome.Should().BeOfType<JudgmentOutcome.Parked>().Subject;
-        park.Reason.Should().Contain($"'{Agent}'").And.Contain("'review'").And.Contain(secondFailure).And.NotContain(firstFailure);
-        park.Lever.Should().Be("/t/2.jsonl");
-        park.Usage.Should().Be(Summed);
+        JudgmentOutcome.Paused pause = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
+        pause.Reason.Should().Contain($"'{Agent}'").And.Contain("'review'").And.Contain(secondFailure).And.NotContain(firstFailure);
+        pause.Lever.Should().Be("/t/2.jsonl");
+        pause.Usage.Should().Be(Summed);
     }
 
     [Fact]
-    public async Task A_missing_second_answer_parks_saying_none_was_found()
+    public async Task A_missing_second_answer_pauses_saying_none_was_found()
     {
         ScriptedExecutor executor = Executor(
             new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
@@ -103,7 +103,7 @@ public sealed class JudgmentTests
 
         JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request, CancellationToken.None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Parked>()
+        outcome.Should().BeOfType<JudgmentOutcome.Paused>()
             .Which.Reason.Should().Contain(Judgment.NoAnswerFound);
     }
 
@@ -116,7 +116,7 @@ public sealed class JudgmentTests
 
         JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request, CancellationToken.None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Parked>();
+        outcome.Should().BeOfType<JudgmentOutcome.Paused>();
         outcome.Session.Should().Be(executor.Spawns.Should().ContainSingle().Subject.Handle);
         executor.Stops.Should().BeEmpty();
         (await executor.ListAsync(CancellationToken.None)).Should().Equal(outcome.Session);

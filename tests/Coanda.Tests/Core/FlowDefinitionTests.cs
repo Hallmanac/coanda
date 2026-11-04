@@ -59,7 +59,7 @@ public sealed class FlowDefinitionTests
         { "no steps", Valid() with { Steps = [] }, "needs at least one step" },
         { "a step with no name", Valid() with { Steps = [Judge(""), Act()] }, "has a step with no name" },
         { "two steps with one name", Valid() with { Steps = [Judge(), Act("judge")] }, "has two steps named 'judge'" },
-        { "a step named park", Valid() with { Steps = [Judge("park"), Act()] }, "has a step named 'park'" },
+        { "a step named pause", Valid() with { Steps = [Judge("pause"), Act()] }, "has a step named 'pause'" },
         { "a step named end", Valid() with { Steps = [Judge(), Act("end")] }, "has a step named 'end'" },
         { "an agent and an action", WithFirstStep(s => s with { Action = "do-thing" }), "must name an agent (a judgment) or an action, and exactly one of them" },
         { "neither agent nor action", WithFirstStep(s => s with { Agent = null }), "must name an agent (a judgment) or an action, and exactly one of them" },
@@ -74,7 +74,7 @@ public sealed class FlowDefinitionTests
         { "no transitions", WithFirstStep(s => s with { Transitions = [] }), "needs at least one transition" },
         { "a missing visit cap", WithFirstStep(s => s with { Transitions = [On("done", "act", 0)] }), "needs a visit cap greater than zero" },
         { "a negative visit cap", WithFirstStep(s => s with { Transitions = [On("done", "act", -1)] }), "needs a visit cap greater than zero" },
-        { "a target that is not a step", WithFirstStep(s => s with { Transitions = [On("done", "nowhere")] }), "targets 'nowhere', which is not a step of the flow, park, or end" },
+        { "a target that is not a step", WithFirstStep(s => s with { Transitions = [On("done", "nowhere")] }), "targets 'nowhere', which is not a step of the flow, pause, or end" },
         { "an answer field that is not plain", WithFirstStep(s => s with { Transitions = [new FlowTransition { Field = "a == b", Value = FlowValue.Of("x"), VisitCap = 1, Target = "act" }] }), "an answer field is plain" },
         { "a blank answer field", WithFirstStep(s => s with { Transitions = [new FlowTransition { Value = FlowValue.Of("x"), VisitCap = 1, Target = "act" }] }), "an answer field is plain" },
         { "an object value", WithFirstStep(s => s with { Transitions = [new FlowTransition { Field = "verdict", Value = Json("{}"), VisitCap = 1, Target = "act" }] }), "needs a value that is a JSON string, number, or boolean" },
@@ -89,11 +89,11 @@ public sealed class FlowDefinitionTests
     };
 
     [Fact]
-    public void A_valid_flow_passes_and_park_and_end_are_valid_targets()
+    public void A_valid_flow_passes_and_pause_and_end_are_valid_targets()
     {
         FlowDefinition flow = Valid() with
         {
-            Steps = [Judge() with { Transitions = [On("done", "act"), On("stuck", FlowDefinition.Park), On("skip", FlowDefinition.End)] }, Act()],
+            Steps = [Judge() with { Transitions = [On("done", "act"), On("stuck", FlowDefinition.Pause), On("skip", FlowDefinition.End)] }, Act()],
         };
 
         FluentActions.Invoking(() => flow.Validate(Known)).Should().NotThrow();
@@ -183,7 +183,7 @@ public sealed class FlowDefinitionTests
         (Valid() with { Budget = 5m }).Hash.Should().NotBe(baseline);
         (Valid() with { SpawnCap = 7 }).Hash.Should().NotBe(baseline);
         WithFirstStep(s => s with { Transitions = [On("done", "act", 3)] }).Hash.Should().NotBe(baseline);
-        WithActStep(s => s with { Transitions = [On("done", FlowDefinition.Park), On("failed", "judge")] }).Hash.Should().NotBe(baseline);
+        WithActStep(s => s with { Transitions = [On("done", FlowDefinition.Pause), On("failed", "judge")] }).Hash.Should().NotBe(baseline);
         WithActStep(s => s with
         {
             Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("build"), ["count"] = FlowValue.Of(2) },
@@ -249,12 +249,12 @@ public sealed class FlowDefinitionTests
                     Name = "look",
                     Agent = "reviewer",
                     AnswerSchema = "review",
-                    Transitions = [On("clean", FlowDefinition.End, 1), On("not-clean", FlowDefinition.Park, 1)],
+                    Transitions = [On("clean", FlowDefinition.End, 1), On("not-clean", FlowDefinition.Pause, 1)],
                 },
             ],
         };
 
-        flow.Hash.Should().Be("b1af6f9835f6e650");
+        flow.Hash.Should().Be("91a9dc95e3c8a460");
     }
 
     [Fact]

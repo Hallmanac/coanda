@@ -35,7 +35,7 @@ public static class Interpreter
     /// The next move. The current step's transitions are read in table order and the first whose
     /// answer field is present and equal to its value is the one considered; it fires when the
     /// step's visit count, the current visit included, is no greater than its visit cap. Anything
-    /// else parks with a reason naming the step.
+    /// else pauses with a reason naming the step.
     /// </summary>
     public static FlightMove Decide(FlowDefinition flow, FlightPosition position, JsonDocument answer)
     {
@@ -48,13 +48,13 @@ public static class Interpreter
 
         return considered switch
         {
-            null => new FlightMove.Park(
+            null => new FlightMove.Pause(
                 $"Step '{step.Name}' has no transition for that answer; no field and value in its table match it."),
-            _ when visits > considered.VisitCap => new FlightMove.Park(
+            _ when visits > considered.VisitCap => new FlightMove.Pause(
                 $"Step '{step.Name}' reached the visit cap of {considered.VisitCap} on its transition to '{considered.Target}'."),
             { Target: FlowDefinition.End } => new FlightMove.End(flow.Outcome),
-            { Target: FlowDefinition.Park } => new FlightMove.Park(
-                $"Step '{step.Name}' parks on its answer, as its transition table says."),
+            { Target: FlowDefinition.Pause } => new FlightMove.Pause(
+                $"Step '{step.Name}' pauses on its answer, as its transition table says."),
             _ => GoTo(flow, position, considered.Target),
         };
     }
@@ -63,7 +63,7 @@ public static class Interpreter
     {
         bool spawns = flow.Step(target) is { IsJudgment: true };
         return spawns && position.Spawns >= flow.SpawnCap
-            ? new FlightMove.Park(
+            ? new FlightMove.Pause(
                 $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; going to judgment step '{target}' would spawn another agent.")
             : new FlightMove.GoTo(target);
     }

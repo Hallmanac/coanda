@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 namespace Coanda.Daemon.Actions;
 
 /// <summary>
-/// How an action step ended: a result document recorded on the flight and routed on, or a park
+/// How an action step ended: a result document recorded on the flight and routed on, or a pause
 /// with a reason and a lever. The private constructor closes the hierarchy.
 /// </summary>
 public abstract record ActionOutcome
@@ -23,7 +23,7 @@ public abstract record ActionOutcome
     public sealed record Done(JsonElement Result) : ActionOutcome;
 
     /// <summary>The action stopped the flight to wait; <paramref name="Lever"/> is what a person acts on.</summary>
-    public sealed record Parked(string Reason, string Lever) : ActionOutcome;
+    public sealed record Paused(string Reason, string Lever) : ActionOutcome;
 
     /// <summary>A result whose verdict is <c>done</c>, naming the action, with any further fields given.</summary>
     public static Done DoneWith(string action, params (string Field, JsonNode? Value)[] fields)

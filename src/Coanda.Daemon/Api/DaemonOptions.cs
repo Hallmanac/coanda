@@ -11,7 +11,7 @@ public sealed record DaemonOptions
 {
     public static readonly TimeSpan DefaultJudgmentLimit = TimeSpan.FromMinutes(30);
 
-    /// <summary>The executor judgments run through; null runs them through a scripted executor with no entries, so every judgment parks.</summary>
+    /// <summary>The executor judgments run through; null runs them through a scripted executor with no entries, so every judgment pauses.</summary>
     public IAgentExecutor? Executor { get; init; }
 
     /// <summary>
@@ -20,6 +20,6 @@ public sealed record DaemonOptions
     /// </summary>
     public IReadOnlyList<IGate> Gates { get; init; } = [];
 
-    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flight parks.</summary>
+    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flight pauses.</summary>
     public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;
 }

@@ -6,7 +6,7 @@ namespace Coanda.Daemon.Actions;
 /// <summary>
 /// Reads a step's arguments as the JSON kind an action expects. An argument is read, never
 /// evaluated; one that is missing or of the wrong kind is refused with
-/// <see cref="ActionArgumentException"/>, which <see cref="FlowActions"/> turns into a park.
+/// <see cref="ActionArgumentException"/>, which <see cref="FlowActions"/> turns into a pause.
 /// </summary>
 public static class ActionArguments
 {

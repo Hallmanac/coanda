@@ -57,8 +57,8 @@ public sealed class FlightStoreTests
             Flight flight = await RunToAnsweredBuildAsync(service, parcelId);
             flightId = flight.Id;
 
-            // Parked, so the daemon's start leaves it where it was written rather than advancing it.
-            await service.ParkAsync(Owner, Project, flightId, "Held for the read-back.", "Resume it.", CancellationToken.None);
+            // Paused, so the daemon's start leaves it where it was written rather than advancing it.
+            await service.PauseAsync(Owner, Project, flightId, "Held for the read-back.", "Resume it.", CancellationToken.None);
         }
 
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
@@ -68,7 +68,7 @@ public sealed class FlightStoreTests
         shown.ParcelId.Should().Be(parcelId);
         shown.Flow.Should().Be("build");
         shown.FlowHash.Should().Be(ShippedFlows.Build.Hash);
-        shown.Status.Should().Be("parked");
+        shown.Status.Should().Be("paused");
         shown.CurrentStep.Should().Be("build");
         shown.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
 
@@ -92,7 +92,7 @@ public sealed class FlightStoreTests
     }
 
     [Fact]
-    public async Task A_second_start_is_refused_while_the_first_flight_is_parked_and_accepted_once_it_is_stopped()
+    public async Task A_second_start_is_refused_while_the_first_flight_is_paused_and_accepted_once_it_is_stopped()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
@@ -104,10 +104,10 @@ public sealed class FlightStoreTests
         parcel.LiveFlightId.Should().BeNull();
 
         Flight first = await flights.StartAsync(Owner, Project, parcel.Id, "build", none);
-        await flights.ParkAsync(Owner, Project, first.Id, "Needs a decision.", "Answer the question in the journal.", none);
+        await flights.PauseAsync(Owner, Project, first.Id, "Needs a decision.", "Answer the question in the journal.", none);
 
-        ParcelView whileParked = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", none);
-        whileParked.LiveFlightId.Should().Be(first.Id, "a parked flight is still live");
+        ParcelView whilePaused = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", none);
+        whilePaused.LiveFlightId.Should().Be(first.Id, "a paused flight is still live");
 
         await FluentActions.Awaiting(() => flights.StartAsync(Owner, Project, parcel.Id, "build", none))
             .Should().ThrowAsync<DomainException>().WithMessage("A parcel has at most one live flight;*");
@@ -190,7 +190,7 @@ public sealed class FlightStoreTests
         Flight flight = await flights.StartAsync(agent, Project, parcel.Id, "build", none);
         await flights.RecordResultAsync(agent, Project, flight.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done"}"""), none);
         await flights.StartStepAsync(agent, Project, flight.Id, "build", none);
-        await flights.ParkAsync(agent, Project, flight.Id, "Asked a question.", "Answer it.", none);
+        await flights.PauseAsync(agent, Project, flight.Id, "Asked a question.", "Answer it.", none);
         await FluentActions.Awaiting(() => flights.ResumeAsync(agent, Project, flight.Id, null, none))
             .Should().ThrowAsync<DomainException>().WithMessage("'flight.resume' is not open to the Agent role.");
         await FluentActions.Awaiting(() => flights.StopAsync(agent, Project, flight.Id, "Done with it.", none))
@@ -203,7 +203,7 @@ public sealed class FlightStoreTests
     }
 
     [Fact]
-    public async Task Flight_show_prints_the_flow_the_parcel_the_status_each_step_and_the_park()
+    public async Task Flight_show_prints_the_flow_the_parcel_the_status_each_step_and_the_pause()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
@@ -213,14 +213,14 @@ public sealed class FlightStoreTests
 
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Show me", null), none);
         Flight flight = await RunToAnsweredBuildAsync(flights, parcel.Id);
-        await flights.ParkAsync(Owner, Project, flight.Id, "The build agent asked a question.", "Answer it in the journal.", none);
+        await flights.PauseAsync(Owner, Project, flight.Id, "The build agent asked a question.", "Answer it in the journal.", none);
 
         FlightView view = await FlightLookup.FindAsync(client, Project, Ids.Short(flight.Id), none);
         IReadOnlyList<string> lines = FlightRendering.Show(view);
 
         lines.Should().Contain($"Flow    build v1 ({ShippedFlows.Build.Hash})");
         lines.Should().Contain($"Parcel  {parcel.Id}");
-        lines.Should().Contain("Status  parked");
+        lines.Should().Contain("Status  paused");
         lines.Should().Contain("Reason  The build agent asked a question.");
         lines.Should().Contain("Lever   Answer it in the journal.");
         int steps = lines.ToList().IndexOf("Steps");
@@ -230,7 +230,7 @@ public sealed class FlightStoreTests
 
         List<FlightView> listed = await client.GetAsync<List<FlightView>>($"/flights?project={Project}&parcel={parcel.Id}", none);
         FlightView row = listed.Should().ContainSingle().Subject;
-        FlightRendering.ListRow(row).Take(4).Should().Equal(Ids.Short(flight.Id), "build v1", "parked", "build");
+        FlightRendering.ListRow(row).Take(4).Should().Equal(Ids.Short(flight.Id), "build v1", "paused", "build");
 
         await daemon.StopAsync(none);
     }

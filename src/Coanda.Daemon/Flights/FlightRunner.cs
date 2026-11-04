@@ -20,20 +20,20 @@ namespace Coanda.Daemon.Flights;
 /// <summary>
 /// Advances live flights on the daemon's own workers: performs the current step through the
 /// executor or an action, records its result on the flight, asks the interpreter for the next
-/// move, and applies it, until the flight ends, parks, or stops. At most one worker advances a
+/// move, and applies it, until the flight ends, pauses, or stops. At most one worker advances a
 /// flight; a request for a flight already being advanced is folded into that worker, which reads
 /// the flight once more before it finishes. Before any step, a flight deeper in its chain than its
-/// flow's follow allows parks; before a judgment, a flight whose recorded cost has reached its flow's
-/// budget, or whose chain's recorded cost has reached the budget of the flow its root runs, parks.
-/// Both checks run on every pass, so a resume of such a park parks again rather than overriding it.
-/// A resumed judgment step spawns another agent, so it parks once the flight's spawns reach its
-/// flow's spawn cap, whether the visit resumed had recorded an answer or parked without one.
+/// flow's follow allows pauses; before a judgment, a flight whose recorded cost has reached its flow's
+/// budget, or whose chain's recorded cost has reached the budget of the flow its root runs, pauses.
+/// Both checks run on every pass, so a resume of such a pause pauses again rather than overriding it.
+/// A resumed judgment step spawns another agent, so it pauses once the flight's spawns reach its
+/// flow's spawn cap, whether the visit resumed had recorded an answer or paused without one.
 /// </summary>
 /// <remarks>
 /// Every write is made as the flight's own principal, of the Agent role, through a flight service
 /// of the runner's own: the service the daemon registers hands resumes to this runner, so the
 /// runner cannot also take that one without a cycle. A daemon stop cancels the step in progress
-/// and records nothing for it, leaving the flight live and unparked so the next start performs the
+/// and records nothing for it, leaving the flight live and unpaused so the next start performs the
 /// step again. A step recorded before the stop but not yet routed is routed without being
 /// performed again.
 /// </remarks>
@@ -103,7 +103,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         }
     }
 
-    /// <summary>Requests an advance of every live flight on the node; a parked one is read and left as it is.</summary>
+    /// <summary>Requests an advance of every live flight on the node; a paused one is read and left as it is.</summary>
     public async Task AdvanceLiveAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<(string Project, Guid FlightId)> live = await flights.ListLiveAsync(ScanPrincipal, cancellationToken);
@@ -186,7 +186,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             }
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
             {
-                await ParkOnRefusalAsync(principal, project, flight, refused, cancellationToken);
+                await PauseOnRefusalAsync(principal, project, flight, refused, cancellationToken);
                 return;
             }
         }
@@ -203,7 +203,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
 
         if (flow.Follow is { } follow && flight.Depth > follow.DepthCap)
         {
-            await ParkAsync(
+            await PauseAsync(
                 principal, project, flight.Id,
                 $"Flight {Ids.Short(flight.Id)} is at depth {flight.Depth} of its chain, past the depth cap of {follow.DepthCap} on the follow of flow '{flow.Name}'; a flight deeper than its follow's depth cap performs no step.",
                 FlightLevers.DepthCapReached(flow.Name),
@@ -212,13 +212,13 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         }
 
         // A resumed judgment spawns another agent, whether its visit recorded or not, once its
-        // counted spawn is used: not when the visit parked before it launched, and not when this
+        // counted spawn is used: not when the visit paused before it launched, and not when this
         // resume's spawn is already counted (a restart performing the resumed visit again). A
         // judgment the interpreter entered within the cap is performed once, so it is not checked.
         bool spawnsAgain = current.SpawnsAgainOnResume;
         if (spawnsAgain && flight.Spawns >= flow.SpawnCap)
         {
-            await ParkAsync(
+            await PauseAsync(
                 principal, project, flight.Id,
                 $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{step.Name}' again would spawn another agent.",
                 FlightLevers.SpawnCapReached(flow.Name),
@@ -226,7 +226,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             return false;
         }
 
-        // A resume after this visit recorded (a park the interpreter decided) performs the step
+        // A resume after this visit recorded (a pause the interpreter decided) performs the step
         // again as a new visit; a recording with no resume since is routed, never performed again.
         if (current.IsRecorded && current.ResumedAt is not null)
         {
@@ -249,10 +249,10 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
     private readonly record struct Recording(Flight Flight, JsonElement Value);
 
     /// <summary>
-    /// Runs the step's judgment and records its answer, or parks; null when the flight parked. When
-    /// <paramref name="spawnsAgain"/>, a resume performs again a visit that launched and parked
+    /// Runs the step's judgment and records its answer, or pauses; null when the flight paused. When
+    /// <paramref name="spawnsAgain"/>, a resume performs again a visit that launched and paused
     /// without an answer, so one more spawn is counted on that visit once the budget checks have
-    /// passed. The launch itself is recorded just before the agent runs, so a park after the count
+    /// passed. The launch itself is recorded just before the agent runs, so a pause after the count
     /// and before the launch (an agent that does not resolve, a parcel that does not load) leaves
     /// that spawn unused, and the next resume uses it rather than counting another.
     /// </summary>
@@ -262,7 +262,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         string? spent = await BudgetSpentAsync(principal, project, flight, flow, cancellationToken);
         if (spent is not null)
         {
-            await ParkAsync(principal, project, flight.Id, spent, FlightLevers.BudgetReached(), cancellationToken);
+            await PauseAsync(principal, project, flight.Id, spent, FlightLevers.BudgetReached(), cancellationToken);
             return null;
         }
 
@@ -275,7 +275,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         Definition? published = await definitions.ResolveAgentAsync(principal, project, agentName, cancellationToken);
         if (published is null)
         {
-            await ParkAsync(
+            await PauseAsync(
                 principal, project, flight.Id,
                 $"Step '{step.Name}' names the agent '{agentName}', which resolution does not return as a published agent for project '{project}'.",
                 FlightLevers.PerformAgain(step.Name),
@@ -315,7 +315,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
                 AggregateException => $"and stopping its session failed: {failure.Message}",
                 _ => $"and it failed as it was cancelled: {failure.Message}",
             };
-            await ParkAsync(
+            await PauseAsync(
                 principal, project, flight.Id,
                 $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, {stopped}.",
                 FlightLevers.PerformAgain(step.Name),
@@ -324,7 +324,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         }
         catch (Exception failure)
         {
-            await ParkAsync(
+            await PauseAsync(
                 principal, project, flight.Id,
                 $"Step '{step.Name}' got no judgment from agent '{agent.Name}': {failure.Message}",
                 FlightLevers.PerformAgain(step.Name),
@@ -341,8 +341,8 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
                     Flight recorded = await flights.RecordAnswerAsync(
                         principal, project, flight.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
                     return new Recording(recorded, answer);
-                case JudgmentOutcome.Parked parked:
-                    await flights.ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, parked.Usage, cancellationToken);
+                case JudgmentOutcome.Paused paused:
+                    await flights.PauseAsync(principal, project, flight.Id, paused.Reason, paused.Lever, paused.Usage, cancellationToken);
                     return null;
                 default:
                     throw new InvalidOperationException($"A judgment ended in an outcome the runner does not know: {outcome.GetType().Name}.");
@@ -386,7 +386,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
 
     private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
 
-    /// <summary>Performs the step's action and records its result, or parks; null when the flight parked.</summary>
+    /// <summary>Performs the step's action and records its result, or pauses; null when the flight paused.</summary>
     private async Task<Recording?> ActAsync(
         Principal principal, string project, Flight flight, FlowDefinition flow, FlowStep step, bool resumed, CancellationToken cancellationToken)
     {
@@ -402,7 +402,7 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
         }
         catch (Exception failure)
         {
-            outcome = new ActionOutcome.Parked(
+            outcome = new ActionOutcome.Paused(
                 $"Step '{step.Name}' could not perform the action '{step.Action}': {failure.Message}",
                 FlightLevers.PerformAgain(step.Name));
         }
@@ -412,8 +412,8 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             case ActionOutcome.Done done:
                 Flight recorded = await flights.RecordResultAsync(principal, project, flight.Id, step.Name, step.Action ?? string.Empty, done.Result, cancellationToken);
                 return new Recording(recorded, done.Result);
-            case ActionOutcome.Parked parked:
-                await ParkAsync(principal, project, flight.Id, parked.Reason, parked.Lever, cancellationToken);
+            case ActionOutcome.Paused paused:
+                await PauseAsync(principal, project, flight.Id, paused.Reason, paused.Lever, cancellationToken);
                 return null;
             default:
                 throw new InvalidOperationException($"An action ended in an outcome the runner does not know: {outcome.GetType().Name}.");
@@ -434,23 +434,23 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
             case FlightMove.End end:
                 await flights.EndAsync(principal, project, flight.Id, end.Outcome, cancellationToken);
                 return false;
-            case FlightMove.Park park:
-                await ParkAsync(principal, project, flight.Id, park.Reason, FlightLevers.PerformAgain(step.Name), cancellationToken);
+            case FlightMove.Pause pause:
+                await PauseAsync(principal, project, flight.Id, pause.Reason, FlightLevers.PerformAgain(step.Name), cancellationToken);
                 return false;
             default:
                 throw new InvalidOperationException($"The interpreter returned a move the runner does not know: {move.GetType().Name}.");
         }
     }
 
-    private Task ParkAsync(Principal principal, string project, Guid flightId, string reason, string lever, CancellationToken cancellationToken) =>
-        flights.ParkAsync(principal, project, flightId, reason, lever, cancellationToken);
+    private Task PauseAsync(Principal principal, string project, Guid flightId, string reason, string lever, CancellationToken cancellationToken) =>
+        flights.PauseAsync(principal, project, flightId, reason, lever, cancellationToken);
 
     /// <summary>
     /// A recording the flight's rules refused. When the flight is no longer running (stopped while
-    /// its step was performed, say) nothing more is recorded; otherwise it parks quoting the rule,
-    /// so a running flight is never left with no worker and no park.
+    /// its step was performed, say) nothing more is recorded; otherwise it pauses quoting the rule,
+    /// so a running flight is never left with no worker and no pause.
     /// </summary>
-    private async Task ParkOnRefusalAsync(Principal principal, string project, Flight flight, DomainException refused, CancellationToken cancellationToken)
+    private async Task PauseOnRefusalAsync(Principal principal, string project, Flight flight, DomainException refused, CancellationToken cancellationToken)
     {
         Flight? now = await flights.ShowAsync(principal, project, flight.Id, cancellationToken);
         if (now is not { Status: FlightStatus.Running })
@@ -461,15 +461,15 @@ public sealed class FlightRunner : IFlightAdvancer, IHostedService, IDisposable
 
         try
         {
-            await ParkAsync(
+            await PauseAsync(
                 principal, project, flight.Id,
                 $"Flight could not go on from step '{now.CurrentStep}': {refused.Message}",
                 FlightLevers.PerformAgain(now.CurrentStep),
                 cancellationToken);
         }
-        catch (DomainException parkRefused)
+        catch (DomainException pauseRefused)
         {
-            logger.LogError(parkRefused, "Flight {Flight} could neither record its step nor park: {Rule}", Ids.Short(flight.Id), refused.Message);
+            logger.LogError(pauseRefused, "Flight {Flight} could neither record its step nor pause: {Rule}", Ids.Short(flight.Id), refused.Message);
         }
     }
 

@@ -50,8 +50,8 @@ public sealed class FlightDeciderTests
         Flight flight = Started();
         switch (status)
         {
-            case FlightStatus.Parked:
-                flight.Apply(FlightDecider.Park(Build, flight, "waiting", "answer the question", "owner", Now));
+            case FlightStatus.Paused:
+                flight.Apply(FlightDecider.Pause(Build, flight, "waiting", "answer the question", "owner", Now));
                 break;
             case FlightStatus.Ended:
                 flight.Apply(FlightDecider.End(Build, flight, Build.Outcome, "owner", Now).Ended);
@@ -155,9 +155,9 @@ public sealed class FlightDeciderTests
     public static TheoryData<FlightStatus, string> NotRunning()
     {
         var data = new TheoryData<FlightStatus, string>();
-        foreach (FlightStatus status in new[] { FlightStatus.Parked, FlightStatus.Ended, FlightStatus.Stopped })
+        foreach (FlightStatus status in new[] { FlightStatus.Paused, FlightStatus.Ended, FlightStatus.Stopped })
         {
-            foreach (string intent in new[] { "step", "answer", "result", "park", "end" })
+            foreach (string intent in new[] { "step", "answer", "result", "pause", "end" })
             {
                 data.Add(status, intent);
             }
@@ -177,7 +177,7 @@ public sealed class FlightDeciderTests
             "step" => () => FlightDecider.StartStep(Build, flight, "build", Now),
             "answer" => () => FlightDecider.Answer(Build, flight, "worktree", "build", "agenthash", Model, Json("{}"), Spend, Now),
             "result" => () => FlightDecider.Complete(Build, flight, "worktree", SoftwareActions.Worktree, Json("{}"), Now),
-            "park" => () => FlightDecider.Park(Build, flight, "why", "lever", "owner", Now),
+            "pause" => () => FlightDecider.Pause(Build, flight, "why", "lever", "owner", Now),
             "end" => () => FlightDecider.End(Build, flight, Build.Outcome, "owner", Now),
             _ => throw new ArgumentOutOfRangeException(nameof(intent)),
         };
@@ -273,13 +273,13 @@ public sealed class FlightDeciderTests
     }
 
     [Theory]
-    [InlineData("", "answer the question", "A park records why the flight stopped; give a reason.")]
-    [InlineData("waiting", " ", "A park records the lever a person acts on to resume the flight; give a lever.")]
-    public void A_park_with_an_empty_reason_or_lever_is_refused(string reason, string lever, string message)
+    [InlineData("", "answer the question", "A pause records why the flight stopped; give a reason.")]
+    [InlineData("waiting", " ", "A pause records the lever a person acts on to resume the flight; give a lever.")]
+    public void A_pause_with_an_empty_reason_or_lever_is_refused(string reason, string lever, string message)
     {
-        Action park = () => FlightDecider.Park(Build, Started(), reason, lever, "owner", Now);
+        Action pause = () => FlightDecider.Pause(Build, Started(), reason, lever, "owner", Now);
 
-        park.Should().Throw<DomainException>().WithMessage(message);
+        pause.Should().Throw<DomainException>().WithMessage(message);
     }
 
     [Fact]
@@ -294,18 +294,18 @@ public sealed class FlightDeciderTests
     [InlineData(FlightStatus.Running)]
     [InlineData(FlightStatus.Ended)]
     [InlineData(FlightStatus.Stopped)]
-    public void Resuming_a_flight_that_is_not_parked_is_refused(FlightStatus status)
+    public void Resuming_a_flight_that_is_not_paused_is_refused(FlightStatus status)
     {
         Action resume = () => FlightDecider.Resume(Build, InStatus(status), "go on", "owner", Now);
 
-        resume.Should().Throw<DomainException>().WithMessage("*; only a parked flight resumes.");
+        resume.Should().Throw<DomainException>().WithMessage("*; only a paused flight resumes.");
     }
 
     [Fact]
-    public void A_parked_flight_resumes_and_runs_again()
+    public void A_paused_flight_resumes_and_runs_again()
     {
-        Flight flight = InStatus(FlightStatus.Parked);
-        flight.IsLive.Should().BeTrue("a parked flight is still live");
+        Flight flight = InStatus(FlightStatus.Paused);
+        flight.IsLive.Should().BeTrue("a paused flight is still live");
 
         flight.Apply(FlightDecider.Resume(Build, flight, "answered", "owner", Now));
 
@@ -325,7 +325,7 @@ public sealed class FlightDeciderTests
 
     [Theory]
     [InlineData(FlightStatus.Running)]
-    [InlineData(FlightStatus.Parked)]
+    [InlineData(FlightStatus.Paused)]
     public void A_live_flight_stops_and_releases_its_parcel(FlightStatus status)
     {
         Flight flight = InStatus(status);
@@ -346,7 +346,7 @@ public sealed class FlightDeciderTests
         step.Should().Throw<DomainException>().WithMessage("*a flight keeps the flow it started under.");
     }
 
-    /// <summary>A flight of <paramref name="flow"/> at its judgment step 'build', launched, parked without an answer and resumed.</summary>
+    /// <summary>A flight of <paramref name="flow"/> at its judgment step 'build', launched, paused without an answer and resumed.</summary>
     private static Flight ResumedUnanswered(FlowDefinition flow, bool launched = true)
     {
         Flight flight = Started(flow);
@@ -356,7 +356,7 @@ public sealed class FlightDeciderTests
             flight.Apply(FlightDecider.Spawn(flow, flight, "build", Now));
         }
 
-        flight.Apply(FlightDecider.Park(flow, flight, "no valid answer", "perform it again", "flight", Now, Spend));
+        flight.Apply(FlightDecider.Pause(flow, flight, "no valid answer", "perform it again", "flight", Now, Spend));
         flight.Apply(FlightDecider.Resume(flow, flight, "try again", "owner", Now.AddMinutes(1)));
         return flight;
     }
@@ -378,14 +378,14 @@ public sealed class FlightDeciderTests
             .Should().Throw<DomainException>().WithMessage("*already counted a spawn for its latest resume*");
 
         flight.Apply(FlightDecider.Spawn(Build, flight, "build", Now.AddMinutes(3)));
-        flight.Apply(FlightDecider.Park(Build, flight, "no valid answer", "perform it again", "flight", Now.AddMinutes(4), Spend));
+        flight.Apply(FlightDecider.Pause(Build, flight, "no valid answer", "perform it again", "flight", Now.AddMinutes(4), Spend));
         flight.Apply(FlightDecider.Resume(Build, flight, "once more", "owner", Now.AddMinutes(5)));
         flight.Apply(FlightDecider.Respawn(Build, flight, "build", Now.AddMinutes(6)));
         flight.Spawns.Should().Be(spawns + 2, "each resume counts its own spawn");
     }
 
     [Fact]
-    public void A_resumed_judgment_that_parked_before_it_launched_uses_its_counted_spawn_rather_than_counting_another()
+    public void A_resumed_judgment_that_paused_before_it_launched_uses_its_counted_spawn_rather_than_counting_another()
     {
         FlowDefinition capped = Build with { SpawnCap = 1 };
         Flight flight = ResumedUnanswered(capped, launched: false);
@@ -412,7 +412,7 @@ public sealed class FlightDeciderTests
             .Should().Throw<DomainException>().WithMessage("*has not been resumed since it was entered*");
 
         Flight atAction = Started();
-        atAction.Apply(FlightDecider.Park(Build, atAction, "waiting", "lever", "owner", Now));
+        atAction.Apply(FlightDecider.Pause(Build, atAction, "waiting", "lever", "owner", Now));
         atAction.Apply(FlightDecider.Resume(Build, atAction, "go on", "owner", Now));
         FluentActions.Invoking(() => FlightDecider.Respawn(Build, atAction, "worktree", Now))
             .Should().Throw<DomainException>().WithMessage("*only a judgment step spawns an agent*");

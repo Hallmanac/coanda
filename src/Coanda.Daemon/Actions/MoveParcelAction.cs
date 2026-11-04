@@ -10,7 +10,7 @@ namespace Coanda.Daemon.Actions;
 /// Moves the flight's parcel to the state its <c>state</c> argument names, through the parcel
 /// service and as the flight's principal. A parcel already in that state is left alone, so
 /// performing the step again after a restart moves nothing twice. A move the parcel's type
-/// refuses parks the flight quoting the rule.
+/// refuses pauses the flight quoting the rule.
 /// </summary>
 public sealed class MoveParcelAction(ParcelService parcels) : IFlowAction
 {
@@ -35,7 +35,7 @@ public sealed class MoveParcelAction(ParcelService parcels) : IFlowAction
         }
         catch (DomainException refused)
         {
-            return new ActionOutcome.Parked(
+            return new ActionOutcome.Paused(
                 $"Step '{request.Step.Name}' could not move parcel {Ids.Short(request.ParcelId)} to '{state}': {refused.Message}",
                 FlightLevers.PerformAgain(request.Step.Name));
         }

@@ -10,16 +10,16 @@ namespace Coanda.Core.Types;
 public static class ShippedTypes
 {
     public const string Closed = "closed";
-    public const string Parked = "parked";
+    public const string Paused = "paused";
 
     public static readonly ParcelType Idea = new()
     {
         Name = "idea",
-        States = ["open", "discovery", Parked, Closed],
+        States = ["open", "discovery", Paused, Closed],
         EntryStates = ["open"],
         TerminalState = Closed,
         Resolutions = ["split", "concluded", "archived"],
-        ParkedState = Parked,
+        PausedState = Paused,
         Moves = new Dictionary<string, IReadOnlyList<string>>
         {
             ["open"] = ["discovery"],
@@ -30,11 +30,11 @@ public static class ShippedTypes
     public static readonly ParcelType Task = new()
     {
         Name = "task",
-        States = ["refine", "build", "review", Parked, Closed],
+        States = ["refine", "build", "review", Paused, Closed],
         EntryStates = ["refine"],
         TerminalState = Closed,
         Resolutions = ["completed", "abandoned", "superseded", "duplicate"],
-        ParkedState = Parked,
+        PausedState = Paused,
         Moves = new Dictionary<string, IReadOnlyList<string>>
         {
             ["refine"] = ["build"],

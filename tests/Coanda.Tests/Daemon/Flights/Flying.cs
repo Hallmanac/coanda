@@ -59,7 +59,7 @@ public static class Flying
             if (patience.IsCancellationRequested)
             {
                 throw new TimeoutException(
-                    $"Flight {flightId} did not reach '{status}'; it is {flight.Status} at '{flight.CurrentStep}' ({flight.ParkReason}).");
+                    $"Flight {flightId} did not reach '{status}'; it is {flight.Status} at '{flight.CurrentStep}' ({flight.PauseReason}).");
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(20), CancellationToken.None);

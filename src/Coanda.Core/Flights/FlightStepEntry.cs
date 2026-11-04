@@ -44,7 +44,7 @@ public sealed record FlightStepEntry
     /// <summary>
     /// When this judgment visit launched its agent on the spawn it last counted, or null while that
     /// spawn is unused: the visit has not launched yet, or a resume counted another spawn since it
-    /// did. A visit that parked before it launched holds its counted spawn unused, so a resume
+    /// did. A visit that paused before it launched holds its counted spawn unused, so a resume
     /// performs it again without counting another.
     /// </summary>
     public DateTimeOffset? SpawnedAt { get; init; }

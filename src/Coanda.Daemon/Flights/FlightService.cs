@@ -130,16 +130,16 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
             (flight, completed) => flight.Apply(completed),
             cancellationToken);
 
-    public Task<Flight> ParkAsync(Principal principal, string project, Guid flightId, string reason, string lever, CancellationToken cancellationToken) =>
-        ParkAsync(principal, project, flightId, reason, lever, usage: null, cancellationToken);
+    public Task<Flight> PauseAsync(Principal principal, string project, Guid flightId, string reason, string lever, CancellationToken cancellationToken) =>
+        PauseAsync(principal, project, flightId, reason, lever, usage: null, cancellationToken);
 
-    /// <summary>Parks a flight, recording the <paramref name="usage"/> a judgment that parked without an answer reported.</summary>
-    public Task<Flight> ParkAsync(
+    /// <summary>Pauses a flight, recording the <paramref name="usage"/> a judgment that paused without an answer reported.</summary>
+    public Task<Flight> PauseAsync(
         Principal principal, string project, Guid flightId, string reason, string lever, Measurement? usage, CancellationToken cancellationToken) =>
         WriteAsync(
-            "flight.park", principal, project, flightId,
-            (flow, flight) => FlightDecider.Park(flow, flight, reason, lever, principal.Id, clock.GetUtcNow(), usage),
-            (flight, parked) => flight.Apply(parked),
+            "flight.pause", principal, project, flightId,
+            (flow, flight) => FlightDecider.Pause(flow, flight, reason, lever, principal.Id, clock.GetUtcNow(), usage),
+            (flight, paused) => flight.Apply(paused),
             cancellationToken);
 
     public async Task<Flight> ResumeAsync(Principal principal, string project, Guid flightId, string? note, CancellationToken cancellationToken)

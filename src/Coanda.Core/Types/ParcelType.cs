@@ -6,7 +6,7 @@ namespace Coanda.Core.Types;
 
 /// <summary>
 /// The definition of a kind of parcel: its lifecycle (states, allowed moves, entry states, the
-/// one terminal state and its resolutions), the parked state reachable from any live state, and
+/// one terminal state and its resolutions), the paused state reachable from any live state, and
 /// its bindings: a flow to start when a parcel enters a state, and a gate that must pass before a
 /// move. Fields arrive later in phase 1. A type is data; the two shipped types are built in
 /// <see cref="ShippedTypes"/> and a user's type is the same shape.
@@ -18,7 +18,7 @@ public sealed record ParcelType
     public required IReadOnlyList<string> EntryStates { get; init; }
     public required string TerminalState { get; init; }
     public required IReadOnlyList<string> Resolutions { get; init; }
-    public required string ParkedState { get; init; }
+    public required string PausedState { get; init; }
     /// <summary>Allowed moves between live states, as from-state to the set of to-states.</summary>
     public required IReadOnlyDictionary<string, IReadOnlyList<string>> Moves { get; init; }
 
@@ -35,7 +35,7 @@ public sealed record ParcelType
 
     public bool IsTerminal(string state) => string.Equals(state, TerminalState, StringComparison.Ordinal);
 
-    public bool IsParked(string state) => string.Equals(state, ParkedState, StringComparison.Ordinal);
+    public bool IsPaused(string state) => string.Equals(state, PausedState, StringComparison.Ordinal);
 
     public bool IsEntry(string state) => EntryStates.Contains(state, StringComparer.Ordinal);
 
@@ -43,25 +43,25 @@ public sealed record ParcelType
 
     /// <summary>
     /// The gates a move from <paramref name="from"/> to <paramref name="to"/> must pass. A move out of
-    /// the parked state passes every gate bound to a move into the target, so parking bypasses none.
+    /// the paused state passes every gate bound to a move into the target, so pausing bypasses none.
     /// </summary>
     public IReadOnlyList<GateBinding> GatesOn(string from, string to) =>
     [
         .. GateBindings.Where(b => string.Equals(b.To, to, StringComparison.Ordinal)
-            && (IsParked(from) || string.Equals(b.From, from, StringComparison.Ordinal))),
+            && (IsPaused(from) || string.Equals(b.From, from, StringComparison.Ordinal))),
     ];
 
-    /// <summary>Whether the move table itself holds a move, as opposed to the park, resume, and close every type allows.</summary>
+    /// <summary>Whether the move table itself holds a move, as opposed to the pause, resume, and close every type allows.</summary>
     public bool HoldsMove(string from, string to) =>
         Moves.TryGetValue(from, out IReadOnlyList<string>? targets) && targets.Contains(to, StringComparer.Ordinal);
 
-    /// <summary>Whether a gate binding names a close: from a live state other than parked, to the terminal state.</summary>
+    /// <summary>Whether a gate binding names a close: from a live state other than paused, to the terminal state.</summary>
     private bool IsGatedClose(string from, string to) =>
-        IsTerminal(to) && IsState(from) && !IsTerminal(from) && !IsParked(from);
+        IsTerminal(to) && IsState(from) && !IsTerminal(from) && !IsPaused(from);
 
     /// <summary>
-    /// Whether the lifecycle allows a move. Parking is allowed from any live state; resuming from
-    /// parked is allowed to any live state; closing is allowed from any live or parked state and is
+    /// Whether the lifecycle allows a move. Pausing is allowed from any live state; resuming from
+    /// paused is allowed to any live state; closing is allowed from any live or paused state and is
     /// expressed by the terminal state; nothing leaves the terminal state.
     /// </summary>
     public bool AllowsMove(string from, string to)
@@ -71,12 +71,12 @@ public sealed record ParcelType
             return false;
         }
 
-        if (IsTerminal(to) || IsParked(to))
+        if (IsTerminal(to) || IsPaused(to))
         {
             return true;
         }
 
-        if (IsParked(from))
+        if (IsPaused(from))
         {
             return true;
         }
@@ -106,12 +106,12 @@ public sealed record ParcelType
             throw new DomainException($"Parcel type '{Name}' names a terminal state '{TerminalState}' that is not one of its states.");
         }
 
-        if (!IsState(ParkedState) || IsTerminal(ParkedState))
+        if (!IsState(PausedState) || IsTerminal(PausedState))
         {
-            throw new DomainException($"Parcel type '{Name}' needs a parked state distinct from its terminal state.");
+            throw new DomainException($"Parcel type '{Name}' needs a paused state distinct from its terminal state.");
         }
 
-        if (EntryStates.Count == 0 || EntryStates.Any(s => !IsState(s) || IsTerminal(s) || IsParked(s)))
+        if (EntryStates.Count == 0 || EntryStates.Any(s => !IsState(s) || IsTerminal(s) || IsPaused(s)))
         {
             throw new DomainException($"Parcel type '{Name}' needs at least one entry state, each a live state.");
         }
@@ -201,7 +201,7 @@ public sealed record ParcelType
             ["entry"] = EntryStates,
             ["terminal"] = TerminalState,
             ["resolutions"] = Resolutions,
-            ["parked"] = ParkedState,
+            ["paused"] = PausedState,
             ["moves"] = Moves.OrderBy(m => m.Key, StringComparer.Ordinal).ToDictionary(m => m.Key, m => m.Value),
         };
         if (FlowBindings.Count > 0)

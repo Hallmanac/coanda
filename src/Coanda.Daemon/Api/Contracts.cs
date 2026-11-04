@@ -34,8 +34,8 @@ public sealed record ParcelView(
 }
 
 /// <summary>
-/// A flight as the loopback API carries it. <see cref="Status"/> is running, parked, ended, or
-/// stopped; a running or parked flight is the live one its parcel names. A flight a follow started
+/// A flight as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or
+/// stopped; a running or paused flight is the live one its parcel names. A flight a follow started
 /// carries its <see cref="ParentFlightId"/>, and every flight its <see cref="RootFlightId"/> and
 /// <see cref="Depth"/>, zero for a root.
 /// </summary>
@@ -53,7 +53,7 @@ public sealed record FlightView(
     DateTimeOffset StartedAt,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<FlightStepView> Steps,
-    string? ParkReason,
+    string? PauseReason,
     string? Lever,
     string? Outcome,
     string? StopReason,
@@ -61,18 +61,18 @@ public sealed record FlightView(
     Guid RootFlightId,
     int Depth,
     decimal Cost,
-    Measurement? ParkUsage)
+    Measurement? PauseUsage)
 {
     public static FlightView From(string project, Flight flight) => new(
         flight.Id, project, flight.ParcelId, flight.FlowName, flight.FlowVersion, flight.FlowHash,
         StatusName(flight.Status), flight.CurrentStep, flight.Spawns, flight.StartedBy, flight.StartedAt, flight.UpdatedAt,
-        [.. flight.Steps.Select(FlightStepView.From)], flight.ParkReason, flight.Lever, flight.Outcome, flight.StopReason,
-        flight.ParentFlightId, flight.RootFlightId, flight.Depth, flight.Cost, flight.ParkUsage);
+        [.. flight.Steps.Select(FlightStepView.From)], flight.PauseReason, flight.Lever, flight.Outcome, flight.StopReason,
+        flight.ParentFlightId, flight.RootFlightId, flight.Depth, flight.Cost, flight.PauseUsage);
 
     public static string StatusName(FlightStatus status) => status switch
     {
         FlightStatus.Running => "running",
-        FlightStatus.Parked => "parked",
+        FlightStatus.Paused => "paused",
         FlightStatus.Ended => "ended",
         FlightStatus.Stopped => "stopped",
         _ => status.ToString().ToLowerInvariant(),

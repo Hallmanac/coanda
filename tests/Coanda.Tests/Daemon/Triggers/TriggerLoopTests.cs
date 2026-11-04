@@ -24,11 +24,11 @@ public sealed class TriggerLoopTests
     private static readonly ParcelType Chore = new()
     {
         Name = "chore",
-        States = ["todo", "doing", ShippedTypes.Parked, ShippedTypes.Closed],
+        States = ["todo", "doing", ShippedTypes.Paused, ShippedTypes.Closed],
         EntryStates = ["todo"],
         TerminalState = ShippedTypes.Closed,
         Resolutions = ["done"],
-        ParkedState = ShippedTypes.Parked,
+        PausedState = ShippedTypes.Paused,
         Moves = new Dictionary<string, IReadOnlyList<string>> { ["todo"] = ["doing"] },
         FlowBindings = [new FlowBinding("doing", "no-such-flow")],
     };
