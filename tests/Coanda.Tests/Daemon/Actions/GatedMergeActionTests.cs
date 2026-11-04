@@ -103,6 +103,7 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
             $"GET /repos/example/repo/commits/{Head}/check-runs",
             $"GET /repos/example/repo/commits/{Head}/statuses",
             "GET /repos/example/repo",
+            $"GET /repos/example/repo/compare/main...{Head}",
             "PUT /repos/example/repo/pulls/17/merge");
         github.Requests.Should().OnlyContain(r => r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}");
         JsonNode body = JsonNode.Parse(MergeRequest().Body ?? "{}") ?? new JsonObject();
@@ -369,7 +370,7 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_head_behind_the_primary_branch_pauses_naming_the_rebase_through_build()
+    public async Task A_head_behind_the_primary_branch_pauses_naming_the_merge_through_build()
     {
         (Guid parcel, Guid flow) = await ArrangeAsync();
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 2 }));
@@ -377,8 +378,30 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel, flow));
 
         paused.Reason.Should().StartWith("Step 'gated-merge' merged nothing").And.Contain("is behind the primary branch 'main' by 2 commits");
-        paused.Lever.Should().Be(FlowLevers.RebaseThroughBuild($"coanda/{Ids.Short(parcel)}", "main"));
-        paused.Lever.Should().Contain("Stop the flow").And.Contain("without pushing it").And.Contain("move the task back to build");
+        paused.Lever.Should().Be(FlowLevers.BehindThroughBuild($"coanda/{Ids.Short(parcel)}", "main"));
+        paused.Lever.Should().Contain("Stop the flow").And.Contain("with a merge, not a rebase").And.Contain("move the task back to build");
+        github.Requests.Should().NotContain(r => r.IsMerge);
+    }
+
+    [Fact]
+    public async Task A_primary_branch_that_moves_while_the_checks_are_read_pauses_before_the_merge()
+    {
+        (Guid parcel, Guid flow) = await ArrangeAsync();
+        int compares = 0;
+        github.On(r => r.IsCompare, _ =>
+        {
+            // The first comparison, before the checks, finds the head current; the second finds a commit landed since.
+            int behind = Interlocked.Increment(ref compares) == 1
+                ? 0
+                : 1;
+            return FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = behind });
+        });
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(parcel, flow));
+
+        paused.Reason.Should().Contain("is behind the primary branch 'main' by 1 commit,");
+        paused.Lever.Should().Be(FlowLevers.BehindThroughBuild($"coanda/{Ids.Short(parcel)}", "main"));
+        github.Requests.Where(r => r.IsCompare).Should().HaveCount(2, "the primary branch is compared again after the checks and methods are read");
         github.Requests.Should().NotContain(r => r.IsMerge);
     }
 

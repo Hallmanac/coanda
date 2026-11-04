@@ -31,10 +31,15 @@ public static class FlowLevers
         "Stop the flow; its budget is spent, so a resume pauses it again before any judgment.";
 
     /// <summary>
-    /// Names the one recovery from a pull request whose head is behind the primary branch that the
-    /// head guard accepts: the rebase is never pushed by hand, so the build contour gates, reviews, and
-    /// pushes the rebased branch, and open-pr records the head a new merge follows.
+    /// Names the recovery from a pull request whose head is behind the primary branch that the head
+    /// guard and the next build's worktree step both accept. The primary branch is merged into the
+    /// branch, never rebased onto: the worktree step refuses a branch whose commits the remote's no
+    /// longer contains, which a rebase always makes, while a merge keeps the remote's head as an
+    /// ancestor. Either the pull request's update with a merge commit on GitHub, which the worktree step
+    /// fetches and builds on, or a merge in the node's clone that is never pushed by hand, which the
+    /// build pushes, leaves the build contour to gate, review, and push the updated branch, and open-pr
+    /// records the head a new merge follows.
     /// </summary>
-    public static string RebaseThroughBuild(string branch, string primaryBranch) =>
-        $"Stop the flow, rebase {branch} onto {primaryBranch} in the node's clone without pushing it, and move the task back to build, so the build contour gates, reviews, and pushes the rebased branch and a merge follows again.";
+    public static string BehindThroughBuild(string branch, string primaryBranch) =>
+        $"Stop the flow, bring {primaryBranch} into {branch} with a merge, not a rebase (GitHub's \"Update branch\" with a merge commit on the pull request, or a merge in the node's clone that you do not push), and move the task back to build, so the build contour gates, reviews, and pushes the updated branch and a merge follows again. A rebased branch no longer contains the commits the remote's holds, and the next build's worktree step refuses it.";
 }

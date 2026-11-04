@@ -65,7 +65,8 @@ when the pull request is open against the primary branch, its head is the commit
 that head is not behind the primary branch, GitHub reports it mergeable, and every check the
 project names has succeeded with no other check failed or still running. The merge then closes the
 task as completed. While checks are still running it waits a minute and looks again, for twenty
-minutes in all, and then pauses. A project names no checks until you set them, and a merge pauses
+minutes in all, and then pauses. A resume after that pause looks once more and pauses again if a
+check is still running, so resume it once the checks have finished. A project names no checks until you set them, and a merge pauses
 until it does, because without names it cannot tell whether every check has reported yet. Name the
 checks by the names GitHub shows for them; for coanda's own repository those are its two CI legs:
 
@@ -75,9 +76,15 @@ coa project set coanda --required-check "build-test (ubuntu-latest)" --required-
 
 The checks given replace the project's list, and `coa project show` prints them. When the branch is
 behind the primary branch the merge pauses rather than land a tree CI never ran. The way out is to
-stop the merge flow, rebase `coanda/<short id>` onto the primary branch in the node's clone without
-pushing it, and move the task back to build, so the build contour gates, reviews, and pushes the
-rebased branch and a merge follows again.
+stop the merge flow, bring the primary branch into `coanda/<short id>` with a merge, and move the
+task back to build, so the build contour gates, reviews, and pushes the updated branch and a merge
+follows again. The merge can be GitHub's "Update branch" with a merge commit on the pull request,
+which the worktree step fetches and builds on, or a merge in the node's clone that you do not push,
+which the build pushes. Do not rebase: a rebased branch no longer contains the commits the
+remote's branch holds, and the worktree step refuses it. The merge compares the head with the
+primary branch again right before it merges, but GitHub's merge takes no expected base, so a commit
+that lands on the primary branch in the moment between that comparison and the merge is still
+merged onto.
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
