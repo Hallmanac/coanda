@@ -1,8 +1,9 @@
 namespace Coanda.Daemon.Flows;
 
 /// <summary>
-/// The daemon's one request to advance a flow by its id. The start endpoint, a resume, and the
-/// daemon's own start all make it; <see cref="FlowRunner"/> answers it.
+/// The daemon's requests of the worker that advances a flow by its id. The start endpoint, a
+/// resume, and the daemon's own start ask for an advance; a person's pause or stop asks for the
+/// judgment in progress to end. <see cref="FlowRunner"/> answers both.
 /// </summary>
 public interface IFlowAdvancer
 {
@@ -12,4 +13,12 @@ public interface IFlowAdvancer
     /// completes when no worker is advancing the flow any more.
     /// </summary>
     Task RequestAdvance(string project, Guid flowId);
+
+    /// <summary>
+    /// Tells the worker advancing the flow that a person's pause or stop of it was saved, so the
+    /// judgment it is running ends now, its session stopped through the executor, rather than when
+    /// the agent answers or the wall-clock limit passes. It returns without waiting for that, and
+    /// does nothing when no judgment of the flow is running.
+    /// </summary>
+    void EndJudgment(Guid flowId);
 }

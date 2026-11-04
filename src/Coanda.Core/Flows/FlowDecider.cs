@@ -89,11 +89,17 @@ public static class FlowDecider
         return new StepStarted(flow.Id, entered.Name, KindOf(entered), PerformerOf(entered), now);
     }
 
+    /// <summary>
+    /// Records the answer the session <paramref name="sessionId"/> gave for the current judgment
+    /// step. Only the session the visit currently expects may answer it: the one its latest launch
+    /// returned, with no resume since that launch.
+    /// </summary>
     public static JudgmentAnswered Answer(
         Contour contour,
         Flow flow,
         string step,
         string agent,
+        Guid sessionId,
         string agentHash,
         ModelSpec model,
         JsonElement answer,
@@ -125,6 +131,7 @@ public static class FlowDecider
         }
 
         RequireMeasurement(measurement);
+        RequireExpected(current, sessionId, "an answer");
 
         return new JudgmentAnswered(flow.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
     }
@@ -253,12 +260,76 @@ public static class FlowDecider
         return new ActionCompleted(flow.Id, current.Step, action, result.Clone(), now);
     }
 
-    /// <summary>Pauses a running flow; <paramref name="usage"/> is what a judgment that paused without an answer reported.</summary>
+    /// <summary>
+    /// Records what a judgment on the current step spent when neither its answer nor its pause was
+    /// recorded: a person paused or stopped the flow while it ran, or its visit no longer expects
+    /// the session <paramref name="sessionId"/>. A running, paused, or stopped flow accepts it, and
+    /// it changes nothing but the flow's cost.
+    /// </summary>
+    public static JudgmentUsageRecorded RecordUsage(
+        Contour contour, Flow flow, string step, string agent, Guid sessionId, Measurement usage, DateTimeOffset now)
+    {
+        RequireContour(contour, flow);
+
+        if (flow.Status is not (FlowStatus.Running or FlowStatus.Paused or FlowStatus.Stopped))
+        {
+            throw new DomainException(
+                $"Flow {Ids.Short(flow.Id)} {Describe(flow.Status)}; a judgment's usage is recorded on a running, paused, or stopped flow.");
+        }
+
+        FlowStepEntry current = flow.Current
+            ?? throw new DomainException($"Flow {Ids.Short(flow.Id)} has entered no step, so a judgment's usage has nowhere to go.");
+
+        if (!string.Equals(current.Step, step, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"Flow {Ids.Short(flow.Id)} is at step '{current.Step}'; a judgment's usage is recorded only for the current step, not '{step}'.");
+        }
+
+        if (current.Kind != StepKind.Judgment)
+        {
+            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step reports usage.");
+        }
+
+        if (!string.Equals(current.Performer, agent, StringComparison.Ordinal))
+        {
+            throw new DomainException($"Step '{current.Step}' names the agent '{current.Performer}'; usage from '{agent}' is not its usage.");
+        }
+
+        if (sessionId == Guid.Empty)
+        {
+            throw new DomainException("A judgment's usage is recorded with the session that reported it; none was given.");
+        }
+
+        RequireMeasurement(usage);
+
+        return new JudgmentUsageRecorded(flow.Id, current.Step, agent, sessionId, usage, now);
+    }
+
+    /// <summary>
+    /// Pauses a running flow; <paramref name="usage"/> is what a judgment that paused without an
+    /// answer reported. When the judgment's <paramref name="session"/> is given, the current visit
+    /// must still expect that session, as it must for an answer.
+    /// </summary>
     public static FlowPaused Pause(
-        Contour contour, Flow flow, string reason, string lever, string pausedBy, DateTimeOffset now, Measurement? usage = null)
+        Contour contour,
+        Flow flow,
+        string reason,
+        string lever,
+        string pausedBy,
+        DateTimeOffset now,
+        Measurement? usage = null,
+        Guid? session = null)
     {
         RequireContour(contour, flow);
         RequireRunning(flow, "pause it");
+
+        if (session is Guid sessionId)
+        {
+            FlowStepEntry current = flow.Current
+                ?? throw new DomainException($"Flow {Ids.Short(flow.Id)} has entered no step, so no judgment's session can pause it.");
+            RequireExpected(current, sessionId, "a pause");
+        }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -326,6 +397,24 @@ public static class FlowDecider
         {
             throw new DomainException("A measurement is never negative: tokens, cost, turns, and duration are zero or more.");
         }
+    }
+
+    /// <summary>Refuses what a session reports unless the visit still expects that session.</summary>
+    private static void RequireExpected(FlowStepEntry current, Guid sessionId, string what)
+    {
+        if (current.Expects(sessionId))
+        {
+            return;
+        }
+
+        string expected = current switch
+        {
+            { SessionId: Guid held, ResumedAt: not null } => $"was resumed after it launched session {Ids.Short(held)}, so the resume performs it again with a new spawn",
+            { SessionId: Guid held } => $"expects session {Ids.Short(held)}",
+            _ => "holds no session for its latest launch",
+        };
+        throw new DomainException(
+            $"Step '{current.Step}' {expected}; {what} from session {Ids.Short(sessionId)} is not recorded on this visit.");
     }
 
     private static void RequireContour(Contour contour, Flow flow)

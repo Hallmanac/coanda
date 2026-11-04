@@ -255,7 +255,12 @@ cannot use bare mode; the Agent SDK may not use subscription logins at all, whic
 adapter as primary.
 
 Measurement on every spawn, recorded on the parcel's flow, in the judgment's answer event and in
-the pause event: contour hash, agent hash, model spec, tokens, cost, turns, duration, answer.
+the pause event: contour hash, agent hash, model spec, tokens, cost, turns, duration, answer. A
+judgment whose answer or pause is not recorded still records what it spent, in a usage record that
+counts toward the flow's cost and changes nothing else: one a person's pause or stop ended, which
+stops its session at once, and one whose answer came from a session its visit no longer expects,
+because a resume came after its launch. Its usage is every attempt the executor returned plus what
+stopping the session reported for the attempt in progress.
 
 Two adapters in the box: Claude Code headless, and a scripted adapter returning canned answers so
 contours and the interpreter are tested without a vendor or a network.

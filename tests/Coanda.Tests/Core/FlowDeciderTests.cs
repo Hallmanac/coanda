@@ -26,9 +26,25 @@ public sealed class FlowDeciderTests
         return document.RootElement.Clone();
     }
 
-    /// <summary>A well-formed answer from the build agent for <paramref name="step"/>.</summary>
+    /// <summary>
+    /// A well-formed answer from the build agent for <paramref name="step"/>, from the session the
+    /// visit expects: the flow's current judgment is launched and its session opened first when it
+    /// holds none.
+    /// </summary>
     private static JudgmentAnswered AnswerAt(Flow flow, string step) =>
-        FlowDecider.Answer(Build, flow, step, "build", "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now);
+        FlowDecider.Answer(Build, flow, step, "build", Launched(flow), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now);
+
+    /// <summary>The session the flow's current visit expects, launching it and opening one when an unrecorded running judgment holds none.</summary>
+    private static Guid Launched(Flow flow)
+    {
+        if (flow is { Status: FlowStatus.Running, Current: { Kind: StepKind.Judgment, IsRecorded: false, SessionId: null } current })
+        {
+            flow.Apply(FlowDecider.Spawn(Build, flow, current.Step, "agenthash", Model, Now));
+            flow.Apply(FlowDecider.OpenSession(Build, flow, current.Step, Ids.New(), Now));
+        }
+
+        return flow.Current?.SessionId ?? Ids.New();
+    }
 
     /// <summary>A build flow started on a fresh parcel, standing at its first step, the worktree action.</summary>
     private static Flow Started(Contour? contour = null)
@@ -175,7 +191,7 @@ public sealed class FlowDeciderTests
         Action record = intent switch
         {
             "step" => () => FlowDecider.StartStep(Build, flow, "build", Now),
-            "answer" => () => FlowDecider.Answer(Build, flow, "worktree", "build", "agenthash", Model, Json("{}"), Spend, Now),
+            "answer" => () => FlowDecider.Answer(Build, flow, "worktree", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now),
             "result" => () => FlowDecider.Complete(Build, flow, "worktree", SoftwareActions.Worktree, Json("{}"), Now),
             "pause" => () => FlowDecider.Pause(Build, flow, "why", "lever", "owner", Now),
             "end" => () => FlowDecider.End(Build, flow, Build.Outcome, "owner", Now),
@@ -212,7 +228,7 @@ public sealed class FlowDeciderTests
     [Fact]
     public void An_answer_on_an_action_step_is_refused()
     {
-        Action answer = () => FlowDecider.Answer(Build, Started(), "worktree", "build", "agenthash", Model, Json("{}"), Spend, Now);
+        Action answer = () => FlowDecider.Answer(Build, Started(), "worktree", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
 
         answer.Should().Throw<DomainException>().WithMessage("Step 'worktree' is an action step; it takes a result, not an answer.");
     }
@@ -258,7 +274,7 @@ public sealed class FlowDeciderTests
     [Fact]
     public void An_answer_from_an_agent_the_step_does_not_name_is_refused()
     {
-        Action answer = () => FlowDecider.Answer(Build, AtJudgment(), "build", "fix", "agenthash", Model, Json("{}"), Spend, Now);
+        Action answer = () => FlowDecider.Answer(Build, AtJudgment(), "build", "fix", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now);
 
         answer.Should().Throw<DomainException>().WithMessage("Step 'build' names the agent 'build'; an answer from 'fix' is not its answer.");
     }
@@ -267,7 +283,7 @@ public sealed class FlowDeciderTests
     public void A_negative_measurement_is_refused()
     {
         Action answer = () => FlowDecider.Answer(
-            Build, AtJudgment(), "build", "build", "agenthash", Model, Json("{}"), Spend with { CostUsd = -1m }, Now);
+            Build, AtJudgment(), "build", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend with { CostUsd = -1m }, Now);
 
         answer.Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
     }
@@ -477,5 +493,87 @@ public sealed class FlowDeciderTests
         flow.Current?.SpawnedAt.Should().Be(Now);
         flow.Current?.AgentHash.Should().BeNull();
         flow.Current?.Model.Should().BeNull();
+    }
+
+    [Fact]
+    public void An_answer_from_the_session_a_resume_moved_past_is_refused_even_on_the_same_step_and_visit()
+    {
+        Flow flow = AtJudgment();
+        Guid held = Launched(flow);
+        flow.Apply(FlowDecider.Pause(Build, flow, "Hold on.", "resume", "owner", Now));
+        flow.Apply(FlowDecider.Resume(Build, flow, null, "owner", Now));
+
+        flow.Current?.SessionId.Should().Be(held, "a resume does not clear the session it found");
+        FluentActions.Invoking(() => FlowDecider.Answer(Build, flow, "build", "build", held, "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("Step 'build' was resumed after it launched session *; an answer from session * is not recorded on this visit.");
+        FluentActions.Invoking(() => FlowDecider.Pause(Build, flow, "No valid answer.", "/transcripts/1.jsonl", "owner", Now, Spend, held))
+            .Should().Throw<DomainException>().WithMessage("Step 'build' was resumed after it launched session *; a pause from session * is not recorded on this visit.");
+    }
+
+    [Fact]
+    public void An_answer_from_a_session_the_latest_launch_did_not_return_is_refused()
+    {
+        Flow flow = AtJudgment();
+        Launched(flow);
+
+        FluentActions.Invoking(() => FlowDecider.Answer(Build, flow, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("Step 'build' expects session *; an answer from session * is not recorded on this visit.");
+
+        Flow unopened = AtJudgment();
+        unopened.Apply(FlowDecider.Spawn(Build, unopened, "build", "agenthash", Model, Now));
+        FluentActions.Invoking(() => FlowDecider.Answer(Build, unopened, "build", "build", Ids.New(), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("Step 'build' holds no session for its latest launch; an answer from session * is not recorded on this visit.");
+    }
+
+    [Theory]
+    [InlineData(FlowStatus.Running)]
+    [InlineData(FlowStatus.Paused)]
+    [InlineData(FlowStatus.Stopped)]
+    public void A_dropped_judgments_usage_counts_once_in_the_cost_and_leaves_the_rest_of_the_flow_as_it_was(FlowStatus status)
+    {
+        Flow flow = AtJudgment();
+        Guid session = Launched(flow);
+        var usage = new Measurement(20, 2.25m, 2, TimeSpan.FromSeconds(2));
+        switch (status)
+        {
+            case FlowStatus.Paused:
+                flow.Apply(FlowDecider.Pause(Build, flow, "Hold on.", "resume", "owner", Now, new Measurement(1, 0.5m, 1, TimeSpan.Zero)));
+                break;
+            case FlowStatus.Stopped:
+                flow.Apply(FlowDecider.Stop(flow, "Not wanted.", "owner", Now).Stopped);
+                break;
+        }
+
+        decimal before = flow.Cost;
+        string? reason = flow.PauseReason;
+        string? lever = flow.Lever;
+        Measurement? pauseUsage = flow.PauseUsage;
+        FlowStepEntry? visit = flow.Current;
+
+        JudgmentUsageRecorded recorded = FlowDecider.RecordUsage(Build, flow, "build", "build", session, usage, Now.AddMinutes(1));
+        flow.Apply(recorded);
+
+        recorded.Usage.Should().Be(usage);
+        flow.Cost.Should().Be(before + usage.CostUsd);
+        flow.Status.Should().Be(status);
+        flow.PauseReason.Should().Be(reason);
+        flow.Lever.Should().Be(lever);
+        flow.PauseUsage.Should().Be(pauseUsage);
+        flow.Current.Should().Be(visit);
+    }
+
+    [Fact]
+    public void A_dropped_judgments_usage_is_refused_on_an_ended_flow_another_step_or_an_action()
+    {
+        Flow ended = InStatus(FlowStatus.Ended);
+        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, ended, "worktree", "build", Ids.New(), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("*has ended; a judgment's usage is recorded on a running, paused, or stopped flow.");
+
+        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, AtJudgment(), "worktree", "build", Ids.New(), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("*is at step 'build'; a judgment's usage is recorded only for the current step, not 'worktree'.");
+        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, Started(), "worktree", "worktree", Ids.New(), Spend, Now))
+            .Should().Throw<DomainException>().WithMessage("Step 'worktree' is an action step; only a judgment step reports usage.");
+        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, AtJudgment(), "build", "build", Ids.New(), Spend with { Tokens = -1 }, Now))
+            .Should().Throw<DomainException>().WithMessage("A measurement is never negative*");
     }
 }
