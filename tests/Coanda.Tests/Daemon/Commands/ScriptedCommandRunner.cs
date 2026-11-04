@@ -14,7 +14,12 @@ namespace Coanda.Tests.Daemon.Commands;
 /// push or <see cref="SetRemoteBranch"/> gave it, so fetching any other branch but the primary fails
 /// as git does for a missing remote ref, and one commit is an ancestor of another only when it is
 /// the same commit or <see cref="AddAncestry"/> said so. Answering a clone command (<c>git init</c>)
-/// with success creates the empty directory it names and nothing else.
+/// with success creates the empty directory it names and nothing else. A command run in a modelled
+/// worktree's directory reads and moves that worktree's head: a checkout detaches it at a commit or
+/// puts it on a branch, and a rebase moves a detached head to <see cref="RebasedOnto"/> of the head
+/// and the commit it is rebased onto, unless <see cref="ConflictOnRebase"/> said it stops on a
+/// conflict, which leaves it in progress until it is aborted. The remote's branches are listed by
+/// <c>ls-remote</c>.
 /// </summary>
 public sealed class ScriptedCommandRunner : ICommandRunner
 {
@@ -31,6 +36,7 @@ public sealed class ScriptedCommandRunner : ICommandRunner
     private readonly List<(Func<CommandLine, bool> When, Func<CommandLine, CancellationToken, Task<CommandResult>> Answer)> scripted = [];
     private readonly Dictionary<string, Clone> clones = new(StringComparer.Ordinal);
     private readonly HashSet<(string Ancestor, string Descendant)> ancestry = [];
+    private string[] conflicting = [];
 
     /// <summary>Every command run, in order.</summary>
     public IReadOnlyList<CommandLine> Commands
@@ -49,6 +55,37 @@ public sealed class ScriptedCommandRunner : ICommandRunner
 
     /// <summary>The command lines run through the platform's shell, in order.</summary>
     public IReadOnlyList<string> ShellLines => [.. Commands.Select(c => c.ShellLine()).OfType<string>()];
+
+    /// <summary>The commit the model's rebase of <paramref name="head"/> onto <paramref name="onto"/> makes.</summary>
+    public static string RebasedOnto(string head, string onto) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes($"{head} onto {onto}")));
+
+    /// <summary>Makes every later rebase stop on a conflict that leaves <paramref name="paths"/> unmerged; none given lets rebases finish again.</summary>
+    public void ConflictOnRebase(params string[] paths)
+    {
+        lock (gate)
+        {
+            conflicting = paths;
+        }
+    }
+
+    /// <summary>The commit the modelled clone's remote holds for <paramref name="branch"/>, or null when it holds none.</summary>
+    public string? RemoteBranch(string clone, string branch)
+    {
+        lock (gate)
+        {
+            return CloneAt(clone).RemoteBranches.GetValueOrDefault(branch);
+        }
+    }
+
+    /// <summary>The branch the modelled worktree at <paramref name="path"/> has checked out, or null when its head is detached or it is not listed.</summary>
+    public string? CheckedOut(string clone, string path)
+    {
+        lock (gate)
+        {
+            return CloneAt(clone).Worktrees.FirstOrDefault(w => w.Path == path)?.Branch;
+        }
+    }
 
     /// <summary>A success with <paramref name="output"/> on standard output.</summary>
     public static CommandResult Ok(string output = "") => new(0, output, string.Empty, output);
@@ -208,7 +245,7 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         {
             if (gitDir is null)
             {
-                return Ok();
+                return InWorktree(command.WorkingDirectory, arguments);
             }
 
             Clone clone = CloneAt(gitDir);
@@ -225,6 +262,10 @@ public sealed class ScriptedCommandRunner : ICommandRunner
                 case ["worktree", "add", "--quiet", string path, string branch]:
                     clone.Worktrees.Add(new Worktree(path, branch, clone.Branches.GetValueOrDefault(branch, PrimaryHead), []));
                     return Ok();
+                case ["ls-remote", "--refs", _, string listed] when listed.StartsWith("refs/heads/", StringComparison.Ordinal):
+                    return Ok(clone.RemoteBranches.TryGetValue(listed["refs/heads/".Length..], out string? listedTip)
+                        ? $"{listedTip}\t{listed}\n"
+                        : string.Empty);
                 case ["worktree", "remove", .., string removed]:
                     clone.Worktrees.RemoveAll(w => w.Path == removed);
                     return Ok();
@@ -247,7 +288,8 @@ public sealed class ScriptedCommandRunner : ICommandRunner
                     clone.TrackingRefs[refspec[(refspec.IndexOf(':', StringComparison.Ordinal) + 1)..]] = remoteTip;
                     return Ok();
                 case ["push", .., string refspec] when refspec.Contains(":refs/heads/", StringComparison.Ordinal):
-                    clone.RemoteBranches[refspec[(refspec.IndexOf(":refs/heads/", StringComparison.Ordinal) + ":refs/heads/".Length)..]] = refspec[..refspec.IndexOf(':', StringComparison.Ordinal)];
+                    string pushedTo = refspec[(refspec.IndexOf(":refs/heads/", StringComparison.Ordinal) + ":refs/heads/".Length)..];
+                    clone.RemoteBranches[pushedTo] = refspec[..refspec.IndexOf(':', StringComparison.Ordinal)];
                     return Ok();
                 case ["merge-base", "--is-ancestor", string older, string newer]:
                     return older == newer || ancestry.Contains((older, newer))
@@ -276,6 +318,60 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         }
     }
 
+    /// <summary>A command run in a worktree's directory, read against the modelled worktree listed there; one in no listed worktree succeeds and does nothing.</summary>
+    private CommandResult InWorktree(string directory, string[] arguments)
+    {
+        (Clone Clone, Worktree Worktree)? found = clones.Values
+            .SelectMany(c => c.Worktrees.Select(w => ((Clone Clone, Worktree Worktree)?)(c, w)))
+            .FirstOrDefault(pair => pair?.Worktree.Path == directory);
+        if (found is not ({ } clone, { } worktree))
+        {
+            return Ok();
+        }
+
+        switch (arguments)
+        {
+            case ["rebase", "--abort"]:
+                if (worktree.RebasingFrom is not { } from)
+                {
+                    return Fails(128, "fatal: no rebase in progress\n");
+                }
+
+                worktree.Head = from;
+                worktree.RebasingFrom = null;
+                return Ok();
+            case ["-c", _, "rebase", "--quiet", string onto]:
+                if (conflicting.Length > 0)
+                {
+                    worktree.RebasingFrom = worktree.Head;
+                    return Fails(1, $"CONFLICT (content): Merge conflict in {conflicting[0]}\nerror: could not apply {worktree.Head[..7]}... change\n");
+                }
+
+                worktree.Head = RebasedOnto(worktree.Head, onto);
+                return Ok();
+            case ["diff", "--name-only", "--diff-filter=U", "-z"]:
+                return Ok(worktree.RebasingFrom is null
+                    ? string.Empty
+                    : string.Join('\0', conflicting) + "\0");
+            case ["rev-parse", "--verify", "--quiet", "REBASE_HEAD"]:
+                return worktree.RebasingFrom is { } stopped
+                    ? Ok(stopped + "\n")
+                    : Fails(1, string.Empty);
+            case ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]:
+                return Ok(worktree.Head + "\n");
+            case ["checkout", "--quiet", "--detach", string commit]:
+                worktree.Branch = null;
+                worktree.Head = commit;
+                return Ok();
+            case ["checkout", "--quiet", string branch]:
+                worktree.Branch = branch;
+                worktree.Head = clone.Branches.GetValueOrDefault(branch, PrimaryHead);
+                return Ok();
+            default:
+                return Ok();
+        }
+    }
+
     private Clone CloneAt(string gitDir)
     {
         string key = Path.GetFullPath(gitDir);
@@ -288,7 +384,20 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         return clone;
     }
 
-    private sealed record Worktree(string Path, string Branch, string Head, string[] Extra);
+    private sealed class Worktree(string path, string? branch, string head, string[] extra)
+    {
+        public string Path { get; } = path;
+
+        /// <summary>The branch checked out, or null when the head is detached.</summary>
+        public string? Branch { get; set; } = branch;
+
+        public string Head { get; set; } = head;
+
+        public string[] Extra { get; } = extra;
+
+        /// <summary>The head a rebase in progress started from, or null when none is in progress.</summary>
+        public string? RebasingFrom { get; set; }
+    }
 
     private sealed class Clone
     {
@@ -307,7 +416,8 @@ public sealed class ScriptedCommandRunner : ICommandRunner
             var listing = new StringBuilder($"worktree {gitDir}\nbare\n\n");
             foreach (Worktree worktree in Worktrees)
             {
-                listing.Append($"worktree {worktree.Path}\nHEAD {worktree.Head}\nbranch refs/heads/{worktree.Branch}\n");
+                listing.Append($"worktree {worktree.Path}\nHEAD {worktree.Head}\n")
+                    .Append(worktree.Branch is null ? "detached\n" : $"branch refs/heads/{worktree.Branch}\n");
                 foreach (string line in worktree.Extra)
                 {
                     listing.Append(line).Append('\n');
