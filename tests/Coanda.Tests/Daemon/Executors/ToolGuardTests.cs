@@ -194,6 +194,98 @@ public sealed class ToolGuardTests : IDisposable
     }
 
     [Fact]
+    public void A_shell_word_climbing_from_pwd_is_judged_from_the_directory_the_call_runs_in_not_the_inherited_pwd()
+    {
+        // The hook inherits the PWD of whatever shell started the daemon; the session's shell sets its own.
+        IReadOnlyDictionary<string, string> environment = Environment(("PWD", Path.Combine(root, "elsewhere", "a", "b")));
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "ls $PWD/.." }), environment: environment));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"cat \"${{PWD}}/../{Ids.New()}/notes.md\"" }), environment: environment));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "(cd src) && ls $PWD/.." }), environment: environment));
+    }
+
+    [Fact]
+    public void A_call_depending_on_the_shells_previous_directory_is_refused()
+    {
+        RefusedUnknowable(Guard(Call("Bash", new { command = "cat $OLDPWD/daemon.json" }), environment: Environment(("OLDPWD", Path.Combine(root, "elsewhere")))));
+        RefusedUnknowable(Guard(Call("Bash", new { command = "cd - && cat daemon.json" })));
+    }
+
+    [Fact]
+    public void A_variable_the_session_does_not_define_expands_to_nothing_as_the_shell_expands_it()
+    {
+        // On Windows the path is written as Git Bash names a drive, since a C: right after the name would lengthen it.
+        string path = OperatingSystem.IsWindows()
+            ? "/" + home.DaemonInfoPath[..1].ToLowerInvariant() + home.DaemonInfoPath[2..].Replace('\\', '/')
+            : home.DaemonInfoPath;
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"cat $UNDEFINED_PREFIX{path}" })));
+    }
+
+    [Fact]
+    public void A_bare_cd_is_judged_as_the_home_directory_it_goes_to() =>
+        RefusedInConfig(Guard(Call("Bash", new { command = "cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Fact]
+    public void A_relative_word_after_a_cd_is_judged_from_where_the_cd_may_have_moved_the_shell()
+    {
+        string start = Path.Combine(root, "elsewhere", "a", "b");
+        string other = Path.Combine(root, "other", "x");
+        Directory.CreateDirectory(start);
+        Directory.CreateDirectory(other);
+
+        Allowed(Guard(Call("Bash", new { command = "cat ../../home/daemon.json" }, cwd: start)));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"cd {other} && cat ../../home/daemon.json" }, cwd: start)));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"FOO=1 pushd -q {other}; cat ../../home/daemon.json" }, cwd: start)));
+        Allowed(Guard(Call("Bash", new { command = $"cd {other} && cd {start} && cat ../../home/daemon.json" }, cwd: start)));
+    }
+
+    [Fact]
+    public void A_directory_change_inside_a_subshell_ends_with_the_subshell() =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "(cd src && ls) && cat ../notes.md" })));
+
+    [Theory]
+    [InlineData("cat */../../../daemon.json")]
+    [InlineData("cat src/*/../../../../daemon.json")]
+    [InlineData("cat {..,src}/daemon.json")]
+    [InlineData("cat .*/.*/.*/daemon.json")]
+    [InlineData("ls .?")]
+    public void A_shell_word_that_may_climb_after_a_wildcard_is_refused(string command) =>
+        RefusedClimbing(Guard(Call("Bash", new { command })));
+
+    [Fact]
+    public void A_glob_whose_pattern_may_climb_after_a_wildcard_is_refused()
+    {
+        RefusedClimbing(Guard(Call("Glob", new { pattern = "*/../../../*.json" })));
+        RefusedClimbing(Guard(Call("Glob", new { pattern = "*/../../*.json", path = Path.Combine(work, "src") })));
+    }
+
+    [Theory]
+    [InlineData("/c/Users/me/.coanda/daemon.json", @"C:\Users\me\.coanda\daemon.json")]
+    [InlineData("/cygdrive/d/work", @"D:\work")]
+    [InlineData("/c", @"C:\")]
+    [InlineData("/c/", @"C:\")]
+    [InlineData("/usr/bin", null)]
+    [InlineData("/cygdrive", null)]
+    [InlineData("c/Users", null)]
+    public void A_git_bash_drive_path_is_read_as_the_windows_drive_path_it_names(string text, string? expected) =>
+        GuardPath.ShellDrivePath(text).Should().Be(expected);
+
+    [Fact]
+    public void On_windows_a_git_bash_drive_path_into_the_node_home_is_refused()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string drive = home.DaemonInfoPath[..1].ToLowerInvariant();
+        string shellPath = "/" + drive + home.DaemonInfoPath[2..].Replace('\\', '/');
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"cat {shellPath}" })));
+    }
+
+    [Fact]
     public void An_input_that_is_not_json_is_refused() =>
         RefusedUnreadable(Run(Arguments(), "this is not json"));
 
@@ -312,6 +404,18 @@ public sealed class ToolGuardTests : IDisposable
         Allowed(Guard(Call("Bash", new { command = "coa flow show 0192a3b4 && coa parcel list --project alpha" }, cwd: work), environment: Environment()));
 
     [Fact]
+    public void Ordinary_commands_using_pwd_cd_and_wildcards_inside_the_work_directory_are_allowed()
+    {
+        IReadOnlyDictionary<string, string> environment = Environment(("PWD", root));
+
+        Allowed(Guard(Call("Bash", new { command = "find \"$PWD\" -name '*.cs'" }), environment: environment));
+        Allowed(Guard(Call("Bash", new { command = "cd src && cat a.cs && ls ../src" }), environment: environment));
+        Allowed(Guard(Call("Bash", new { command = "cd src && ls $PWD/.." }), environment: environment));
+        Allowed(Guard(Call("Bash", new { command = "ls src/*.cs ./src/a{,.bak}.cs && for i in {1..5}; do echo $i; done" }), environment: environment));
+        Allowed(Guard(Call("Bash", new { command = "ls -d src/.git*" }), environment: environment));
+    }
+
+    [Fact]
     public void Paths_outside_every_protected_directory_are_allowed() =>
         Allowed(Guard(Call("Bash", new { command = "ls /usr/bin > /dev/null 2>&1; git log origin/main" })));
 
@@ -334,6 +438,18 @@ public sealed class ToolGuardTests : IDisposable
     {
         outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
         outcome.Reason.Should().Contain("is in a Claude Code config directory");
+    }
+
+    private static void RefusedUnknowable(ToolGuardOutcome outcome)
+    {
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().Contain("which the tool guard cannot know");
+    }
+
+    private static void RefusedClimbing(ToolGuardOutcome outcome)
+    {
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().Contain("may climb to a parent directory after a wildcard");
     }
 
     private static void RefusedUnreadable(ToolGuardOutcome outcome)
