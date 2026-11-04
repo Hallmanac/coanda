@@ -35,6 +35,21 @@ public sealed class ProjectAddSettings : ProjectNameSettings
     public ProjectAddRequest ToRequest() => new(Name, Repo, Branch, Build, Test);
 }
 
+public sealed class ProjectSetSettings : ProjectNameSettings
+{
+    [CommandOption("--required-check <CHECK>")]
+    [Description("A check a merge of the project's pull requests waits for: a check run's name or a commit status's context, exactly as GitHub reports it. Repeat it for each check; the checks given replace the project's list.")]
+    public string[] RequiredChecks { get; init; } = [];
+
+    public override ValidationResult Validate() =>
+        RequiredChecks.Length == 0
+            ? ValidationResult.Error("Name at least one check with --required-check; the checks given replace the project's list.")
+            : ValidationResult.Success();
+
+    /// <summary>The request this command sends: the checks given, in order, exactly as given.</summary>
+    public ProjectRequiredChecksRequest ToRequest() => new([.. RequiredChecks]);
+}
+
 public sealed class ProjectSetProfileSettings : ProjectNameSettings
 {
     [CommandArgument(1, "<PROFILE>")]
@@ -50,6 +65,18 @@ public sealed class ProjectAddCommand : AsyncCommand<ProjectAddSettings>
         ProjectView project = await client.PostAsync<ProjectView>(
             "/projects", settings.ToRequest(), cancellationToken);
         AnsiConsole.MarkupLineInterpolated($"Registered project {project.Name}: {project.Remote} on {project.PrimaryBranch}");
+        return 0;
+    }
+}
+
+public sealed class ProjectSetCommand : AsyncCommand<ProjectSetSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSetSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        ProjectView project = await client.PutAsync<ProjectView>(
+            ProjectEndpoints.RequiredChecksPathOf(settings.Name), settings.ToRequest(), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"A merge in project {project.Name} waits for {string.Join(", ", project.RequiredChecks)}.");
         return 0;
     }
 }
@@ -91,6 +118,9 @@ public sealed class ProjectShowCommand : AsyncCommand<ProjectNameSettings>
         ("Branch", Markup.Escape(project.PrimaryBranch)),
         ("Build", Markup.Escape(project.Build)),
         ("Test", Markup.Escape(project.Test)),
+        ("Required checks", project.RequiredChecks.Count == 0
+            ? "none set; coa project set --required-check names them, and a merge pauses until it does"
+            : Markup.Escape(string.Join(", ", project.RequiredChecks))),
         ("Profile", project.Profile is null
             ? "none set; coa project set-profile names one"
             : Markup.Escape(project.Profile)),

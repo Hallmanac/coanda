@@ -3,7 +3,7 @@ using Coanda.Core.Projects.Events;
 namespace Coanda.Core.Projects;
 
 /// <summary>
-/// The rules for registering a project, as a pure decision: the event that records it, or a
+/// The rules for registering a project and for naming the checks its merge waits for, as pure decisions: the event that records it, or a
 /// <see cref="DomainException"/> quoting the rule. The caller has already checked the name the way
 /// every project command does, and hands in the record the name already has, if any, and the names of
 /// the projects already registered, so a name differing from one of them only in letter case is
@@ -67,5 +67,34 @@ public static class ProjectDecider
         }
 
         return new ProjectRegistered(Ids.New(), trimmed, remote, primaryBranch, registeredBy, now, buildCommand, testCommand);
+    }
+
+    /// <summary>
+    /// Names the checks a merge of the project's pull requests waits for, replacing the ones it named.
+    /// The project must have a record, at least one check must be given, and no check may be blank;
+    /// each is recorded exactly as given.
+    /// </summary>
+    public static ProjectRequiredChecksSet SetRequiredChecks(
+        string project, Project? registered, IReadOnlyList<string>? checks, string setBy, DateTimeOffset now)
+    {
+        if (registered is null)
+        {
+            throw new DomainException(Unregistered(project));
+        }
+
+        if (checks is null || checks.Count == 0)
+        {
+            throw new DomainException(
+                $"Project '{registered.Name}' needs at least one check for a merge to wait for; none was given.");
+        }
+
+        // A request read from the wire can carry a null element, whatever the annotations say.
+        if (checks.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new DomainException(
+                $"Project '{registered.Name}' was given a blank check name; each check a merge waits for is named by its check run name or status context.");
+        }
+
+        return new ProjectRequiredChecksSet(registered.Id, registered.Name, [.. checks], setBy, now);
     }
 }

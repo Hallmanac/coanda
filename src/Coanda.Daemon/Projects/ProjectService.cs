@@ -66,6 +66,37 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     }
 
     /// <summary>
+    /// Replaces the checks a merge of the project's pull requests waits for with <paramref name="checks"/>,
+    /// recorded exactly as given in the project's own record.
+    /// </summary>
+    public async Task<Project> SetRequiredChecksAsync(
+        Principal principal, string name, IReadOnlyList<string> checks, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("project.set", principal);
+        string tenant = Tenants.RequireProject(name);
+
+        await writes.WaitAsync(cancellationToken);
+        try
+        {
+            Project? registered = await FindAsync(store, tenant, cancellationToken);
+            ProjectRequiredChecksSet set = ProjectDecider.SetRequiredChecks(tenant, registered, checks, principal.Id, clock.GetUtcNow());
+
+            await using IDocumentSession session = store.LightweightSession(tenant);
+            var stream = await session.Events.FetchForWriting<Project>(set.ProjectId, cancellationToken);
+            Project project = stream.Aggregate ?? throw new DomainException(ProjectDecider.Unregistered(tenant));
+            stream.AppendOne(set);
+            await session.SaveChangesAsync(cancellationToken);
+
+            project.Apply(set);
+            return project;
+        }
+        finally
+        {
+            writes.Release();
+        }
+    }
+
+    /// <summary>
     /// Names the credential profile the project's judgments spawn with, replacing any it named.
     /// The name must be one the running daemon's configuration holds. Recorded in the node tenant.
     /// </summary>
