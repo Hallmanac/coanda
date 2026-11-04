@@ -51,7 +51,12 @@ API with the token `gh auth token --hostname github.com` prints. Running `gh aut
 from the remote before it checks it out, so a branch someone updated there since the node last
 pushed it (a reviewer's "Update branch" or committed suggestion) is built on, and a branch deleted
 there is pushed again. When the node's branch and the remote's each have commits the other lacks,
-the worktree step pauses and names how to reconcile them by hand in the node's clone. The push is
+and the remote's is still the commit coanda last pushed for the task, the branch was rewritten in
+the node's clone, as a rebase of your own leaves it, so the worktree step checks it out as it
+stands and the build's push replaces the remote's. When the remote's is any other commit, the
+worktree step pauses and names how to reconcile them by hand in the node's clone. A branch still
+checked out in the worktree of a flow that has ended or been stopped is taken over: the step waits
+for that flow to finish with it, removes its worktree, and checks the branch out for itself. The push is
 guarded by a lease on what the node last fetched or pushed, so a branch someone else updates on the
 remote while a flow builds is never overwritten: the flow pauses instead, and the way out is to stop
 it and start a new flow on the parcel, whose worktree step fetches the remote's commits. Every other
@@ -64,9 +69,10 @@ It inspects the pull request and merges it through GitHub's API, never through a
 when the pull request is open against the primary branch, its head is the commit the build pushed,
 that head is not behind the primary branch, GitHub reports it mergeable, and every check the
 project names has succeeded with no other check failed or still running. The merge then closes the
-task as completed. While checks are still running it waits a minute and looks again, for twenty
-minutes in all, and then pauses. A resume after that pause looks once more and pauses again if a
-check is still running, so resume it once the checks have finished. A project names no checks until you set them, and a merge pauses
+task as completed. While checks are still running it waits a minute and looks again, for
+twenty-three minutes in all, less a minute for each rebase it made, and then pauses. A resume after
+that pause looks once more and pauses again if a check is still running, so resume it once the
+checks have finished. A project names no checks until you set them, and a merge pauses
 until it does, because without names it cannot tell whether every check has reported yet. Name the
 checks by the names GitHub shows for them; for coanda's own repository those are its two CI legs:
 
@@ -74,17 +80,30 @@ checks by the names GitHub shows for them; for coanda's own repository those are
 coa project set coanda --required-check "build-test (ubuntu-latest)" --required-check "build-test (windows-latest)"
 ```
 
-The checks given replace the project's list, and `coa project show` prints them. When the branch is
-behind the primary branch the merge pauses rather than land a tree CI never ran. The way out is to
-stop the merge flow, bring the primary branch into `coanda/<short id>` with a merge, and move the
-task back to build, so the build contour gates, reviews, and pushes the updated branch and a merge
-follows again. The merge can be GitHub's "Update branch" with a merge commit on the pull request,
-which the worktree step fetches and builds on, or a merge in the node's clone that you do not push,
-which the build pushes. Do not rebase: a rebased branch no longer contains the commits the
-remote's branch holds, and the worktree step refuses it. The merge compares the head with the
-primary branch again right before it merges, but GitHub's merge takes no expected base, so a commit
-that lands on the primary branch in the moment between that comparison and the merge is still
-merged onto.
+The checks given replace the project's list, and `coa project show` prints them.
+
+When the head is behind the primary branch, the merge rebases it rather than land a tree CI never
+ran, whatever its checks report. It checks the branch out in a worktree of its own, rebases the
+commit the build pushed onto the primary branch as a fresh fetch brings it, and pushes the result
+with a lease that expects that commit on the remote. Then it waits a minute and inspects the pull
+request again, holding it to the rebased commit and waiting for the checks on it, as it did on the
+commit before. No review runs again: a rebase that applies cleanly is not a code change anyone
+judges. A merge rebases at most three times, and a head still behind after that pauses. The merge
+compares the head with the primary branch again right before it merges, but GitHub's merge takes no
+expected base, so a commit that lands on the primary branch in the moment between that comparison
+and the merge is still merged onto.
+
+A rebase that stops on a conflict is aborted, the branch and the remote are left as they were, and
+the merge pauses naming the files that conflict. Resolving a conflict is a code change, so it goes
+through build, whose gates and both reviews run on it. Stop the merge flow. Add a worktree of
+`coanda/<short id>` from the node's clone, which the pause names, at a path of your own outside the
+daemon's work paths; the clone is bare, so this is where you work. There, fetch the primary branch
+and rebase the branch onto it, resolving the conflicts, without pushing. Remove that worktree, and
+move the task back to build. The build's worktree step checks out the branch you rebased, because
+the remote still holds the commit coanda last pushed, and the build gates, reviews, and pushes it,
+and a merge follows again. The rebase also pauses, asking you to stop the flow, when its worktree
+has changes, when the branch holds a commit neither the build nor an earlier rebase pushed, or when
+someone else updated the branch on the remote.
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
