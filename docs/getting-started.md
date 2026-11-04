@@ -19,7 +19,9 @@ named `coanda/<short parcel id>`, and its gates run the project's build and test
 run for an hour; one still running then is ended, with everything it started, and the gates step
 fails as it would for a nonzero exit, so the work goes to its fix lap. A project name that differs
 from a registered one only in letter case is refused, because the node keeps each project's clone
-and work in a directory named after it. The worktree is
+and work in a directory named after it. The daemon keeps its own files under `.coanda/` at the
+worktree's root, so a commit that tracks `.coanda` in any letter case gets no worktree, and the
+flow pauses naming what it tracks there. The worktree is
 removed when the flow ends or is stopped; the branch stays in the clone. Without `--project`, a command works in the project that
 `COANDA_PROJECT` names, then in the one named after the current directory.
 

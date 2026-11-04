@@ -63,7 +63,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
             $"for-each-ref --format=%(objectname) refs/heads/{branch}",
             $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}",
             $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}",
-            $"ls-tree -r -z --name-only {ScriptedCommandRunner.PrimaryHead} -- .coanda",
+            $"ls-tree -z --name-only {ScriptedCommandRunner.PrimaryHead}",
             $"config {ProjectClones.OwnerKeyOf(branch)} {parcelId}",
             $"branch --no-track {branch} {ScriptedCommandRunner.PrimaryHead}",
             $"worktree add --quiet {workPath} {branch}");
@@ -123,7 +123,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
             "worktree list --porcelain",
             $"for-each-ref --format=%(objectname) refs/heads/{branch}",
             $"config --get --default  {ProjectClones.OwnerKeyOf(branch)}",
-            $"ls-tree -r -z --name-only {Moved} -- .coanda",
+            $"ls-tree -z --name-only {Moved}",
             $"worktree add --quiet {temp.Home.FlowWorkPath(Project, later)} {branch}");
     }
 
@@ -278,7 +278,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     [Fact]
     public async Task A_commit_that_tracks_files_under_coanda_pauses_naming_them_before_any_owner_branch_or_worktree_is_made()
     {
-        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda/task.md\0.coanda/notes/a.md\0"));
+        Tracks(".coanda", ".coanda/task.md\0.coanda/notes/a.md\0");
 
         ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
@@ -293,7 +293,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     [Fact]
     public async Task A_tracked_path_under_coanda_that_git_would_quote_by_default_still_pauses_the_step()
     {
-        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda/na\u00efve \"x\".md\0"));
+        Tracks(".coanda", ".coanda/na\u00efve \"x\".md\0");
 
         ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
@@ -304,7 +304,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     public async Task A_commit_that_tracks_coanda_itself_as_a_file_link_or_submodule_pauses_before_any_worktree_is_made()
     {
         // ls-tree -r lists a .coanda that is no directory as the one entry .coanda.
-        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda\0"));
+        Tracks(".coanda", ".coanda\0");
 
         ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
@@ -315,9 +315,31 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     [Fact]
     public async Task A_path_that_only_begins_with_coanda_does_not_count_as_tracked_under_it()
     {
-        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda-notes/a.md\0"));
+        runner.On(c => c.IsGit("ls-tree", "-z"), ScriptedCommandRunner.Ok("src\0.coanda-notes\0.coanda.md\0"));
 
         Done(await PerformAsync(Ids.New(), Ids.New()));
+        runner.GitCalls.Should().NotContain(c => c.StartsWith("ls-tree -r", StringComparison.Ordinal), "no root entry matched, so nothing is listed under one");
+    }
+
+    [Theory]
+    [InlineData(".Coanda")]
+    [InlineData(".COANDA")]
+    public async Task A_commit_that_tracks_coanda_in_another_letter_case_pauses_because_a_case_ignoring_filesystem_makes_it_the_same_directory(string name)
+    {
+        Tracks(name, $"{name}/task.md\0");
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+
+        paused.Reason.Should().Contain($"{name}/task.md");
+        runner.GitCalls.Should().Contain($"ls-tree -r -z --name-only {ScriptedCommandRunner.PrimaryHead} -- {name}");
+        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+    }
+
+    /// <summary>Scripts the commit's root listing to hold <paramref name="rootEntry"/>, and the listing under it.</summary>
+    private void Tracks(string rootEntry, string under)
+    {
+        runner.On(c => c.IsGit("ls-tree", "-z"), ScriptedCommandRunner.Ok($"README.md\0{rootEntry}\0src\0"));
+        runner.On(c => c.IsGit("ls-tree", "-r"), ScriptedCommandRunner.Ok(under));
     }
 
     [Fact]

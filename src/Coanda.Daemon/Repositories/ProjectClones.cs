@@ -101,16 +101,28 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
                 cancellationToken)).Trim();
         }
 
+        // A path that differs from .coanda only in case is the same directory on a filesystem that
+        // ignores case, the default on macOS and Windows, and git matches a pathspec's case exactly
+        // whatever core.ignorecase says. So the commit's root entries are listed and compared without
+        // regard to case, and only those that match are listed again for the paths under them.
         // -z lists each path verbatim, where the default quotes a path holding anything unusual.
-        string tracked = await git.RunAsync(Git.Against(clone, "ls-tree", "-r", "-z", "--name-only", tip, "--", ".coanda"), cancellationToken);
-        // A .coanda the commit tracks as a file, a symbolic link or a submodule is listed as .coanda
-        // itself; a directory, as the files under it.
-        string[] underCoanda = [.. tracked.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(p => p is ".coanda" || p.StartsWith(".coanda/", StringComparison.Ordinal))];
+        string root = await git.RunAsync(Git.Against(clone, "ls-tree", "-z", "--name-only", tip), cancellationToken);
+        string[] matching = [.. root.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(n => string.Equals(n, ".coanda", StringComparison.OrdinalIgnoreCase))];
+        string[] underCoanda = [];
+        if (matching.Length > 0)
+        {
+            // A match the commit tracks as a file, a symbolic link or a submodule is listed as itself;
+            // a directory, as the files under it.
+            string tracked = await git.RunAsync(Git.Against(clone, ["ls-tree", "-r", "-z", "--name-only", tip, "--", .. matching]), cancellationToken);
+            string[] paths = tracked.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            underCoanda = paths.Length > 0 ? paths : matching;
+        }
+
         if (underCoanda.Length > 0)
         {
             string from = exists ? $"branch {branch}" : $"primary branch {project.PrimaryBranch}";
             return new Checkout.Refused(
-                $"Commit {tip} of {from} tracks .coanda or files under it, where the daemon keeps its own files at a worktree's root, so no worktree is made from it: {string.Join(", ", underCoanda)}.");
+                $"Commit {tip} of {from} tracks .coanda, in any letter case, or files under it, where the daemon keeps its own files at a worktree's root, so no worktree is made from it: {string.Join(", ", underCoanda)}.");
         }
 
         foreach (ListedWorktree stale in listed.Where(w => !w.Bare && w.Stale && (w.Branch == reference || RealPath.Same(w.Path, workPath))))
