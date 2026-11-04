@@ -8,6 +8,9 @@ public static class CommandRegistry
 
     public static readonly IReadOnlyList<RegistryEntry> Entries =
     [
+        new("project.add", EntryKind.Command, "Register a project with its repository remote and primary branch.", OwnerOnly),
+        new("project.show", EntryKind.Query, "Show one registered project.", Everyone),
+        new("project.list", EntryKind.Query, "List the projects registered on the node.", Everyone),
         new("parcel.list", EntryKind.Query, "List the parcels of a project.", Everyone),
         new("parcel.show", EntryKind.Query, "Show one parcel.", Everyone),
         new("parcel.add", EntryKind.Command, "Create a parcel of a type at an entry state.", People),

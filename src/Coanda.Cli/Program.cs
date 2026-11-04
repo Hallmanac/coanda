@@ -29,6 +29,15 @@ app.Configure(config =>
         daemon.AddCommand<DaemonStatusCommand>("status").WithDescription("Report the daemon's address, pid, and home.").WithExample("daemon", "status");
     });
 
+    config.AddBranch("project", project =>
+    {
+        project.SetDescription("A project is a record of the one repository its work acts on: a remote and a primary branch.");
+        project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its repository's remote and primary branch.")
+            .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git", "--branch", "main");
+        project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
+        project.AddCommand<ProjectListCommand>("list").WithDescription("List the projects registered on this node.").WithExample("project", "list");
+    });
+
     config.AddBranch("parcel", parcel =>
     {
         parcel.SetDescription("A parcel is the unit of work: one type, one lifecycle state, moved by flows.");

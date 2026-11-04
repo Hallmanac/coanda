@@ -1,0 +1,75 @@
+using Coanda.Core;
+using Coanda.Core.Projects;
+using Coanda.Core.Projects.Events;
+using Coanda.Core.Registry;
+using Coanda.Daemon.Store;
+using Fisher;
+using JasperFx.Events.Documents;
+
+namespace Coanda.Daemon.Projects;
+
+/// <summary>
+/// The daemon's side of every project command and query: pass the registry, check the name the way
+/// every project command does, ask the decider, append, save. A project's record lives in its own
+/// tenant. Adds are serialized so that two concurrent adds of one name cannot both pass the
+/// duplicate check.
+/// </summary>
+public sealed class ProjectService(IDocumentStore store, TimeProvider clock)
+{
+    private readonly SemaphoreSlim writes = new(1, 1);
+
+    /// <summary>The rule a command quotes when the project it names has no record.</summary>
+    public static string Unregistered(string project) =>
+        $"Project '{project}' is not registered; register it with coa project add {project} --repo <url> --branch <name>.";
+
+    public async Task<Project> AddAsync(Principal principal, string name, string remote, string primaryBranch, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("project.add", principal);
+        string tenant = Tenants.RequireProject(name);
+
+        await writes.WaitAsync(cancellationToken);
+        try
+        {
+            Project? existing = await FindAsync(store, tenant, cancellationToken);
+            ProjectRegistered registered = ProjectDecider.Register(tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow());
+
+            await using IDocumentSession session = store.LightweightSession(tenant);
+            session.Events.StartStream<Project>(registered.ProjectId, registered);
+            await session.SaveChangesAsync(cancellationToken);
+            return Project.Create(registered);
+        }
+        finally
+        {
+            writes.Release();
+        }
+    }
+
+    /// <summary>The project's record, or null when the name has none.</summary>
+    public async Task<Project?> ShowAsync(Principal principal, string name, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("project.show", principal);
+        return await FindAsync(store, Tenants.RequireProject(name), cancellationToken);
+    }
+
+    /// <summary>Every project registered on the node, ordered by name with ordinal comparison.</summary>
+    public async Task<IReadOnlyList<Project>> ListAsync(Principal principal, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("project.list", principal);
+
+        await using IQuerySession session = store.QuerySession(Tenants.Node);
+        IReadOnlyList<Project> projects = await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
+        return [.. projects.OrderBy(p => p.Name, StringComparer.Ordinal)];
+    }
+
+    /// <summary>
+    /// The record held in <paramref name="tenant"/>, a name <see cref="Tenants.RequireProject"/> has
+    /// already returned, or null when it holds none. Read without a registry check, for a service
+    /// that has passed its own.
+    /// </summary>
+    internal static async Task<Project?> FindAsync(IDocumentStore store, string tenant, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(tenant);
+        IReadOnlyList<Project> found = await session.Query<Project>().ToListAsync(cancellationToken);
+        return found.Count == 0 ? null : found[0];
+    }
+}
