@@ -44,7 +44,7 @@ public static class ProjectEndpoints
         group.MapPost("", async (HttpContext context, ProjectService projects, ProjectAddRequest request, CancellationToken cancellationToken) =>
             {
                 Project project = await projects.AddAsync(
-                    RequestPrincipal.PrincipalOf(context), request.Name, request.Remote, request.PrimaryBranch, cancellationToken);
+                    RequestPrincipal.PrincipalOf(context), request.Name, request.Remote, request.PrimaryBranch, request.Build, request.Test, cancellationToken);
                 return Results.Created(PathOf(project.Name), ProjectView.From(project, null));
             })
             .Produces<ProjectView>(StatusCodes.Status201Created);
