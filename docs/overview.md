@@ -36,7 +36,8 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 - `coa daemon start` / `coa daemon stop` / `coa daemon status`
 - `coa project add <name> --repo <url> --branch <name> [--build <command>] [--test <command>]`,
   `coa project show <name>`,
-  `coa project list`, `coa project set-profile <name> <profile>`
+  `coa project list`, `coa project set-profile <name> <profile>`,
+  `coa project set <name> --required-check <check> [--required-check <check> ...]`
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
   `coa parcel close <id>`
 - `coa contour list`, `coa contour start <contour> --parcel <id>`
@@ -46,7 +47,9 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 A parcel with a live flow, whether that flow is running or paused, is closed by nobody and moved
 only by that flow's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow
 that holds it; the flow has to end or be stopped first. `coa flow stop <id> --reason <why>` stops
-it and frees the parcel, and `coa flow resume <id>` sets a paused one going again instead.
+it and frees the parcel, and `coa flow resume <id>` sets a paused one going again instead. The
+one close made on a flow's behalf is the merge contour's own: the flow's end, the release of the
+task, and its close as completed are recorded together.
 `coa flow pause <id> --reason <why>` pauses a running flow without freeing the parcel, and a resume
 then performs the step it was paused at again.
 

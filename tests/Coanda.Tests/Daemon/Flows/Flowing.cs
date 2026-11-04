@@ -85,6 +85,31 @@ public static class Flowing
         return flow;
     }
 
+    /// <summary>Waits for the flow of <paramref name="contour"/> that the end of <paramref name="parentId"/> starts on the parcel.</summary>
+    public static async Task<FlowView> FollowerAsync(DaemonClient client, string project, Guid parcelId, Guid parentId, string contour)
+    {
+        FlowView? follower = null;
+        await UntilAsync(
+            async () =>
+            {
+                List<FlowView> flows = await OfParcelAsync(client, project, parcelId);
+                follower = flows.SingleOrDefault(f => f.ParentFlowId == parentId && f.ContourName == contour);
+                return follower is not null;
+            },
+            $"a flow of '{contour}' follows flow {parentId}");
+        return follower ?? throw new InvalidOperationException("The wait ended with no follower.");
+    }
+
+    /// <summary>
+    /// Waits for the shipped merge contour's flow that follows the build flow <paramref name="buildId"/>
+    /// to end, which merges the pull request and closes the task, and returns it.
+    /// </summary>
+    public static async Task<FlowView> MergedAsync(DaemonClient client, string project, Guid parcelId, Guid buildId)
+    {
+        FlowView merge = await FollowerAsync(client, project, parcelId, buildId, "merge");
+        return await UntilAsync(client, project, merge.Id, "ended");
+    }
+
     /// <summary>Waits until <paramref name="condition"/> holds, failing after the same patience.</summary>
     public static Task UntilAsync(Func<bool> condition, string what) =>
         UntilAsync(() => Task.FromResult(condition()), what);

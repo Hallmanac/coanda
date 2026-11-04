@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Coanda.Core.Definitions;
 using Coanda.Core.Contours;
 using Coanda.Core.Software;
@@ -33,9 +34,9 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_three_shipped_contours_pass_validation_with_the_known_action_names()
+    public void The_four_shipped_contours_pass_validation_with_the_known_action_names()
     {
-        ShippedContours.All.Select(f => f.Name).Should().Equal("build", "discovery", "review-on-assignment");
+        ShippedContours.All.Select(f => f.Name).Should().Equal("build", "merge", "discovery", "review-on-assignment");
         foreach (Contour contour in ShippedContours.All)
         {
             contour.Validate(ShippedActions.Names);
@@ -58,6 +59,7 @@ public sealed class ShippedContoursTests
         (string Name, string Accepts, string Outcome)[] expected =
         [
             ("build", "task", "pr-opened"),
+            ("merge", "task", "merged"),
             ("discovery", "idea", "parcels-derived"),
             ("review-on-assignment", "task", "report-produced"),
         ];
@@ -163,6 +165,63 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
+    public void The_merge_contour_follows_the_builds_pr_opened_and_closes_its_task_as_completed()
+    {
+        Contour merge = ShippedContours.Merge;
+
+        merge.Follow.Should().BeEquivalentTo(new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = merge.Follow!.DepthCap });
+        merge.Follow.DepthCap.Should().BePositive();
+        merge.Closes.Should().Be("completed");
+        ShippedTypes.Task.IsResolution(merge.Closes!).Should().BeTrue();
+        merge.Steps.SelectMany(s => s.Transitions).Should().OnlyContain(t => t.VisitCap > 0);
+        merge.First!.Action.Should().Be(SoftwareActions.GatedMerge);
+        Next(merge, "gated-merge", "merged").Should().Be(Contour.End);
+    }
+
+    [Fact]
+    public void The_merge_contours_lap_waits_at_least_twenty_minutes_before_it_pauses_and_a_late_merge_still_ends()
+    {
+        Contour merge = ShippedContours.Merge;
+        ContourStep gated = merge.Step("gated-merge")!;
+        ContourTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
+        ContourTransition merged = gated.Transitions.Single(t => t.Value.GetString() == "merged");
+        ContourStep timer = merge.Step(pending.Target)!;
+        ContourTransition back = timer.Transitions.Should().ContainSingle().Subject;
+
+        timer.Action.Should().Be(CoreActions.Timer);
+        back.Target.Should().Be("gated-merge");
+        double seconds = timer.Arguments["seconds"].GetDouble();
+        (seconds * pending.VisitCap).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all");
+        back.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap, "the timer never pauses the lap before the pending cap does");
+        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 5, "a merge on the lap's last visit or on a resume still ends the flow");
+    }
+
+    [Fact]
+    public void The_merge_contours_pending_cap_pauses_the_flow_once_spent_rather_than_waiting_again()
+    {
+        Contour merge = ShippedContours.Merge;
+        int cap = ShippedContours.MergePendingCap;
+        FlowPosition position = Interpreter.Start(merge);
+        using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
+        using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
+
+        for (int lap = 1; lap <= cap; lap++)
+        {
+            FlowMove wait = Interpreter.Decide(merge, position, pending);
+            wait.Should().Be(new FlowMove.GoTo("wait-for-checks"), $"lap {lap} is within the pending cap");
+            position = Interpreter.Apply(merge, position, (FlowMove.GoTo)wait);
+            FlowMove again = Interpreter.Decide(merge, position, done);
+            again.Should().Be(new FlowMove.GoTo("gated-merge"));
+            position = Interpreter.Apply(merge, position, (FlowMove.GoTo)again);
+        }
+
+        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowMove.Pause>()
+            .Which.Reason.Should().Contain($"visit cap of {cap}");
+        using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
+        Interpreter.Decide(merge, position, merged).Should().Be(new FlowMove.End("merged"), "a merge on the lap's last visit ends the flow");
+    }
+
+    [Fact]
     public void The_review_on_assignment_contour_is_one_judgment_whose_answers_both_end()
     {
         Contour review = ShippedContours.ReviewOnAssignment;
@@ -179,7 +238,7 @@ public sealed class ShippedContoursTests
     public void Every_shipped_contour_declares_a_budget_and_a_spawn_cap_and_hashes_distinctly()
     {
         ShippedContours.All.Should().OnlyContain(f => f.Budget > 0 && f.SpawnCap > 0);
-        ShippedContours.All.Select(f => f.Hash).Distinct().Should().HaveCount(3);
+        ShippedContours.All.Select(f => f.Hash).Distinct().Should().HaveCount(4);
         ShippedDefinitions.Contours.Select(d => d.ContentHash).Should().Equal(ShippedContours.All.Select(f => f.Hash));
     }
 

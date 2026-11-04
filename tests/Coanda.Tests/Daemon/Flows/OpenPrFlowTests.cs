@@ -45,7 +45,7 @@ public sealed class OpenPrFlowTests
     }
 
     [Fact]
-    public async Task A_refusal_from_GitHub_pauses_the_flow_at_open_pr_without_the_token_and_a_resume_opens_the_one_pull_request_and_ends_at_review()
+    public async Task A_refusal_from_GitHub_pauses_the_flow_at_open_pr_without_the_token_and_a_resume_opens_the_one_pull_request_that_the_merge_follows()
     {
         using var temp = new TemporaryHome();
         var github = new FakeGitHub();
@@ -74,7 +74,9 @@ public sealed class OpenPrFlowTests
         FlowView ended = await Flowing.UntilAsync(client, Project, flowId, "ended");
 
         ended.Outcome.Should().Be("pr-opened");
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("review");
+        await Flowing.MergedAsync(client, Project, parcel.Id, flowId);
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State
+            .Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
         github.Unexpected.Should().BeEmpty();
 
         await daemon.StopAsync(None);

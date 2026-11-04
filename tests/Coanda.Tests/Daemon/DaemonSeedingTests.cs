@@ -93,7 +93,7 @@ public sealed class DaemonSeedingTests
         await client.GetAsync<List<ContourView>>($"/contours?project={Uri.EscapeDataString(project)}", CancellationToken.None);
 
     [Fact]
-    public async Task Starting_the_daemon_seeds_the_three_shipped_contours_as_published_shipped_scope_definitions_and_a_second_start_appends_nothing()
+    public async Task Starting_the_daemon_seeds_the_four_shipped_contours_as_published_shipped_scope_definitions_and_a_second_start_appends_nothing()
     {
         using var temp = new TemporaryHome();
 
@@ -116,7 +116,7 @@ public sealed class DaemonSeedingTests
     }
 
     [Fact]
-    public async Task The_contour_list_endpoint_returns_exactly_the_three_shipped_contours_on_a_fresh_node_home()
+    public async Task The_contour_list_endpoint_returns_exactly_the_four_shipped_contours_on_a_fresh_node_home()
     {
         using var temp = new TemporaryHome();
 
@@ -126,7 +126,7 @@ public sealed class DaemonSeedingTests
 
             contours.Select(f => (f.Name, f.Version, f.Hash)).Should().Equal(
                 ShippedContours.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)));
-            contours.Select(f => f.Name).Should().BeEquivalentTo("build", "discovery", "review-on-assignment");
+            contours.Select(f => f.Name).Should().BeEquivalentTo("build", "merge", "discovery", "review-on-assignment");
 
             await FluentActions.Awaiting(() => client.GetAsync<List<ContourView>>("/contours?project=_node", CancellationToken.None))
                 .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
@@ -163,6 +163,24 @@ public sealed class DaemonSeedingTests
         {
             CommandRegistry.Require("contour.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
         }
+    }
+
+    [Fact]
+    public async Task Seeding_a_store_that_holds_the_earlier_shipped_contours_publishes_the_merge_contour_beside_them()
+    {
+        using var temp = new TemporaryHome();
+        ShippedDefinition[] earlier = [.. ShippedContours.All.Where(c => c.Name != "merge").Select(ShippedDefinition.FromContour)];
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [.. ShippedDefinitions.ParcelTypes, .. earlier]);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+
+        await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+
+        await using IQuerySession session = store.QuerySession(Tenants.Node);
+        IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
+        List<Definition> contours = [.. all.Where(d => d.Kind == DefinitionKind.Contour)];
+        contours.Select(d => (d.Name, d.VersionNumber, d.ContentHash)).Should().BeEquivalentTo(
+            ShippedContours.All.Select(c => (c.Name, 1, c.Hash)), "the merge contour is published as its first version and the others are left as they were");
+        contours.Should().OnlyContain(d => d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Shipped);
     }
 
     [Fact]

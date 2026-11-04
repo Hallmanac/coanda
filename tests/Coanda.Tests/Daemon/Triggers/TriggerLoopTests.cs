@@ -55,6 +55,7 @@ public sealed class TriggerLoopTests
             FlowView bound = await Flowing.BoundAsync(client, Project, parcel.Id);
             bound.StartedBy.Should().StartWith("binding:task/build/build:entry:", "a binding starts as a principal naming the binding and the entry event");
             (await Flowing.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("pr-opened");
+            await Flowing.MergedAsync(client, Project, parcel.Id, bound.Id);
             await first.StopAsync(None);
         }
 
@@ -64,7 +65,8 @@ public sealed class TriggerLoopTests
         // The loop handles entries in order, so once a later entry has its flow, the earlier one was read again if it ever would be.
         ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "Run later");
         await Flowing.BoundAsync(again, Project, later.Id);
-        (await Flowing.OfParcelAsync(again, Project, parcel.Id)).Should().ContainSingle();
+        (await Flowing.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
+            .Should().Equal(["build", "merge"], "the bound entry started one flow, and the merge followed its end");
 
         await second.StopAsync(None);
     }
