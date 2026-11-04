@@ -38,8 +38,7 @@ public static class ParcelDecider
 
     /// <summary>
     /// Moves the parcel. <paramref name="forFlow"/> is the flow the move is made on behalf of, or null for
-    /// a move nobody's flow makes; a parcel a live flow holds is moved only on behalf of that flow, and a
-    /// flow moves only the parcel it holds.
+    /// a move nobody's flow makes; a parcel a live flow holds is moved only on behalf of that flow.
     /// </summary>
     public static ParcelMoved Move(
         ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now, Guid? forFlow = null)
@@ -51,13 +50,6 @@ public static class ParcelDecider
         {
             throw new DomainException(
                 $"Parcel {Ids.Short(parcel.Id)} is held by flow {Ids.Short(live)}, and only that flow moves it; stop flow {Ids.Short(live)} (flow.stop) before moving the parcel.");
-        }
-
-        // A flow moves only the parcel it holds, so a flow stopped between reading the parcel and moving it moves nothing.
-        if (forFlow is Guid mover && parcel.LiveFlowId is null)
-        {
-            throw new DomainException(
-                $"Parcel {Ids.Short(parcel.Id)} is held by no flow, so flow {Ids.Short(mover)} does not move it; a flow moves only the parcel it holds.");
         }
 
         if (type.IsTerminal(toState))
