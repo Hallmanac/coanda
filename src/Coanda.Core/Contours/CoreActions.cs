@@ -7,7 +7,6 @@ namespace Coanda.Core.Contours;
 /// </summary>
 public static class CoreActions
 {
-    public const string Spawn = "spawn";
     public const string WaitForHuman = "wait-for-human";
     public const string WaitForExternalEvent = "wait-for-external-event";
     public const string Timer = "timer";
@@ -17,6 +16,6 @@ public static class CoreActions
 
     public static readonly IReadOnlyList<string> All =
     [
-        Spawn, WaitForHuman, WaitForExternalEvent, Timer, EmitOutcome, MoveParcel, DeriveParcels,
+        WaitForHuman, WaitForExternalEvent, Timer, EmitOutcome, MoveParcel, DeriveParcels,
     ];
 }
