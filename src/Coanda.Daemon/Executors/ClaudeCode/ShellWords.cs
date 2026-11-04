@@ -223,8 +223,8 @@ public static partial class ShellWords
     /// <c>~</c> for a <c>cd</c> with none; back to a directory the shell has been in
     /// (<see cref="DirectoryMove.Back"/>) for a <c>popd</c>, a <c>pushd</c> with no directory, and a
     /// <c>pushd</c> to a place on the directory stack such as <c>+1</c>; and to a directory the guard
-    /// cannot know (<see cref="DirectoryMove.Unknown"/>) for zsh's <c>cd OLD NEW</c>, which replaces
-    /// part of the current directory's name, for a <c>cd</c> to <c>+1</c> or <c>-1</c>, which zsh reads
+    /// cannot know (<see cref="DirectoryMove.Unknown"/>) for zsh's <c>cd OLD NEW</c> and <c>pushd OLD NEW</c>,
+    /// which replace part of the current directory's name, for a <c>cd</c> to <c>+1</c> or <c>-1</c>, which zsh reads
     /// as a place on the stack and bash as a directory's name, for a move into a process
     /// substitution, and for a command whose words read as a different move depending on whether
     /// its doubtful words are arguments (see <see cref="ShellCommand.Certain"/>). An option is a word
@@ -282,7 +282,7 @@ public static partial class ShellWords
             {
                 ("popd", _) or (not "cd", []) => DirectoryMove.Back,
                 ("cd", []) => DirectoryMove.To("~"),
-                ("cd", [_, _, ..]) => DirectoryMove.Unknown("a cd with two directories, which zsh reads as a replacement in the name of the directory the shell is in"),
+                (_, [_, _, ..]) => DirectoryMove.Unknown($"a {name} with two directories, which zsh reads as a replacement in the name of the directory the shell is in"),
                 ("cd", [{ } place]) when StackPlace().IsMatch(place) => DirectoryMove.Unknown($"cd {place}, which zsh reads as a place on the directory stack and bash as the name of a directory"),
                 (_, [{ } place, ..]) when StackPlace().IsMatch(place) => dashes
                     ? DirectoryMove.Unknown($"pushd -- {place}, which may name a place on the directory stack or a directory")
