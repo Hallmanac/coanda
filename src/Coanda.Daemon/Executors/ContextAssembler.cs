@@ -56,7 +56,7 @@ public static partial class ContextAssembler
             $"Parcel: {parcel.Id}",
             $"Project: {OneLine(parcel.Project)}",
             $"Type: {OneLine(parcel.TypeName)}",
-            $"State: {OneLine(parcel.State)}",
+            $"Stage: {OneLine(parcel.Stage)}",
             $"Title: {OneLine(parcel.Title)}",
             $"Step: {OneLine(step.Name)}",
         ];

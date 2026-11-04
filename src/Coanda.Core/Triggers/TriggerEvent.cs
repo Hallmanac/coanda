@@ -2,7 +2,7 @@ namespace Coanda.Core.Triggers;
 
 /// <summary>
 /// An event as a trigger reads it: a kind and named string fields. A parcel's creation and every
-/// move read as <see cref="ParcelEnteredKind"/> with the fields <c>type</c> and <c>state</c>; a
+/// move read as <see cref="ParcelEnteredKind"/> with the fields <c>type</c> and <c>stage</c>; a
 /// flow run's end reads as <see cref="FlowRunEndedKind"/> with the fields <c>flow</c>, <c>outcome</c>,
 /// and <c>type</c>, the type of the flow run's parcel.
 /// </summary>
@@ -15,13 +15,13 @@ public sealed record TriggerEvent(string Kind, IReadOnlyDictionary<string, strin
     public const string FlowRunEndedKind = "flow-run-ended";
 
     public const string TypeField = "type";
-    public const string StateField = "state";
+    public const string StageField = "stage";
     public const string FlowField = "flow";
     public const string OutcomeField = "outcome";
 
-    public static TriggerEvent ParcelEntered(string typeName, string state) => new(
+    public static TriggerEvent ParcelEntered(string typeName, string stage) => new(
         ParcelEnteredKind,
-        new Dictionary<string, string>(StringComparer.Ordinal) { [TypeField] = typeName, [StateField] = state });
+        new Dictionary<string, string>(StringComparer.Ordinal) { [TypeField] = typeName, [StageField] = stage });
 
     /// <summary>
     /// A flow run's end. Its <c>flow</c> field carries the flow's name as <see cref="FlowKey"/> folds it,

@@ -75,7 +75,7 @@ public sealed class OpenPrFlowRunTests
 
         ended.Outcome.Should().Be("pr-opened");
         await FlowRunDriver.MergedAsync(client, Project, parcel.Id, flowRunId);
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage
             .Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
         github.Unexpected.Should().BeEmpty();
 

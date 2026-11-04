@@ -54,11 +54,11 @@ app.Configure(config =>
 
     config.AddBranch("parcel", parcel =>
     {
-        parcel.SetDescription("A parcel is the unit of work: one type, one lifecycle state, moved by flow runs.");
-        parcel.AddCommand<ParcelAddCommand>("add").WithDescription("Create a parcel at an entry state of its type.").WithExample("parcel", "add", "--title", "\"Try Coanda\"");
+        parcel.SetDescription("A parcel is the unit of work: one type, one lifecycle stage, moved by flow runs.");
+        parcel.AddCommand<ParcelAddCommand>("add").WithDescription("Create a parcel at an entry stage of its type.").WithExample("parcel", "add", "--title", "\"Try Coanda\"");
         parcel.AddCommand<ParcelListCommand>("list").WithDescription("List the project's open parcels.").WithExample("parcel", "list");
         parcel.AddCommand<ParcelShowCommand>("show").WithDescription("Show one parcel.").WithExample("parcel", "show", "0192a3b4");
-        parcel.AddCommand<ParcelMoveCommand>("move").WithDescription("Move a parcel to a state its type allows.").WithExample("parcel", "move", "0192a3b4", "build");
+        parcel.AddCommand<ParcelMoveCommand>("move").WithDescription("Move a parcel to a stage its type allows.").WithExample("parcel", "move", "0192a3b4", "build");
         parcel.AddCommand<ParcelSetCommand>("set").WithDescription("Set one of a parcel's fields, replacing its value.")
             .WithExample("parcel", "set", "0192a3b4", "objective", "--text", "\"Teach the daemon fields\"")
             .WithExample("parcel", "set", "0192a3b4", "criteria", "--item", "\"It builds\"", "--item", "\"It tests\"")

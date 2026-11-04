@@ -10,7 +10,7 @@ namespace Coanda.Cli.Commands;
 /// </summary>
 internal static class DefinitionRendering
 {
-    public static readonly string[] TypeListColumns = ["Type", "Hash", "States", "Resolutions"];
+    public static readonly string[] TypeListColumns = ["Type", "Hash", "Stages", "Resolutions"];
 
     public static readonly string[] FlowListColumns = ["Flow", "Version", "Hash"];
 
@@ -18,7 +18,7 @@ internal static class DefinitionRendering
     [
         type.Name,
         type.Hash,
-        string.Join(", ", type.States),
+        string.Join(", ", type.Stages),
         string.Join(", ", type.Resolutions),
     ]);
 

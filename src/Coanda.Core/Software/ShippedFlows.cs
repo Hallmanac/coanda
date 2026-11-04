@@ -88,7 +88,7 @@ public static class ShippedFlows
             {
                 Name = "move-to-review",
                 Action = CoreActions.MoveParcel,
-                Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("review") },
+                Arguments = new Dictionary<string, JsonElement> { ["stage"] = FlowValue.Of("review") },
                 Transitions = [On("done", Flow.End)],
             },
             Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief, Sources = FixSources },

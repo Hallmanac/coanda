@@ -10,7 +10,7 @@ public sealed record ParcelCreated(
     string Project,
     string TypeName,
     string TypeHash,
-    string State,
+    string Stage,
     string Title,
     string CreatedBy,
     DateTimeOffset CreatedAt,

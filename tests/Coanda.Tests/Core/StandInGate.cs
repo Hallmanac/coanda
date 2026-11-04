@@ -15,9 +15,9 @@ public sealed class StandInGate(string name = StandInGate.DefaultName, string re
 
     public List<(string From, string To)> Checks { get; } = [];
 
-    public GateVerdict Check(Parcel parcel, ParcelType type, string fromState, string toState)
+    public GateVerdict Check(Parcel parcel, ParcelType type, string fromStage, string toStage)
     {
-        Checks.Add((fromState, toState));
+        Checks.Add((fromStage, toStage));
         return parcel.Title.Contains(refuses, StringComparison.Ordinal)
             ? GateVerdict.Fail(Reason)
             : GateVerdict.Pass;

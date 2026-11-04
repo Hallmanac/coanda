@@ -28,7 +28,7 @@ public sealed class DaemonApiTests
 
         ParcelView added = await client.PostAsync<ParcelView>(
             "/parcels", new ParcelAddRequest("coanda", "idea", "A lump of clay", null), CancellationToken.None);
-        added.State.Should().Be("open");
+        added.Stage.Should().Be("open");
 
         List<ParcelView> listed = await client.GetAsync<List<ParcelView>>("/parcels?project=coanda", CancellationToken.None);
         listed.Should().ContainSingle(p => p.Id == added.Id);

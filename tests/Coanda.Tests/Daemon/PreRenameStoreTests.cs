@@ -13,7 +13,13 @@ namespace Coanda.Tests.Daemon;
 
 public sealed class PreRenameStoreTests
 {
-    private const string PausableType = """{"kind":"ParcelType","name":"task","content":"{\"Name\":\"task\",\"PausedState\":\"paused\"}"}""";
+    /// <summary>A parcel type as a build from 2026-11-03 until the stage name drafted it.</summary>
+    private const string PreStageType = """{"kind":"ParcelType","name":"task","content":"{\"Name\":\"task\",\"States\":[\"refine\",\"paused\",\"closed\"],\"PausedState\":\"paused\"}"}""";
+
+    /// <summary>A parcel type as this build drafts it.</summary>
+    private const string StagedType = """{"kind":"ParcelType","name":"task","content":"{\"Name\":\"task\",\"Stages\":[\"refine\",\"paused\",\"closed\"],\"PausedStage\":\"paused\"}"}""";
+
+    private const string Refusal = "*written by a build from before the stage and step names*Move the node home aside*.pre-stage'*";
 
     /// <summary>Writes a record holding only the given drafted definitions, the way an older build would have left them.</summary>
     private static void WriteRecord(NodeHome home, params string[] drafted) =>
@@ -60,29 +66,40 @@ public sealed class PreRenameStoreTests
     public void A_record_whose_flows_were_drafted_under_the_retired_kind_contour_is_refused()
     {
         using var temp = new TemporaryHome();
-        WriteRecord(temp.Home, PausableType, """{"kind":"Contour","name":"build","content":"{}"}""");
+        WriteRecord(temp.Home, PreStageType, """{"kind":"Contour","name":"build","content":"{}"}""");
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage("*written by a build from before the flow name*Move the node home aside*.pre-flow'*");
+        check.Should().Throw<DomainException>().WithMessage(Refusal);
     }
 
     [Fact]
-    public void A_record_whose_parcel_type_has_no_paused_state_is_refused()
+    public void A_record_whose_parcel_type_holds_neither_a_paused_stage_nor_a_paused_state_is_refused()
     {
         using var temp = new TemporaryHome();
         WriteRecord(temp.Home, """{"kind":"ParcelType","name":"task","content":"{\"Name\":\"task\"}"}""");
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage("*written by a build from before the flow name*Move the node home aside*");
+        check.Should().Throw<DomainException>().WithMessage(Refusal);
+    }
+
+    [Fact]
+    public void A_record_whose_parcel_type_holds_states_and_a_paused_state_is_refused()
+    {
+        using var temp = new TemporaryHome();
+        WriteRecord(temp.Home, PreStageType, """{"kind":"Flow","name":"build","content":"{}"}""");
+
+        Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
+
+        check.Should().Throw<DomainException>().WithMessage(Refusal);
     }
 
     [Fact]
     public void A_record_of_this_builds_kinds_and_shapes_passes()
     {
         using var temp = new TemporaryHome();
-        WriteRecord(temp.Home, PausableType, """{"kind":"Flow","name":"build","content":"{}"}""");
+        WriteRecord(temp.Home, StagedType, """{"kind":"Flow","name":"build","content":"{}"}""");
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
@@ -119,12 +136,25 @@ public sealed class PreRenameStoreTests
     public async Task The_daemon_refuses_a_record_whose_flows_were_drafted_under_the_retired_kind_contour_and_leaves_it_as_it_was()
     {
         using var temp = new TemporaryHome();
-        WriteRecord(temp.Home, PausableType, """{"kind":"Contour","name":"build","content":"{}"}""");
+        WriteRecord(temp.Home, PreStageType, """{"kind":"Contour","name":"build","content":"{}"}""");
         byte[] before = await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None);
 
         Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
-        await start.Should().ThrowAsync<DomainException>().WithMessage("*before the flow name*");
+        await start.Should().ThrowAsync<DomainException>().WithMessage(Refusal);
+        (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
+    }
+
+    [Fact]
+    public async Task The_daemon_refuses_a_record_from_before_the_stage_and_step_names_and_leaves_it_as_it_was()
+    {
+        using var temp = new TemporaryHome();
+        WriteRecord(temp.Home, PreStageType, """{"kind":"Flow","name":"build","content":"{}"}""");
+        byte[] before = await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None);
+
+        Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
+
+        await start.Should().ThrowAsync<DomainException>().WithMessage(Refusal);
         (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
     }
 
@@ -139,23 +169,23 @@ public sealed class PreRenameStoreTests
     public void A_record_holding_an_event_a_flow_run_recorded_before_the_flow_run_name_is_refused(string type)
     {
         using var temp = new TemporaryHome();
-        WriteEvents(temp.Home, ("definition_drafted", PausableType), (type, """{"flowId":"0192a3b4-0000-7000-8000-000000000000"}"""));
+        WriteEvents(temp.Home, ("definition_drafted", PreStageType), (type, """{"flowId":"0192a3b4-0000-7000-8000-000000000000"}"""));
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage("*holds a flow run started by a build from before the flow run name*Move the node home aside*.pre-flow-run*");
+        check.Should().Throw<DomainException>().WithMessage(Refusal);
     }
 
     [Fact]
     public async Task The_daemon_refuses_a_record_holding_a_flow_run_from_before_the_flow_run_name_and_leaves_it_as_it_was()
     {
         using var temp = new TemporaryHome();
-        WriteEvents(temp.Home, ("definition_drafted", PausableType), ("flow_started", """{"flowId":"0192a3b4-0000-7000-8000-000000000000"}"""));
+        WriteEvents(temp.Home, ("definition_drafted", PreStageType), ("flow_started", """{"flowId":"0192a3b4-0000-7000-8000-000000000000"}"""));
         byte[] before = await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None);
 
         Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
-        await start.Should().ThrowAsync<DomainException>().WithMessage("*before the flow run name*");
+        await start.Should().ThrowAsync<DomainException>().WithMessage(Refusal);
         (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
     }
 

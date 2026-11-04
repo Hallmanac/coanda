@@ -57,7 +57,7 @@ public static class SessionFiles
         writer.Write(content);
     }
 
-    /// <summary>The parcel's id, type, state, and title, and the value of every field its type declares, or "not set".</summary>
+    /// <summary>The parcel's id, type, stage, and title, and the value of every field its type declares, or "not set".</summary>
     public static string RenderTask(Parcel parcel, ParcelType type)
     {
         ArgumentNullException.ThrowIfNull(parcel);
@@ -66,7 +66,7 @@ public static class SessionFiles
         text.Append("# ").Append(parcel.Title).Append("\n\n");
         text.Append("- Parcel: ").Append(parcel.Id).Append('\n');
         text.Append("- Type: ").Append(parcel.TypeName).Append('\n');
-        text.Append("- State: ").Append(parcel.State).Append('\n');
+        text.Append("- Stage: ").Append(parcel.Stage).Append('\n');
         text.Append("- Title: ").Append(parcel.Title).Append('\n');
         foreach (FieldDeclaration field in type.Fields)
         {

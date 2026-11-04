@@ -20,7 +20,7 @@ public sealed class Parcel
     [JsonInclude]
     public string TypeHash { get; private set; } = string.Empty;
     [JsonInclude]
-    public string State { get; private set; } = string.Empty;
+    public string Stage { get; private set; } = string.Empty;
     [JsonInclude]
     public string Title { get; private set; } = string.Empty;
     [JsonInclude]
@@ -65,7 +65,7 @@ public sealed class Parcel
         Project = created.Project;
         TypeName = created.TypeName;
         TypeHash = created.TypeHash;
-        State = created.State;
+        Stage = created.Stage;
         Title = created.Title;
         CreatedBy = created.CreatedBy;
         CreatedAt = created.CreatedAt;
@@ -75,7 +75,7 @@ public sealed class Parcel
 
     public void Apply(ParcelMoved moved)
     {
-        State = moved.ToState;
+        Stage = moved.ToStage;
         UpdatedAt = moved.MovedAt;
     }
 
@@ -87,7 +87,7 @@ public sealed class Parcel
 
     public void Apply(ParcelClosed closed)
     {
-        State = closed.TerminalState;
+        Stage = closed.TerminalStage;
         Resolution = closed.Resolution;
         CloseReason = closed.Reason;
         UpdatedAt = closed.ClosedAt;

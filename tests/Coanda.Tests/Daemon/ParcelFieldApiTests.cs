@@ -126,7 +126,7 @@ public sealed class ParcelFieldApiTests
             .WithMessage("The gate 'required-fields' refused the move from 'refine' to 'build': *'objective', 'criteria' have none.");
 
         ParcelView paused = await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "paused"), None);
-        paused.State.Should().Be("paused", "pausing from refine is never refused for an empty field");
+        paused.Stage.Should().Be("paused", "pausing from refine is never refused for an empty field");
         await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None))
             .Should().ThrowAsync<DomainException>().WithMessage("*from 'paused' to 'build'*resumes into 'build'*'refine'*'objective', 'criteria' have none.");
 
@@ -151,6 +151,6 @@ public sealed class ParcelFieldApiTests
         ParcelView.From(parcel, await parcels.TypeVersionAsync(Principal.LocalOwner, Project, parcel.TypeHash, None)).Fields.Should().BeEmpty();
         await FluentActions.Awaiting(() => parcels.SetFieldAsync(Principal.LocalOwner, Project, parcel.Id, "objective", FieldValue.OfText("x"), None))
             .Should().ThrowAsync<DomainException>().WithMessage("*declares no field 'objective'*and it declares none.");
-        (await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None)).State.Should().Be("build", "that version binds no gate");
+        (await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None)).Stage.Should().Be("build", "that version binds no gate");
     }
 }

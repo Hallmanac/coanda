@@ -152,7 +152,7 @@ public sealed class MergeFlowRunTests
         merge.Steps.Count(s => s.Step == "gated-merge").Should().Be(LapCap + 1);
         github.Requests.Should().NotContain(r => r.IsMerge);
         ParcelView parcel = await harness.ParcelAsync(build.ParcelId);
-        parcel.State.Should().Be("review");
+        parcel.Stage.Should().Be("review");
         parcel.LiveFlowRunId.Should().Be(merge.Id);
     }
 
@@ -319,7 +319,7 @@ public sealed class MergeFlowRunTests
             .And.Contain($"The gate '{HoldingGate.GateName}' refused the move from 'review' to 'closed': {HoldingGate.Reason}");
         merge.Lever.Should().Be(FlowRunLevers.PerformAgain("gated-merge"));
         ParcelView held = await harness.ParcelAsync(build.ParcelId);
-        held.State.Should().Be("review");
+        held.Stage.Should().Be("review");
         held.Resolution.Should().BeNull();
         held.LiveFlowRunId.Should().Be(merge.Id, "the end, the release, and the close were recorded together or not at all");
         github.Requests.Should().ContainSingle(r => r.IsMerge);
@@ -516,7 +516,7 @@ public sealed class MergeFlowRunTests
 
         public string Name => GateName;
 
-        public GateVerdict Check(Parcel parcel, ParcelType type, string fromState, string toState) =>
+        public GateVerdict Check(Parcel parcel, ParcelType type, string fromStage, string toStage) =>
             Holding
                 ? GateVerdict.Fail(Reason)
                 : GateVerdict.Pass;
@@ -595,7 +595,7 @@ public sealed class MergeFlowRunTests
         public async Task ExpectClosedAsync(Guid parcelId, Guid mergeId)
         {
             ParcelView parcel = await ParcelAsync(parcelId);
-            parcel.State.Should().Be("closed");
+            parcel.Stage.Should().Be("closed");
             parcel.Resolution.Should().Be("completed");
             parcel.LiveFlowRunId.Should().BeNull();
             parcel.CloseReason.Should().Contain($"of flow 'merge' reached its end");
@@ -622,7 +622,7 @@ public sealed class MergeFlowRunTests
             (await FlowRunDriver.OfParcelAsync(Client, Project, parcelId)).Select(f => f.FlowName).Should().Equal(flowRuns);
             GitHub.Requests.Should().NotContain(r => r.IsMerge);
             ParcelView parcel = await ParcelAsync(parcelId);
-            parcel.State.Should().Be("review");
+            parcel.Stage.Should().Be("review");
             parcel.Resolution.Should().BeNull();
         }
 

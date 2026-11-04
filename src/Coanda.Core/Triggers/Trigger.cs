@@ -10,13 +10,13 @@ namespace Coanda.Core.Triggers;
 /// </summary>
 public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, string> Filters)
 {
-    /// <summary>The trigger a flow binding is: a parcel of the type entering the bound state.</summary>
+    /// <summary>The trigger a flow binding is: a parcel of the type entering the bound stage.</summary>
     public static Trigger ForBinding(ParcelType type, FlowBinding binding) => new(
         TriggerEvent.ParcelEnteredKind,
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [TriggerEvent.TypeField] = type.Name,
-            [TriggerEvent.StateField] = binding.State,
+            [TriggerEvent.StageField] = binding.Stage,
         });
 
     /// <summary>

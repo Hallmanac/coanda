@@ -186,7 +186,7 @@ public sealed class ProjectServiceTests
         }
 
         await parcels.BriefAsync(Owner, "legacy", created.ParcelId, cancellationToken: None);
-        (await parcels.MoveAsync(Owner, "legacy", created.ParcelId, "build", None)).State.Should().Be("build");
+        (await parcels.MoveAsync(Owner, "legacy", created.ParcelId, "build", None)).Stage.Should().Be("build");
         (await parcels.CloseAsync(Owner, "legacy", created.ParcelId, "abandoned", "Never registered.", None)).Resolution.Should().Be("abandoned");
     }
 }

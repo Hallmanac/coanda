@@ -159,7 +159,7 @@ public sealed class ParcelFieldTests
             .WithMessage("*and 'criteria' has none.");
 
         Set(parcel, "criteria", TaskFields.CriteriaValue);
-        Moved(parcel, "build").State.Should().Be("build", "non-goals is required to leave no state");
+        Moved(parcel, "build").Stage.Should().Be("build", "non-goals is required to leave no stage");
     }
 
     [Fact]
@@ -171,8 +171,8 @@ public sealed class ParcelFieldTests
             "The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.");
 
         Set(parcel, "pull-request", TaskFields.PullRequestValue);
-        Moved(parcel, "review").State.Should().Be("review");
-        Moved(parcel, "build").State.Should().Be("build", "no gate is bound to the move from review back to build");
+        Moved(parcel, "review").Stage.Should().Be("review");
+        Moved(parcel, "build").Stage.Should().Be("build", "no gate is bound to the move from review back to build");
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public sealed class ParcelFieldTests
 
         FluentActions.Invoking(() => Moved(parcel, "review")).Should().Throw<DomainException>().WithMessage(
             "The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only with a value in every field required to enter it, which every route into it would have required, and in every field required to leave 'build', and 'objective', 'criteria' have none.");
-        parcel.State.Should().Be("paused");
+        parcel.Stage.Should().Be("paused");
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("refine", TaskFields.Objective, TaskFields.Criteria);
 
-        Moved(parcel, "build").State.Should().Be("build");
+        Moved(parcel, "build").Stage.Should().Be("build");
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("build");
 
-        Moved(parcel, "refine").State.Should().Be("refine");
+        Moved(parcel, "refine").Stage.Should().Be("refine");
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public sealed class ParcelFieldTests
     {
         Parcel parcel = PausedFrom("build", TaskFields.Objective, TaskFields.Criteria, TaskFields.PullRequest);
 
-        Moved(parcel, "review").State.Should().Be("review");
+        Moved(parcel, "review").Stage.Should().Be("review");
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public sealed class ParcelFieldTests
             .WithMessage("*resumes into 'build'*and 'criteria' has none.");
 
         Set(parcel, "criteria", TaskFields.CriteriaValue);
-        Moved(parcel, "build").State.Should().Be("build");
+        Moved(parcel, "build").Stage.Should().Be("build");
     }
 
     [Fact]
@@ -271,22 +271,22 @@ public sealed class ParcelFieldTests
             .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only*'pull-request' has none.");
 
         Set(parcel, "pull-request", TaskFields.PullRequestValue);
-        Moved(parcel, "review").State.Should().Be("review");
+        Moved(parcel, "review").Stage.Should().Be("review");
     }
 
     [Fact]
-    public void A_resume_into_a_state_with_two_bound_entry_predecessors_still_checks_what_each_bound_move_checks()
+    public void A_resume_into_a_stage_with_two_bound_entry_predecessors_still_checks_what_each_bound_move_checks()
     {
         ParcelType forked = Task with
         {
-            States = ["refine", "spike", "build", "review", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "spike", "build", "review", ShippedTypes.Paused, ShippedTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
                 ["spike"] = ["build"],
                 ["build"] = ["review"],
             },
-            EntryStates = ["refine", "spike"],
+            EntryStages = ["refine", "spike"],
             Fields = [.. Task.Fields, new FieldDeclaration { Name = "hypothesis", Kind = FieldKinds.Text, RequiredToLeave = ["spike"] }],
             GateBindings = [.. Task.GateBindings, new GateBinding("spike", "build", RequiredFieldsGate.GateName)],
         };
@@ -294,7 +294,7 @@ public sealed class ParcelFieldTests
         Parcel parcel = Parcel.Create(ParcelDecider.Create(forked, Gates, "coanda", "Forked", "refine", "brian", Now));
         parcel.Apply(ParcelDecider.Move(forked, Gates, parcel, "paused", "brian", Now));
 
-        forked.RequiredToEnter("build").Should().BeEmpty("a route from either entry state reaches build without leaving the other");
+        forked.RequiredToEnter("build").Should().BeEmpty("a route from either entry stage reaches build without leaving the other");
         FluentActions.Invoking(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now)).Should().Throw<DomainException>()
             .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build'*required to leave 'refine', and 'objective', 'criteria' have none.");
 
@@ -304,20 +304,20 @@ public sealed class ParcelFieldTests
             .WithMessage("*resumes into 'build'*required to leave 'spike', and 'hypothesis' has none.");
 
         parcel.Apply(ParcelDecider.SetField(forked, parcel, "hypothesis", FieldValue.OfText("It holds."), "brian", Now));
-        ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now).ToState.Should().Be("build");
+        ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now).ToStage.Should().Be("build");
     }
 
     [Fact]
     public void Pausing_or_closing_from_refine_or_build_is_never_refused_for_an_empty_field()
     {
-        Moved(NewTask(), "paused").State.Should().Be("paused");
-        ParcelDecider.Close(Task, Gates, NewTask(), "abandoned", "Not wanted.", "brian", Now).TerminalState.Should().Be("closed");
+        Moved(NewTask(), "paused").Stage.Should().Be("paused");
+        ParcelDecider.Close(Task, Gates, NewTask(), "abandoned", "Not wanted.", "brian", Now).TerminalStage.Should().Be("closed");
 
         Parcel atBuild = Moved(NewTask().Briefed(Task, pullRequest: false), "build");
-        ParcelDecider.Move(Task, Gates, atBuild, "paused", "brian", Now).ToState.Should().Be("paused");
-        ParcelDecider.Close(Task, Gates, atBuild, "superseded", "Done elsewhere.", "brian", Now).TerminalState.Should().Be("closed");
+        ParcelDecider.Move(Task, Gates, atBuild, "paused", "brian", Now).ToStage.Should().Be("paused");
+        ParcelDecider.Close(Task, Gates, atBuild, "superseded", "Done elsewhere.", "brian", Now).TerminalStage.Should().Be("closed");
         Moved(atBuild, "paused");
-        ParcelDecider.Close(Task, Gates, atBuild, "abandoned", "Not wanted.", "brian", Now).TerminalState.Should().Be("closed");
+        ParcelDecider.Close(Task, Gates, atBuild, "abandoned", "Not wanted.", "brian", Now).TerminalStage.Should().Be("closed");
     }
 
     [Fact]
@@ -326,11 +326,11 @@ public sealed class ParcelFieldTests
         ParcelType chore = new()
         {
             Name = "chore",
-            States = ["todo", "doing", "paused", "closed"],
-            EntryStates = ["todo"],
-            TerminalState = "closed",
+            Stages = ["todo", "doing", "paused", "closed"],
+            EntryStages = ["todo"],
+            TerminalStage = "closed",
             Resolutions = ["done"],
-            PausedState = "paused",
+            PausedStage = "paused",
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["todo"] = ["doing"] },
             Fields = [new FieldDeclaration { Name = "owner", Kind = FieldKinds.Reference, RequiredToLeave = ["todo"] }],
             GateBindings = [new GateBinding("todo", "doing", RequiredFieldsGate.GateName)],

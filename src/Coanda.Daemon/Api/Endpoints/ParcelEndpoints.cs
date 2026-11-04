@@ -50,7 +50,7 @@ public static class ParcelEndpoints
         group.MapPost("", async (HttpContext context, ParcelService parcels, ParcelAddRequest request, CancellationToken cancellationToken) =>
             {
                 Principal principal = RequestPrincipal.PrincipalOf(context);
-                Parcel parcel = await parcels.AddAsync(principal, request.Project, request.Type, request.Title, request.State, cancellationToken);
+                Parcel parcel = await parcels.AddAsync(principal, request.Project, request.Type, request.Title, request.Stage, cancellationToken);
                 return Results.Created($"/parcels/{parcel.Id}", await ViewAsync(parcels, principal, request.Project, parcel, cancellationToken));
             })
             .Produces<ParcelView>(StatusCodes.Status201Created);

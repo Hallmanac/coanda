@@ -21,7 +21,7 @@ public sealed class StoreRoundTripTests
             id = created.Id;
             await service.BriefAsync(Principal.LocalOwner, "alpha", id, cancellationToken: CancellationToken.None);
             Parcel moved = await service.MoveAsync(Principal.LocalOwner, "alpha", id, "build", CancellationToken.None);
-            moved.State.Should().Be("build");
+            moved.Stage.Should().Be("build");
         }
 
         await using (IDocumentStore reopened = await SeededStore.OpenAsync(temp.Home.DatabasePath))
@@ -30,7 +30,7 @@ public sealed class StoreRoundTripTests
 
             Parcel? shown = await service.ShowAsync(Principal.LocalOwner, "alpha", id, CancellationToken.None);
             shown.Should().NotBeNull();
-            shown.State.Should().Be("build");
+            shown.Stage.Should().Be("build");
             shown.Title.Should().Be("Survive a restart");
             shown.ValueOf(TaskFields.Objective).Should().BeEquivalentTo(TaskFields.ObjectiveValue);
             shown.ValueOf(TaskFields.Criteria).Should().BeEquivalentTo(TaskFields.CriteriaValue);

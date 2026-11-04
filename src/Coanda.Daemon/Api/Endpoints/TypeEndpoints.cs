@@ -15,7 +15,7 @@ public static class TypeEndpoints
         group.MapGet("", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
             {
                 IReadOnlyList<ParcelType> types = await parcels.TypesAsync(RequestPrincipal.PrincipalOf(context), project, cancellationToken);
-                List<TypeView> views = [.. types.Select(t => new TypeView(t.Name, t.Hash, t.States, t.Resolutions))];
+                List<TypeView> views = [.. types.Select(t => new TypeView(t.Name, t.Hash, t.Stages, t.Resolutions))];
                 return Results.Ok(views);
             })
             .Produces<List<TypeView>>();

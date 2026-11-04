@@ -70,7 +70,7 @@ public sealed class PhaseOneGateTests
         merge.Steps.Single().Result.GetValueOrDefault().GetProperty("commit").GetString().Should().Be(FakeGitHub.MergeCommit);
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.State.Should().Be("closed");
+        after.Stage.Should().Be("closed");
         after.Resolution.Should().Be("completed");
         after.LiveFlowRunId.Should().BeNull();
         (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Should().OnlyContain(f => f.Status == "ended");
@@ -116,7 +116,7 @@ public sealed class PhaseOneGateTests
         paused.PauseReason.Should().Be(
             $"Step 'move-to-review' could not move parcel {Ids.Short(parcel.Id)} to 'review': The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.");
         paused.Lever.Should().Be(FlowRunLevers.PerformAgain("move-to-review"));
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("build");
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("build");
 
         await daemon.StopAsync(None);
     }
