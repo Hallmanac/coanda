@@ -421,7 +421,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
         try
         {
-            ReattachedSession? live = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), cancellationToken);
+            ReattachedSession? live = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), access: null, cancellationToken);
             if (live is not null)
             {
                 using var grace = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -591,69 +591,100 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// since. A session the restart found already on its retry is not retried again, and its answer
     /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch, and a
     /// person's pause or stop saved before the reattach was watched ends it before its first collect.
-    /// Nothing is recorded for the reattach itself.
+    /// Nothing is recorded for the reattach itself. The reattach hands the session a session token
+    /// this daemon issues for the recorded launch, so a retry's process reaches this daemon as the
+    /// launch's own principal; the process that ran across the restart keeps the token an earlier
+    /// daemon issued, which this one does not resolve.
     /// When the visit names no session, or the executor no longer holds it, the flow pauses instead,
-    /// and its resume performs the step again with one more spawn counted. Null when it recorded no answer.
+    /// and its resume performs the step again with one more spawn counted. A session the visit names
+    /// that could not be reattached for another reason (its launch recorded no agent hash and model
+    /// spec, or the reattach failed) is stopped before that pause, so it does not run on unobserved.
+    /// Null when it recorded no answer.
     /// </summary>
     private async Task<Recording?> ReattachAsync(
         Principal principal, string project, Flow flow, ContourStep step, FlowStepEntry current, CancellationToken cancellationToken)
     {
-        ReattachedSession? live;
+        // Issued for the recorded launch, so it resolves only while the flow still expects that launch.
+        Guid? launch = current.LaunchId;
+        SessionAccess? access = launch is Guid issuedFor
+            ? new SessionAccess(sessionTokens.Issue(new SessionBinding(project.Trim(), flow.Id, issuedFor)), home.Path, project.Trim())
+            : null;
         try
         {
-            live = current is { SessionId: Guid id, AgentHash: not null, Model: not null }
-                ? await executor.ReattachAsync(new SessionHandle(id, current.Performer), cancellationToken)
-                : null;
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception failure)
-        {
-            logger.LogWarning(failure, "Reattaching the session of step '{Step}' on flow {Flow} failed.", step.Name, Ids.Short(flow.Id));
-            live = null;
-        }
-
-        if (live is null || current is not { SpawnedAt: DateTimeOffset spawnedAt, AgentHash: string agentHash, Model: ModelSpec model })
-        {
-            string which = current switch
+            ReattachedSession? live = null;
+            bool settled = false;
+            try
             {
-                { SessionId: Guid held, AgentHash: not null, Model: not null } => $"session {Ids.Short(held)}, which the executor no longer holds",
-                { SessionId: Guid held } => $"session {Ids.Short(held)}, whose launch recorded no agent hash and model spec to record its answer with",
-                _ => "a session the daemon stopped before it was recorded",
-            };
-            await PauseAsync(
-                principal, project, flow.Id,
-                $"Step '{step.Name}' lost the session agent '{current.Performer}' was launched in across a daemon restart ({which}), so its usage was not observed.",
-                FlowLevers.PerformAgain(step.Name),
-                cancellationToken);
-            return null;
-        }
-
-        var launched = new Launched(step.Name, current.Performer, agentHash, model, ceiling: null) { Session = live.Handle, Recorded = true };
-        string schema = step.AnswerSchema ?? string.Empty;
-        using var ended = new CancellationTokenSource();
-        Watch(flow.Id, ended);
-        try
-        {
-            // A launch has a write after the watch that a pause refuses; a reattach has none, so a
-            // pause or stop saved between this advance's read and the watch is read for here.
-            Flow? now = await flows.ShowAsync(principal, project, flow.Id, cancellationToken);
-            if (now is not { Status: FlowStatus.Running, Current: { AwaitsLaunchedSession: true, SessionId: Guid awaited } } || awaited != live.Handle.Id)
+                if (current is { SessionId: Guid id, AgentHash: not null, Model: not null })
+                {
+                    live = await executor.ReattachAsync(new SessionHandle(id, current.Performer), access, cancellationToken);
+                    settled = true;
+                }
+            }
+            catch (Exception) when (cancellationToken.IsCancellationRequested)
             {
-                await ended.CancelAsync();
+                throw;
+            }
+            catch (Exception failure)
+            {
+                logger.LogWarning(failure, "Reattaching the session of step '{Step}' on flow {Flow} failed.", step.Name, Ids.Short(flow.Id));
             }
 
-            return await RunJudgmentAsync(
-                principal, project, flow.Id, step, launched, judgmentLimit - (clock.GetUtcNow() - spawnedAt),
-                (spend, bounded) => Judgment.ReattachAsync(executor, live, schema, spend, cancellationToken, bounded),
-                ended.Token,
-                cancellationToken);
+            if (live is null || current is not { SpawnedAt: DateTimeOffset spawnedAt, AgentHash: string agentHash, Model: ModelSpec model })
+            {
+                // A session the executor did not say it no longer holds may still be running.
+                if (!settled && current.SessionId is Guid left)
+                {
+                    await StopSessionAsync(new SessionHandle(left, current.Performer));
+                }
+
+                string which = current switch
+                {
+                    { SessionId: Guid held, AgentHash: not null, Model: not null } => settled
+                        ? $"session {Ids.Short(held)}, which the executor no longer holds"
+                        : $"session {Ids.Short(held)}, which could not be reattached",
+                    { SessionId: Guid held } => $"session {Ids.Short(held)}, whose launch recorded no agent hash and model spec to record its answer with",
+                    _ => "a session the daemon stopped before it was recorded",
+                };
+                await PauseAsync(
+                    principal, project, flow.Id,
+                    $"Step '{step.Name}' lost the session agent '{current.Performer}' was launched in across a daemon restart ({which}), so its usage was not observed.",
+                    FlowLevers.PerformAgain(step.Name),
+                    cancellationToken);
+                return null;
+            }
+
+            var launched = new Launched(step.Name, current.Performer, agentHash, model, ceiling: null) { Session = live.Handle, Recorded = true };
+            string schema = step.AnswerSchema ?? string.Empty;
+            using var ended = new CancellationTokenSource();
+            Watch(flow.Id, ended);
+            try
+            {
+                // A launch has a write after the watch that a pause refuses; a reattach has none, so a
+                // pause or stop saved between this advance's read and the watch is read for here.
+                Flow? now = await flows.ShowAsync(principal, project, flow.Id, cancellationToken);
+                if (now is not { Status: FlowStatus.Running, Current: { AwaitsLaunchedSession: true, SessionId: Guid awaited } } || awaited != live.Handle.Id)
+                {
+                    await ended.CancelAsync();
+                }
+
+                return await RunJudgmentAsync(
+                    principal, project, flow.Id, step, launched, judgmentLimit - (clock.GetUtcNow() - spawnedAt),
+                    (spend, bounded) => Judgment.ReattachAsync(executor, live, schema, spend, cancellationToken, bounded),
+                    ended.Token,
+                    cancellationToken);
+            }
+            finally
+            {
+                Unwatch(flow.Id, ended);
+            }
         }
         finally
         {
-            Unwatch(flow.Id, ended);
+            if (launch is Guid issued)
+            {
+                sessionTokens.Revoke(issued);
+            }
         }
     }
 
