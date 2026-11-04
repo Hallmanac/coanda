@@ -20,6 +20,6 @@ public sealed record DaemonOptions
     /// </summary>
     public IReadOnlyList<IGate> Gates { get; init; } = [];
 
-    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flight pauses.</summary>
+    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flow pauses.</summary>
     public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;
 }

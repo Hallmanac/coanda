@@ -73,6 +73,6 @@ public sealed class ShippedAgentsTests
     {
         ShippedDefinition.ShippedAgentDefinitions.Select(d => (d.Kind, d.Name, d.ContentHash))
             .Should().Equal(ShippedAgents.All.Select(a => (DefinitionKind.Agent, a.Name, a.Hash)));
-        ShippedDefinition.All.Should().HaveCount(ShippedTypes.All.Count + ShippedFlows.All.Count + ShippedAgents.All.Count);
+        ShippedDefinition.All.Should().HaveCount(ShippedTypes.All.Count + ShippedContours.All.Count + ShippedAgents.All.Count);
     }
 }

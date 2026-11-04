@@ -1,5 +1,5 @@
 using Coanda.Core.Definitions;
-using Coanda.Core.Flights;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Triggers;
 using Fisher;
@@ -32,7 +32,7 @@ public static class StoreConfiguration
         options.Policies.AllDocumentsAreMultiTenanted();
         options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<Flight>(SnapshotLifecycle.Inline);
+        options.Projections.Snapshot<Flow>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<ExternalEvent>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Subscription>(SnapshotLifecycle.Inline);
     }

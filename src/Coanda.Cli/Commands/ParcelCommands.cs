@@ -101,7 +101,7 @@ public sealed class ParcelShowCommand : AsyncCommand<ParcelIdSettings>
             table.AddRow("Resolution", $"{parcel.Resolution}: {Markup.Escape(parcel.CloseReason ?? string.Empty)}");
         }
 
-        table.AddRow("Flight", parcel.LiveFlightId is Guid flight ? flight.ToString() : "none");
+        table.AddRow("Flow", parcel.LiveFlowId is Guid flow ? flow.ToString() : "none");
 
         AnsiConsole.Write(table);
         return 0;
@@ -171,17 +171,17 @@ public sealed class TypeListCommand : AsyncCommand<ProjectSettings>
     }
 }
 
-public sealed class FlowListCommand : AsyncCommand<ProjectSettings>
+public sealed class ContourListCommand : AsyncCommand<ProjectSettings>
 {
     protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSettings settings, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
         string project = settings.ResolveProject();
-        List<FlowView> flows = await client.GetAsync<List<FlowView>>($"/flows?project={Uri.EscapeDataString(project)}", cancellationToken);
-        var table = new Table().AddColumns("Flow", "Version", "Hash");
-        foreach (FlowView flow in flows)
+        List<ContourView> contours = await client.GetAsync<List<ContourView>>($"/contours?project={Uri.EscapeDataString(project)}", cancellationToken);
+        var table = new Table().AddColumns("Contour", "Version", "Hash");
+        foreach (ContourView contour in contours)
         {
-            table.AddRow(flow.Name, flow.Version.ToString(), flow.Hash);
+            table.AddRow(contour.Name, contour.Version.ToString(), contour.Hash);
         }
 
         AnsiConsole.Write(table);

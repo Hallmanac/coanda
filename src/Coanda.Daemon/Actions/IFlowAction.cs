@@ -7,7 +7,7 @@ namespace Coanda.Daemon.Actions;
 /// </summary>
 public interface IFlowAction
 {
-    /// <summary>The action name a flow step names, from the core or a domain catalog.</summary>
+    /// <summary>The action name a contour step names, from the core or a domain catalog.</summary>
     string Name { get; }
 
     ValueTask<ActionOutcome> PerformAsync(ActionRequest request, CancellationToken cancellationToken);

@@ -1,7 +1,7 @@
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
-using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Software;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
@@ -192,74 +192,74 @@ public sealed class DefinitionDeciderTests
         CommandRegistry.Require("definition.retire", Principal.LocalOwner).Should().NotBeNull();
     }
 
-    private static DefinitionDrafted DraftFlow(FlowDefinition flow, string? name = null, string? hash = null) =>
+    private static DefinitionDrafted DraftContour(Contour contour, string? name = null, string? hash = null) =>
         DefinitionDecider.Draft(
-            DefinitionKind.Flow, name ?? flow.Name, DefinitionScope.Project, "alpha", 0,
-            FlowDefinition.CanonicalJson(flow), hash ?? flow.Hash, null, "brian", Now);
+            DefinitionKind.Contour, name ?? contour.Name, DefinitionScope.Project, "alpha", 0,
+            Contour.CanonicalJson(contour), hash ?? contour.Hash, null, "brian", Now);
 
     [Fact]
-    public void A_valid_flow_is_drafted_with_its_hash_and_content_that_reads_back()
+    public void A_valid_contour_is_drafted_with_its_hash_and_content_that_reads_back()
     {
-        DefinitionDrafted drafted = DraftFlow(ShippedFlows.Build);
+        DefinitionDrafted drafted = DraftContour(ShippedContours.Build);
 
-        drafted.Kind.Should().Be(DefinitionKind.Flow);
-        drafted.ContentHash.Should().Be(ShippedFlows.Build.Hash);
-        FlowDefinition.FromJson(drafted.Content).Hash.Should().Be(ShippedFlows.Build.Hash);
+        drafted.Kind.Should().Be(DefinitionKind.Contour);
+        drafted.ContentHash.Should().Be(ShippedContours.Build.Hash);
+        Contour.FromJson(drafted.Content).Hash.Should().Be(ShippedContours.Build.Hash);
     }
 
     [Fact]
-    public void A_flow_that_fails_validation_is_refused_quoting_the_validation_message()
+    public void A_contour_that_fails_validation_is_refused_quoting_the_validation_message()
     {
-        FlowDefinition broken = ShippedFlows.Build with { Budget = 0 };
+        Contour broken = ShippedContours.Build with { Budget = 0 };
 
-        FluentActions.Invoking(() => DraftFlow(broken))
-            .Should().Throw<DomainException>().WithMessage("Flow 'build' needs a budget greater than zero; every flow declares one.");
+        FluentActions.Invoking(() => DraftContour(broken))
+            .Should().Throw<DomainException>().WithMessage("Contour 'build' needs a budget greater than zero; every contour declares one.");
     }
 
     [Fact]
-    public void A_flow_naming_an_action_in_neither_catalog_is_refused()
+    public void A_contour_naming_an_action_in_neither_catalog_is_refused()
     {
-        FlowStep[] steps = [.. ShippedFlows.Build.Steps.Select(s => s.Action == SoftwareActions.Gates ? s with { Action = "teleport" } : s)];
+        ContourStep[] steps = [.. ShippedContours.Build.Steps.Select(s => s.Action == SoftwareActions.Gates ? s with { Action = "teleport" } : s)];
 
-        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build with { Steps = steps }))
+        FluentActions.Invoking(() => DraftContour(ShippedContours.Build with { Steps = steps }))
             .Should().Throw<DomainException>().WithMessage("*names the action 'teleport', which is not a known action*");
     }
 
     [Fact]
-    public void A_flow_whose_content_hash_differs_from_its_content_is_refused()
+    public void A_contour_whose_content_hash_differs_from_its_content_is_refused()
     {
-        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build, hash: "0123456789abcdef"))
-            .Should().Throw<DomainException>().WithMessage("The content hash '0123456789abcdef' differs from the flow's hash*");
+        FluentActions.Invoking(() => DraftContour(ShippedContours.Build, hash: "0123456789abcdef"))
+            .Should().Throw<DomainException>().WithMessage("The content hash '0123456789abcdef' differs from the contour's hash*");
     }
 
     [Fact]
-    public void A_flow_whose_content_cannot_be_read_is_refused()
+    public void A_contour_whose_content_cannot_be_read_is_refused()
     {
         string[] contents = ["not json", "null", "{\"Name\":\"build\",\"Steps\":[{\"Name\":\"s\",\"Condition\":\"x\"}]}"];
         foreach (string content in contents)
         {
             FluentActions.Invoking(() => DefinitionDecider.Draft(
-                    DefinitionKind.Flow, "build", DefinitionScope.Project, "alpha", 0, content, "abc", null, "brian", Now))
-                .Should().Throw<DomainException>().WithMessage("The content*flow*");
+                    DefinitionKind.Contour, "build", DefinitionScope.Project, "alpha", 0, content, "abc", null, "brian", Now))
+                .Should().Throw<DomainException>().WithMessage("The content*contour*");
         }
     }
 
     [Fact]
-    public void A_flow_definition_named_for_a_different_flow_is_refused()
+    public void A_contour_definition_named_for_a_different_contour_is_refused()
     {
-        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build, name: "ship"))
-            .Should().Throw<DomainException>().WithMessage("A flow definition is named for its flow*");
+        FluentActions.Invoking(() => DraftContour(ShippedContours.Build, name: "ship"))
+            .Should().Throw<DomainException>().WithMessage("A contour definition is named for its contour*");
     }
 
     [Fact]
-    public void Seeding_a_shipped_flow_produces_a_published_shipped_scope_definition()
+    public void Seeding_a_shipped_contour_produces_a_published_shipped_scope_definition()
     {
         (DefinitionDrafted drafted, DefinitionPublished published) =
-            DefinitionDecider.Seed(ShippedDefinition.FromFlow(ShippedFlows.Discovery), 0, "seed", Now);
+            DefinitionDecider.Seed(ShippedDefinition.FromContour(ShippedContours.Discovery), 0, "seed", Now);
 
-        drafted.Kind.Should().Be(DefinitionKind.Flow);
+        drafted.Kind.Should().Be(DefinitionKind.Contour);
         drafted.Scope.Should().Be(DefinitionScope.Shipped);
-        drafted.ContentHash.Should().Be(ShippedFlows.Discovery.Hash);
+        drafted.ContentHash.Should().Be(ShippedContours.Discovery.Hash);
         published.DefinitionId.Should().Be(drafted.DefinitionId);
     }
 

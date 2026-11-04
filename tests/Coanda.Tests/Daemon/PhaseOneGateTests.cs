@@ -3,24 +3,24 @@ using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flights;
 using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
-using Coanda.Daemon.Flights;
-using Coanda.Tests.Daemon.Flights;
+using Coanda.Daemon.Flows;
+using Coanda.Tests.Daemon.Flows;
 using Fisher;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
-/// The phase 1 gate of the prototype plan (section 3): the shipped build flow runs end to end on
-/// canned answers with every cap enforced and refused at load without them. Every test runs on a
-/// throwaway node home with a <see cref="ScriptedExecutor"/>, and none touches a network or a repository.
+/// The phase 1 gate of the prototype plan (section 3): a flow of the shipped build contour runs end
+/// to end on canned answers with every cap enforced and refused at load without them. Every test
+/// runs on a throwaway node home with a <see cref="ScriptedExecutor"/>, and none touches a network or a repository.
 /// </summary>
 public sealed class PhaseOneGateTests
 {
@@ -33,24 +33,24 @@ public sealed class PhaseOneGateTests
     private static ScriptedExecutor Executor(params (string Agent, ScriptEntry[] Entries)[] script) =>
         new(script.ToDictionary(s => s.Agent, s => (IReadOnlyList<ScriptEntry>)s.Entries));
 
-    // 1. The clean path, with no flow start.
+    // 1. The clean path, with no contour start.
 
     [Fact]
-    public async Task A_task_moved_to_build_runs_the_shipped_build_flow_to_its_end_recording_every_hash_and_measurement()
+    public async Task A_task_moved_to_build_runs_the_shipped_build_contour_to_its_end_recording_every_hash_and_measurement()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Through the gate");
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Through the gate");
 
-        FlightView flight = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "ended");
+        FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        flight.Outcome.Should().Be("pr-opened");
-        flight.FlowHash.Should().Be(ShippedFlows.Build.Hash);
+        flow.Outcome.Should().Be("pr-opened");
+        flow.ContourHash.Should().Be(ShippedContours.Build.Hash);
         (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("review");
-        FlightStepView[] judgments = [.. flight.Steps.Where(s => s.Kind == "judgment")];
+        FlowStepView[] judgments = [.. flow.Steps.Where(s => s.Kind == "judgment")];
         judgments.Select(s => s.Performer).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance");
-        foreach ((FlightStepView judgment, int ordinal) in judgments.Select((j, i) => (j, i + 1)))
+        foreach ((FlowStepView judgment, int ordinal) in judgments.Select((j, i) => (j, i + 1)))
         {
             AgentDefinition agent = ShippedAgents.All.Single(a => a.Name == judgment.Performer);
             judgment.AgentHash.Should().Be(agent.Hash);
@@ -70,39 +70,39 @@ public sealed class PhaseOneGateTests
         ("fix", [.. Enumerable.Range(1, 6).Select(n => Costing("done", 0.5m, n))]));
 
     [Fact]
-    public async Task A_review_that_is_never_clean_pauses_the_shipped_build_flow_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
+    public async Task A_review_that_is_never_clean_pauses_a_flow_of_the_shipped_build_contour_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never clean");
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
 
-        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
         paused.Lever.Should().NotBeNullOrWhiteSpace();
-        paused.Spawns.Should().BeLessThan(ShippedFlows.Build.SpawnCap, "the visit cap binds before the spawn cap");
-        paused.Cost.Should().BeLessThan(ShippedFlows.Build.Budget);
+        paused.Spawns.Should().BeLessThan(ShippedContours.Build.SpawnCap, "the visit cap binds before the spawn cap");
+        paused.Cost.Should().BeLessThan(ShippedContours.Build.Budget);
         executor.Spawns.Should().HaveCount(paused.Spawns);
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_project_copy_of_the_build_flow_whose_spawn_cap_binds_first_pauses_on_the_same_script_naming_the_spawn_cap()
+    public async Task A_project_copy_of_the_build_contour_whose_spawn_cap_binds_first_pauses_on_the_same_script_naming_the_spawn_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
-        FlowDefinition copy = await Publishing.FlowAsync(daemon, Project, ShippedFlows.Build with { SpawnCap = 4 });
-        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
+        Contour copy = await Publishing.ContourAsync(daemon, Project, ShippedContours.Build with { SpawnCap = 4 });
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
 
-        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        paused.FlowHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
-        paused.PauseReason.Should().Be("Flow 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
+        paused.ContourHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
+        paused.PauseReason.Should().Be("Contour 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
         paused.Lever.Should().NotBeNullOrWhiteSpace();
         paused.Steps.Count(s => s.Step == "adversarial-review").Should().BeLessThan(4, "the visit cap of 3 was never reached");
         executor.Spawns.Should().HaveCount(4);
@@ -113,64 +113,64 @@ public sealed class PhaseOneGateTests
     // 4. The depth cap on composition.
 
     [Fact]
-    public async Task A_flow_following_its_own_outcome_runs_to_its_depth_cap_and_pauses_the_next_link_before_any_step_even_when_resumed()
+    public async Task A_contour_following_its_own_outcome_chains_to_its_depth_cap_and_pauses_the_next_link_before_any_step_even_when_resumed()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 5).Select(n => Costing("clean", 0.1m, n))]));
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
-        FlowDefinition loop = await Publishing.FlowAsync(daemon, Project, Reviewing("loop", "looped", 5m, new FlowFollow { Outcome = "looped", Flow = "loop", DepthCap = 2 }));
+        Contour loop = await Publishing.ContourAsync(daemon, Project, Reviewing("loop", "looped", 5m, new ContourFollow { Outcome = "looped", Contour = "loop", DepthCap = 2 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Round and round", null), None);
 
-        FlightView root = await Flying.StartAsync(client, Project, parcel.Id, loop.Name);
-        FlightView capped = await AtDepthAsync(client, parcel.Id, 3);
-        capped = await Flying.UntilAsync(client, Project, capped.Id, "paused");
+        FlowView root = await Flowing.StartAsync(client, Project, parcel.Id, loop.Name);
+        FlowView capped = await AtDepthAsync(client, parcel.Id, 3);
+        capped = await Flowing.UntilAsync(client, Project, capped.Id, "paused");
 
-        List<FlightView> flights = await Flying.OfParcelAsync(client, Project, parcel.Id);
-        flights.Select(f => f.Depth).Should().Equal(0, 1, 2, 3);
-        flights.Take(3).Should().OnlyContain(f => f.Status == "ended" && f.Outcome == "looped");
-        flights.Should().OnlyContain(f => f.RootFlightId == root.Id);
-        capped.ParentFlightId.Should().Be(flights[2].Id);
+        List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
+        flows.Select(f => f.Depth).Should().Equal(0, 1, 2, 3);
+        flows.Take(3).Should().OnlyContain(f => f.Status == "ended" && f.Outcome == "looped");
+        flows.Should().OnlyContain(f => f.RootFlowId == root.Id);
+        capped.ParentFlowId.Should().Be(flows[2].Id);
         capped.PauseReason.Should().Be(
-            $"Flight {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of flow 'loop'; a flight deeper than its follow's depth cap performs no step.");
-        capped.Lever.Should().Be(FlightLevers.DepthCapReached("loop"));
-        FlightStepView first = capped.Steps.Should().ContainSingle().Subject;
+            $"Flow {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of contour 'loop'; a flow deeper than its follow's depth cap performs no step.");
+        capped.Lever.Should().Be(FlowLevers.DepthCapReached("loop"));
+        FlowStepView first = capped.Steps.Should().ContainSingle().Subject;
         first.Answer.Should().BeNull();
         first.Result.Should().BeNull();
-        executor.Spawns.Should().HaveCount(3, "only the flights at depths 0, 1, and 2 spawned");
+        executor.Spawns.Should().HaveCount(3, "only the flows at depths 0, 1, and 2 spawned");
 
-        FlightService service = daemon.Services.GetRequiredService<FlightService>();
-        Flight resumed = await service.ResumeAsync(Principal.LocalOwner, Project, capped.Id, "Go on anyway.", None);
-        FlightView again = await PausedAfterAsync(client, capped.Id, resumed.UpdatedAt);
+        FlowService service = daemon.Services.GetRequiredService<FlowService>();
+        Flow resumed = await service.ResumeAsync(Principal.LocalOwner, Project, capped.Id, "Go on anyway.", None);
+        FlowView again = await PausedAfterAsync(client, capped.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(capped.PauseReason, "a resume is no override of the depth cap");
         again.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
-        executor.Spawns.Should().HaveCount(3, "the depth-capped flight never spawns");
-        (await Flying.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "no flight starts at depth 4");
+        executor.Spawns.Should().HaveCount(3, "the depth-capped flow never spawns");
+        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "no flow starts at depth 4");
 
         await daemon.StopAsync(None);
     }
 
-    // 5. The per-flight budget and the budget a chain shares.
+    // 5. The per-flow budget and the budget a chain shares.
 
     [Fact]
-    public async Task A_build_flight_whose_first_judgment_costs_its_whole_budget_pauses_at_its_next_judgment_without_spawning()
+    public async Task A_build_flow_whose_first_judgment_costs_its_whole_budget_pauses_at_its_next_judgment_without_spawning()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(
-            ("build", [Costing("done", ShippedFlows.Build.Budget, 1)]),
+            ("build", [Costing("done", ShippedContours.Build.Budget, 1)]),
             ("reviewer-adversarial", [Costing("clean", 0.1m, 2)]),
             ("reviewer-conformance", [Costing("clean", 0.1m, 3)]));
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Spent at once");
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Spent at once");
 
-        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.CurrentStep.Should().Be("adversarial-review");
         paused.PauseReason.Should().Be(
-            $"Flight {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flight performs no judgment once its recorded cost reaches its flow's budget.");
-        paused.Lever.Should().Be(FlightLevers.BudgetReached());
+            $"Flow {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow performs no judgment once its recorded cost reaches its contour's budget.");
+        paused.Lever.Should().Be(FlowLevers.BudgetReached());
         paused.Steps[^1].Answer.Should().BeNull();
         executor.Spawns.Select(s => s.Agent).Should().Equal("build");
 
@@ -178,25 +178,25 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_chain_whose_flights_stay_under_their_own_budgets_pauses_at_its_next_judgment_once_together_they_reach_the_roots_budget()
+    public async Task A_chain_whose_flows_stay_under_their_own_budgets_pauses_at_its_next_judgment_once_together_they_reach_the_roots_budget()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 4).Select(n => Costing("clean", 0.6m, n))]));
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
-        FlowDefinition seed = await Publishing.FlowAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
-        await Publishing.FlowAsync(daemon, Project, Reviewing("grow", "grown", 5m, new FlowFollow { Outcome = "grown", DepthCap = 5 }));
+        Contour seed = await Publishing.ContourAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
+        await Publishing.ContourAsync(daemon, Project, Reviewing("grow", "grown", 5m, new ContourFollow { Outcome = "grown", DepthCap = 5 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Shared purse", null), None);
 
-        FlightView root = await Flying.StartAsync(client, Project, parcel.Id, seed.Name);
-        FlightView paused = await Flying.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "paused");
+        FlowView root = await Flowing.StartAsync(client, Project, parcel.Id, seed.Name);
+        FlowView paused = await Flowing.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "paused");
 
-        List<FlightView> flights = await Flying.OfParcelAsync(client, Project, parcel.Id);
-        flights.Select(f => (f.Flow, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
-        flights.Should().OnlyContain(f => f.Cost < 1m, "each flight stays under its own budget");
+        List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
+        flows.Select(f => (f.ContourName, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
+        flows.Should().OnlyContain(f => f.Cost < 1m, "each flow stays under its own budget");
         paused.PauseReason.Should().Be(
-            $"The chain of flight {Ids.Short(paused.Id)}, rooted at flight {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flights, which reaches the budget of $1.00 of flow 'seed' that its root flight runs; a chain performs no judgment once its recorded cost reaches that budget.");
-        paused.Lever.Should().Be(FlightLevers.BudgetReached());
+            $"The chain of flow {Ids.Short(paused.Id)}, rooted at flow {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flows, which reaches the budget of $1.00 of contour 'seed' that its root flow runs; a chain performs no judgment once its recorded cost reaches that budget.");
+        paused.Lever.Should().Be(FlowLevers.BudgetReached());
         executor.Spawns.Should().HaveCount(2);
 
         await daemon.StopAsync(None);
@@ -214,22 +214,22 @@ public sealed class PhaseOneGateTests
         ]));
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flying.TaskAtBuildAsync(client, Project, "Never answers");
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never answers");
 
-        FlightView paused = await Flying.UntilAsync(client, Project, (await Flying.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.CurrentStep.Should().Be("build");
         paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry");
         paused.PauseUsage.Should().Be(new Measurement(1000, 25m, 5, TimeSpan.FromSeconds(60)), "the pause records both attempts' usage");
         paused.Cost.Should().Be(25m);
 
-        Flight resumed = await daemon.Services.GetRequiredService<FlightService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Try once more.", None);
-        FlightView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
+        Flow resumed = await daemon.Services.GetRequiredService<FlowService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Try once more.", None);
+        FlowView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(
-            $"Flight {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flight performs no judgment once its recorded cost reaches its flow's budget.");
+            $"Flow {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow performs no judgment once its recorded cost reaches its contour's budget.");
         again.Steps.Count(s => s.Step == "build").Should().Be(1);
-        executor.Spawns.Should().ContainSingle("a resume of a spent flight spawns nothing");
+        executor.Spawns.Should().ContainSingle("a resume of a spent flow spawns nothing");
 
         await daemon.StopAsync(None);
     }
@@ -238,54 +238,54 @@ public sealed class PhaseOneGateTests
 
     public static TheoryData<string, string, string> Uncapped => new()
     {
-        { "the budget removed", Without(ShippedFlows.Build, flow => flow.Remove("Budget")), "Flow 'build' needs a budget greater than zero; every flow declares one." },
-        { "the spawn cap removed", Without(ShippedFlows.Build, flow => flow.Remove("SpawnCap")), "Flow 'build' needs a spawn cap greater than zero; every flow declares one." },
+        { "the budget removed", Without(ShippedContours.Build, contour => contour.Remove("Budget")), "Contour 'build' needs a budget greater than zero; every contour declares one." },
+        { "the spawn cap removed", Without(ShippedContours.Build, contour => contour.Remove("SpawnCap")), "Contour 'build' needs a spawn cap greater than zero; every contour declares one." },
         {
             "one transition's visit cap removed",
-            Without(ShippedFlows.Build, flow => Transition(flow, "adversarial-review", "not-clean").Remove("VisitCap")),
-            "The transition of step 'adversarial-review' in flow 'build' on 'verdict' needs a visit cap greater than zero; every transition declares one."
+            Without(ShippedContours.Build, contour => Transition(contour, "adversarial-review", "not-clean").Remove("VisitCap")),
+            "The transition of step 'adversarial-review' in contour 'build' on 'verdict' needs a visit cap greater than zero; every transition declares one."
         },
         {
             "a follow with no depth cap",
-            Without(ShippedFlows.Build with { Name = "after-build", Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 } }, flow => flow["Follow"]?.AsObject().Remove("DepthCap")),
-            "Flow 'after-build' follows an outcome, so its follow needs a depth cap greater than zero; every composition declares one."
+            Without(ShippedContours.Build with { Name = "after-build", Follow = new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 } }, contour => contour["Follow"]?.AsObject().Remove("DepthCap")),
+            "Contour 'after-build' follows an outcome, so its follow needs a depth cap greater than zero; every composition declares one."
         },
     };
 
     [Theory]
     [MemberData(nameof(Uncapped))]
-    public async Task A_flow_drafted_without_a_cap_is_refused_quoting_the_rule_and_appends_no_event(string missing, string content, string rule)
+    public async Task A_contour_drafted_without_a_cap_is_refused_quoting_the_rule_and_appends_no_event(string missing, string content, string rule)
     {
         missing.Should().NotBeNullOrEmpty();
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
         var definitions = new DefinitionService(store, TimeProvider.System);
-        FlowDefinition read = FlowDefinition.FromJson(content);
+        Contour read = Contour.FromJson(content);
         long before = await store.Database.FetchHighestEventSequenceNumber(None);
 
         await FluentActions.Awaiting(() => definitions.DraftAsync(
-                Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, read.Name, content, read.Hash, null, None))
+                Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, read.Name, content, read.Hash, null, None))
             .Should().ThrowAsync<DomainException>().WithMessage(rule);
 
         (await store.Database.FetchHighestEventSequenceNumber(None)).Should().Be(before, "a refused draft records nothing");
     }
 
-    /// <summary>The flow's canonical content with something taken out of it, as a person editing the file might leave it.</summary>
-    private static string Without(FlowDefinition flow, Action<JsonObject> remove)
+    /// <summary>The contour's canonical content with something taken out of it, as a person editing the file might leave it.</summary>
+    private static string Without(Contour contour, Action<JsonObject> remove)
     {
-        JsonObject content = JsonNode.Parse(FlowDefinition.CanonicalJson(flow))?.AsObject()
-            ?? throw new InvalidOperationException("A flow's canonical content is a JSON object.");
+        JsonObject content = JsonNode.Parse(Contour.CanonicalJson(contour))?.AsObject()
+            ?? throw new InvalidOperationException("A contour's canonical content is a JSON object.");
         remove(content);
         return content.ToJsonString();
     }
 
-    private static JsonObject Transition(JsonObject flow, string step, string verdict) =>
-        flow["Steps"]?.AsArray().Single(s => (string?)s?["Name"] == step)?["Transitions"]?.AsArray()
+    private static JsonObject Transition(JsonObject contour, string step, string verdict) =>
+        contour["Steps"]?.AsArray().Single(s => (string?)s?["Name"] == step)?["Transitions"]?.AsArray()
             .Single(t => (string?)t?["Value"] == verdict)?.AsObject()
-        ?? throw new InvalidOperationException($"The flow has no transition of '{step}' on '{verdict}'.");
+        ?? throw new InvalidOperationException($"The contour has no transition of '{step}' on '{verdict}'.");
 
-    /// <summary>A flow of one adversarial review that ends on either verdict.</summary>
-    private static FlowDefinition Reviewing(string name, string outcome, decimal budget, FlowFollow? follow) => new()
+    /// <summary>A contour of one adversarial review that ends on either verdict.</summary>
+    private static Contour Reviewing(string name, string outcome, decimal budget, ContourFollow? follow) => new()
     {
         Name = name,
         Accepts = ["task"],
@@ -295,44 +295,44 @@ public sealed class PhaseOneGateTests
         Follow = follow,
         Steps =
         [
-            new FlowStep
+            new ContourStep
             {
                 Name = "review",
                 Agent = "reviewer-adversarial",
                 AnswerSchema = "review",
                 Transitions =
                 [
-                    new FlowTransition { Field = "verdict", Value = FlowValue.Of("clean"), VisitCap = 1, Target = FlowDefinition.End },
-                    new FlowTransition { Field = "verdict", Value = FlowValue.Of("not-clean"), VisitCap = 1, Target = FlowDefinition.End },
+                    new ContourTransition { Field = "verdict", Value = ContourValue.Of("clean"), VisitCap = 1, Target = Contour.End },
+                    new ContourTransition { Field = "verdict", Value = ContourValue.Of("not-clean"), VisitCap = 1, Target = Contour.End },
                 ],
             },
         ],
     };
 
-    private static async Task<FlightView> AtDepthAsync(DaemonClient client, Guid parcelId, int depth)
+    private static async Task<FlowView> AtDepthAsync(DaemonClient client, Guid parcelId, int depth)
     {
-        FlightView? found = null;
-        await Flying.UntilAsync(
+        FlowView? found = null;
+        await Flowing.UntilAsync(
             async () =>
             {
-                found = (await Flying.OfParcelAsync(client, Project, parcelId)).SingleOrDefault(f => f.Depth == depth);
+                found = (await Flowing.OfParcelAsync(client, Project, parcelId)).SingleOrDefault(f => f.Depth == depth);
                 return found is not null;
             },
-            $"a flight at depth {depth} starts on parcel {parcelId}");
-        return found ?? throw new InvalidOperationException("The wait ended with no flight at that depth.");
+            $"a flow at depth {depth} starts on parcel {parcelId}");
+        return found ?? throw new InvalidOperationException("The wait ended with no flow at that depth.");
     }
 
-    /// <summary>Waits for the flight to pause again after a resume recorded at <paramref name="resumedAt"/>.</summary>
-    private static async Task<FlightView> PausedAfterAsync(DaemonClient client, Guid flightId, DateTimeOffset resumedAt)
+    /// <summary>Waits for the flow to pause again after a resume recorded at <paramref name="resumedAt"/>.</summary>
+    private static async Task<FlowView> PausedAfterAsync(DaemonClient client, Guid flowId, DateTimeOffset resumedAt)
     {
-        FlightView? found = null;
-        await Flying.UntilAsync(
+        FlowView? found = null;
+        await Flowing.UntilAsync(
             async () =>
             {
-                found = await Flying.ShowAsync(client, Project, flightId);
+                found = await Flowing.ShowAsync(client, Project, flowId);
                 return found is { Status: "paused" } && found.UpdatedAt > resumedAt;
             },
-            $"flight {flightId} pauses again after its resume");
-        return found ?? throw new InvalidOperationException("The wait ended with no flight.");
+            $"flow {flowId} pauses again after its resume");
+        return found ?? throw new InvalidOperationException("The wait ended with no flow.");
     }
 }

@@ -1,6 +1,6 @@
 using Coanda.Core.Agents;
-using Coanda.Core.Flights;
 using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Daemon.Executors;
@@ -14,7 +14,7 @@ public sealed class ContextAssemblerTests
     private static Parcel TaskParcel() => Parcel.Create(new ParcelCreated(
         ParcelId, "coanda", "task", "0123456789abcdef", "build", "Teach the daemon to reach agents", "brian", DateTimeOffset.UnixEpoch));
 
-    private static readonly FlowStep Step = new() { Name = "review-adversarial", Agent = "persona-probe", AnswerSchema = AnswerSchemas.Review };
+    private static readonly ContourStep Step = new() { Name = "review-adversarial", Agent = "persona-probe", AnswerSchema = AnswerSchemas.Review };
 
     [Fact]
     public void The_body_labels_the_parcel_and_the_step_in_order_and_holds_nothing_else()

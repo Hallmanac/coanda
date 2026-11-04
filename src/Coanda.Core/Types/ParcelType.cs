@@ -7,7 +7,7 @@ namespace Coanda.Core.Types;
 /// <summary>
 /// The definition of a kind of parcel: its lifecycle (states, allowed moves, entry states, the
 /// one terminal state and its resolutions), the paused state reachable from any live state, and
-/// its bindings: a flow to start when a parcel enters a state, and a gate that must pass before a
+/// its bindings: a contour to start when a parcel enters a state, and a gate that must pass before a
 /// move. Fields arrive later in phase 1. A type is data; the two shipped types are built in
 /// <see cref="ShippedTypes"/> and a user's type is the same shape.
 /// </summary>
@@ -22,8 +22,8 @@ public sealed record ParcelType
     /// <summary>Allowed moves between live states, as from-state to the set of to-states.</summary>
     public required IReadOnlyDictionary<string, IReadOnlyList<string>> Moves { get; init; }
 
-    /// <summary>The flow started on a parcel when it enters a state; at most one per state.</summary>
-    public IReadOnlyList<FlowBinding> FlowBindings { get; init; } = [];
+    /// <summary>The contour started on a parcel when it enters a state; at most one per state.</summary>
+    public IReadOnlyList<ContourBinding> ContourBindings { get; init; } = [];
 
     /// <summary>The gates that must pass before a move the move table holds, or before a close from a live state.</summary>
     public IReadOnlyList<GateBinding> GateBindings { get; init; } = [];
@@ -87,7 +87,7 @@ public sealed record ParcelType
     /// <summary>
     /// Refuses a type that breaks a rule, with a <see cref="DomainException"/> quoting it.
     /// <paramref name="knownGates"/> is every gate name the caller runs; a gate binding naming any
-    /// other is refused, the way a flow is validated against the action names.
+    /// other is refused, the way a contour is validated against the action names.
     /// </summary>
     public void Validate(IReadOnlySet<string> knownGates)
     {
@@ -129,38 +129,38 @@ public sealed record ParcelType
             }
         }
 
-        ValidateFlowBindings();
+        ValidateContourBindings();
         ValidateGateBindings(knownGates);
     }
 
-    private void ValidateFlowBindings()
+    private void ValidateContourBindings()
     {
-        foreach (FlowBinding? binding in FlowBindings)
+        foreach (ContourBinding? binding in ContourBindings)
         {
             // Read content can carry a null element or a missing field, whatever the annotations say.
-            if (binding?.State is null || binding.Flow is null)
+            if (binding?.State is null || binding.Contour is null)
             {
-                throw new DomainException($"Parcel type '{Name}' has a flow binding without a state or a flow; each binding names both.");
+                throw new DomainException($"Parcel type '{Name}' has a contour binding without a state or a contour; each binding names both.");
             }
 
             if (!IsState(binding.State) || IsTerminal(binding.State))
             {
                 throw new DomainException(
-                    $"Parcel type '{Name}' binds a flow to '{binding.State}', which is not one of its live states; a flow binds to a state the type has, never its terminal state.");
+                    $"Parcel type '{Name}' binds a contour to '{binding.State}', which is not one of its live states; a contour binds to a state the type has, never its terminal state.");
             }
 
-            if (string.IsNullOrWhiteSpace(binding.Flow))
+            if (string.IsNullOrWhiteSpace(binding.Contour))
             {
-                throw new DomainException($"Parcel type '{Name}' binds a flow to '{binding.State}' without naming the flow.");
+                throw new DomainException($"Parcel type '{Name}' binds a contour to '{binding.State}' without naming the contour.");
             }
         }
 
-        string? twice = FlowBindings
+        string? twice = ContourBindings
             .GroupBy(b => b.State, StringComparer.Ordinal)
             .FirstOrDefault(g => g.Count() > 1)?.Key;
         if (twice is not null)
         {
-            throw new DomainException($"Parcel type '{Name}' binds more than one flow to '{twice}'; a state carries at most one flow binding.");
+            throw new DomainException($"Parcel type '{Name}' binds more than one contour to '{twice}'; a state carries at most one contour binding.");
         }
     }
 
@@ -204,9 +204,9 @@ public sealed record ParcelType
             ["paused"] = PausedState,
             ["moves"] = Moves.OrderBy(m => m.Key, StringComparer.Ordinal).ToDictionary(m => m.Key, m => m.Value),
         };
-        if (FlowBindings.Count > 0)
+        if (ContourBindings.Count > 0)
         {
-            lifecycle["flows"] = FlowBindings.Select(b => new[] { b.State, b.Flow }).ToList();
+            lifecycle["contours"] = ContourBindings.Select(b => new[] { b.State, b.Contour }).ToList();
         }
 
         if (GateBindings.Count > 0)

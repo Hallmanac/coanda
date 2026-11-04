@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flights;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Daemon.Api;
@@ -12,7 +12,7 @@ public sealed record ParcelMoveRequest(string Project, Guid ParcelId, string To)
 
 public sealed record ParcelCloseRequest(string Project, Guid ParcelId, string Resolution, string Reason);
 
-public sealed record FlightStartRequest(string Project, Guid ParcelId, string Flow);
+public sealed record FlowStartRequest(string Project, Guid ParcelId, string Contour);
 
 public sealed record ParcelView(
     Guid Id,
@@ -26,61 +26,61 @@ public sealed record ParcelView(
     DateTimeOffset UpdatedAt,
     string? Resolution,
     string? CloseReason,
-    Guid? LiveFlightId)
+    Guid? LiveFlowId)
 {
     public static ParcelView From(Parcel parcel) => new(
         parcel.Id, parcel.Project, parcel.TypeName, parcel.TypeHash, parcel.State, parcel.Title,
-        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlightId);
+        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlowId);
 }
 
 /// <summary>
-/// A flight as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or
-/// stopped; a running or paused flight is the live one its parcel names. A flight a follow started
-/// carries its <see cref="ParentFlightId"/>, and every flight its <see cref="RootFlightId"/> and
+/// A flow as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or
+/// stopped; a running or paused flow is the live one its parcel names. A flow a follow started
+/// carries its <see cref="ParentFlowId"/>, and every flow its <see cref="RootFlowId"/> and
 /// <see cref="Depth"/>, zero for a root.
 /// </summary>
-public sealed record FlightView(
+public sealed record FlowView(
     Guid Id,
     string Project,
     Guid ParcelId,
-    string Flow,
-    int FlowVersion,
-    string FlowHash,
+    string ContourName,
+    int ContourVersion,
+    string ContourHash,
     string Status,
     string CurrentStep,
     int Spawns,
     string StartedBy,
     DateTimeOffset StartedAt,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<FlightStepView> Steps,
+    IReadOnlyList<FlowStepView> Steps,
     string? PauseReason,
     string? Lever,
     string? Outcome,
     string? StopReason,
-    Guid? ParentFlightId,
-    Guid RootFlightId,
+    Guid? ParentFlowId,
+    Guid RootFlowId,
     int Depth,
     decimal Cost,
     Measurement? PauseUsage)
 {
-    public static FlightView From(string project, Flight flight) => new(
-        flight.Id, project, flight.ParcelId, flight.FlowName, flight.FlowVersion, flight.FlowHash,
-        StatusName(flight.Status), flight.CurrentStep, flight.Spawns, flight.StartedBy, flight.StartedAt, flight.UpdatedAt,
-        [.. flight.Steps.Select(FlightStepView.From)], flight.PauseReason, flight.Lever, flight.Outcome, flight.StopReason,
-        flight.ParentFlightId, flight.RootFlightId, flight.Depth, flight.Cost, flight.PauseUsage);
+    public static FlowView From(string project, Flow flow) => new(
+        flow.Id, project, flow.ParcelId, flow.ContourName, flow.ContourVersion, flow.ContourHash,
+        StatusName(flow.Status), flow.CurrentStep, flow.Spawns, flow.StartedBy, flow.StartedAt, flow.UpdatedAt,
+        [.. flow.Steps.Select(FlowStepView.From)], flow.PauseReason, flow.Lever, flow.Outcome, flow.StopReason,
+        flow.ParentFlowId, flow.RootFlowId, flow.Depth, flow.Cost, flow.PauseUsage);
 
-    public static string StatusName(FlightStatus status) => status switch
+    public static string StatusName(FlowStatus status) => status switch
     {
-        FlightStatus.Running => "running",
-        FlightStatus.Paused => "paused",
-        FlightStatus.Ended => "ended",
-        FlightStatus.Stopped => "stopped",
+        FlowStatus.Running => "running",
+        FlowStatus.Paused => "paused",
+        FlowStatus.Ended => "ended",
+        FlowStatus.Stopped => "stopped",
         _ => status.ToString().ToLowerInvariant(),
     };
 }
 
-/// <summary>One step a flight entered, with its answer and measurement (a judgment) or its result (an action) once recorded.</summary>
-public sealed record FlightStepView(
+/// <summary>One step a flow entered, with its answer and measurement (a judgment) or its result (an action) once recorded.</summary>
+public sealed record FlowStepView(
     string Step,
     string Kind,
     string Performer,
@@ -92,7 +92,7 @@ public sealed record FlightStepView(
     JsonElement? Result,
     DateTimeOffset? RecordedAt)
 {
-    public static FlightStepView From(FlightStepEntry entry) => new(
+    public static FlowStepView From(FlowStepEntry entry) => new(
         entry.Step,
         entry.Kind == StepKind.Judgment ? "judgment" : "action",
         entry.Performer, entry.StartedAt, entry.AgentHash, entry.Model, entry.Answer, entry.Measurement, entry.Result, entry.RecordedAt);
@@ -100,7 +100,7 @@ public sealed record FlightStepView(
 
 public sealed record TypeView(string Name, string Hash, IReadOnlyList<string> States, IReadOnlyList<string> Resolutions);
 
-public sealed record FlowView(string Name, int Version, string Hash);
+public sealed record ContourView(string Name, int Version, string Hash);
 
 public sealed record AgentView(string Name, int Version, ModelSpec Model, string Hash)
 {

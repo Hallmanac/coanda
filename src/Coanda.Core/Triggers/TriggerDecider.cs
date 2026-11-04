@@ -1,4 +1,4 @@
-using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Registry;
 using Coanda.Core.Triggers.Events;
 
@@ -7,9 +7,9 @@ namespace Coanda.Core.Triggers;
 /// <summary>
 /// The rules for recording an external event and a subscription, as pure decisions: the event that
 /// records the intent, or a <see cref="DomainException"/> quoting the rule. Neither may use
-/// <see cref="TriggerEvent.ParcelEnteredKind"/> or <see cref="TriggerEvent.FlightEndedKind"/>: those
+/// <see cref="TriggerEvent.ParcelEnteredKind"/> or <see cref="TriggerEvent.FlowEndedKind"/>: those
 /// are what the daemon's own record reads as, a subscription that created parcels from them could
-/// feed itself, and a recorded event of either kind would pass for a parcel entry or a flight end.
+/// feed itself, and a recorded event of either kind would pass for a parcel entry or a flow end.
 /// </summary>
 public static class TriggerDecider
 {
@@ -18,7 +18,7 @@ public static class TriggerDecider
     {
         string trimmedProject = RequireProject(project);
 
-        if (!FlowDefinition.IsPlainName(kind))
+        if (!Contour.IsPlainName(kind))
         {
             throw new DomainException(
                 $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores); '{kind}' is not.");
@@ -30,13 +30,13 @@ public static class TriggerDecider
                 $"The kind '{TriggerEvent.ParcelEnteredKind}' is what a parcel's own creation and moves read as; an external event cannot use it.");
         }
 
-        if (string.Equals(kind, TriggerEvent.FlightEndedKind, StringComparison.Ordinal))
+        if (string.Equals(kind, TriggerEvent.FlowEndedKind, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"The kind '{TriggerEvent.FlightEndedKind}' is what a flight's own end reads as; an external event cannot use it.");
+                $"The kind '{TriggerEvent.FlowEndedKind}' is what a flow's own end reads as; an external event cannot use it.");
         }
 
-        string? notPlain = fields.Keys.FirstOrDefault(name => !FlowDefinition.IsPlainName(name));
+        string? notPlain = fields.Keys.FirstOrDefault(name => !Contour.IsPlainName(name));
         if (notPlain is not null)
         {
             throw new DomainException(
@@ -52,7 +52,7 @@ public static class TriggerDecider
         Trigger trigger,
         string parcelType,
         string titleField,
-        string flow,
+        string contour,
         Principal recordedBy,
         DateTimeOffset now)
     {
@@ -69,13 +69,13 @@ public static class TriggerDecider
                 $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.ParcelEnteredKind}', which a parcel's own creation and moves read as.");
         }
 
-        if (string.Equals(trigger.EventKind, TriggerEvent.FlightEndedKind, StringComparison.Ordinal))
+        if (string.Equals(trigger.EventKind, TriggerEvent.FlowEndedKind, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.FlightEndedKind}', which a flight's own end reads as.");
+                $"A subscription sees external events only; it cannot trigger on '{TriggerEvent.FlowEndedKind}', which a flow's own end reads as.");
         }
 
-        string? notPlain = trigger.Filters.Keys.FirstOrDefault(name => !FlowDefinition.IsPlainName(name));
+        string? notPlain = trigger.Filters.Keys.FirstOrDefault(name => !Contour.IsPlainName(name));
         if (notPlain is not null)
         {
             throw new DomainException(
@@ -92,9 +92,9 @@ public static class TriggerDecider
             throw new DomainException("A subscription names the event field whose value titles the parcel it creates; none was given.");
         }
 
-        if (string.IsNullOrWhiteSpace(flow))
+        if (string.IsNullOrWhiteSpace(contour))
         {
-            throw new DomainException("A subscription names the flow it starts on the parcel it creates; none was given.");
+            throw new DomainException("A subscription names the contour it starts on the parcel it creates; none was given.");
         }
 
         return new SubscriptionRecorded(
@@ -104,7 +104,7 @@ public static class TriggerDecider
             new Dictionary<string, string>(trigger.Filters, StringComparer.Ordinal),
             parcelType.Trim(),
             titleField.Trim(),
-            flow.Trim(),
+            contour.Trim(),
             recordedBy.Id,
             recordedBy.Role,
             now);

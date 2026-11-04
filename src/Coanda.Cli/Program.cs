@@ -51,18 +51,18 @@ app.Configure(config =>
         type.AddCommand<TypeListCommand>("list").WithDescription("List the installed parcel types.").WithExample("type", "list");
     });
 
-    config.AddBranch("flow", flow =>
+    config.AddBranch("contour", contour =>
     {
-        flow.SetDescription("Flows are the loops that move parcels; build, discovery, and review-on-assignment ship installed.");
-        flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
-        flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flight of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "build", "--parcel", "0192a3b4");
+        contour.SetDescription("Contours are the loops a flow follows to move a parcel; build, discovery, and review-on-assignment ship installed.");
+        contour.AddCommand<ContourListCommand>("list").WithDescription("List the contours that govern the project.").WithExample("contour", "list");
+        contour.AddCommand<ContourStartCommand>("start").WithDescription("Start a flow of a contour on a parcel; the daemon advances it from there.").WithExample("contour", "start", "build", "--parcel", "0192a3b4");
     });
 
-    config.AddBranch("flight", flight =>
+    config.AddBranch("flow", flow =>
     {
-        flight.SetDescription("A flight is one execution of a flow on a parcel; a parcel has at most one live flight.");
-        flight.AddCommand<FlightListCommand>("list").WithDescription("List a parcel's flights, oldest first.").WithExample("flight", "list", "--parcel", "0192a3b4");
-        flight.AddCommand<FlightShowCommand>("show").WithDescription("Show one flight and the steps it entered.").WithExample("flight", "show", "0192a3b4");
+        flow.SetDescription("A flow is one execution of a contour on a parcel; a parcel has at most one live flow.");
+        flow.AddCommand<FlowListCommand>("list").WithDescription("List a parcel's flows, oldest first.").WithExample("flow", "list", "--parcel", "0192a3b4");
+        flow.AddCommand<FlowShowCommand>("show").WithDescription("Show one flow and the steps it entered.").WithExample("flow", "show", "0192a3b4");
     });
 });
 

@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Daemon.Executors;
@@ -12,7 +12,7 @@ namespace Coanda.Daemon.Executors;
 /// </summary>
 public static partial class ContextAssembler
 {
-    public static string Assemble(Parcel parcel, FlowStep step)
+    public static string Assemble(Parcel parcel, ContourStep step)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(step);

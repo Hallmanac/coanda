@@ -1,6 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Flights;
+using Coanda.Core.Flows;
 using Coanda.Daemon.Executors;
 
 namespace Coanda.Tests.Daemon.Executors;

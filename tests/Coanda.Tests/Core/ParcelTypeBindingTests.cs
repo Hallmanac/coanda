@@ -12,30 +12,30 @@ public sealed class ParcelTypeBindingTests
     [Fact]
     public void The_shipped_task_binds_build_to_build_and_the_shipped_idea_binds_discovery_to_discovery_and_nothing_else()
     {
-        ShippedTypes.Task.FlowBindings.Should().Equal(new FlowBinding("build", "build"));
-        ShippedTypes.Idea.FlowBindings.Should().Equal(new FlowBinding("discovery", "discovery"));
+        ShippedTypes.Task.ContourBindings.Should().Equal(new ContourBinding("build", "build"));
+        ShippedTypes.Idea.ContourBindings.Should().Equal(new ContourBinding("discovery", "discovery"));
         ShippedTypes.All.Should().OnlyContain(t => t.GateBindings.Count == 0);
-        ShippedTypes.All.Should().OnlyContain(t => t.FlowBindings.Count == 1, "no other state carries a flow");
+        ShippedTypes.All.Should().OnlyContain(t => t.ContourBindings.Count == 1, "no other state carries a contour");
     }
 
     [Fact]
     public void A_type_that_binds_nothing_keeps_the_hash_it_had_before_bindings_existed()
     {
-        (ShippedTypes.Task with { FlowBindings = [] }).Hash.Should().Be("43a5a17c3896d58a");
-        (ShippedTypes.Idea with { FlowBindings = [] }).Hash.Should().Be("6d2b888dfd78bbdb");
+        (ShippedTypes.Task with { ContourBindings = [] }).Hash.Should().Be("43a5a17c3896d58a");
+        (ShippedTypes.Idea with { ContourBindings = [] }).Hash.Should().Be("6d2b888dfd78bbdb");
     }
 
     [Fact]
     public void Adding_or_changing_a_binding_changes_the_hash()
     {
-        ParcelType unbound = ShippedTypes.Task with { FlowBindings = [] };
-        ParcelType bound = unbound with { FlowBindings = [new FlowBinding("build", "build")] };
-        ParcelType otherFlow = unbound with { FlowBindings = [new FlowBinding("build", "build-carefully")] };
-        ParcelType otherState = unbound with { FlowBindings = [new FlowBinding("review", "build")] };
+        ParcelType unbound = ShippedTypes.Task with { ContourBindings = [] };
+        ParcelType bound = unbound with { ContourBindings = [new ContourBinding("build", "build")] };
+        ParcelType otherContour = unbound with { ContourBindings = [new ContourBinding("build", "build-carefully")] };
+        ParcelType otherState = unbound with { ContourBindings = [new ContourBinding("review", "build")] };
         ParcelType gated = bound with { GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
         ParcelType otherGate = bound with { GateBindings = [new GateBinding("refine", "build", "has-a-plan")] };
 
-        string[] hashes = [unbound.Hash, bound.Hash, otherFlow.Hash, otherState.Hash, gated.Hash, otherGate.Hash];
+        string[] hashes = [unbound.Hash, bound.Hash, otherContour.Hash, otherState.Hash, gated.Hash, otherGate.Hash];
         hashes.Should().OnlyHaveUniqueItems();
         bound.Hash.Should().Be(ShippedTypes.Task.Hash, "the hash is a pure function of the content");
     }
@@ -47,39 +47,39 @@ public sealed class ParcelTypeBindingTests
 
         ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(gated));
 
-        read.FlowBindings.Should().Equal(gated.FlowBindings);
+        read.ContourBindings.Should().Equal(gated.ContourBindings);
         read.GateBindings.Should().Equal(gated.GateBindings);
         read.Hash.Should().Be(gated.Hash);
     }
 
     [Fact]
-    public void A_flow_binding_on_a_state_the_type_does_not_have_is_refused()
+    public void A_contour_binding_on_a_state_the_type_does_not_have_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with { FlowBindings = [new FlowBinding("shipping", "build")] };
+        ParcelType broken = ShippedTypes.Task with { ContourBindings = [new ContourBinding("shipping", "build")] };
 
         FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a flow to 'shipping', which is not one of its live states; a flow binds to a state the type has, never its terminal state.");
+            .WithMessage("Parcel type 'task' binds a contour to 'shipping', which is not one of its live states; a contour binds to a state the type has, never its terminal state.");
     }
 
     [Fact]
-    public void A_flow_binding_on_the_terminal_state_is_refused()
+    public void A_contour_binding_on_the_terminal_state_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with { FlowBindings = [new FlowBinding("closed", "build")] };
+        ParcelType broken = ShippedTypes.Task with { ContourBindings = [new ContourBinding("closed", "build")] };
 
         FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a flow to 'closed', which is not one of its live states;*never its terminal state.");
+            .WithMessage("Parcel type 'task' binds a contour to 'closed', which is not one of its live states;*never its terminal state.");
     }
 
     [Fact]
-    public void A_state_with_more_than_one_flow_binding_is_refused()
+    public void A_state_with_more_than_one_contour_binding_is_refused()
     {
         ParcelType broken = ShippedTypes.Task with
         {
-            FlowBindings = [new FlowBinding("build", "build"), new FlowBinding("build", "build-carefully")],
+            ContourBindings = [new ContourBinding("build", "build"), new ContourBinding("build", "build-carefully")],
         };
 
         FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds more than one flow to 'build'; a state carries at most one flow binding.");
+            .WithMessage("Parcel type 'task' binds more than one contour to 'build'; a state carries at most one contour binding.");
     }
 
     [Fact]
@@ -125,14 +125,14 @@ public sealed class ParcelTypeBindingTests
     [InlineData("""[{"To": "build", "Gate": "has-an-owner"}]""", "[]")]
     [InlineData("""[{"From": "refine", "To": "build"}]""", "[]")]
     [InlineData("[null]", "[]")]
-    [InlineData("[]", """[{"Flow": "build"}]""")]
+    [InlineData("[]", """[{"Contour": "build"}]""")]
     [InlineData("[]", "[null]")]
-    public void A_drafted_binding_missing_a_field_or_null_is_refused_quoting_the_rule(string gateBindings, string flowBindings)
+    public void A_drafted_binding_missing_a_field_or_null_is_refused_quoting_the_rule(string gateBindings, string contourBindings)
     {
-        string json = ParcelType.CanonicalJson(ShippedTypes.Task with { FlowBindings = [] });
-        json.Should().Contain("\"FlowBindings\": []").And.Contain("\"GateBindings\": []");
+        string json = ParcelType.CanonicalJson(ShippedTypes.Task with { ContourBindings = [] });
+        json.Should().Contain("\"ContourBindings\": []").And.Contain("\"GateBindings\": []");
         string content = json
-            .Replace("\"FlowBindings\": []", $"\"FlowBindings\": {flowBindings}", StringComparison.Ordinal)
+            .Replace("\"ContourBindings\": []", $"\"ContourBindings\": {contourBindings}", StringComparison.Ordinal)
             .Replace("\"GateBindings\": []", $"\"GateBindings\": {gateBindings}", StringComparison.Ordinal);
 
         ParcelType read = ParcelType.FromJson(content);

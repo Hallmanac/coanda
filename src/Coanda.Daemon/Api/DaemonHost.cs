@@ -2,15 +2,15 @@ using System.Reflection;
 using System.Security.Cryptography;
 using Coanda.Core;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flights;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
-using Coanda.Daemon.Flights;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon.Contours;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
@@ -60,15 +60,15 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new GateSet(options.Gates));
         builder.Services.AddSingleton<DefinitionService>();
         builder.Services.AddSingleton<ParcelService>();
-        builder.Services.AddSingleton<FlowService>();
+        builder.Services.AddSingleton<ContourService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
-        builder.Services.AddSingleton(new FlightRunnerOptions(options.JudgmentLimit));
+        builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()));
-        builder.Services.AddSingleton<FlightRunner>();
-        builder.Services.AddSingleton<IFlightAdvancer>(services => services.GetRequiredService<FlightRunner>());
-        builder.Services.AddHostedService(services => services.GetRequiredService<FlightRunner>());
-        builder.Services.AddSingleton<FlightService>();
+        builder.Services.AddSingleton<FlowRunner>();
+        builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());
+        builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunner>());
+        builder.Services.AddSingleton<FlowService>();
         builder.Services.AddSingleton<TriggerService>();
         builder.Services.AddSingleton<TriggerLoop>();
 
@@ -87,8 +87,8 @@ public sealed class DaemonHost
             await app.Services.GetRequiredService<DefinitionService>()
                 .SeedAsync(ShippedDefinition.All, cancellationToken);
 
-            // Every live flight that is not paused carries on from its current step.
-            await app.Services.GetRequiredService<FlightRunner>().AdvanceLiveAsync(cancellationToken);
+            // Every live flow that is not paused carries on from its current step.
+            await app.Services.GetRequiredService<FlowRunner>().AdvanceLiveAsync(cancellationToken);
 
             // The trigger loop's position is fixed before the address is advertised, so nothing
             // recorded through the API can land before the point it reads from.
@@ -160,10 +160,10 @@ public sealed class DaemonHost
             return Results.Ok(types.Select(t => new TypeView(t.Name, t.Hash, t.States, t.Resolutions)).ToList());
         });
 
-        app.MapGet("/flows", async (HttpContext context, FlowService flows, string project, CancellationToken cancellationToken) =>
+        app.MapGet("/contours", async (HttpContext context, ContourService contours, string project, CancellationToken cancellationToken) =>
         {
-            IReadOnlyList<Definition> resolved = await flows.ListAsync(PrincipalOf(context), project, cancellationToken);
-            return Results.Ok(resolved.Select(d => new FlowView(d.Name, d.VersionNumber, d.ContentHash)).ToList());
+            IReadOnlyList<Definition> resolved = await contours.ListAsync(PrincipalOf(context), project, cancellationToken);
+            return Results.Ok(resolved.Select(d => new ContourView(d.Name, d.VersionNumber, d.ContentHash)).ToList());
         });
 
         app.MapGet("/agents", async (HttpContext context, DefinitionService definitions, string project, CancellationToken cancellationToken) =>
@@ -172,28 +172,28 @@ public sealed class DaemonHost
             return Results.Ok(agents.Select(AgentView.From).ToList());
         });
 
-        app.MapGet("/flights", async (HttpContext context, FlightService flights, string project, Guid? parcel, CancellationToken cancellationToken) =>
+        app.MapGet("/flows", async (HttpContext context, FlowService flows, string project, Guid? parcel, CancellationToken cancellationToken) =>
         {
-            IReadOnlyList<Flight> list = await flights.ListAsync(PrincipalOf(context), project, parcel, cancellationToken);
-            return Results.Ok(list.Select(f => FlightView.From(project.Trim(), f)).ToList());
+            IReadOnlyList<Flow> list = await flows.ListAsync(PrincipalOf(context), project, parcel, cancellationToken);
+            return Results.Ok(list.Select(f => FlowView.From(project.Trim(), f)).ToList());
         });
 
-        app.MapGet("/flights/{id:guid}", async (HttpContext context, FlightService flights, Guid id, string project, CancellationToken cancellationToken) =>
+        app.MapGet("/flows/{id:guid}", async (HttpContext context, FlowService flows, Guid id, string project, CancellationToken cancellationToken) =>
         {
-            Flight? flight = await flights.ShowAsync(PrincipalOf(context), project, id, cancellationToken);
-            return flight is null
-                ? Results.NotFound(new ErrorView($"No flight {Ids.Short(id)} in project '{project}'."))
-                : Results.Ok(FlightView.From(project.Trim(), flight));
+            Flow? flow = await flows.ShowAsync(PrincipalOf(context), project, id, cancellationToken);
+            return flow is null
+                ? Results.NotFound(new ErrorView($"No flow {Ids.Short(id)} in project '{project}'."))
+                : Results.Ok(FlowView.From(project.Trim(), flow));
         });
 
-        app.MapPost("/flights", async (HttpContext context, FlightService flights, IFlightAdvancer advancer, FlightStartRequest request, CancellationToken cancellationToken) =>
+        app.MapPost("/flows", async (HttpContext context, FlowService flows, IFlowAdvancer advancer, FlowStartRequest request, CancellationToken cancellationToken) =>
         {
             string project = request.Project.Trim();
-            Flight flight = await flights.StartAsync(PrincipalOf(context), project, request.ParcelId, request.Flow, cancellationToken);
+            Flow flow = await flows.StartAsync(PrincipalOf(context), project, request.ParcelId, request.Contour, cancellationToken);
 
-            // The flight advances on the daemon's own workers; the start answers without waiting for it.
-            _ = advancer.RequestAdvance(project, flight.Id);
-            return Results.Created($"/flights/{flight.Id}", FlightView.From(project, flight));
+            // The flow advances on the daemon's own workers; the start answers without waiting for it.
+            _ = advancer.RequestAdvance(project, flow.Id);
+            return Results.Created($"/flows/{flow.Id}", FlowView.From(project, flow));
         });
 
         app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>

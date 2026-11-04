@@ -16,17 +16,17 @@ public sealed record NodeHome(string Path)
     public string LogPath => System.IO.Path.Combine(Path, "coanda.log");
 
     /// <summary>
-    /// Where a flight's judgments work: <c>work/&lt;project&gt;/&lt;flight id&gt;</c> under the home.
+    /// Where a flow's judgments work: <c>work/&lt;project&gt;/&lt;flow id&gt;</c> under the home.
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
     /// </summary>
-    public string FlightWorkPath(string project, Guid flightId)
+    public string FlowWorkPath(string project, Guid flowId)
     {
         bool plain = project is not ("" or "." or "..")
             && project.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0
             && project.IndexOfAny(['/', '\\']) < 0;
         return plain
-            ? System.IO.Path.Combine(Path, "work", project, flightId.ToString())
-            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flights have no working directory under the node home.");
+            ? System.IO.Path.Combine(Path, "work", project, flowId.ToString())
+            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flows have no working directory under the node home.");
     }
 
     public static NodeHome Resolve()
