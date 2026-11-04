@@ -35,7 +35,7 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 
 - `coa daemon start` / `coa daemon stop` / `coa daemon status`
 - `coa project add <name> --repo <url> --branch <name>`, `coa project show <name>`,
-  `coa project list`
+  `coa project list`, `coa project set-profile <name> <profile>`
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
   `coa parcel close <id>`
 - `coa contour list`, `coa contour start <contour> --parcel <id>`
@@ -49,7 +49,9 @@ it and frees the parcel, and `coa flow resume <id>` sets a paused one going agai
 `coa flow pause <id> --reason <why>` pauses a running flow without freeing the parcel, and a resume
 then performs the step it was paused at again.
 
-The record lives at `~/.coanda/coanda.db`. Do not edit it by hand.
+The record lives at `~/.coanda/coanda.db`. Do not edit it by hand. The node's executor and
+credential profiles live in `~/.coanda/node.json`, described in
+[node configuration](node-configuration.md).
 
 A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
 commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that

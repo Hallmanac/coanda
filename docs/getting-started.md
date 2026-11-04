@@ -16,6 +16,10 @@ stored as given; nothing contacts it. Without `--project`, a command works in th
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
+What a node runs its judgments with is configured once per node, in `node.json` in the node home:
+the executor, and the credential profiles a project can name with `coa project set-profile`.
+[Node configuration](node-configuration.md) describes the file.
+
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
 flows also changed: `coa contour start <contour> --parcel <id>` starts a flow, and `coa flow list`
