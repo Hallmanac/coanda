@@ -29,10 +29,16 @@ namespace Coanda.Daemon.Flows;
 /// The loser of a race fails the version check, its flow stream is never written, and it is
 /// refused with the rule. Ending and stopping append <see cref="ParcelFlowReleased"/> the same way.
 /// A resume hands the flow to the <see cref="IFlowAdvancer"/>, when the service has one, so a
-/// resumed flow advances with no further command.
+/// resumed flow advances with no further command. Every write to an existing flow, its end and its
+/// stop among them, reads the flow again when another write landed between its read and its save,
+/// and decides again from what it read, so it refuses only with the rule that the flow as it now
+/// stands breaks.
 /// </remarks>
 public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowAdvancer? advancer = null)
 {
+    /// <summary>How many times a write reads the flow and decides before a run of concurrent writes refuses it.</summary>
+    private const int Attempts = 5;
+
     private readonly DefinitionResolver definitions = new(store);
 
     public async Task<Flow> StartAsync(Principal principal, string project, Guid parcelId, string contourName, CancellationToken cancellationToken)
@@ -168,21 +174,27 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
         return resumed;
     }
 
-    public async Task<Flow> EndAsync(Principal principal, string project, Guid flowId, string outcome, CancellationToken cancellationToken)
+    public Task<Flow> EndAsync(Principal principal, string project, Guid flowId, string outcome, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow.end", principal);
         string tenant = Tenants.RequireProject(project);
 
-        await using IDocumentSession session = store.LightweightSession(tenant);
-        var flowStream = await session.Events.FetchForWriting<Flow>(flowId, cancellationToken);
-        Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
-        Contour contour = await RequireStartedUnderContourAsync(tenant, flow, cancellationToken);
-        (FlowEnded ended, ParcelFlowReleased released) = FlowDecider.End(contour, flow, outcome, principal.Id, clock.GetUtcNow());
-        flowStream.AppendOne(ended);
-        await ReleaseAsync(session, flow, released, cancellationToken);
+        return DecidingAgainAsync(
+            async token =>
+            {
+                await using IDocumentSession session = store.LightweightSession(tenant);
+                var flowStream = await session.Events.FetchForWriting<Flow>(flowId, token);
+                Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
+                Contour contour = await RequireStartedUnderContourAsync(tenant, flow, token);
+                (FlowEnded ended, ParcelFlowReleased released) = FlowDecider.End(contour, flow, outcome, principal.Id, clock.GetUtcNow());
+                flowStream.AppendOne(ended);
+                await ReleaseAsync(session, flow, released, token);
 
-        flow.Apply(ended);
-        return flow;
+                flow.Apply(ended);
+                return flow;
+            },
+            FlowOrParcelChanged(flowId),
+            cancellationToken);
     }
 
     /// <summary>Stops a live flow. It needs no contour, so a flow whose contour is no longer held can still be stopped.</summary>
@@ -191,15 +203,21 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
         CommandRegistry.Require("flow.stop", principal);
         string tenant = Tenants.RequireProject(project);
 
-        await using IDocumentSession session = store.LightweightSession(tenant);
-        var flowStream = await session.Events.FetchForWriting<Flow>(flowId, cancellationToken);
-        Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
-        (FlowStopped stopped, ParcelFlowReleased released) = FlowDecider.Stop(flow, reason, principal.Id, clock.GetUtcNow());
-        flowStream.AppendOne(stopped);
-        await ReleaseAsync(session, flow, released, cancellationToken);
+        return await DecidingAgainAsync(
+            async token =>
+            {
+                await using IDocumentSession session = store.LightweightSession(tenant);
+                var flowStream = await session.Events.FetchForWriting<Flow>(flowId, token);
+                Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
+                (FlowStopped recorded, ParcelFlowReleased released) = FlowDecider.Stop(flow, reason, principal.Id, clock.GetUtcNow());
+                flowStream.AppendOne(recorded);
+                await ReleaseAsync(session, flow, released, token);
 
-        flow.Apply(stopped);
-        return flow;
+                flow.Apply(recorded);
+                return flow;
+            },
+            FlowOrParcelChanged(flowId),
+            cancellationToken);
     }
 
     /// <summary>The project's flows, or one parcel's when <paramref name="parcelId"/> is given, oldest first.</summary>
@@ -269,19 +287,48 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
         CommandRegistry.Require(entry, principal);
         string tenant = Tenants.RequireProject(project);
 
-        await using IDocumentSession session = store.LightweightSession(tenant);
-        var stream = await session.Events.FetchForWriting<Flow>(flowId, cancellationToken);
-        Flow flow = stream.Aggregate ?? throw FlowNotFound(flowId, tenant);
-        Contour contour = await RequireStartedUnderContourAsync(tenant, flow, cancellationToken);
-        TEvent recorded = decide(contour, flow);
-        stream.AppendOne(recorded);
-        await SaveGuardedAsync(
-            session,
-            $"Flow {Ids.Short(flow.Id)} changed while this was being recorded, so nothing was. Read the flow again and retry.",
-            cancellationToken);
+        return await DecidingAgainAsync(
+            async token =>
+            {
+                await using IDocumentSession session = store.LightweightSession(tenant);
+                var stream = await session.Events.FetchForWriting<Flow>(flowId, token);
+                Flow flow = stream.Aggregate ?? throw FlowNotFound(flowId, tenant);
+                Contour contour = await RequireStartedUnderContourAsync(tenant, flow, token);
+                TEvent recorded = decide(contour, flow);
+                stream.AppendOne(recorded);
+                await session.SaveChangesAsync(token);
 
-        apply(flow, recorded);
-        return flow;
+                apply(flow, recorded);
+                return flow;
+            },
+            $"Flow {Ids.Short(flowId)} kept changing while this was being recorded, so nothing was. Read the flow again and retry.",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads, decides, and saves through <paramref name="attempt"/>, and when another write landed on
+    /// what it read before its save, does it all again from a fresh read: the decision is made again
+    /// against the flow as it now stands, so the write is refused only by a rule that flow breaks.
+    /// Only a run of <see cref="Attempts"/> concurrent writes refuses it with <paramref name="refusal"/>.
+    /// </summary>
+    private static async Task<Flow> DecidingAgainAsync(
+        Func<CancellationToken, Task<Flow>> attempt, string refusal, CancellationToken cancellationToken)
+    {
+        for (int tried = 1; ; tried++)
+        {
+            try
+            {
+                return await attempt(cancellationToken);
+            }
+            catch (ConcurrencyException) when (tried < Attempts)
+            {
+                // Another write landed between this read and its save; read again and decide again.
+            }
+            catch (ConcurrencyException)
+            {
+                throw new DomainException(refusal);
+            }
+        }
     }
 
     private static async Task ReleaseAsync(IDocumentSession session, Flow flow, ParcelFlowReleased released, CancellationToken cancellationToken)
@@ -295,7 +342,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             parcelStream.AppendOne(released);
         }
 
-        await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
+        await session.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>Saves, turning a failed version check into a refusal that says what moved.</summary>
@@ -310,6 +357,9 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             throw new DomainException(refusal);
         }
     }
+
+    private static string FlowOrParcelChanged(Guid flowId) =>
+        $"Flow {Ids.Short(flowId)} or its parcel kept changing while this was being recorded, so nothing was. Read them again and retry.";
 
     private static string ParcelChanged(Guid parcelId) =>
         $"A parcel has at most one live flow; parcel {Ids.Short(parcelId)} or its flow changed while this was being recorded, so nothing was. Read them again and retry.";
