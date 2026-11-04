@@ -11,7 +11,8 @@ namespace Coanda.Daemon.Executors;
 /// records nothing and leaves the session open on either outcome, returning its handle: the runner
 /// records the flow's events and decides when a session ends. If the judgment fails after the
 /// spawn, it stops the session rather than leave one nobody holds, except when the caller already
-/// took the handle and the failure is a cancellation, which leaves the session for a reattach.
+/// took the handle and the failure is a cancellation of the caller's stopping token, which leaves
+/// the session for a reattach.
 /// </summary>
 public static class Judgment
 {
@@ -23,16 +24,21 @@ public static class Judgment
     public static Task<JudgmentOutcome> RunAsync(
         IAgentExecutor executor,
         JudgmentRequest request,
-        CancellationToken cancellationToken) => RunAsync(executor, request, onSpawned: null, cancellationToken);
+        CancellationToken cancellationToken) =>
+        RunAsync(executor, request, onSpawned: null, stopping: CancellationToken.None, cancellationToken);
 
     /// <summary>
     /// Runs the judgment, handing the session's handle to <paramref name="onSpawned"/> as soon as the
-    /// spawn returns, so the runner can record it before the first collect.
+    /// spawn returns, so the runner can record it before the first collect. Once the handle is
+    /// handed over, a cancellation while <paramref name="stopping"/> is cancelled (the daemon
+    /// stopping) leaves the session alive for a reattach; any other failure, a cancellation of
+    /// <paramref name="cancellationToken"/> alone (a wall-clock limit) among them, stops it.
     /// </summary>
     public static async Task<JudgmentOutcome> RunAsync(
         IAgentExecutor executor,
         JudgmentRequest request,
         Func<SessionHandle, CancellationToken, ValueTask>? onSpawned,
+        CancellationToken stopping,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(executor);
@@ -59,7 +65,7 @@ public static class Judgment
 
             return await AnswerAsync(executor, request, handle, cancellationToken);
         }
-        catch (Exception failure) when (!(handedOver && failure is OperationCanceledException))
+        catch (Exception failure) when (!(handedOver && failure is OperationCanceledException && stopping.IsCancellationRequested))
         {
             await StopAfterFailureAsync(executor, handle, failure);
             throw;
