@@ -1,7 +1,7 @@
 using Coanda.Core;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
-using Coanda.Core.Flows.Events;
+using Coanda.Core.FlowRuns;
+using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
@@ -9,7 +9,7 @@ using Coanda.Core.Registry;
 using Coanda.Core.Triggers;
 using Coanda.Core.Triggers.Events;
 using Coanda.Core.Types;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Contours;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
@@ -23,17 +23,17 @@ namespace Coanda.Daemon.Triggers;
 
 /// <summary>
 /// The daemon's one trigger loop. It polls every project's record past its position, in global
-/// sequence order, for parcel creations, parcel moves, flow ends, and recorded external events. A
-/// parcel entering a state its type binds a contour to starts that contour on the parcel; a flow's end
+/// sequence order, for parcel creations, parcel moves, flow run ends, and recorded external events. A
+/// parcel entering a state its type binds a contour to starts that contour on the parcel; a flow run's end
 /// starts, on its parcel, every published contour whose follow it matches and which accepts the
-/// parcel's type, as the next link of the ended flow's chain; an external event matching a
+/// parcel's type, as the next link of the ended flow run's chain; an external event matching a
 /// subscription in its project creates the subscription's parcel and starts its contour.
 /// A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
-/// a live flow, as when a flow's own step moves its parcel into a bound state, is refused and
+/// a live flow run, as when a flow run's own step moves its parcel into a bound state, is refused and
 /// starts nothing, then or later; whether the parcel had one is read from the parcel as it stood at
 /// the entry, never as it stands when the loop gets to it, so the outcome does not depend on timing.
 /// A follow is not a state entry: when several contours follow the same end, a parcel holds one live
-/// flow at a time, so its followers start one after another, each on the release of the flow
+/// flow run at a time, so its followers start one after another, each on the release of the flow run
 /// before it.
 /// </summary>
 /// <remarks>
@@ -42,10 +42,10 @@ namespace Coanda.Daemon.Triggers;
 /// the existing record, so installing this version starts nothing on parcels already sitting in a
 /// bound state. A stop between a start and the position being written replays that entry on the next
 /// start, and the replay finds the work already done: a binding's start acts as a principal whose id
-/// names the entry event, and is skipped when the parcel already has a flow started by that
+/// names the entry event, and is skipped when the parcel already has a flow run started by that
 /// principal; a subscription's parcel records an origin naming the subscription and the event, and is
-/// neither created again nor given a second flow; a follow's start acts as a principal whose id
-/// names the ended flow, and is skipped when that flow already has a follower of the contour. A
+/// neither created again nor given a second flow run; a follow's start acts as a principal whose id
+/// names the ended flow run, and is skipped when that flow run already has a follower of the contour. A
 /// replayed entry that was refused is refused again, since the parcel's state at the entry does not
 /// change. Deferred follows are one document per parcel in the parcel's project, and a follow
 /// leaves it only once its start has been written or refused, so a replay finds the follower
@@ -54,10 +54,10 @@ namespace Coanda.Daemon.Triggers;
 public sealed class TriggerLoop(
     IDocumentStore store,
     ParcelService parcels,
-    FlowService flows,
+    FlowRunService flowRuns,
     ContourService contours,
     TriggerService triggers,
-    IFlowAdvancer advancer,
+    IFlowRunAdvancer advancer,
     TimeProvider clock,
     ILogger<TriggerLoop> logger) : IHostedService, IDisposable
 {
@@ -75,8 +75,8 @@ public sealed class TriggerLoop(
     public static Principal PrincipalFor(string typeName, ContourBinding binding, Guid entryEventId) =>
         new($"binding:{typeName}/{binding.State}/{binding.Contour}:entry:{entryEventId}", Role.Agent);
 
-    /// <summary>The principal a follow's start acts as: the Agent role, named for the flow whose end it follows.</summary>
-    public static Principal PrincipalFor(Guid parentFlowId) => new($"follow:{parentFlowId}", Role.Agent);
+    /// <summary>The principal a follow's start acts as: the Agent role, named for the flow run whose end it follows.</summary>
+    public static Principal PrincipalFor(Guid parentFlowRunId) => new($"follow:{parentFlowRunId}", Role.Agent);
 
     /// <summary>
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
@@ -156,7 +156,7 @@ public sealed class TriggerLoop(
         long to = Math.Min(position + PageSize, head);
         foreach (IEvent entry in await ReadAsync(position, to, cancellationToken))
         {
-            if (entry.Data is ParcelCreated or ParcelMoved or ParcelFlowReleased or FlowEnded or ExternalEventRecorded)
+            if (entry.Data is ParcelCreated or ParcelMoved or ParcelFlowRunReleased or FlowRunEnded or ExternalEventRecorded)
             {
                 await HandleAsync(entry, cancellationToken);
                 await SavePositionAsync(entry.Sequence, cancellationToken);
@@ -212,17 +212,17 @@ public sealed class TriggerLoop(
             switch (entry.Data)
             {
                 case ParcelCreated created:
-                    // A parcel being created has had no flow yet, so nothing was live at this entry.
+                    // A parcel being created has had no flow run yet, so nothing was live at this entry.
                     await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.State, entry.Id, null, cancellationToken);
                     break;
                 case ParcelMoved moved:
                     await MovedAsync(entry.TenantId, moved, entry, cancellationToken);
                     break;
-                case ParcelFlowReleased released:
+                case ParcelFlowRunReleased released:
                     // A release starts the follows waiting on it and never a state entry.
                     await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, cancellationToken);
                     break;
-                case FlowEnded ended:
+                case FlowRunEnded ended:
                     await EndedAsync(entry.TenantId, ended, cancellationToken);
                     break;
                 case ExternalEventRecorded external:
@@ -246,7 +246,7 @@ public sealed class TriggerLoop(
 
     /// <summary>
     /// A parcel moved: the entry is weighed against the parcel as it stood just before the move,
-    /// folded from its stream up to the move's version, so a flow live then refuses the entry
+    /// folded from its stream up to the move's version, so a flow run live then refuses the entry
     /// even if it has ended by the time the loop reads the move.
     /// </summary>
     private async Task MovedAsync(string project, ParcelMoved moved, IEvent entry, CancellationToken cancellationToken)
@@ -254,13 +254,13 @@ public sealed class TriggerLoop(
         Parcel before = await parcels.ShowAtAsync(LoopPrincipal, project, moved.ParcelId, entry.Version - 1, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(moved.ParcelId)} in project '{project}'.");
 
-        await EnteredAsync(project, before.Id, before.TypeName, moved.ToState, entry.Id, before.LiveFlowId, cancellationToken);
+        await EnteredAsync(project, before.Id, before.TypeName, moved.ToState, entry.Id, before.LiveFlowRunId, cancellationToken);
     }
 
     /// <summary>
     /// A parcel entered a state: start the contour its type, as resolution returns it by name, binds
-    /// there. An entry made while the parcel had a live flow, <paramref name="liveAtEntry"/>, is
-    /// refused with a rule naming that flow; a start the flow service refuses throws its rule.
+    /// there. An entry made while the parcel had a live flow run, <paramref name="liveAtEntry"/>, is
+    /// refused with a rule naming that flow run; a start the flow run service refuses throws its rule.
     /// Either refusal reaches the loop's warning log, and nothing is kept to start it later.
     /// </summary>
     private async Task EnteredAsync(string project, Guid parcelId, string typeName, string state, Guid entryId, Guid? liveAtEntry, CancellationToken cancellationToken)
@@ -279,7 +279,7 @@ public sealed class TriggerLoop(
         }
 
         Principal principal = PrincipalFor(type.Name, binding, entryId);
-        IReadOnlyList<Flow> existing = await flows.ListAsync(LoopPrincipal, project, parcelId, cancellationToken);
+        IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parcelId, cancellationToken);
         if (existing.Any(f => string.Equals(f.StartedBy, principal.Id, StringComparison.Ordinal)))
         {
             return;
@@ -288,34 +288,34 @@ public sealed class TriggerLoop(
         if (liveAtEntry is Guid live)
         {
             throw new DomainException(
-                $"A parcel has at most one live flow; parcel {Ids.Short(parcelId)} had flow {Ids.Short(live)} live when it entered '{state}', so binding {type.Name}/{binding.State} starts nothing for that entry.");
+                $"A parcel has at most one live flow run; parcel {Ids.Short(parcelId)} had flow run {Ids.Short(live)} live when it entered '{state}', so binding {type.Name}/{binding.State} starts nothing for that entry.");
         }
 
         await StartAsync(principal, project, parcelId, binding.Contour, $"binding {type.Name}/{binding.State}", cancellationToken);
     }
 
-    private async Task<bool> HasLiveFlowAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    private async Task<bool> HasLiveFlowRunAsync(string project, Guid parcelId, CancellationToken cancellationToken)
     {
         Parcel? parcel = await parcels.ShowAsync(LoopPrincipal, project, parcelId, cancellationToken);
-        return parcel?.LiveFlowId is not null;
+        return parcel?.LiveFlowRunId is not null;
     }
 
     /// <summary>
-    /// A flow ended: read as a <c>flow-ended</c> event with its contour, its outcome, and its
+    /// A flow run ended: read as a <c>flow-run-ended</c> event with its contour, its outcome, and its
     /// parcel's type, it starts on that parcel every published contour of the project whose follow
     /// matches it and which accepts the type. The first starts now; the parcel then holds a live
-    /// flow, so each of the others waits for a release, in name order, except that a follower whose
+    /// flow run, so each of the others waits for a release, in name order, except that a follower whose
     /// contour declares <c>closes</c> starts after every follower that does not: its end closes the
     /// parcel, and no follow starts on a closed parcel. Each refusal is logged and the other
     /// followers still start.
     /// </summary>
-    private async Task EndedAsync(string project, FlowEnded ended, CancellationToken cancellationToken)
+    private async Task EndedAsync(string project, FlowRunEnded ended, CancellationToken cancellationToken)
     {
-        Flow parent = await flows.ShowAsync(LoopPrincipal, project, ended.FlowId, cancellationToken)
-            ?? throw new DomainException($"No flow {Ids.Short(ended.FlowId)} in project '{project}'.");
+        FlowRun parent = await flowRuns.ShowAsync(LoopPrincipal, project, ended.FlowRunId, cancellationToken)
+            ?? throw new DomainException($"No flow run {Ids.Short(ended.FlowRunId)} in project '{project}'.");
         Parcel parcel = await parcels.ShowAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(parent.ParcelId)} in project '{project}'.");
-        TriggerEvent candidate = TriggerEvent.FlowEnded(parent.ContourName, ended.Outcome, parcel.TypeName);
+        TriggerEvent candidate = TriggerEvent.FlowRunEnded(parent.ContourName, ended.Outcome, parcel.TypeName);
 
         IReadOnlyList<Definition> published = await contours.ListAsync(LoopPrincipal, project, cancellationToken);
         IEnumerable<Contour> followers = published
@@ -349,31 +349,31 @@ public sealed class TriggerLoop(
 
     /// <summary>
     /// Starts <paramref name="contourName"/> as a follower of <paramref name="parent"/>, unless that
-    /// flow already has a follower of the contour. True when the parcel holds a live flow, so the
+    /// flow run already has a follower of the contour. True when the parcel holds a live flow run, so the
     /// follow has to wait for its release.
     /// </summary>
-    private async Task<bool> FollowAsync(string project, Flow parent, string contourName, CancellationToken cancellationToken)
+    private async Task<bool> FollowAsync(string project, FlowRun parent, string contourName, CancellationToken cancellationToken)
     {
-        IReadOnlyList<Flow> existing = await flows.ListAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken);
-        if (existing.Any(f => f.ParentFlowId == parent.Id && DefinitionResolution.SameName(f.ContourName, contourName)))
+        IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken);
+        if (existing.Any(f => f.ParentFlowRunId == parent.Id && DefinitionResolution.SameName(f.ContourName, contourName)))
         {
             return false;
         }
 
-        if (await HasLiveFlowAsync(project, parent.ParcelId, cancellationToken))
+        if (await HasLiveFlowRunAsync(project, parent.ParcelId, cancellationToken))
         {
             return true;
         }
 
-        Flow flow;
+        FlowRun flowRun;
         try
         {
-            flow = await flows.FollowAsync(PrincipalFor(parent.Id), project, parent.Id, contourName, cancellationToken);
+            flowRun = await flowRuns.FollowAsync(PrincipalFor(parent.Id), project, parent.Id, contourName, cancellationToken);
         }
         catch (DomainException) when (!cancellationToken.IsCancellationRequested)
         {
-            // A flow started on the parcel between the check and the start: wait for its release too.
-            if (!await HasLiveFlowAsync(project, parent.ParcelId, cancellationToken))
+            // A flow run started on the parcel between the check and the start: wait for its release too.
+            if (!await HasLiveFlowRunAsync(project, parent.ParcelId, cancellationToken))
             {
                 throw;
             }
@@ -382,9 +382,9 @@ public sealed class TriggerLoop(
         }
 
         logger.LogInformation(
-            "The end of flow {Parent} started flow {Flow} of '{Contour}' at depth {Depth} on parcel {Parcel} in project {Project}.",
-            Ids.Short(parent.Id), Ids.Short(flow.Id), contourName, flow.Depth, Ids.Short(parent.ParcelId), project);
-        _ = advancer.RequestAdvance(project, flow.Id);
+            "The end of flow run {Parent} started flow run {FlowRun} of '{Contour}' at depth {Depth} on parcel {Parcel} in project {Project}.",
+            Ids.Short(parent.Id), Ids.Short(flowRun.Id), contourName, flowRun.Depth, Ids.Short(parent.ParcelId), project);
+        _ = advancer.RequestAdvance(project, flowRun.Id);
         return false;
     }
 
@@ -403,7 +403,7 @@ public sealed class TriggerLoop(
         session.Store(deferred);
         await session.SaveChangesAsync(cancellationToken);
         logger.LogInformation(
-            "{Count} follow(s) of parcel {Parcel} wait for the parcel's live flow to be released before they start, one at a time.",
+            "{Count} follow(s) of parcel {Parcel} wait for the parcel's live flow run to be released before they start, one at a time.",
             follows.Count, Ids.Short(parcelId));
     }
 
@@ -431,8 +431,8 @@ public sealed class TriggerLoop(
             PendingFollow next = remaining[0];
             try
             {
-                Flow parent = await flows.ShowAsync(LoopPrincipal, project, next.ParentFlowId, cancellationToken)
-                    ?? throw new DomainException($"No flow {Ids.Short(next.ParentFlowId)} in project '{project}'.");
+                FlowRun parent = await flowRuns.ShowAsync(LoopPrincipal, project, next.ParentFlowRunId, cancellationToken)
+                    ?? throw new DomainException($"No flow run {Ids.Short(next.ParentFlowRunId)} in project '{project}'.");
                 if (await FollowAsync(project, parent, next.Contour, cancellationToken))
                 {
                     break;
@@ -440,7 +440,7 @@ public sealed class TriggerLoop(
             }
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
             {
-                LogFollowRefused(next.Contour, next.ParentFlowId, refused);
+                LogFollowRefused(next.Contour, next.ParentFlowRunId, refused);
             }
 
             remaining.RemoveAt(0);
@@ -462,7 +462,7 @@ public sealed class TriggerLoop(
 
     private void LogFollowRefused(string contourName, Guid parentId, DomainException refused) =>
         logger.LogWarning(
-            "Contour '{Contour}' follows the end of flow {Flow}, but its start was refused: {Rule}",
+            "Contour '{Contour}' follows the end of flow run {FlowRun}, but its start was refused: {Rule}",
             contourName, Ids.Short(parentId), refused.Message);
 
     /// <summary>An external event: every subscription in its project that matches it creates its parcel and starts its contour.</summary>
@@ -501,7 +501,7 @@ public sealed class TriggerLoop(
             parcel = await parcels.AddAsync(subscription.Principal, project, subscription.ParcelType, title, null, origin, cancellationToken);
         }
 
-        IReadOnlyList<Flow> existing = await flows.ListAsync(LoopPrincipal, project, parcel.Id, cancellationToken);
+        IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parcel.Id, cancellationToken);
         if (existing.Count > 0)
         {
             return;
@@ -510,13 +510,13 @@ public sealed class TriggerLoop(
         await StartAsync(subscription.Principal, project, parcel.Id, subscription.Contour, $"subscription {Ids.Short(subscription.Id)}", cancellationToken);
     }
 
-    /// <summary>Starts the flow through the flow service and hands it to the runner, as the start endpoint does.</summary>
+    /// <summary>Starts the flow run through the flow run service and hands it to the runner, as the start endpoint does.</summary>
     private async Task StartAsync(Principal principal, string project, Guid parcelId, string contour, string cause, CancellationToken cancellationToken)
     {
-        Flow flow = await flows.StartAsync(principal, project, parcelId, contour, cancellationToken);
+        FlowRun flowRun = await flowRuns.StartAsync(principal, project, parcelId, contour, cancellationToken);
         logger.LogInformation(
-            "The {Cause} started flow {Flow} of '{Contour}' on parcel {Parcel} in project {Project}.",
-            cause, Ids.Short(flow.Id), contour, Ids.Short(parcelId), project);
-        _ = advancer.RequestAdvance(project, flow.Id);
+            "The {Cause} started flow run {FlowRun} of '{Contour}' on parcel {Parcel} in project {Project}.",
+            cause, Ids.Short(flowRun.Id), contour, Ids.Short(parcelId), project);
+        _ = advancer.RequestAdvance(project, flowRun.Id);
     }
 }

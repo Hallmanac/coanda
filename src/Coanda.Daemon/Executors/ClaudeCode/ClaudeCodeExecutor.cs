@@ -5,16 +5,16 @@ using System.Text;
 using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 
 namespace Coanda.Daemon.Executors.ClaudeCode;
 
 /// <summary>
 /// Runs each judgment as a headless Claude Code session: a <c>claude</c> process in print mode with
-/// stream-json output, started in the flow's work directory, given its prompt on standard input and
+/// stream-json output, started in the flow run's work directory, given its prompt on standard input and
 /// nothing after it. A resume starts another process on the same session id with the same
 /// arguments, working directory, and environment. Every process writes its stream output straight
-/// into the session's transcript in the flow's transcript directory, and its error output into a
+/// into the session's transcript in the flow run's transcript directory, and its error output into a
 /// file of the session's own; nothing a session prints passes through the daemon. Collecting waits
 /// for the process to end and reads its result from the transcript. Every process carries the
 /// session's tool guard in its settings document, so its tools cannot reach the node home or a
@@ -60,7 +60,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     private readonly Dictionary<Guid, Measurement> lost = [];
 
     /// <param name="executable">The configured path of the claude executable, or a bare name looked up on the PATH.</param>
-    /// <param name="home">The node home, which says where each flow's transcripts go and where sessions are recorded.</param>
+    /// <param name="home">The node home, which says where each flow run's transcripts go and where sessions are recorded.</param>
     /// <param name="environment">The environment a session's processes start from, before the adapter removes and sets what it does.</param>
     /// <param name="coaDirectory">
     /// The directory that holds the <c>coa</c> executable, placed first on every session process's

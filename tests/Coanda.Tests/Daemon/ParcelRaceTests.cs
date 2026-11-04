@@ -99,8 +99,8 @@ public sealed class ParcelRaceTests
     }
 
     /// <summary>
-    /// A gate that, once armed, passes its next check after appending a flow's attach to the parcel's
-    /// stream from a session of its own, as a flow starting on the parcel at that moment would.
+    /// A gate that, once armed, passes its next check after appending a flow run's attach to the parcel's
+    /// stream from a session of its own, as a flow run starting on the parcel at that moment would.
     /// </summary>
     private sealed class RacingGate : IGate
     {
@@ -123,7 +123,7 @@ public sealed class ParcelRaceTests
             {
                 store = null;
                 using IDocumentSession session = armed.LightweightSession(Project);
-                session.Events.Append(parcelId, new ParcelFlowAttached(parcelId, Ids.New(), DateTimeOffset.UtcNow));
+                session.Events.Append(parcelId, new ParcelFlowRunAttached(parcelId, Ids.New(), DateTimeOffset.UtcNow));
                 session.SaveChangesAsync(None).GetAwaiter().GetResult();
                 Raced = true;
             }

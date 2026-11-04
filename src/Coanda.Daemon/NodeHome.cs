@@ -26,19 +26,19 @@ public sealed record NodeHome(string Path)
     public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath];
 
     /// <summary>
-    /// Where a flow's judgments work: <c>work/&lt;project&gt;/&lt;flow id&gt;</c> under the home.
+    /// Where a flow run's judgments work: <c>work/&lt;project&gt;/&lt;flow run id&gt;</c> under the home.
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
     /// </summary>
-    public string FlowWorkPath(string project, Guid flowId) =>
-        System.IO.Path.Combine(Path, "work", RequirePlain(project, "working directory"), flowId.ToString());
+    public string FlowRunWorkPath(string project, Guid flowRunId) =>
+        System.IO.Path.Combine(Path, "work", RequirePlain(project, "working directory"), flowRunId.ToString());
 
-    /// <summary>The directory holding one directory per project whose flows have needed the node's clone of its repository.</summary>
+    /// <summary>The directory holding one directory per project whose flow runs have needed the node's clone of its repository.</summary>
     public string ClonesPath => System.IO.Path.Combine(Path, "clones");
 
     /// <summary>
-    /// The node's one clone of the project's repository, which every flow's worktree in the project
+    /// The node's one clone of the project's repository, which every flow run's worktree in the project
     /// is cut from: <c>clones/&lt;project&gt;/repo.git</c> under the home. The project must be a plain
-    /// directory name, as for <see cref="FlowWorkPath"/>.
+    /// directory name, as for <see cref="FlowRunWorkPath"/>.
     /// </summary>
     public string ProjectClonePath(string project) =>
         System.IO.Path.Combine(ClonesPath, RequirePlain(project, "clone of its repository"), "repo.git");
@@ -50,12 +50,12 @@ public sealed record NodeHome(string Path)
     public string ProjectClonePartialPath(string project) => ProjectClonePath(project) + ".partial";
 
     /// <summary>
-    /// Where the transcripts of a flow's sessions are kept: <c>transcripts/&lt;project&gt;/&lt;flow id&gt;</c>
-    /// under the home, outside the flow's work directory, so a session never finds them among its
-    /// files. The project must be a plain directory name, as for <see cref="FlowWorkPath"/>.
+    /// Where the transcripts of a flow run's sessions are kept: <c>transcripts/&lt;project&gt;/&lt;flow run id&gt;</c>
+    /// under the home, outside the flow run's work directory, so a session never finds them among its
+    /// files. The project must be a plain directory name, as for <see cref="FlowRunWorkPath"/>.
     /// </summary>
-    public string FlowTranscriptPath(string project, Guid flowId) =>
-        System.IO.Path.Combine(Path, "transcripts", RequirePlain(project, "transcript directory"), flowId.ToString());
+    public string FlowRunTranscriptPath(string project, Guid flowRunId) =>
+        System.IO.Path.Combine(Path, "transcripts", RequirePlain(project, "transcript directory"), flowRunId.ToString());
 
     /// <summary>
     /// Where an executor keeps what it needs to find its sessions again after a daemon restart:
@@ -68,21 +68,21 @@ public sealed record NodeHome(string Path)
     public string SessionRecordPath(Guid sessionId) => System.IO.Path.Combine(SessionsPath, $"{sessionId}.json");
 
     /// <summary>
-    /// The transcript directory of the flow whose work directory is <paramref name="flowWorkPath"/>,
-    /// a path <see cref="FlowWorkPath"/> returned. An executor is handed the work directory alone,
-    /// and this is how it finds where the flow's transcripts go.
+    /// The transcript directory of the flow run whose work directory is <paramref name="flowRunWorkPath"/>,
+    /// a path <see cref="FlowRunWorkPath"/> returned. An executor is handed the work directory alone,
+    /// and this is how it finds where the flow run's transcripts go.
     /// </summary>
-    public string TranscriptDirectoryOf(string flowWorkPath)
+    public string TranscriptDirectoryOf(string flowRunWorkPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(flowWorkPath);
-        string relative = System.IO.Path.GetRelativePath(System.IO.Path.Combine(Path, "work"), System.IO.Path.GetFullPath(flowWorkPath));
+        ArgumentException.ThrowIfNullOrWhiteSpace(flowRunWorkPath);
+        string relative = System.IO.Path.GetRelativePath(System.IO.Path.Combine(Path, "work"), System.IO.Path.GetFullPath(flowRunWorkPath));
         string[] parts = relative.Split([System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar]);
-        return parts is [string project, string flow] && Guid.TryParse(flow, out Guid flowId)
-            ? FlowTranscriptPath(project, flowId)
-            : throw new DomainException($"{flowWorkPath} is not a flow's working directory under the node home {Path}, so it has no transcript directory.");
+        return parts is [string project, string flowRun] && Guid.TryParse(flowRun, out Guid flowRunId)
+            ? FlowRunTranscriptPath(project, flowRunId)
+            : throw new DomainException($"{flowRunWorkPath} is not a flow run's working directory under the node home {Path}, so it has no transcript directory.");
     }
 
-    /// <summary>Whether the project's name is a plain directory name, which is what gives its flows work paths and a clone under the home.</summary>
+    /// <summary>Whether the project's name is a plain directory name, which is what gives its flow runs work paths and a clone under the home.</summary>
     public static bool IsPlain(string project) =>
         project is not ("" or "." or "..")
             && project.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0
@@ -91,7 +91,7 @@ public sealed record NodeHome(string Path)
     private static string RequirePlain(string project, string what) =>
         IsPlain(project)
             ? project
-            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flows have no {what} under the node home.");
+            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flow runs have no {what} under the node home.");
 
     public static NodeHome Resolve()
     {

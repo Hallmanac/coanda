@@ -102,7 +102,7 @@ public sealed class ParcelShowCommand : AsyncCommand<ParcelIdSettings>
             table.AddRow("Resolution", $"{parcel.Resolution}: {Markup.Escape(parcel.CloseReason ?? string.Empty)}");
         }
 
-        table.AddRow("Flow", parcel.LiveFlowId is Guid flow ? flow.ToString() : "none");
+        table.AddRow("Flow run", parcel.LiveFlowRunId is Guid flowRun ? flowRun.ToString() : "none");
         foreach (string[] row in ParcelRendering.FieldRows(parcel))
         {
             table.AddRow(row);

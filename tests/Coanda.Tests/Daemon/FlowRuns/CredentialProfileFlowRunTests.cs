@@ -1,0 +1,130 @@
+using Coanda.Cli;
+using Coanda.Core.Software;
+using Coanda.Core.Contours;
+using Coanda.Core.FlowRuns;
+using Coanda.Core.Registry;
+using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Executors;
+using Coanda.Daemon.FlowRuns;
+using Coanda.Daemon.Projects;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Coanda.Tests.Daemon.FlowRuns;
+
+public sealed class CredentialProfileFlowRunTests
+{
+    private const string Project = "alpha";
+    private static readonly CancellationToken None = CancellationToken.None;
+
+    private static readonly CredentialProfile Work = new(ShippedAgents.Vendor, "work", "/home/me/.claude-work", null);
+    private static readonly CredentialProfile Ci = new(ShippedAgents.Vendor, "ci", null, "op read op://ci/key");
+    private static readonly CredentialProfile OtherVendorWork = new("other-vendor", "work", "/home/me/.other", null);
+
+    /// <summary>One judgment by the shipped build agent, which ends the flow run; it may spawn twice.</summary>
+    private static readonly Contour OneJudgment = new()
+    {
+        Name = "one-judgment",
+        Accepts = ["task"],
+        Outcome = "built",
+        Budget = 10m,
+        SpawnCap = 2,
+        Steps =
+        [
+            new ContourStep
+            {
+                Name = "build",
+                Agent = ShippedAgents.Build.Name,
+                AnswerSchema = "build",
+                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+            },
+        ],
+    };
+
+    private static ScriptedExecutor Builds(int answers) => new(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+    {
+        [ShippedAgents.Build.Name] = [.. Enumerable.Range(1, answers).Select(n => Scripts.Answer("done", n))],
+    });
+
+    [Fact]
+    public async Task A_judgment_in_a_project_that_names_a_profile_spawns_with_that_profile_under_the_agents_vendor()
+    {
+        using var temp = new TemporaryHome();
+        ScriptedExecutor executor = Builds(1);
+        var options = new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci, Work] };
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        await Publishing.ContourAsync(daemon, Project, OneJudgment);
+        using var client = new DaemonClient(temp.Home);
+        await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "work"), None);
+
+        FlowRunView ended = await RunAsync(client, "With a profile", "ended");
+
+        ended.Outcome.Should().Be("built");
+        executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().Be(Work);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_judgment_in_a_project_that_names_no_profile_spawns_with_none()
+    {
+        using var temp = new TemporaryHome();
+        ScriptedExecutor executor = Builds(1);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [Work] }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        await Publishing.ContourAsync(daemon, Project, OneJudgment);
+        using var client = new DaemonClient(temp.Home);
+
+        FlowRunView ended = await RunAsync(client, "No profile", "ended");
+
+        ended.Outcome.Should().Be("built");
+        executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().BeNull();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_profile_the_configuration_no_longer_holds_pauses_before_the_launch_and_a_resume_after_set_profile_spawns_with_the_held_one()
+    {
+        using var temp = new TemporaryHome();
+        await using (RunningDaemon earlier = await Daemons.StartAsync(temp.Home, new DaemonOptions { Profiles = [Work] }, None))
+        {
+            await RegisteredProjects.AddAsync(earlier, Project, None);
+            await earlier.Services.GetRequiredService<ProjectService>().SetProfileAsync(Principal.LocalOwner, Project, "work", None);
+            await earlier.StopAsync(None);
+        }
+
+        // The node's configuration changed between starts: it holds 'work' only under another vendor now.
+        ScriptedExecutor executor = Builds(2);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci] }, None);
+        await Publishing.ContourAsync(daemon, Project, OneJudgment);
+        using var client = new DaemonClient(temp.Home);
+
+        FlowRunView paused = await RunAsync(client, "Missing profile", "paused");
+
+        paused.PauseReason.Should().Be(
+            $"Project '{Project}' names the credential profile 'work', which the node configuration loaded at start holds no entry for under the vendor '{ShippedAgents.Vendor}' of agent '{ShippedAgents.Build.Name}'.");
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
+        paused.Spawns.Should().Be(1, "the spawn the visit counted is left unused, since the launch was never recorded");
+        executor.Spawns.Should().BeEmpty("nothing is spawned under a profile the node does not hold");
+
+        await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "ci"), None);
+        await daemon.Services.GetRequiredService<FlowRunService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Named a held profile.", None);
+        FlowRunView resumed = await FlowRunDriver.UntilAsync(client, Project, paused.Id, "ended");
+
+        executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().Be(Ci);
+        FlowRunView heldFromStart = await RunAsync(client, "Profile held from the start", "ended");
+        executor.Spawns.Should().HaveCount(2).And.OnlyContain(s => s.CredentialProfile == Ci);
+        resumed.Spawns.Should().Be(heldFromStart.Spawns, "the pause used none of the contour's spawns").And.Be(1);
+
+        await daemon.StopAsync(None);
+    }
+
+    private static async Task<FlowRunView> RunAsync(DaemonClient client, string title, string status)
+    {
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", title, null), None);
+        FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, OneJudgment.Name);
+        return await FlowRunDriver.UntilAsync(client, Project, started.Id, status);
+    }
+}

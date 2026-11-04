@@ -4,7 +4,7 @@ using Coanda.Core;
 using Coanda.Core.Parcels;
 using Coanda.Core.Projects;
 using Coanda.Core.Software;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
@@ -35,7 +35,7 @@ namespace Coanda.Daemon.Actions;
 public sealed class GatedMergeAction(
     ParcelService parcels,
     ProjectService projects,
-    FlowService flows,
+    FlowRunService flowRuns,
     GitHubToken tokens,
     Func<GitHubClient> github) : IFlowAction
 {
@@ -127,10 +127,10 @@ public sealed class GatedMergeAction(
                 : PerformAgain(step, $"found {named} merged, but GitHub reports no commit for the merge.");
         }
 
-        if (await RecordedHeads.OfChainAsync(flows, request, cancellationToken) is not { } head)
+        if (await RecordedHeads.OfChainAsync(flowRuns, request, cancellationToken) is not { } head)
         {
             return PerformAgain(
-                step, $"merged nothing: no open-pr or rebase result with a head is recorded in the flow's chain, so there is no pushed commit to hold {named} to.");
+                step, $"merged nothing: no open-pr or rebase result with a head is recorded in the flow run's chain, so there is no pushed commit to hold {named} to.");
         }
 
         if (project.RequiredChecks.Count == 0)
@@ -154,7 +154,7 @@ public sealed class GatedMergeAction(
         if (!string.Equals(pullRequest.HeadSha, head, StringComparison.Ordinal))
         {
             return PerformAgain(
-                step, $"merged nothing: the head of {named} is {pullRequest.HeadSha}, not {head}, the commit the flow's chain recorded as pushed; a commit nobody reviewed is never merged.");
+                step, $"merged nothing: the head of {named} is {pullRequest.HeadSha}, not {head}, the commit the flow run's chain recorded as pushed; a commit nobody reviewed is never merged.");
         }
 
         if (await BehindAsync() is { } early)
@@ -307,5 +307,5 @@ public sealed class GatedMergeAction(
     private ActionOutcome.Done Merged(string commit) => ActionOutcome.ResultWith(MergedVerdict, Name, ("commit", commit));
 
     private static ActionOutcome.Paused PerformAgain(string step, string what) =>
-        new($"Step '{step}' {what}", FlowLevers.PerformAgain(step));
+        new($"Step '{step}' {what}", FlowRunLevers.PerformAgain(step));
 }

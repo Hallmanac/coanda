@@ -1,6 +1,6 @@
 using Coanda.Cli;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
@@ -8,10 +8,10 @@ using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
-using Coanda.Tests.Daemon.Flows;
+using Coanda.Tests.Daemon.FlowRuns;
 using Fisher;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -43,7 +43,7 @@ public sealed class TriggerLoopTests
     }
 
     [Fact]
-    public async Task A_bound_entry_whose_flow_ended_starts_no_second_flow_after_a_restart()
+    public async Task A_bound_entry_whose_flow_run_ended_starts_no_second_flow_run_after_a_restart()
     {
         using var temp = new TemporaryHome();
         ParcelView parcel;
@@ -51,28 +51,28 @@ public sealed class TriggerLoopTests
         {
             await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
-            parcel = await Flowing.TaskAtBuildAsync(client, Project, "Run once");
-            FlowView bound = await Flowing.BoundAsync(client, Project, parcel.Id);
+            parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Run once");
+            FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
             bound.StartedBy.Should().StartWith("binding:task/build/build:entry:", "a binding starts as a principal naming the binding and the entry event");
-            (await Flowing.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("pr-opened");
-            await Flowing.MergedAsync(client, Project, parcel.Id, bound.Id);
+            (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("pr-opened");
+            await FlowRunDriver.MergedAsync(client, Project, parcel.Id, bound.Id);
             await first.StopAsync(None);
         }
 
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, None);
         using var again = new DaemonClient(temp.Home);
 
-        // The loop handles entries in order, so once a later entry has its flow, the earlier one was read again if it ever would be.
-        ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "Run later");
-        await Flowing.BoundAsync(again, Project, later.Id);
-        (await Flowing.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
-            .Should().Equal(["build", "merge"], "the bound entry started one flow, and the merge followed its end");
+        // The loop handles entries in order, so once a later entry has its flow run, the earlier one was read again if it ever would be.
+        ParcelView later = await FlowRunDriver.TaskAtBuildAsync(again, Project, "Run later");
+        await FlowRunDriver.BoundAsync(again, Project, later.Id);
+        (await FlowRunDriver.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
+            .Should().Equal(["build", "merge"], "the bound entry started one flow run, and the merge followed its end");
 
         await second.StopAsync(None);
     }
 
     [Fact]
-    public async Task An_entry_recorded_while_the_daemon_was_stopped_starts_its_flow_on_the_next_start_and_only_once()
+    public async Task An_entry_recorded_while_the_daemon_was_stopped_starts_its_flow_run_on_the_next_start_and_only_once()
     {
         using var temp = new TemporaryHome();
         await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, None))
@@ -94,16 +94,16 @@ public sealed class TriggerLoopTests
         await using (RunningDaemon second = await Daemons.StartAsync(temp.Home, None))
         {
             using var client = new DaemonClient(temp.Home);
-            FlowView bound = await Flowing.BoundAsync(client, Project, parcelId);
+            FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, parcelId);
             bound.ContourName.Should().Be("build");
             await second.StopAsync(None);
         }
 
         await using RunningDaemon third = await Daemons.StartAsync(temp.Home, None);
         using var again = new DaemonClient(temp.Home);
-        ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "Moved later");
-        await Flowing.BoundAsync(again, Project, later.Id);
-        (await Flowing.OfParcelAsync(again, Project, parcelId)).Should().ContainSingle();
+        ParcelView later = await FlowRunDriver.TaskAtBuildAsync(again, Project, "Moved later");
+        await FlowRunDriver.BoundAsync(again, Project, later.Id);
+        (await FlowRunDriver.OfParcelAsync(again, Project, parcelId)).Should().ContainSingle();
 
         await third.StopAsync(None);
     }
@@ -125,9 +125,9 @@ public sealed class TriggerLoopTests
 
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView later = await Flowing.TaskAtBuildAsync(client, Project, "Moved after the install");
-        await Flowing.BoundAsync(client, Project, later.Id);
-        (await Flowing.OfParcelAsync(client, Project, parcelId)).Should().BeEmpty();
+        ParcelView later = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Moved after the install");
+        await FlowRunDriver.BoundAsync(client, Project, later.Id);
+        (await FlowRunDriver.OfParcelAsync(client, Project, parcelId)).Should().BeEmpty();
 
         await daemon.StopAsync(None);
     }
@@ -143,10 +143,10 @@ public sealed class TriggerLoopTests
 
         ParcelView chore = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "chore", "Bound to nothing real", null), None);
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, chore.Id, "doing"), None);
-        ParcelView task = await Flowing.TaskAtBuildAsync(client, Project, "Still builds");
+        ParcelView task = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Still builds");
 
-        (await Flowing.BoundAsync(client, Project, task.Id)).ContourName.Should().Be("build");
-        (await Flowing.OfParcelAsync(client, Project, chore.Id)).Should().BeEmpty();
+        (await FlowRunDriver.BoundAsync(client, Project, task.Id)).ContourName.Should().Be("build");
+        (await FlowRunDriver.OfParcelAsync(client, Project, chore.Id)).Should().BeEmpty();
 
         await daemon.StopAsync(None);
     }
@@ -162,55 +162,55 @@ public sealed class TriggerLoopTests
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Think it through", null), None);
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, idea.Id, "discovery"), None);
 
-        (await Flowing.BoundAsync(client, Project, idea.Id)).ContourName.Should().Be("discovery");
+        (await FlowRunDriver.BoundAsync(client, Project, idea.Id)).ContourName.Should().Be("discovery");
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task An_entry_made_while_the_parcel_has_a_live_flow_starts_nothing_then_or_later()
+    public async Task An_entry_made_while_the_parcel_has_a_live_flow_run_starts_nothing_then_or_later()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
         ParcelService parcels = daemon.Services.GetRequiredService<ParcelService>();
 
-        // A flow the service starts is not advanced, so it stays live on the parcel while the parcel moves,
-        // the way a flow whose own step moves its parcel is still live at that move. Each move is made on
-        // behalf of the flow holding the parcel, as that flow's move-parcel step would make it.
-        ParcelView held = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Moved under a live flow", null), None);
+        // A flow run the service starts is not advanced, so it stays live on the parcel while the parcel moves,
+        // the way a flow run whose own step moves its parcel is still live at that move. Each move is made on
+        // behalf of the flow run holding the parcel, as that flow run's move-parcel step would make it.
+        ParcelView held = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Moved under a live flow run", null), None);
         await client.BriefAsync(Project, held.Id, cancellationToken: None);
-        Flow holding = await flows.StartAsync(Principal.LocalOwner, Project, held.Id, "build", None);
-        await parcels.MoveAsync(FlowRunner.PrincipalFor(holding.Id), Project, held.Id, "build", holding.Id, None);
+        FlowRun holding = await flowRuns.StartAsync(Principal.LocalOwner, Project, held.Id, "build", None);
+        await parcels.MoveAsync(FlowRunAdvancer.PrincipalFor(holding.Id), Project, held.Id, "build", holding.Id, None);
 
-        // This flow is stopped before the loop can be counted on to have read the move, so only the
+        // This flow run is stopped before the loop can be counted on to have read the move, so only the
         // parcel's state at the move, not at handling, refuses the entry.
         ParcelView released = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Released before the loop looked", null), None);
         await client.BriefAsync(Project, released.Id, cancellationToken: None);
-        Flow brief = await flows.StartAsync(Principal.LocalOwner, Project, released.Id, "build", None);
-        await parcels.MoveAsync(FlowRunner.PrincipalFor(brief.Id), Project, released.Id, "build", brief.Id, None);
-        await flows.StopAsync(Principal.LocalOwner, Project, brief.Id, "gone before the loop read the move", None);
+        FlowRun brief = await flowRuns.StartAsync(Principal.LocalOwner, Project, released.Id, "build", None);
+        await parcels.MoveAsync(FlowRunAdvancer.PrincipalFor(brief.Id), Project, released.Id, "build", brief.Id, None);
+        await flowRuns.StopAsync(Principal.LocalOwner, Project, brief.Id, "gone before the loop read the move", None);
 
-        // The loop handles entries in order, so once a later entry has its flow, both moves were handled.
-        await Flowing.BoundAsync(client, Project, (await Flowing.TaskAtBuildAsync(client, Project, "Marks the moves handled")).Id);
-        (await Flowing.OfParcelAsync(client, Project, held.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
-        (await BoundToBuildAsync(client, released.Id)).Should().BeEmpty("the parcel had a live flow when it entered build");
+        // The loop handles entries in order, so once a later entry has its flow run, both moves were handled.
+        await FlowRunDriver.BoundAsync(client, Project, (await FlowRunDriver.TaskAtBuildAsync(client, Project, "Marks the moves handled")).Id);
+        (await FlowRunDriver.OfParcelAsync(client, Project, held.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
+        (await BoundToBuildAsync(client, released.Id)).Should().BeEmpty("the parcel had a live flow run when it entered build");
 
-        await flows.StopAsync(Principal.LocalOwner, Project, holding.Id, "nothing waits on this release", None);
-        await Flowing.BoundAsync(client, Project, (await Flowing.TaskAtBuildAsync(client, Project, "Marks the release handled")).Id);
-        (await Flowing.OfParcelAsync(client, Project, held.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
+        await flowRuns.StopAsync(Principal.LocalOwner, Project, holding.Id, "nothing waits on this release", None);
+        await FlowRunDriver.BoundAsync(client, Project, (await FlowRunDriver.TaskAtBuildAsync(client, Project, "Marks the release handled")).Id);
+        (await FlowRunDriver.OfParcelAsync(client, Project, held.Id)).Should().ContainSingle().Which.Id.Should().Be(holding.Id);
 
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "review"), None);
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "build"), None);
-        await Flowing.BoundAsync(client, Project, (await Flowing.TaskAtBuildAsync(client, Project, "Marks the re-entry handled")).Id);
-        (await BoundToBuildAsync(client, held.Id)).Should().ContainSingle("an entry made with no live flow starts the bound contour once");
+        await FlowRunDriver.BoundAsync(client, Project, (await FlowRunDriver.TaskAtBuildAsync(client, Project, "Marks the re-entry handled")).Id);
+        (await BoundToBuildAsync(client, held.Id)).Should().ContainSingle("an entry made with no live flow run starts the bound contour once");
 
         await daemon.StopAsync(None);
     }
 
-    /// <summary>The parcel's flows the build binding started, known by their principal.</summary>
-    private static async Task<List<FlowView>> BoundToBuildAsync(DaemonClient client, Guid parcelId) =>
-        [.. (await Flowing.OfParcelAsync(client, Project, parcelId)).Where(f => f.StartedBy.StartsWith("binding:task/build/build:entry:", StringComparison.Ordinal))];
+    /// <summary>The parcel's flow runs the build binding started, known by their principal.</summary>
+    private static async Task<List<FlowRunView>> BoundToBuildAsync(DaemonClient client, Guid parcelId) =>
+        [.. (await FlowRunDriver.OfParcelAsync(client, Project, parcelId)).Where(f => f.StartedBy.StartsWith("binding:task/build/build:entry:", StringComparison.Ordinal))];
 }

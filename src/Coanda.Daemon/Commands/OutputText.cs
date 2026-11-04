@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Coanda.Daemon.Commands;
 
 /// <summary>
-/// What is done to a command's output before any of it is stored on a flow: cut to its last lines,
+/// What is done to a command's output before any of it is stored on a flow run: cut to its last lines,
 /// and stripped of the user information of every URL that has a scheme.
 /// </summary>
 public static partial class OutputText

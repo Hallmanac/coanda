@@ -45,15 +45,15 @@ public sealed class BuildContourInterpreterTests
         JsonSerializer.SerializeToDocument(new Dictionary<string, JsonElement> { [routing.Field] = routing.Value });
 
     /// <summary>Starts at the first step and answers each visit until the interpreter pauses or ends.</summary>
-    private static (List<string> Visited, FlowMove Final, FlowPosition Last) Walk(Func<string, int, ContourTransition> answer)
+    private static (List<string> Visited, FlowRunMove Final, FlowRunPosition Last) Walk(Func<string, int, ContourTransition> answer)
     {
-        FlowPosition position = Interpreter.Start(Build);
+        FlowRunPosition position = Interpreter.Start(Build);
         List<string> visited = [position.Step];
         while (true)
         {
             using JsonDocument document = Answer(answer(position.Step, position.VisitsTo(position.Step)));
-            FlowMove move = Interpreter.Decide(Build, position, document);
-            if (move is not FlowMove.GoTo go)
+            FlowRunMove move = Interpreter.Decide(Build, position, document);
+            if (move is not FlowRunMove.GoTo go)
             {
                 return (visited, move, position);
             }
@@ -68,9 +68,9 @@ public sealed class BuildContourInterpreterTests
     {
         (_, ContourTransition toFix) = ReviewToFix();
 
-        (List<string> visited, FlowMove final, _) = Walk((step, _) => Success(step));
+        (List<string> visited, FlowRunMove final, _) = Walk((step, _) => Success(step));
 
-        final.Should().Be(new FlowMove.End(Build.Outcome));
+        final.Should().Be(new FlowRunMove.End(Build.Outcome));
         visited[0].Should().Be(Build.First?.Name);
         visited.Should().NotContain(toFix.Target);
         visited.Should().OnlyHaveUniqueItems();
@@ -81,12 +81,12 @@ public sealed class BuildContourInterpreterTests
     {
         (string review, ContourTransition toFix) = ReviewToFix();
 
-        (List<string> visited, FlowMove final, FlowPosition last) =
+        (List<string> visited, FlowRunMove final, FlowRunPosition last) =
             Walk((step, visit) => step == review && visit <= toFix.VisitCap ? toFix : Success(step));
 
         // With the shipped caps the spawn cap is not reached first; this asserts it rather than assuming it.
         last.Spawns.Should().BeLessThanOrEqualTo(Build.SpawnCap);
-        final.Should().Be(new FlowMove.End(Build.Outcome));
+        final.Should().Be(new FlowRunMove.End(Build.Outcome));
         visited.Count(s => s == toFix.Target).Should().Be(toFix.VisitCap);
         visited.Count(s => s == review).Should().Be(toFix.VisitCap + 1);
     }
@@ -96,13 +96,13 @@ public sealed class BuildContourInterpreterTests
     {
         (string review, ContourTransition toFix) = ReviewToFix();
 
-        (List<string> visited, FlowMove final, FlowPosition last) =
+        (List<string> visited, FlowRunMove final, FlowRunPosition last) =
             Walk((step, visit) => step == review && visit <= toFix.VisitCap + 1 ? toFix : Success(step));
 
         last.Step.Should().Be(review);
         last.Spawns.Should().BeLessThan(Build.SpawnCap);
         visited.Count(s => s == toFix.Target).Should().Be(toFix.VisitCap);
-        final.Should().BeOfType<FlowMove.Pause>()
+        final.Should().BeOfType<FlowRunMove.Pause>()
             .Which.Reason.Should().Contain($"'{review}'").And.Contain($"visit cap of {toFix.VisitCap}");
     }
 
@@ -112,9 +112,9 @@ public sealed class BuildContourInterpreterTests
         ContourTransition unheard = Success(Build.First?.Name ?? "") with { Value = ContourValue.Of("unheard-of") };
         Build.Steps.SelectMany(s => s.Transitions).Should().NotContain(t => t.Value.ToString() == "unheard-of");
 
-        (List<string> visited, FlowMove final, _) = Walk((_, _) => unheard);
+        (List<string> visited, FlowRunMove final, _) = Walk((_, _) => unheard);
 
         visited.Should().Equal(Build.First?.Name);
-        final.Should().BeOfType<FlowMove.Pause>().Which.Reason.Should().Contain($"'{Build.First?.Name}'");
+        final.Should().BeOfType<FlowRunMove.Pause>().Which.Reason.Should().Contain($"'{Build.First?.Name}'");
     }
 }

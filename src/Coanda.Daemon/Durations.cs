@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace Coanda.Daemon;
 
-/// <summary>How a limit reads in a reason stored on a flow.</summary>
+/// <summary>How a limit reads in a reason stored on a flow run.</summary>
 public static class Durations
 {
     /// <summary>Whole minutes as minutes, anything else as seconds.</summary>

@@ -8,7 +8,7 @@ namespace Coanda.Core.Parcels;
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
 /// The decider is given the gates the daemon runs; a move or a close runs every gate its type binds to it.
 /// A field is set only to a non-empty value of the kind the type declares it.
-/// A parcel a live flow holds (running or paused) is closed by nobody and moved only by that flow.
+/// A parcel a live flow run holds (running or paused) is closed by nobody and moved only by that flow run.
 /// </summary>
 public static class ParcelDecider
 {
@@ -38,19 +38,19 @@ public static class ParcelDecider
     }
 
     /// <summary>
-    /// Moves the parcel. <paramref name="forFlow"/> is the flow the move is made on behalf of, or null for
-    /// a move nobody's flow makes; a parcel a live flow holds is moved only on behalf of that flow.
+    /// Moves the parcel. <paramref name="forFlowRun"/> is the flow run the move is made on behalf of, or null for
+    /// a move nobody's flow run makes; a parcel a live flow run holds is moved only on behalf of that flow run.
     /// </summary>
     public static ParcelMoved Move(
-        ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now, Guid? forFlow = null)
+        ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now, Guid? forFlowRun = null)
     {
         RequireOpen(parcel);
         RequireType(type, parcel);
 
-        if (parcel.LiveFlowId is Guid live && live != forFlow)
+        if (parcel.LiveFlowRunId is Guid live && live != forFlowRun)
         {
             throw new DomainException(
-                $"Parcel {Ids.Short(parcel.Id)} is held by flow {Ids.Short(live)}, and only that flow moves it; stop flow {Ids.Short(live)} (flow.stop) before moving the parcel.");
+                $"Parcel {Ids.Short(parcel.Id)} is held by flow run {Ids.Short(live)}, and only that flow run moves it; stop flow run {Ids.Short(live)} (flow-run.stop) before moving the parcel.");
         }
 
         if (type.IsTerminal(toState))
@@ -78,10 +78,10 @@ public static class ParcelDecider
         RequireOpen(parcel);
         RequireType(type, parcel);
 
-        if (parcel.LiveFlowId is Guid live)
+        if (parcel.LiveFlowRunId is Guid live)
         {
             throw new DomainException(
-                $"Parcel {Ids.Short(parcel.Id)} is held by flow {Ids.Short(live)}, and a parcel a live flow holds is closed by nobody; stop flow {Ids.Short(live)} (flow.stop) before closing the parcel.");
+                $"Parcel {Ids.Short(parcel.Id)} is held by flow run {Ids.Short(live)}, and a parcel a live flow run holds is closed by nobody; stop flow run {Ids.Short(live)} (flow-run.stop) before closing the parcel.");
         }
 
         if (!type.IsResolution(resolution))

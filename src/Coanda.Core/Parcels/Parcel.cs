@@ -4,7 +4,7 @@ using Coanda.Core.Parcels.Events;
 namespace Coanda.Core.Parcels;
 
 /// <summary>
-/// The unit of work a flow acts on. State changes only through <c>Apply</c>; the rules live in
+/// The unit of work a flow run acts on. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="ParcelDecider"/>. The store snapshots this class inline, so it is also the document
 /// a list or show query reads; the private setters carry <c>JsonInclude</c> so the snapshot
 /// round-trips through System.Text.Json without opening them up.
@@ -36,9 +36,9 @@ public sealed class Parcel
     public string? Resolution { get; private set; }
     [JsonInclude]
     public string? CloseReason { get; private set; }
-    /// <summary>The flow running or paused on this parcel, or null when it has none. A parcel has at most one.</summary>
+    /// <summary>The flow run that is running or paused on this parcel, or null when it has none. A parcel has at most one.</summary>
     [JsonInclude]
-    public Guid? LiveFlowId { get; private set; }
+    public Guid? LiveFlowRunId { get; private set; }
 
     /// <summary>
     /// The value of each field that has been set, by field name. A field that was never set has no
@@ -93,15 +93,15 @@ public sealed class Parcel
         UpdatedAt = closed.ClosedAt;
     }
 
-    public void Apply(ParcelFlowAttached attached)
+    public void Apply(ParcelFlowRunAttached attached)
     {
-        LiveFlowId = attached.FlowId;
+        LiveFlowRunId = attached.FlowRunId;
         UpdatedAt = attached.AttachedAt;
     }
 
-    public void Apply(ParcelFlowReleased released)
+    public void Apply(ParcelFlowRunReleased released)
     {
-        LiveFlowId = null;
+        LiveFlowRunId = null;
         UpdatedAt = released.ReleasedAt;
     }
 }

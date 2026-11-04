@@ -4,7 +4,7 @@ using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Contours;
 using Coanda.Core.Registry;
@@ -13,15 +13,15 @@ using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
-using Coanda.Daemon.Flows;
-using Coanda.Tests.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
+using Coanda.Tests.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.GitHub;
 using Fisher;
 
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
-/// The phase 1 gate of the prototype plan (section 3): a flow of the shipped build contour runs end
+/// The phase 1 gate of the prototype plan (section 3): a flow run of the shipped build contour runs end
 /// to end on canned answers with every cap enforced and refused at load without them. Every test
 /// runs on a throwaway node home with a <see cref="ScriptedExecutor"/>, and none touches a network or a repository.
 /// </summary>
@@ -49,21 +49,21 @@ public sealed class PhaseOneGateTests
         using var client = new DaemonClient(temp.Home);
 
         // The objective and criteria the move out of refine needs; the open-pr step records the pull request the move out of build needs.
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Through the gate", pullRequest: false);
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Through the gate", pullRequest: false);
         parcel.Fields.Single(f => f.Name == TaskFields.PullRequest).Value.Should().BeNull();
 
-        FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
+        FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        flow.Outcome.Should().Be("pr-opened");
-        flow.ContourHash.Should().Be(ShippedContours.Build.Hash);
+        flowRun.Outcome.Should().Be("pr-opened");
+        flowRun.ContourHash.Should().Be(ShippedContours.Build.Hash);
 
         // The merge follows the build's end with no step taken by hand, merges the head open-pr recorded, and closes the task.
-        FlowView merge = await Flowing.MergedAsync(client, Project, parcel.Id, flow.Id);
+        FlowRunView merge = await FlowRunDriver.MergedAsync(client, Project, parcel.Id, flowRun.Id);
         merge.ContourHash.Should().Be(ShippedContours.Merge.Hash);
         merge.Outcome.Should().Be("merged");
-        merge.ParentFlowId.Should().Be(flow.Id);
+        merge.ParentFlowRunId.Should().Be(flowRun.Id);
         merge.Depth.Should().Be(1);
-        string head = flow.Steps.Single(s => s.Step == "open-pr").Result.GetValueOrDefault().GetProperty("head").GetString() ?? string.Empty;
+        string head = flowRun.Steps.Single(s => s.Step == "open-pr").Result.GetValueOrDefault().GetProperty("head").GetString() ?? string.Empty;
         head.Should().NotBeEmpty();
         FakeGitHub.Sent mergeRequest = github.Requests.Should().ContainSingle(r => r.IsMerge).Subject;
         JsonNode.Parse(mergeRequest.Body ?? "{}")?["sha"]?.GetValue<string>().Should().Be(head);
@@ -72,15 +72,15 @@ public sealed class PhaseOneGateTests
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
         after.State.Should().Be("closed");
         after.Resolution.Should().Be("completed");
-        after.LiveFlowId.Should().BeNull();
-        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().OnlyContain(f => f.Status == "ended");
+        after.LiveFlowRunId.Should().BeNull();
+        (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Should().OnlyContain(f => f.Status == "ended");
         after.Fields.Single(f => f.Name == TaskFields.PullRequest).Value.Should().Be(
             FieldValue.OfReference(FakeGitHub.Number.ToString(CultureInfo.InvariantCulture), FakeGitHub.Url));
         github.Requests.Count(r => r.IsOpen).Should().Be(1);
         github.Unexpected.Should().BeEmpty();
-        FlowStepView[] judgments = [.. flow.Steps.Where(s => s.Kind == "judgment")];
+        FlowRunStepView[] judgments = [.. flowRun.Steps.Where(s => s.Kind == "judgment")];
         judgments.Select(s => s.Performer).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance");
-        foreach ((FlowStepView judgment, int ordinal) in judgments.Select((j, i) => (j, i + 1)))
+        foreach ((FlowRunStepView judgment, int ordinal) in judgments.Select((j, i) => (j, i + 1)))
         {
             AgentDefinition agent = ShippedAgents.All.Single(a => a.Name == judgment.Performer);
             judgment.AgentHash.Should().Be(agent.Hash);
@@ -99,23 +99,23 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_flow_of_a_build_contour_with_no_open_pr_step_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
+    public async Task A_flow_run_of_a_build_contour_with_no_open_pr_step_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour withoutOpenPr = await Publishing.ContourAsync(daemon, Project, WithoutOpenPr(ShippedContours.Build));
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
 
-        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.ContourHash.Should().Be(withoutOpenPr.Hash);
         paused.Steps.Select(s => s.Step).Should().NotContain("open-pr");
         paused.CurrentStep.Should().Be("move-to-review");
         paused.PauseReason.Should().Be(
             $"Step 'move-to-review' could not move parcel {Ids.Short(parcel.Id)} to 'review': The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.");
-        paused.Lever.Should().Be(FlowLevers.PerformAgain("move-to-review"));
+        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("move-to-review"));
         (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("build");
 
         await daemon.StopAsync(None);
@@ -151,16 +151,16 @@ public sealed class PhaseOneGateTests
         ("fix", [.. Enumerable.Range(1, 6).Select(n => Costing("done", 0.5m, n))]));
 
     [Fact]
-    public async Task A_review_that_is_never_clean_pauses_a_flow_of_the_shipped_build_contour_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
+    public async Task A_review_that_is_never_clean_pauses_a_flow_run_of_the_shipped_build_contour_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Never clean");
 
-        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
         paused.Lever.Should().NotBeNullOrWhiteSpace();
@@ -180,9 +180,9 @@ public sealed class PhaseOneGateTests
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour copy = await Publishing.ContourAsync(daemon, Project, ShippedContours.Build with { SpawnCap = 4 });
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
 
-        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.ContourHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
         paused.PauseReason.Should().Be("Contour 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
@@ -206,38 +206,38 @@ public sealed class PhaseOneGateTests
         Contour loop = await Publishing.ContourAsync(daemon, Project, Reviewing("loop", "looped", 5m, new ContourFollow { Outcome = "looped", Contour = "loop", DepthCap = 2 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Round and round", null), None);
 
-        FlowView root = await Flowing.StartAsync(client, Project, parcel.Id, loop.Name);
-        FlowView capped = await AtDepthAsync(client, parcel.Id, 3);
-        capped = await Flowing.UntilAsync(client, Project, capped.Id, "paused");
+        FlowRunView root = await FlowRunDriver.StartAsync(client, Project, parcel.Id, loop.Name);
+        FlowRunView capped = await AtDepthAsync(client, parcel.Id, 3);
+        capped = await FlowRunDriver.UntilAsync(client, Project, capped.Id, "paused");
 
-        List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
-        flows.Select(f => f.Depth).Should().Equal(0, 1, 2, 3);
-        flows.Take(3).Should().OnlyContain(f => f.Status == "ended" && f.Outcome == "looped");
-        flows.Should().OnlyContain(f => f.RootFlowId == root.Id);
-        capped.ParentFlowId.Should().Be(flows[2].Id);
+        List<FlowRunView> flowRuns = await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id);
+        flowRuns.Select(f => f.Depth).Should().Equal(0, 1, 2, 3);
+        flowRuns.Take(3).Should().OnlyContain(f => f.Status == "ended" && f.Outcome == "looped");
+        flowRuns.Should().OnlyContain(f => f.RootFlowRunId == root.Id);
+        capped.ParentFlowRunId.Should().Be(flowRuns[2].Id);
         capped.PauseReason.Should().Be(
-            $"Flow {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of contour 'loop'; a flow deeper than its follow's depth cap performs no step.");
-        capped.Lever.Should().Be(FlowLevers.DepthCapReached("loop"));
-        FlowStepView first = capped.Steps.Should().ContainSingle().Subject;
+            $"Flow run {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of contour 'loop'; a flow run deeper than its follow's depth cap performs no step.");
+        capped.Lever.Should().Be(FlowRunLevers.DepthCapReached("loop"));
+        FlowRunStepView first = capped.Steps.Should().ContainSingle().Subject;
         first.Answer.Should().BeNull();
         first.Result.Should().BeNull();
-        executor.Spawns.Should().HaveCount(3, "only the flows at depths 0, 1, and 2 spawned");
+        executor.Spawns.Should().HaveCount(3, "only the flow runs at depths 0, 1, and 2 spawned");
 
-        FlowView resumed = await Flowing.ResumeAsync(client, Project, capped.Id, "Go on anyway.");
-        FlowView again = await PausedAfterAsync(client, capped.Id, resumed.UpdatedAt);
+        FlowRunView resumed = await FlowRunDriver.ResumeAsync(client, Project, capped.Id, "Go on anyway.");
+        FlowRunView again = await PausedAfterAsync(client, capped.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(capped.PauseReason, "a resume is no override of the depth cap");
         again.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
-        executor.Spawns.Should().HaveCount(3, "the depth-capped flow never spawns");
-        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "no flow starts at depth 4");
+        executor.Spawns.Should().HaveCount(3, "the depth-capped flow run never spawns");
+        (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "no flow run starts at depth 4");
 
         await daemon.StopAsync(None);
     }
 
-    // 5. The per-flow budget and the budget a chain shares.
+    // 5. The per-flow-run budget and the budget a chain shares.
 
     [Fact]
-    public async Task A_build_flow_whose_first_judgment_costs_its_whole_budget_pauses_at_its_next_judgment_without_spawning()
+    public async Task A_build_flow_run_whose_first_judgment_costs_its_whole_budget_pauses_at_its_next_judgment_without_spawning()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(
@@ -247,14 +247,14 @@ public sealed class PhaseOneGateTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Spent at once");
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Spent at once");
 
-        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.CurrentStep.Should().Be("adversarial-review");
         paused.PauseReason.Should().Be(
-            $"Flow {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow performs no judgment once its recorded cost reaches its contour's budget.");
-        paused.Lever.Should().Be(FlowLevers.BudgetReached());
+            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow run performs no judgment once its recorded cost reaches its contour's budget.");
+        paused.Lever.Should().Be(FlowRunLevers.BudgetReached());
         paused.Steps[^1].Answer.Should().BeNull();
         executor.Spawns.Select(s => s.Agent).Should().Equal("build");
 
@@ -262,7 +262,7 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_chain_whose_flows_stay_under_their_own_budgets_pauses_at_its_next_judgment_once_together_they_reach_the_roots_budget()
+    public async Task A_chain_whose_flow_runs_stay_under_their_own_budgets_pauses_at_its_next_judgment_once_together_they_reach_the_roots_budget()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 4).Select(n => Costing("clean", 0.6m, n))]));
@@ -273,15 +273,15 @@ public sealed class PhaseOneGateTests
         await Publishing.ContourAsync(daemon, Project, Reviewing("grow", "grown", 5m, new ContourFollow { Outcome = "grown", DepthCap = 5 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Shared purse", null), None);
 
-        FlowView root = await Flowing.StartAsync(client, Project, parcel.Id, seed.Name);
-        FlowView paused = await Flowing.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "paused");
+        FlowRunView root = await FlowRunDriver.StartAsync(client, Project, parcel.Id, seed.Name);
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "paused");
 
-        List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
-        flows.Select(f => (f.ContourName, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
-        flows.Should().OnlyContain(f => f.Cost < 1m, "each flow stays under its own budget");
+        List<FlowRunView> flowRuns = await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id);
+        flowRuns.Select(f => (f.ContourName, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
+        flowRuns.Should().OnlyContain(f => f.Cost < 1m, "each flow run stays under its own budget");
         paused.PauseReason.Should().Be(
-            $"The chain of flow {Ids.Short(paused.Id)}, rooted at flow {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flows, which reaches the budget of $1.00 of contour 'seed' that its root flow runs; a chain performs no judgment once its recorded cost reaches that budget.");
-        paused.Lever.Should().Be(FlowLevers.BudgetReached());
+            $"The chain of flow run {Ids.Short(paused.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flow runs, which reaches the budget of $1.00 of contour 'seed' that its root flow run follows; a chain performs no judgment once its recorded cost reaches that budget.");
+        paused.Lever.Should().Be(FlowRunLevers.BudgetReached());
         executor.Spawns.Should().HaveCount(2);
 
         await daemon.StopAsync(None);
@@ -300,22 +300,22 @@ public sealed class PhaseOneGateTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never answers");
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Never answers");
 
-        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
         paused.CurrentStep.Should().Be("build");
         paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry");
         paused.PauseUsage.Should().Be(new Measurement(1000, 25m, 5, TimeSpan.FromSeconds(60)), "the pause records both attempts' usage");
         paused.Cost.Should().Be(25m);
 
-        FlowView resumed = await Flowing.ResumeAsync(client, Project, paused.Id, "Try once more.");
-        FlowView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
+        FlowRunView resumed = await FlowRunDriver.ResumeAsync(client, Project, paused.Id, "Try once more.");
+        FlowRunView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(
-            $"Flow {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow performs no judgment once its recorded cost reaches its contour's budget.");
+            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow run performs no judgment once its recorded cost reaches its contour's budget.");
         again.Steps.Count(s => s.Step == "build").Should().Be(1);
-        executor.Spawns.Should().ContainSingle("a resume of a spent flow spawns nothing");
+        executor.Spawns.Should().ContainSingle("a resume of a spent flow run spawns nothing");
 
         await daemon.StopAsync(None);
     }
@@ -395,30 +395,30 @@ public sealed class PhaseOneGateTests
         ],
     };
 
-    private static async Task<FlowView> AtDepthAsync(DaemonClient client, Guid parcelId, int depth)
+    private static async Task<FlowRunView> AtDepthAsync(DaemonClient client, Guid parcelId, int depth)
     {
-        FlowView? found = null;
-        await Flowing.UntilAsync(
+        FlowRunView? found = null;
+        await FlowRunDriver.UntilAsync(
             async () =>
             {
-                found = (await Flowing.OfParcelAsync(client, Project, parcelId)).SingleOrDefault(f => f.Depth == depth);
+                found = (await FlowRunDriver.OfParcelAsync(client, Project, parcelId)).SingleOrDefault(f => f.Depth == depth);
                 return found is not null;
             },
-            $"a flow at depth {depth} starts on parcel {parcelId}");
-        return found ?? throw new InvalidOperationException("The wait ended with no flow at that depth.");
+            $"a flow run at depth {depth} starts on parcel {parcelId}");
+        return found ?? throw new InvalidOperationException("The wait ended with no flow run at that depth.");
     }
 
-    /// <summary>Waits for the flow to pause again after a resume recorded at <paramref name="resumedAt"/>.</summary>
-    private static async Task<FlowView> PausedAfterAsync(DaemonClient client, Guid flowId, DateTimeOffset resumedAt)
+    /// <summary>Waits for the flow run to pause again after a resume recorded at <paramref name="resumedAt"/>.</summary>
+    private static async Task<FlowRunView> PausedAfterAsync(DaemonClient client, Guid flowRunId, DateTimeOffset resumedAt)
     {
-        FlowView? found = null;
-        await Flowing.UntilAsync(
+        FlowRunView? found = null;
+        await FlowRunDriver.UntilAsync(
             async () =>
             {
-                found = await Flowing.ShowAsync(client, Project, flowId);
+                found = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
                 return found is { Status: "paused" } && found.UpdatedAt > resumedAt;
             },
-            $"flow {flowId} pauses again after its resume");
-        return found ?? throw new InvalidOperationException("The wait ended with no flow.");
+            $"flow run {flowRunId} pauses again after its resume");
+        return found ?? throw new InvalidOperationException("The wait ended with no flow run.");
     }
 }

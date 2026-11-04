@@ -54,7 +54,7 @@ app.Configure(config =>
 
     config.AddBranch("parcel", parcel =>
     {
-        parcel.SetDescription("A parcel is the unit of work: one type, one lifecycle state, moved by flows.");
+        parcel.SetDescription("A parcel is the unit of work: one type, one lifecycle state, moved by flow runs.");
         parcel.AddCommand<ParcelAddCommand>("add").WithDescription("Create a parcel at an entry state of its type.").WithExample("parcel", "add", "--title", "\"Try Coanda\"");
         parcel.AddCommand<ParcelListCommand>("list").WithDescription("List the project's open parcels.").WithExample("parcel", "list");
         parcel.AddCommand<ParcelShowCommand>("show").WithDescription("Show one parcel.").WithExample("parcel", "show", "0192a3b4");
@@ -80,19 +80,19 @@ app.Configure(config =>
 
     config.AddBranch("contour", contour =>
     {
-        contour.SetDescription("Contours are the loops a flow follows to move a parcel; build, discovery, and review-on-assignment ship installed.");
+        contour.SetDescription("Contours are the loops a flow run follows to move a parcel; build, discovery, and review-on-assignment ship installed.");
         contour.AddCommand<ContourListCommand>("list").WithDescription("List the contours that govern the project.").WithExample("contour", "list");
-        contour.AddCommand<ContourStartCommand>("start").WithDescription("Start a flow of a contour on a parcel; the daemon advances it from there.").WithExample("contour", "start", "build", "--parcel", "0192a3b4");
+        contour.AddCommand<ContourStartCommand>("start").WithDescription("Start a flow run of a contour on a parcel; the daemon advances it from there.").WithExample("contour", "start", "build", "--parcel", "0192a3b4");
     });
 
-    config.AddBranch("flow", flow =>
+    config.AddBranch("flow-run", flowRun =>
     {
-        flow.SetDescription("A flow is one execution of a contour on a parcel; a parcel has at most one live flow.");
-        flow.AddCommand<FlowListCommand>("list").WithDescription("List a parcel's flows, oldest first.").WithExample("flow", "list", "--parcel", "0192a3b4");
-        flow.AddCommand<FlowShowCommand>("show").WithDescription("Show one flow and the steps it entered.").WithExample("flow", "show", "0192a3b4");
-        flow.AddCommand<FlowPauseCommand>("pause").WithDescription("Pause a running flow; a resume performs its current step again.").WithExample("flow", "pause", "0192a3b4", "--reason", "\"Waiting on the API owner\"");
-        flow.AddCommand<FlowStopCommand>("stop").WithDescription("Stop a live flow, releasing its parcel.").WithExample("flow", "stop", "0192a3b4", "--reason", "\"Taking this by hand\"");
-        flow.AddCommand<FlowResumeCommand>("resume").WithDescription("Resume a paused flow; the daemon advances it from there.").WithExample("flow", "resume", "0192a3b4");
+        flowRun.SetDescription("A flow run is one execution of a contour on a parcel; a parcel has at most one live flow run.");
+        flowRun.AddCommand<FlowRunListCommand>("list").WithDescription("List a parcel's flow runs, oldest first.").WithExample("flow-run", "list", "--parcel", "0192a3b4");
+        flowRun.AddCommand<FlowRunShowCommand>("show").WithDescription("Show one flow run and the steps it entered.").WithExample("flow-run", "show", "0192a3b4");
+        flowRun.AddCommand<FlowRunPauseCommand>("pause").WithDescription("Pause a running flow run; a resume performs its current step again.").WithExample("flow-run", "pause", "0192a3b4", "--reason", "\"Waiting on the API owner\"");
+        flowRun.AddCommand<FlowRunStopCommand>("stop").WithDescription("Stop a live flow run, releasing its parcel.").WithExample("flow-run", "stop", "0192a3b4", "--reason", "\"Taking this by hand\"");
+        flowRun.AddCommand<FlowRunResumeCommand>("resume").WithDescription("Resume a paused flow run; the daemon advances it from there.").WithExample("flow-run", "resume", "0192a3b4");
     });
 });
 

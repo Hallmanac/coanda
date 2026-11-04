@@ -1,5 +1,5 @@
 using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Projects;
 using Coanda.Core.Triggers;
@@ -35,7 +35,7 @@ public static class StoreConfiguration
         options.Projections.Snapshot<ProjectProfile>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<Flow>(SnapshotLifecycle.Inline);
+        options.Projections.Snapshot<FlowRun>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<ExternalEvent>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Subscription>(SnapshotLifecycle.Inline);
     }

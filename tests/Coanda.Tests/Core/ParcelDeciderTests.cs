@@ -79,36 +79,36 @@ public sealed class ParcelDeciderTests
     }
 
     [Fact]
-    public void A_parcel_a_live_flow_holds_is_closed_by_nobody_and_moved_only_for_that_flow()
+    public void A_parcel_a_live_flow_run_holds_is_closed_by_nobody_and_moved_only_for_that_flow_run()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now)).Briefed(ShippedTypes.Task);
-        Guid flow = Ids.New();
-        parcel.Apply(new ParcelFlowAttached(parcel.Id, flow, Now));
-        string refusal = $"Parcel {Ids.Short(parcel.Id)} is held by flow {Ids.Short(flow)}*stop flow {Ids.Short(flow)} (flow.stop) before";
+        Guid flowRun = Ids.New();
+        parcel.Apply(new ParcelFlowRunAttached(parcel.Id, flowRun, Now));
+        string refusal = $"Parcel {Ids.Short(parcel.Id)} is held by flow run {Ids.Short(flowRun)}*stop flow run {Ids.Short(flowRun)} (flow-run.stop) before";
 
-        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "split", "", $"flow:{flow}", Now))
-            .Should().Throw<DomainException>().WithMessage(refusal + " closing the parcel.", "the holding flow does not close it either");
+        FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "split", "", $"flow-run:{flowRun}", Now))
+            .Should().Throw<DomainException>().WithMessage(refusal + " closing the parcel.", "the holding flow run does not close it either");
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow check runs before the terminal-state check");
+            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the terminal-state check");
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "nowhere", "brian", Now, Ids.New()))
-            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow check runs before the move table");
+            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the move table");
 
-        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", $"flow:{flow}", Now, flow))
-            .Should().Throw<DomainException>().WithMessage("*does not allow a move from 'refine' to 'review'*", "the holding flow's move still follows the move table");
-        parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", $"flow:{flow}", Now, flow));
+        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", $"flow-run:{flowRun}", Now, flowRun))
+            .Should().Throw<DomainException>().WithMessage("*does not allow a move from 'refine' to 'review'*", "the holding flow run's move still follows the move table");
+        parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", $"flow-run:{flowRun}", Now, flowRun));
         parcel.State.Should().Be("build");
 
-        parcel.Apply(new ParcelFlowReleased(parcel.Id, flow, Now));
+        parcel.Apply(new ParcelFlowRunReleased(parcel.Id, flowRun, Now));
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", "brian", Now));
         parcel.Apply(ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "completed", "Done.", "brian", Now));
         parcel.IsClosed.Should().BeTrue();
     }
 
     [Fact]
-    public void A_parcel_of_another_type_is_refused_for_that_before_its_live_flow()
+    public void A_parcel_of_another_type_is_refused_for_that_before_its_live_flow_run()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now));
-        parcel.Apply(new ParcelFlowAttached(parcel.Id, Ids.New(), Now));
+        parcel.Apply(new ParcelFlowRunAttached(parcel.Id, Ids.New(), Now));
 
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Idea, GateSet.Shipped, parcel, "build", "brian", Now))
             .Should().Throw<DomainException>().WithMessage("*is a 'task', not a 'idea'*");

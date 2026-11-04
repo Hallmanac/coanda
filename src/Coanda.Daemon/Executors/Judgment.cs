@@ -1,6 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 
 namespace Coanda.Daemon.Executors;
 
@@ -9,7 +9,7 @@ namespace Coanda.Daemon.Executors;
 /// spawn's answer schema. A missing or invalid answer is retried once by resuming the same
 /// session, never by a second spawn; a second failure pauses with the transcript as the lever. It
 /// records nothing and leaves the session open on either outcome, returning its handle: the runner
-/// records the flow's events and decides when a session ends. If the judgment fails after the
+/// records the flow run's events and decides when a session ends. If the judgment fails after the
 /// spawn, it stops the session rather than leave one nobody holds, except when the caller already
 /// took the handle and its stopping token (the daemon's own) is cancelled, which leaves the session
 /// for a reattach. Whether a failure is a daemon stop is decided by that token alone, never by the

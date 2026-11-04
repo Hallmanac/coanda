@@ -143,23 +143,23 @@ public sealed class ParcelGateTests
     }
 
     [Fact]
-    public void A_move_or_close_of_a_parcel_a_live_flow_holds_is_refused_before_any_gate_runs()
+    public void A_move_or_close_of_a_parcel_a_live_flow_run_holds_is_refused_before_any_gate_runs()
     {
         var gate = new StandInGate();
         var gates = new GateSet([gate]);
         Parcel parcel = Create("ready work", gates);
-        Guid flow = Ids.New();
-        parcel.Apply(new ParcelFlowAttached(parcel.Id, flow, Now));
+        Guid flowRun = Ids.New();
+        parcel.Apply(new ParcelFlowRunAttached(parcel.Id, flowRun, Now));
 
         FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage($"*held by flow {Ids.Short(flow)}*");
-        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", $"flow:{flow}", Now, Ids.New()))
-            .Should().Throw<DomainException>().WithMessage($"*held by flow {Ids.Short(flow)}*");
+            .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
+        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, Ids.New()))
+            .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
         FluentActions.Invoking(() => ParcelDecider.Close(Gated, gates, parcel, "completed", "done", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage($"*held by flow {Ids.Short(flow)}*");
-        gate.Checks.Should().BeEmpty("the live-flow refusal comes before any gate");
+            .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
+        gate.Checks.Should().BeEmpty("the live-flow-run refusal comes before any gate");
 
-        ParcelDecider.Move(Gated, gates, parcel, "build", $"flow:{flow}", Now, flow).ToState.Should().Be("build");
+        ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, flowRun).ToState.Should().Be("build");
         gate.Checks.Should().Equal(("refine", "build"));
     }
 }

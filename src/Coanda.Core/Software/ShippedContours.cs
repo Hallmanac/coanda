@@ -12,9 +12,9 @@ namespace Coanda.Core.Software;
 /// there: it opens the pull request, moves the task to review, and ends with the outcome
 /// <c>pr-opened</c>, and the merge is a contour of its own that follows. The merge contour holds the
 /// gated merge, which answers <c>merged</c>, <c>pending</c>, or <c>behind</c>, with a waiting lap
-/// through a timer back to it and a rebase lap (a worktree of the merge flow's own, a rebase that
+/// through a timer back to it and a rebase lap (a worktree of the merge flow run's own, a rebase that
 /// answers <c>done</c>, then the same timer) for a head behind the primary branch, and closes its
-/// task as <c>completed</c> when it ends. A flow's outcome is the one
+/// task as <c>completed</c> when it ends. A flow run's outcome is the one
 /// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
 /// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
 /// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
@@ -31,7 +31,7 @@ public static class ShippedContours
     public const int MergeWaitSeconds = 60;
 
     /// <summary>
-    /// How many rebase laps a merge flow takes: the visit cap on its worktree step's transition to
+    /// How many rebase laps a merge flow run takes: the visit cap on its worktree step's transition to
     /// the rebase, the one step visited once per lap. A head still behind after them pauses on that
     /// cap once the worktree step has run, before the rebase fetches or pushes anything.
     /// </summary>
@@ -45,8 +45,8 @@ public static class ShippedContours
     public const int MergePendingCap = 20 + MergeRebaseCap;
 
     /// <summary>
-    /// How many resumes of the merge, after its lap has paused, can still end the flow with a merge.
-    /// A visit cap counts every visit a flow has made to the step, resumes included, so once the lap
+    /// How many resumes of the merge, after its lap has paused, can still end the flow run with a merge.
+    /// A visit cap counts every visit a flow run has made to the step, resumes included, so once the lap
     /// is spent each resume looks at the pull request once and pauses again while it is still pending;
     /// this allowance keeps a person who resumes once the checks have finished from ever finding the
     /// merge's own cap spent first.
@@ -56,7 +56,7 @@ public static class ShippedContours
     /// <summary>
     /// The visit cap on the merge's transition to end: <see cref="MergeResumes"/> visits beyond the
     /// pending cap, so a merge made on the lap's last visit, or on any resume after the lap's pause, a
-    /// refused close, or another pause, ends the flow rather than pausing on a visit cap.
+    /// refused close, or another pause, ends the flow run rather than pausing on a visit cap.
     /// </summary>
     public const int MergedCap = MergePendingCap + MergeResumes;
 

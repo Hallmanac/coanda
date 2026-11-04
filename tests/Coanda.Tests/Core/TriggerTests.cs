@@ -50,10 +50,10 @@ public sealed class TriggerTests
     }
 
     [Fact]
-    public void A_follow_matches_a_flow_end_with_its_outcome_and_its_contour_when_it_names_one()
+    public void A_follow_matches_a_flow_run_end_with_its_outcome_and_its_contour_when_it_names_one()
     {
-        TriggerEvent ended = TriggerEvent.FlowEnded("build", "pr-opened", "task");
-        ended.Kind.Should().Be("flow-ended");
+        TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
+        ended.Kind.Should().Be("flow-run-ended");
         ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["contour"] = TriggerEvent.ContourKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" });
 
         Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
@@ -65,11 +65,11 @@ public sealed class TriggerTests
     [Fact]
     public void A_follow_names_its_contour_in_any_spelling_as_contour_names_compare_without_case()
     {
-        TriggerEvent ended = TriggerEvent.FlowEnded("build", "pr-opened", "task");
+        TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
 
         Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "Build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
         Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 })
-            .Matches(TriggerEvent.FlowEnded("BUILD", "pr-opened", "task")).Should().BeTrue();
+            .Matches(TriggerEvent.FlowRunEnded("BUILD", "pr-opened", "task")).Should().BeTrue();
         Trigger.ForFollow(new ContourFollow { Outcome = "PR-Opened", Contour = "build", DepthCap = 1 }).Matches(ended)
             .Should().BeFalse("an outcome is a typed value and compares exactly");
     }

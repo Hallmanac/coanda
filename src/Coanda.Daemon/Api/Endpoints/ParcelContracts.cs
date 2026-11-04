@@ -27,7 +27,7 @@ public sealed record ParcelView(
     DateTimeOffset UpdatedAt,
     string? Resolution,
     string? CloseReason,
-    Guid? LiveFlowId,
+    Guid? LiveFlowRunId,
     IReadOnlyList<ParcelFieldView> Fields)
 {
     /// <summary>
@@ -37,6 +37,6 @@ public sealed record ParcelView(
     /// </summary>
     public static ParcelView From(Parcel parcel, ParcelType? type) => new(
         parcel.Id, parcel.Project, parcel.TypeName, parcel.TypeHash, parcel.State, parcel.Title,
-        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlowId,
+        parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlowRunId,
         [.. (type?.Fields ?? []).Select(f => new ParcelFieldView(f.Name, f.Kind, parcel.ValueOf(f.Name)))]);
 }

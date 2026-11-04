@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Software;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
@@ -20,11 +20,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     private static readonly SpawnCaps Caps = new(2.5m, TimeSpan.FromMinutes(30));
 
     private readonly TemporaryHome temp = new();
-    private readonly Guid flowId = Ids.New();
+    private readonly Guid flowRunId = Ids.New();
 
-    private string WorkDirectory => temp.Home.FlowWorkPath(Project, flowId);
+    private string WorkDirectory => temp.Home.FlowRunWorkPath(Project, flowRunId);
 
-    private string TranscriptDirectory => temp.Home.FlowTranscriptPath(Project, flowId);
+    private string TranscriptDirectory => temp.Home.FlowRunTranscriptPath(Project, flowRunId);
 
     public void Dispose() => temp.Dispose();
 
@@ -39,8 +39,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
         // The fake reads its directory back with links resolved (macOS's /var is /private/var), so the
-        // directory is matched by its flow-specific tail and by holding the persona file the spawn wrote.
-        start.WorkingDirectory.Should().EndWith(Path.Combine("work", Project, flowId.ToString()));
+        // directory is matched by its flow-run-specific tail and by holding the persona file the spawn wrote.
+        start.WorkingDirectory.Should().EndWith(Path.Combine("work", Project, flowRunId.ToString()));
         File.Exists(Path.Combine(start.WorkingDirectory, ".coanda", "persona.md")).Should().BeTrue();
         WithoutGuard(start.Arguments).Should().Equal(
             "--print",
@@ -434,7 +434,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         fake.Script(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         JudgmentOutcome later = await Judgment.RunAsync(executor, Request(), None);
         later.Should().BeOfType<JudgmentOutcome.Answered>().Which.TranscriptPath.Should().Be(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl"));
-        Directory.GetFiles(TranscriptDirectory).Should().HaveCount(2, "a later spawn on the same flow writes a transcript of its own");
+        Directory.GetFiles(TranscriptDirectory).Should().HaveCount(2, "a later spawn on the same flow run writes a transcript of its own");
     }
 
     [Fact]

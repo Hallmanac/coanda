@@ -65,7 +65,7 @@ public sealed class ProjectProfileTests
         var projects = new ProjectService(store, TimeProvider.System, Held);
         await RegisteredProjects.AddAsync(store, Project, None);
 
-        await FluentActions.Awaiting(() => projects.SetProfileAsync(new Principal("flow:x", Role.Agent), Project, "work", None))
+        await FluentActions.Awaiting(() => projects.SetProfileAsync(new Principal("flow-run:x", Role.Agent), Project, "work", None))
             .Should().ThrowAsync<DomainException>().WithMessage("'project.set-profile' is not open to the Agent role.");
         await FluentActions.Awaiting(() => projects.SetProfileAsync(new Principal("someone", Role.Member), Project, "work", None))
             .Should().ThrowAsync<DomainException>().WithMessage("'project.set-profile' is not open to the Member role.");

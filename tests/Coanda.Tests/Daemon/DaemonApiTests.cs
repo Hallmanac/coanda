@@ -2,12 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using Coanda.Cli;
 using Coanda.Core;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
-using Coanda.Daemon.Flows;
-using Coanda.Tests.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
+using Coanda.Tests.Daemon.FlowRuns;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
@@ -63,28 +63,28 @@ public sealed class DaemonApiTests
     }
 
     [Fact]
-    public async Task A_move_or_close_of_a_parcel_a_live_flow_holds_is_refused_with_422_whatever_principal_the_request_carries()
+    public async Task A_move_or_close_of_a_parcel_a_live_flow_run_holds_is_refused_with_422_whatever_principal_the_request_carries()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
 
-        // A flow the service starts is not advanced, and refine binds no contour, so the flow stays live and alone.
+        // A flow run the service starts is not advanced, and refine binds no contour, so the flow run stays live and alone.
         ParcelView parcel = await client.PostAsync<ParcelView>(
-            "/parcels", new ParcelAddRequest("coanda", "task", "Held by a flow", null), CancellationToken.None);
-        Flow flow = await flows.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
+            "/parcels", new ParcelAddRequest("coanda", "task", "Held by a flow run", null), CancellationToken.None);
+        FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
         ParcelView held = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
-        held.LiveFlowId.Should().Be(flow.Id);
-        string refusal = $"*held by flow {Ids.Short(flow.Id)}*(flow.stop)*";
+        held.LiveFlowRunId.Should().Be(flowRun.Id);
+        string refusal = $"*held by flow run {Ids.Short(flowRun.Id)}*(flow-run.stop)*";
 
         using var http = new HttpClient { BaseAddress = new Uri(daemon.Info.BaseAddress) };
         await RefusedAsync(http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), "brian", refusal + "before moving the parcel.");
         await RefusedAsync(
             http, daemon, "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "completed", "Done by hand."), "brian", refusal + "before closing the parcel.");
         await RefusedAsync(
-            http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), FlowRunner.PrincipalFor(flow.Id).Id, refusal + "before moving the parcel.");
+            http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), FlowRunAdvancer.PrincipalFor(flowRun.Id).Id, refusal + "before moving the parcel.");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
         after.Should().BeEquivalentTo(held, "every refusal leaves the parcel as it was");
@@ -93,45 +93,45 @@ public sealed class DaemonApiTests
     }
 
     [Fact]
-    public async Task A_person_resumes_or_stops_the_flow_that_holds_a_parcel_through_the_api_and_a_stop_frees_the_parcel()
+    public async Task A_person_resumes_or_stops_the_flow_run_that_holds_a_parcel_through_the_api_and_a_stop_frees_the_parcel()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
-        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
 
         ParcelView parcel = await client.PostAsync<ParcelView>(
             "/parcels", new ParcelAddRequest("coanda", "task", "Held, then let go", null), CancellationToken.None);
-        Flow flow = await flows.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
-        await flows.PauseAsync(Principal.LocalOwner, "coanda", flow.Id, "Waiting on a person.", "resume", CancellationToken.None);
+        FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
+        await flowRuns.PauseAsync(Principal.LocalOwner, "coanda", flowRun.Id, "Waiting on a person.", "resume", CancellationToken.None);
 
-        FlowView resumed = await client.PostAsync<FlowView>(
-            $"/flows/{flow.Id}/resume", new FlowResumeRequest("coanda", "Carry on."), CancellationToken.None);
+        FlowRunView resumed = await client.PostAsync<FlowRunView>(
+            $"/flow-runs/{flowRun.Id}/resume", new FlowRunResumeRequest("coanda", "Carry on."), CancellationToken.None);
         resumed.Status.Should().Be("running");
 
-        // The stock executor holds no script, so the resumed flow pauses again at its first judgment;
+        // The stock executor holds no script, so the resumed flow run pauses again at its first judgment;
         // waiting for that keeps the stop below from racing the runner's own writes.
-        await Flowing.UntilAsync(client, "coanda", flow.Id, "paused");
+        await FlowRunDriver.UntilAsync(client, "coanda", flowRun.Id, "paused");
 
-        await FluentActions.Awaiting(() => client.PostAsync<FlowView>(
-                $"/flows/{flow.Id}/stop", new FlowStopRequest("coanda", " "), CancellationToken.None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Stopping a flow records why; give a reason.");
+        await FluentActions.Awaiting(() => client.PostAsync<FlowRunView>(
+                $"/flow-runs/{flowRun.Id}/stop", new FlowRunStopRequest("coanda", " "), CancellationToken.None))
+            .Should().ThrowAsync<DomainException>().WithMessage("Stopping a flow run records why; give a reason.");
 
-        FlowView stopped = await client.PostAsync<FlowView>(
-            $"/flows/{flow.Id}/stop", new FlowStopRequest("coanda", "Taking this by hand."), CancellationToken.None);
+        FlowRunView stopped = await client.PostAsync<FlowRunView>(
+            $"/flow-runs/{flowRun.Id}/stop", new FlowRunStopRequest("coanda", "Taking this by hand."), CancellationToken.None);
         stopped.Status.Should().Be("stopped");
         stopped.StopReason.Should().Be("Taking this by hand.");
 
         ParcelView freed = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
-        freed.LiveFlowId.Should().BeNull("a stopped flow releases its parcel");
+        freed.LiveFlowRunId.Should().BeNull("a stopped flow run releases its parcel");
         ParcelView closed = await client.PostAsync<ParcelView>(
             "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "abandoned", "Done by hand."), CancellationToken.None);
         closed.Resolution.Should().Be("abandoned");
 
-        await FluentActions.Awaiting(() => client.PostAsync<FlowView>(
-                $"/flows/{flow.Id}/resume", new FlowResumeRequest("coanda", null), CancellationToken.None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*only a paused flow resumes.");
+        await FluentActions.Awaiting(() => client.PostAsync<FlowRunView>(
+                $"/flow-runs/{flowRun.Id}/resume", new FlowRunResumeRequest("coanda", null), CancellationToken.None))
+            .Should().ThrowAsync<DomainException>().WithMessage("*only a paused flow run resumes.");
 
         await daemon.StopAsync(CancellationToken.None);
     }

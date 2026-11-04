@@ -195,7 +195,7 @@ public sealed class ShippedContoursTests
         double seconds = timer.Arguments["seconds"].GetDouble();
         (seconds * (pending.VisitCap - rebaseLaps.VisitCap)).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all once the rebase laps' visits are taken out");
         back.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap, "the timer never pauses the lap before the pending cap does");
-        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 100, "a merge on the lap's last visit or on any of a hundred resumes still ends the flow");
+        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 100, "a merge on the lap's last visit or on any of a hundred resumes still ends the flow run");
         merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 5);
     }
 
@@ -227,7 +227,7 @@ public sealed class ShippedContoursTests
     {
         Contour merge = ShippedContours.Merge;
         int laps = RebaseLapCap(merge).VisitCap;
-        FlowPosition position = Interpreter.Start(merge);
+        FlowRunPosition position = Interpreter.Start(merge);
         using JsonDocument behind = JsonDocument.Parse("""{"verdict":"behind"}""");
         using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
 
@@ -240,14 +240,14 @@ public sealed class ShippedContoursTests
         }
 
         position = Go(position, behind, "worktree");
-        Interpreter.Decide(merge, position, done).Should().BeOfType<FlowMove.Pause>()
+        Interpreter.Decide(merge, position, done).Should().BeOfType<FlowRunMove.Pause>()
             .Which.Reason.Should().Be($"Step 'worktree' reached the visit cap of {laps} on its transition to 'rebase'.");
 
-        FlowPosition Go(FlowPosition from, JsonDocument answer, string step)
+        FlowRunPosition Go(FlowRunPosition from, JsonDocument answer, string step)
         {
-            FlowMove move = Interpreter.Decide(merge, from, answer);
-            move.Should().Be(new FlowMove.GoTo(step));
-            return Interpreter.Apply(merge, from, (FlowMove.GoTo)move);
+            FlowRunMove move = Interpreter.Decide(merge, from, answer);
+            move.Should().Be(new FlowRunMove.GoTo(step));
+            return Interpreter.Apply(merge, from, (FlowRunMove.GoTo)move);
         }
     }
 
@@ -267,36 +267,36 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_merge_contours_pending_cap_pauses_the_flow_once_spent_rather_than_waiting_again()
+    public void The_merge_contours_pending_cap_pauses_the_flow_run_once_spent_rather_than_waiting_again()
     {
         Contour merge = ShippedContours.Merge;
         int cap = ShippedContours.MergePendingCap;
-        FlowPosition position = Interpreter.Start(merge);
+        FlowRunPosition position = Interpreter.Start(merge);
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
 
         for (int lap = 1; lap <= cap; lap++)
         {
-            FlowMove wait = Interpreter.Decide(merge, position, pending);
-            wait.Should().Be(new FlowMove.GoTo("wait-for-checks"), $"lap {lap} is within the pending cap");
-            position = Interpreter.Apply(merge, position, (FlowMove.GoTo)wait);
-            FlowMove again = Interpreter.Decide(merge, position, done);
-            again.Should().Be(new FlowMove.GoTo("gated-merge"));
-            position = Interpreter.Apply(merge, position, (FlowMove.GoTo)again);
+            FlowRunMove wait = Interpreter.Decide(merge, position, pending);
+            wait.Should().Be(new FlowRunMove.GoTo("wait-for-checks"), $"lap {lap} is within the pending cap");
+            position = Interpreter.Apply(merge, position, (FlowRunMove.GoTo)wait);
+            FlowRunMove again = Interpreter.Decide(merge, position, done);
+            again.Should().Be(new FlowRunMove.GoTo("gated-merge"));
+            position = Interpreter.Apply(merge, position, (FlowRunMove.GoTo)again);
         }
 
-        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowMove.Pause>()
+        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowRunMove.Pause>()
             .Which.Reason.Should().Contain($"visit cap of {cap}");
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
-        Interpreter.Decide(merge, position, merged).Should().Be(new FlowMove.End("merged"), "a merge on the lap's last visit ends the flow");
+        Interpreter.Decide(merge, position, merged).Should().Be(new FlowRunMove.End("merged"), "a merge on the lap's last visit ends the flow run");
     }
 
     [Fact]
-    public void A_merge_on_the_hundredth_resume_after_the_lap_pauses_still_ends_the_flow()
+    public void A_merge_on_the_hundredth_resume_after_the_lap_pauses_still_ends_the_flow_run()
     {
         Contour merge = ShippedContours.Merge;
         int visits = ShippedContours.MergePendingCap + ShippedContours.MergeResumes;
-        FlowPosition position = new(
+        FlowRunPosition position = new(
             "gated-merge",
             ImmutableDictionary.Create<string, int>(StringComparer.Ordinal)
                 .SetItem("gated-merge", visits)
@@ -305,8 +305,8 @@ public sealed class ShippedContoursTests
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
 
-        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowMove.Pause>("a resume past the lap looks once and pauses while checks still run");
-        Interpreter.Decide(merge, position, merged).Should().Be(new FlowMove.End("merged"));
+        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowRunMove.Pause>("a resume past the lap looks once and pauses while checks still run");
+        Interpreter.Decide(merge, position, merged).Should().Be(new FlowRunMove.End("merged"));
         Interpreter.CanFireAtNextVisit(merge.Step("gated-merge")!, visits - 1).Should().BeTrue();
     }
 

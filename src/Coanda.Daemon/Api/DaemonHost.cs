@@ -9,7 +9,7 @@ using Coanda.Daemon.Commands;
 using Coanda.Daemon.Contours;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
-using Coanda.Daemon.Flows;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
@@ -83,10 +83,10 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<ContourService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
-        builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
+        builder.Services.AddSingleton(new FlowRunAdvancerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton<ProjectClones>();
-        builder.Services.AddSingleton<FlowWorkers>();
+        builder.Services.AddSingleton<FlowRunWorkers>();
         GitHubClient.Register(builder.Services, options.GitHubHandler ?? (() => new NoGitHubHandler()));
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(),
@@ -98,14 +98,14 @@ public sealed class DaemonHost
             options.GatesCommandLimit,
             // A typed client is resolved for each use, so it never holds a handler past its rotation.
             () => services.GetRequiredService<GitHubClient>(),
-            // Its own flow service, which only reads: the registered one depends on the runner, which depends on these actions.
-            new FlowService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
-            services.GetRequiredService<FlowWorkers>()));
+            // Its own flow run service, which only reads: the registered one depends on the runner, which depends on these actions.
+            new FlowRunService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
+            services.GetRequiredService<FlowRunWorkers>()));
         builder.Services.AddSingleton<SessionTokens>();
-        builder.Services.AddSingleton<FlowRunner>();
-        builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());
-        builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunner>());
-        builder.Services.AddSingleton<FlowService>();
+        builder.Services.AddSingleton<FlowRunAdvancer>();
+        builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
+        builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunAdvancer>());
+        builder.Services.AddSingleton<FlowRunService>();
         builder.Services.AddSingleton<TriggerService>();
         builder.Services.AddSingleton<TriggerLoop>();
 
@@ -125,7 +125,7 @@ public sealed class DaemonHost
         app.MapTypeEndpoints();
         app.MapContourEndpoints();
         app.MapAgentEndpoints();
-        app.MapFlowEndpoints();
+        app.MapFlowRunEndpoints();
         app.MapProjectEndpoints();
         app.MapParcelEndpoints();
 
@@ -141,12 +141,12 @@ public sealed class DaemonHost
             await app.Services.GetRequiredService<DefinitionService>()
                 .SeedAsync(ShippedDefinitions.All, cancellationToken);
 
-            // Worktrees of flows that ended or were stopped while no daemon ran to remove them go
-            // first, before any live flow is advanced. A sweep that fails is logged and the start goes on.
-            FlowRunner runner = app.Services.GetRequiredService<FlowRunner>();
+            // Worktrees of flow runs that ended or were stopped while no daemon ran to remove them go
+            // first, before any live flow run is advanced. A sweep that fails is logged and the start goes on.
+            FlowRunAdvancer runner = app.Services.GetRequiredService<FlowRunAdvancer>();
             await runner.SweepWorktreesAsync(cancellationToken);
 
-            // Every live flow that is not paused carries on from its current step.
+            // Every live flow run that is not paused carries on from its current step.
             await runner.AdvanceLiveAsync(cancellationToken);
 
             // The trigger loop's position is fixed before the address is advertised, so nothing
