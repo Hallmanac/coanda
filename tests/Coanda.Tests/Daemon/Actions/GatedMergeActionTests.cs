@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
@@ -23,7 +23,7 @@ namespace Coanda.Tests.Daemon.Actions;
 /// <summary>
 /// The gated-merge action against a fake GitHub: what it inspects, when it merges, waits, answers
 /// behind, or pauses, and that it merges exactly the head the chain's latest open-pr or rebase result
-/// recorded. The flow run it runs on is a contour of open-pr, rebase, and worktree steps whose results the
+/// recorded. The flow run it runs on is a flow of open-pr, rebase, and worktree steps whose results the
 /// test records by hand, so the chain is that flow run.
 /// </summary>
 public sealed class GatedMergeActionTests : IAsyncLifetime
@@ -33,15 +33,15 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
     private const string Other = "aaaabbbbccccddddeeeeffff0000111122223333";
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
-    private static readonly ContourStep Step = new()
+    private static readonly FlowStep Step = new()
     {
         Name = "gated-merge",
         Action = SoftwareActions.GatedMerge,
-        Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of(GatedMergeAction.MergedVerdict), VisitCap = 1, Target = Contour.End }],
+        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of(GatedMergeAction.MergedVerdict), VisitCap = 1, Target = Flow.End }],
     };
 
-    /// <summary>A contour of open-pr, rebase, and worktree steps, so a flow run of it can hold a result of each.</summary>
-    private static readonly Contour Recorder = new()
+    /// <summary>A flow of open-pr, rebase, and worktree steps, so a flow run of it can hold a result of each.</summary>
+    private static readonly Flow Recorder = new()
     {
         Name = "recorder",
         Accepts = ["task"],
@@ -50,23 +50,23 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         SpawnCap = 1,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "open-pr",
                 Action = SoftwareActions.OpenPr,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("opened"), VisitCap = 1, Target = "rebase" }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("opened"), VisitCap = 1, Target = "rebase" }],
             },
-            new ContourStep
+            new FlowStep
             {
                 Name = "rebase",
                 Action = SoftwareActions.Rebase,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = "worktree" }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = "worktree" }],
             },
-            new ContourStep
+            new FlowStep
             {
                 Name = "worktree",
                 Action = SoftwareActions.Worktree,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     };
@@ -89,8 +89,8 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         flowRuns = new FlowRunService(store, TimeProvider.System);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
         Definition draft = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, Recorder.Name,
-            Contour.CanonicalJson(Recorder), Recorder.Hash, null, None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, Recorder.Name,
+            Flow.CanonicalJson(Recorder), Recorder.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         action = new GatedMergeAction(parcels, projects, flowRuns, new GitHubToken(runner, temp.Home), github.Client);
     }
@@ -605,15 +605,15 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         return parcel.Id;
     }
 
-    /// <summary>Starts a flow run of the recorder contour on the parcel and records an open-pr result whose head is <paramref name="head"/>.</summary>
+    /// <summary>Starts a flow run of the recorder flow on the parcel and records an open-pr result whose head is <paramref name="head"/>.</summary>
     private async Task<Guid> RecordedFlowRunAsync(string project, Guid parcel, string head)
     {
         if (project != Project)
         {
             var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
             Definition draft = await definitions.DraftAsync(
-                Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, project, Recorder.Name,
-                Contour.CanonicalJson(Recorder), Recorder.Hash, null, None);
+                Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, project, Recorder.Name,
+                Flow.CanonicalJson(Recorder), Recorder.Hash, null, None);
             await definitions.PublishAsync(Principal.LocalOwner, project, draft.Id, None);
         }
 

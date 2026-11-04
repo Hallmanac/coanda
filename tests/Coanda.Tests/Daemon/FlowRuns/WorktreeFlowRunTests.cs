@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
-/// The build contour's worktree and gates steps on the scripted command runner: a flow run works in its
+/// The build flow's worktree and gates steps on the scripted command runner: a flow run works in its
 /// own worktree, its gates route it to the fix step when they fail, and its worktree is removed when
 /// it ends or is stopped, at once or by the next start's sweep.
 /// </summary>

@@ -37,10 +37,10 @@ public sealed class ParcelBindingTests
 
         task.Should().NotBeNull();
         task.Hash.Should().Be(ShippedTypes.Task.Hash);
-        task.ContourBindings.Should().Equal(new ContourBinding("build", "build"));
+        task.FlowBindings.Should().Equal(new FlowBinding("build", "build"));
         idea.Should().NotBeNull();
         idea.Hash.Should().Be(ShippedTypes.Idea.Hash);
-        idea.ContourBindings.Should().Equal(new ContourBinding("discovery", "discovery"));
+        idea.FlowBindings.Should().Equal(new FlowBinding("discovery", "discovery"));
 
         await daemon.StopAsync(None);
     }
@@ -56,7 +56,7 @@ public sealed class ParcelBindingTests
         ParcelType gated = ShippedTypes.Task with
         {
             Name = "gated-task",
-            ContourBindings = [],
+            FlowBindings = [],
             Fields = [],
             GateBindings = [new GateBinding("refine", "build", gate.Name)],
         };

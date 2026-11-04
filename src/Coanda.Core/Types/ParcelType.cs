@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Core.Types;
@@ -11,7 +11,7 @@ namespace Coanda.Core.Types;
 /// The definition of a kind of parcel: its lifecycle (states, allowed moves, entry states, the
 /// one terminal state and its resolutions), the paused state reachable from any live state, its
 /// fields (each named, of a kind, and required to leave the states it names), and its bindings: a
-/// contour to start when a parcel enters a state, and a gate that must pass before a move. A type is
+/// flow to start when a parcel enters a state, and a gate that must pass before a move. A type is
 /// data; the types the binary ships and a user's type are the same shape.
 /// </summary>
 public sealed record ParcelType
@@ -25,8 +25,8 @@ public sealed record ParcelType
     /// <summary>Allowed moves between live states, as from-state to the set of to-states.</summary>
     public required IReadOnlyDictionary<string, IReadOnlyList<string>> Moves { get; init; }
 
-    /// <summary>The contour started on a parcel when it enters a state; at most one per state.</summary>
-    public IReadOnlyList<ContourBinding> ContourBindings { get; init; } = [];
+    /// <summary>The flow started on a parcel when it enters a state; at most one per state.</summary>
+    public IReadOnlyList<FlowBinding> FlowBindings { get; init; } = [];
 
     /// <summary>The gates that must pass before a move the move table holds, or before a close from a live state.</summary>
     public IReadOnlyList<GateBinding> GateBindings { get; init; } = [];
@@ -174,7 +174,7 @@ public sealed record ParcelType
     /// <summary>
     /// Refuses a type that breaks a rule, with a <see cref="DomainException"/> quoting it.
     /// <paramref name="knownGates"/> is every gate name the caller runs; a gate binding naming any
-    /// other is refused, the way a contour is validated against the action names.
+    /// other is refused, the way a flow is validated against the action names.
     /// </summary>
     public void Validate(IReadOnlySet<string> knownGates)
     {
@@ -217,7 +217,7 @@ public sealed record ParcelType
         }
 
         ValidateFields();
-        ValidateContourBindings();
+        ValidateFlowBindings();
         ValidateGateBindings(knownGates);
         ValidateFieldEnforcement();
     }
@@ -291,7 +291,7 @@ public sealed record ParcelType
                 throw new DomainException($"Parcel type '{Name}' has a field that is null; each field is an object naming the field and its kind.");
             }
 
-            if (!Contour.IsPlainName(field.Name))
+            if (!Flow.IsPlainName(field.Name))
             {
                 throw new DomainException(
                     $"Parcel type '{Name}' declares a field named '{field.Name}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
@@ -319,34 +319,34 @@ public sealed record ParcelType
         }
     }
 
-    private void ValidateContourBindings()
+    private void ValidateFlowBindings()
     {
-        foreach (ContourBinding? binding in ContourBindings)
+        foreach (FlowBinding? binding in FlowBindings)
         {
             // Read content can carry a null element or a missing field, whatever the annotations say.
-            if (binding?.State is null || binding.Contour is null)
+            if (binding?.State is null || binding.Flow is null)
             {
-                throw new DomainException($"Parcel type '{Name}' has a contour binding without a state or a contour; each binding names both.");
+                throw new DomainException($"Parcel type '{Name}' has a flow binding without a state or a flow; each binding names both.");
             }
 
             if (!IsState(binding.State) || IsTerminal(binding.State))
             {
                 throw new DomainException(
-                    $"Parcel type '{Name}' binds a contour to '{binding.State}', which is not one of its live states; a contour binds to a state the type has, never its terminal state.");
+                    $"Parcel type '{Name}' binds a flow to '{binding.State}', which is not one of its live states; a flow binds to a state the type has, never its terminal state.");
             }
 
-            if (string.IsNullOrWhiteSpace(binding.Contour))
+            if (string.IsNullOrWhiteSpace(binding.Flow))
             {
-                throw new DomainException($"Parcel type '{Name}' binds a contour to '{binding.State}' without naming the contour.");
+                throw new DomainException($"Parcel type '{Name}' binds a flow to '{binding.State}' without naming the flow.");
             }
         }
 
-        string? twice = ContourBindings
+        string? twice = FlowBindings
             .GroupBy(b => b.State, StringComparer.Ordinal)
             .FirstOrDefault(g => g.Count() > 1)?.Key;
         if (twice is not null)
         {
-            throw new DomainException($"Parcel type '{Name}' binds more than one contour to '{twice}'; a state carries at most one contour binding.");
+            throw new DomainException($"Parcel type '{Name}' binds more than one flow to '{twice}'; a state carries at most one flow binding.");
         }
     }
 
@@ -397,9 +397,9 @@ public sealed record ParcelType
             lifecycle["fields"] = Fields.Select(f => new { name = f.Name, kind = f.Kind, requiredToLeave = f.RequiredToLeave }).ToList();
         }
 
-        if (ContourBindings.Count > 0)
+        if (FlowBindings.Count > 0)
         {
-            lifecycle["contours"] = ContourBindings.Select(b => new[] { b.State, b.Contour }).ToList();
+            lifecycle["flows"] = FlowBindings.Select(b => new[] { b.State, b.Flow }).ToList();
         }
 
         if (GateBindings.Count > 0)

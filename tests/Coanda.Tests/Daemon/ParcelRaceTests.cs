@@ -77,7 +77,7 @@ public sealed class ParcelRaceTests
         ParcelType raced = ShippedTypes.Task with
         {
             Name = "raced-task",
-            ContourBindings = [],
+            FlowBindings = [],
             Fields = [],
             GateBindings =
             [

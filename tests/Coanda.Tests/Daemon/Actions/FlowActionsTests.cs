@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
@@ -67,7 +67,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("review"))), parcel.Id);
 
         JsonElement result = DoneResult(outcome);
         result.GetProperty("moved").GetBoolean().Should().BeTrue();
@@ -82,7 +82,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("build"))), parcel.Id);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("build"))), parcel.Id);
 
         DoneResult(outcome).GetProperty("moved").GetBoolean().Should().BeFalse();
         (await MovesAsync(parcel.Id)).Should().ContainSingle("only the arrange step's move to build is recorded");
@@ -93,7 +93,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     {
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Still refining", null, CancellationToken.None);
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", ContourValue.Of("review"))), parcel.Id);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("review"))), parcel.Id);
 
         ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
@@ -103,7 +103,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [Fact]
     public async Task Timer_waits_its_seconds_on_the_daemons_clock_and_answers_done()
     {
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.Timer, ("seconds", ContourValue.Of(2.5))), Ids.New());
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.Timer, ("seconds", FlowValue.Of(2.5))), Ids.New());
 
         DoneResult(outcome).GetProperty("seconds").GetDouble().Should().Be(2.5);
         clock.Waits.Should().Equal(TimeSpan.FromSeconds(2.5));
@@ -112,7 +112,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [Fact]
     public async Task Wait_for_human_pauses_with_its_lever_argument_and_answers_done_once_resumed()
     {
-        ContourStep step = Step(CoreActions.WaitForHuman, ("lever", ContourValue.Of("Approve the plan in the journal.")));
+        FlowStep step = Step(CoreActions.WaitForHuman, ("lever", FlowValue.Of("Approve the plan in the journal.")));
 
         ActionOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().Contain("Step 'act'");
@@ -124,7 +124,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [Fact]
     public async Task Wait_for_external_event_pauses_naming_its_event_and_answers_done_once_resumed()
     {
-        ContourStep step = Step(CoreActions.WaitForExternalEvent, ("event", ContourValue.Of("ci-finished")));
+        FlowStep step = Step(CoreActions.WaitForExternalEvent, ("event", FlowValue.Of("ci-finished")));
 
         ActionOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().Contain("'ci-finished'").And.Contain("Step 'act'");
@@ -134,11 +134,11 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Emit_outcome_answers_done_with_the_contours_declared_outcome()
+    public async Task Emit_outcome_answers_done_with_the_flows_declared_outcome()
     {
         ActionOutcome outcome = await PerformAsync(Step(CoreActions.EmitOutcome), Ids.New());
 
-        DoneResult(outcome).GetProperty("outcome").GetString().Should().Be(ShippedContours.Build.Outcome);
+        DoneResult(outcome).GetProperty("outcome").GetString().Should().Be(ShippedFlows.Build.Outcome);
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     [InlineData(CoreActions.WaitForExternalEvent, "event", 1.0)]
     public async Task A_missing_or_ill_kinded_argument_pauses_naming_the_step_and_the_argument(string action, string argument, object? value)
     {
-        ContourStep step = value is null ? Step(action) : Step(action, (argument, JsonSerializer.SerializeToElement(value)));
+        FlowStep step = value is null ? Step(action) : Step(action, (argument, JsonSerializer.SerializeToElement(value)));
 
         ActionOutcome outcome = await PerformAsync(step, Ids.New());
 
@@ -228,9 +228,9 @@ public sealed class FlowActionsTests : IAsyncLifetime
         return [.. events.Select(e => e.Data).OfType<ParcelMoved>()];
     }
 
-    private ValueTask<ActionOutcome> PerformAsync(ContourStep step, Guid parcelId, bool resumed = false) =>
+    private ValueTask<ActionOutcome> PerformAsync(FlowStep step, Guid parcelId, bool resumed = false) =>
         actions.PerformAsync(
-            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedContours.Build, step, resumed),
+            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, step, resumed),
             CancellationToken.None);
 
     private static JsonElement DoneResult(ActionOutcome outcome)
@@ -240,17 +240,17 @@ public sealed class FlowActionsTests : IAsyncLifetime
         return result;
     }
 
-    private static ContourStep OpenPrStep => Step(SoftwareActions.OpenPr) with
+    private static FlowStep OpenPrStep => Step(SoftwareActions.OpenPr) with
     {
-        Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of(OpenPrAction.OpenedVerdict), VisitCap = 1, Target = Contour.End }],
+        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of(OpenPrAction.OpenedVerdict), VisitCap = 1, Target = Flow.End }],
     };
 
-    private static ContourStep Step(string action, params (string Name, JsonElement Value)[] arguments) => new()
+    private static FlowStep Step(string action, params (string Name, JsonElement Value)[] arguments) => new()
     {
         Name = "act",
         Action = action,
         Arguments = arguments.ToDictionary(a => a.Name, a => a.Value),
-        Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
     };
 
     /// <summary>The system clock, except that every timer it creates is recorded and fires at once.</summary>

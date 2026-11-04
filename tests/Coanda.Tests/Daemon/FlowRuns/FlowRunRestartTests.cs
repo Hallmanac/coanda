@@ -532,7 +532,7 @@ public sealed class FlowRunRestartTests
         {
             FailStops = true,
             CollectsGiveUp = true,
-            InProgressUsage = new Measurement(1000, ShippedContours.Build.Budget, 1, TimeSpan.FromSeconds(30)),
+            InProgressUsage = new Measurement(1000, ShippedFlows.Build.Budget, 1, TimeSpan.FromSeconds(30)),
         };
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stopping }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
@@ -549,7 +549,7 @@ public sealed class FlowRunRestartTests
         FlowRunView spent = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
 
         spent.Status.Should().Be("paused");
-        spent.Cost.Should().BeGreaterThanOrEqualTo(ShippedContours.Build.Budget);
+        spent.Cost.Should().BeGreaterThanOrEqualTo(ShippedFlows.Build.Budget);
         spent.PauseReason.Should().StartWith($"Flow run {Ids.Short(flowRunId)} has recorded a cost of");
         stopping.Inner.Stops.Should().Equal(issued);
         stopping.Inner.Spawns.Should().ContainSingle("the budget the stopped session's usage reached launches no other agent");

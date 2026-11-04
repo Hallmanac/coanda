@@ -1,8 +1,8 @@
-namespace Coanda.Core.Contours;
+namespace Coanda.Core.Flows;
 
 /// <summary>
 /// The names of the domain-free actions only the daemon performs. A catalog is names only: what an
-/// action does lives in the daemon, and a contour's validation takes the known names as an input.
+/// action does lives in the daemon, and a flow's validation takes the known names as an input.
 /// Anything specific to a domain is a separate catalog that the caller passes in beside this one.
 /// </summary>
 public static class CoreActions

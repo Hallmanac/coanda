@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Coanda.Cli;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -57,14 +57,14 @@ public sealed class PreRenameStoreTests
     }
 
     [Fact]
-    public void A_record_whose_contours_were_drafted_under_the_old_kind_is_refused()
+    public void A_record_whose_flows_were_drafted_under_the_retired_kind_contour_is_refused()
     {
         using var temp = new TemporaryHome();
-        WriteRecord(temp.Home, PausableType, """{"kind":"Flow","name":"build","content":"{}"}""");
+        WriteRecord(temp.Home, PausableType, """{"kind":"Contour","name":"build","content":"{}"}""");
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage("*written by a build from before contours, flows, and pauses*Move the node home aside*");
+        check.Should().Throw<DomainException>().WithMessage("*written by a build from before the flow name*Move the node home aside*.pre-flow'*");
     }
 
     [Fact]
@@ -75,14 +75,14 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>();
+        check.Should().Throw<DomainException>().WithMessage("*written by a build from before the flow name*Move the node home aside*");
     }
 
     [Fact]
     public void A_record_of_this_builds_kinds_and_shapes_passes()
     {
         using var temp = new TemporaryHome();
-        WriteRecord(temp.Home, PausableType, """{"kind":"Contour","name":"build","content":"{}"}""");
+        WriteRecord(temp.Home, PausableType, """{"kind":"Flow","name":"build","content":"{}"}""");
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
@@ -116,15 +116,15 @@ public sealed class PreRenameStoreTests
     }
 
     [Fact]
-    public async Task The_daemon_refuses_an_older_record_and_leaves_it_as_it_was()
+    public async Task The_daemon_refuses_a_record_whose_flows_were_drafted_under_the_retired_kind_contour_and_leaves_it_as_it_was()
     {
         using var temp = new TemporaryHome();
-        WriteRecord(temp.Home, """{"kind":"Flow","name":"build","content":"{}"}""");
+        WriteRecord(temp.Home, PausableType, """{"kind":"Contour","name":"build","content":"{}"}""");
         byte[] before = await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None);
 
         Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
-        await start.Should().ThrowAsync<DomainException>();
+        await start.Should().ThrowAsync<DomainException>().WithMessage("*before the flow name*");
         (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
     }
 
@@ -136,18 +136,18 @@ public sealed class PreRenameStoreTests
     [InlineData("flow_stopped")]
     [InlineData("parcel_flow_attached")]
     [InlineData("parcel_flow_released")]
-    public void A_record_holding_an_event_a_flow_recorded_before_the_flow_run_name_is_refused(string type)
+    public void A_record_holding_an_event_a_flow_run_recorded_before_the_flow_run_name_is_refused(string type)
     {
         using var temp = new TemporaryHome();
         WriteEvents(temp.Home, ("definition_drafted", PausableType), (type, """{"flowId":"0192a3b4-0000-7000-8000-000000000000"}"""));
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage("*holds a flow started by a build from before the flow run name*Move the node home aside*.pre-flow-run*");
+        check.Should().Throw<DomainException>().WithMessage("*holds a flow run started by a build from before the flow run name*Move the node home aside*.pre-flow-run*");
     }
 
     [Fact]
-    public async Task The_daemon_refuses_a_record_holding_a_flow_from_before_the_flow_run_name_and_leaves_it_as_it_was()
+    public async Task The_daemon_refuses_a_record_holding_a_flow_run_from_before_the_flow_run_name_and_leaves_it_as_it_was()
     {
         using var temp = new TemporaryHome();
         WriteEvents(temp.Home, ("definition_drafted", PausableType), ("flow_started", """{"flowId":"0192a3b4-0000-7000-8000-000000000000"}"""));
@@ -168,7 +168,7 @@ public sealed class PreRenameStoreTests
         {
             await RegisteredProjects.AddAsync(daemon, project, CancellationToken.None);
             using var client = new DaemonClient(temp.Home);
-            Contour hold = await Publishing.ContourAsync(daemon, project, new Contour
+            Flow hold = await Publishing.FlowAsync(daemon, project, new Flow
             {
                 Name = "hold-for-a-person",
                 Accepts = ["task"],
@@ -177,12 +177,12 @@ public sealed class PreRenameStoreTests
                 SpawnCap = 1,
                 Steps =
                 [
-                    new ContourStep
+                    new FlowStep
                     {
                         Name = "approve",
                         Action = CoreActions.WaitForHuman,
-                        Arguments = new Dictionary<string, JsonElement> { ["lever"] = ContourValue.Of("Resume to approve it.") },
-                        Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                        Arguments = new Dictionary<string, JsonElement> { ["lever"] = FlowValue.Of("Resume to approve it.") },
+                        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                     },
                 ],
             });

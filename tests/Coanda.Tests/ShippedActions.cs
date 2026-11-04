@@ -1,10 +1,10 @@
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Software;
 
 namespace Coanda.Tests;
 
 /// <summary>
-/// The action names the daemon registers, for a test that validates or seeds contours without a
+/// The action names the daemon registers, for a test that validates or seeds flows without a
 /// daemon. <c>FlowActionsTests</c> pins that the daemon's registration holds exactly these.
 /// </summary>
 internal static class ShippedActions

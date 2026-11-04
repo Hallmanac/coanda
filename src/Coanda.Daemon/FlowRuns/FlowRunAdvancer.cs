@@ -4,7 +4,7 @@ using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
@@ -26,11 +26,11 @@ namespace Coanda.Daemon.FlowRuns;
 /// move, and applies it, until the flow run ends, pauses, or stops. At most one worker advances a
 /// flow run; a request for a flow run already being advanced is folded into that worker, which reads
 /// the flow run once more before it finishes. Before any step, a flow run deeper in its chain than its
-/// contour's follow allows pauses; before a judgment, a flow run whose recorded cost has reached its contour's
-/// budget, or whose chain's recorded cost has reached the budget of the contour its root runs, pauses.
+/// flow's follow allows pauses; before a judgment, a flow run whose recorded cost has reached its flow's
+/// budget, or whose chain's recorded cost has reached the budget of the flow its root runs, pauses.
 /// Both checks run on every pass, so a resume of such a pause pauses again rather than overriding it.
 /// A resumed judgment step spawns another agent, so it pauses once the flow run's spawns reach its
-/// contour's spawn cap, whether the visit resumed had recorded an answer or paused without one.
+/// flow's spawn cap, whether the visit resumed had recorded an answer or paused without one.
 /// A resume of a visit that recorded performs the step again as a new visit, so it pauses before
 /// entering the step when every transition out of it has a visit cap below that visit; the
 /// spawn-cap check runs first, so it answers when both bind.
@@ -111,7 +111,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         FlowRunWorkers flowRunWorkers,
         ILogger<FlowRunAdvancer> logger)
     {
-        // A flow run's end closes its parcel when its contour says so, running the gates the daemon runs.
+        // A flow run's end closes its parcel when its flow says so, running the gates the daemon runs.
         flowRuns = new FlowRunService(store, clock, advancer: null, gates);
         this.projects = projects;
         this.parcels = parcels;
@@ -419,18 +419,18 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// <summary>Takes the flow run one step on; true when it entered another step and is still running.</summary>
     private async Task<bool> StepAsync(Principal principal, string project, FlowRun flowRun, CancellationToken cancellationToken)
     {
-        Contour contour = await flowRuns.ContourOfAsync(principal, project, flowRun, cancellationToken);
+        Flow flow = await flowRuns.FlowOfAsync(principal, project, flowRun, cancellationToken);
         FlowRunStepEntry current = flowRun.Current
             ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} has entered no step, so there is nothing to perform.");
-        ContourStep step = contour.Step(current.Step)
-            ?? throw new DomainException($"Contour '{contour.Name}' has no step '{current.Step}', so flow run {Ids.Short(flowRun.Id)} cannot perform it.");
+        FlowStep step = flow.Step(current.Step)
+            ?? throw new DomainException($"Flow '{flow.Name}' has no step '{current.Step}', so flow run {Ids.Short(flowRun.Id)} cannot perform it.");
 
-        if (contour.Follow is { } follow && flowRun.Depth > follow.DepthCap)
+        if (flow.Follow is { } follow && flowRun.Depth > follow.DepthCap)
         {
             await PauseAsync(
                 principal, project, flowRun.Id,
-                $"Flow run {Ids.Short(flowRun.Id)} is at depth {flowRun.Depth} of its chain, past the depth cap of {follow.DepthCap} on the follow of contour '{contour.Name}'; a flow run deeper than its follow's depth cap performs no step.",
-                FlowRunLevers.DepthCapReached(contour.Name),
+                $"Flow run {Ids.Short(flowRun.Id)} is at depth {flowRun.Depth} of its chain, past the depth cap of {follow.DepthCap} on the follow of flow '{flow.Name}'; a flow run deeper than its follow's depth cap performs no step.",
+                FlowRunLevers.DepthCapReached(flow.Name),
                 cancellationToken);
             return false;
         }
@@ -440,12 +440,12 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         // resume's spawn is already counted (a restart performing the resumed visit again). A
         // judgment the interpreter entered within the cap is performed once, so it is not checked.
         bool spawnsAgain = current.SpawnsAgainOnResume;
-        if (spawnsAgain && flowRun.Spawns >= contour.SpawnCap)
+        if (spawnsAgain && flowRun.Spawns >= flow.SpawnCap)
         {
             await PauseAsync(
                 principal, project, flowRun.Id,
-                $"Contour '{contour.Name}' reached its spawn cap of {contour.SpawnCap}; performing judgment step '{step.Name}' again would spawn another agent.",
-                FlowRunLevers.SpawnCapReached(contour.Name),
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{step.Name}' again would spawn another agent.",
+                FlowRunLevers.SpawnCapReached(flow.Name),
                 cancellationToken);
             return false;
         }
@@ -476,12 +476,12 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             : step.IsJudgment
                 ? current.AwaitsLaunchedSession
                     ? await ReattachAsync(principal, project, flowRun, step, current, cancellationToken)
-                    : await JudgeAsync(principal, project, flowRun, contour, step, spawnsAgain, cancellationToken)
-                : await ActAsync(principal, project, flowRun, contour, step, current.ResumedAt is not null, cancellationToken);
+                    : await JudgeAsync(principal, project, flowRun, flow, step, spawnsAgain, cancellationToken)
+                : await ActAsync(principal, project, flowRun, flow, step, current.ResumedAt is not null, cancellationToken);
 
         // Routed against the flow run as the recording left it, so a spawn counted on this pass is in the position.
         return recorded is Recording recording
-            && await RouteAsync(principal, project, recording.FlowRun, contour, step, recording.Value, cancellationToken);
+            && await RouteAsync(principal, project, recording.FlowRun, flow, step, recording.Value, cancellationToken);
     }
 
     /// <summary>
@@ -497,7 +497,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// beside one that would not stop.
     /// </summary>
     private async Task<FlowRun?> StopLeftSessionAsync(
-        Principal principal, string project, FlowRun flowRun, ContourStep step, CancellationToken cancellationToken)
+        Principal principal, string project, FlowRun flowRun, FlowStep step, CancellationToken cancellationToken)
     {
         if (flowRun.Current is not { Kind: StepKind.Judgment, SessionId: Guid held } entry
             || !string.Equals(entry.Step, step.Name, StringComparison.Ordinal))
@@ -616,7 +616,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// session the spawn returns is recorded before its first collect.
     /// </summary>
     private async Task<Recording?> JudgeAsync(
-        Principal principal, string project, FlowRun flowRun, Contour contour, ContourStep step, bool spawnsAgain, CancellationToken cancellationToken)
+        Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, bool spawnsAgain, CancellationToken cancellationToken)
     {
         if (await StopLeftSessionAsync(principal, project, flowRun, step, cancellationToken) is not { } stopped)
         {
@@ -625,7 +625,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
         flowRun = stopped;
 
-        Budget budget = await BudgetAsync(principal, project, flowRun, contour, cancellationToken);
+        Budget budget = await BudgetAsync(principal, project, flowRun, flow, cancellationToken);
         if (budget.Spent is { } spent)
         {
             await PauseAsync(principal, project, flowRun.Id, spent, FlowRunLevers.BudgetReached(), cancellationToken);
@@ -769,7 +769,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// Null when it recorded no answer.
     /// </summary>
     private async Task<Recording?> ReattachAsync(
-        Principal principal, string project, FlowRun flowRun, ContourStep step, FlowRunStepEntry current, CancellationToken cancellationToken)
+        Principal principal, string project, FlowRun flowRun, FlowStep step, FlowRunStepEntry current, CancellationToken cancellationToken)
     {
         Guid? launch = current.LaunchId;
 
@@ -902,7 +902,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         Principal principal,
         string project,
         Guid flowRunId,
-        ContourStep step,
+        FlowStep step,
         Launched launched,
         TimeSpan limitLeft,
         Func<JudgmentSpend, CancellationToken, Task<JudgmentOutcome>> judge,
@@ -1225,25 +1225,25 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     private readonly record struct Budget(string? Spent, decimal Ceiling);
 
     /// <summary>
-    /// The budgets a judgment is performed under: the flow run's own recorded cost against its contour's
+    /// The budgets a judgment is performed under: the flow run's own recorded cost against its flow's
     /// budget, then, for a flow run with a parent, the recorded cost of every flow run of its chain against
-    /// the budget of the contour its root flow run follows. Either reached is the reason no judgment is
+    /// the budget of the flow its root flow run follows. Either reached is the reason no judgment is
     /// performed; otherwise the ceiling is the smaller of the two remainders. The chain is summed by
     /// reading its flow runs, which all run on this flow run's parcel.
     /// </summary>
     private async Task<Budget> BudgetAsync(
-        Principal principal, string project, FlowRun flowRun, Contour contour, CancellationToken cancellationToken)
+        Principal principal, string project, FlowRun flowRun, Flow flow, CancellationToken cancellationToken)
     {
-        if (flowRun.Cost >= contour.Budget)
+        if (flowRun.Cost >= flow.Budget)
         {
             return new Budget(
-                $"Flow run {Ids.Short(flowRun.Id)} has recorded a cost of {Dollars(flowRun.Cost)}, which reaches the budget of {Dollars(contour.Budget)} of contour '{contour.Name}'; a flow run performs no judgment once its recorded cost reaches its contour's budget.",
+                $"Flow run {Ids.Short(flowRun.Id)} has recorded a cost of {Dollars(flowRun.Cost)}, which reaches the budget of {Dollars(flow.Budget)} of flow '{flow.Name}'; a flow run performs no judgment once its recorded cost reaches its flow's budget.",
                 0m);
         }
 
-        decimal flowRunRemainder = contour.Budget - flowRun.Cost;
+        decimal flowRunRemainder = flow.Budget - flowRun.Cost;
 
-        // A flow run with no parent is its own chain, already held to its own contour's budget above.
+        // A flow run with no parent is its own chain, already held to its own flow's budget above.
         if (flowRun.ParentFlowRunId is null)
         {
             return new Budget(null, flowRunRemainder);
@@ -1252,22 +1252,22 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         IReadOnlyList<FlowRun> chain = await flowRuns.ChainOfAsync(principal, project, flowRun, cancellationToken);
         FlowRun root = chain.FirstOrDefault(f => f.Id == flowRun.RootFlowRunId)
             ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} names flow run {Ids.Short(flowRun.RootFlowRunId)} as the root of its chain, which its parcel does not hold.");
-        Contour rootContour = await flowRuns.ContourOfAsync(principal, project, root, cancellationToken);
+        Flow rootFlow = await flowRuns.FlowOfAsync(principal, project, root, cancellationToken);
         decimal chainCost = chain.Sum(f => f.Cost);
-        return chainCost >= rootContour.Budget
+        return chainCost >= rootFlow.Budget
             ? new Budget(
-                $"The chain of flow run {Ids.Short(flowRun.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of {Dollars(chainCost)} across its flow runs, which reaches the budget of {Dollars(rootContour.Budget)} of contour '{rootContour.Name}' that its root flow run follows; a chain performs no judgment once its recorded cost reaches that budget.",
+                $"The chain of flow run {Ids.Short(flowRun.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of {Dollars(chainCost)} across its flow runs, which reaches the budget of {Dollars(rootFlow.Budget)} of flow '{rootFlow.Name}' that its root flow run follows; a chain performs no judgment once its recorded cost reaches that budget.",
                 0m)
-            : new Budget(null, Math.Min(flowRunRemainder, rootContour.Budget - chainCost));
+            : new Budget(null, Math.Min(flowRunRemainder, rootFlow.Budget - chainCost));
     }
 
     private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
 
     /// <summary>Performs the step's action and records its result, or pauses; null when the flow run paused.</summary>
     private async Task<Recording?> ActAsync(
-        Principal principal, string project, FlowRun flowRun, Contour contour, ContourStep step, bool resumed, CancellationToken cancellationToken)
+        Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, bool resumed, CancellationToken cancellationToken)
     {
-        var request = new ActionRequest(principal, project, flowRun.Id, flowRun.ParcelId, contour, step, resumed);
+        var request = new ActionRequest(principal, project, flowRun.Id, flowRun.ParcelId, flow, step, resumed);
         ActionOutcome outcome;
 
         // A person's stop, saved before the action starts or while it runs, cancels it.
@@ -1321,10 +1321,10 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
     /// <summary>Applies the interpreter's next move for the recorded answer or result; true when the flow run entered another step.</summary>
     private async Task<bool> RouteAsync(
-        Principal principal, string project, FlowRun flowRun, Contour contour, ContourStep step, JsonElement recorded, CancellationToken cancellationToken)
+        Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, JsonElement recorded, CancellationToken cancellationToken)
     {
         using JsonDocument document = JsonSerializer.SerializeToDocument(recorded);
-        FlowRunMove move = Interpreter.Decide(contour, flowRun.Position, document);
+        FlowRunMove move = Interpreter.Decide(flow, flowRun.Position, document);
         switch (move)
         {
             case FlowRunMove.GoTo goTo:

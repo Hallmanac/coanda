@@ -27,7 +27,7 @@ public sealed class OpenApiTests
         await using Stream body = await response.Content.ReadAsStreamAsync(CancellationToken.None);
         using JsonDocument document = await JsonDocument.ParseAsync(body, cancellationToken: CancellationToken.None);
         List<string> paths = [.. document.RootElement.GetProperty("paths").EnumerateObject().Select(p => p.Name)];
-        paths.Should().Contain(["/parcels", "/flow-runs", "/contours", "/agents", "/types", "/status"]);
+        paths.Should().Contain(["/parcels", "/flow-runs", "/flows", "/agents", "/types", "/status"]);
 
         await daemon.StopAsync(CancellationToken.None);
     }

@@ -17,11 +17,11 @@ public sealed class DefinitionRenderingTests
     }
 
     [Fact]
-    public void The_contour_list_prints_a_name_holding_square_brackets_as_itself()
+    public void The_flow_list_prints_a_name_holding_square_brackets_as_itself()
     {
-        var contour = new ContourView("build[red]", 2, "0123456789abcdef");
+        var flow = new FlowView("build[red]", 2, "0123456789abcdef");
 
-        string printed = Render(DefinitionRendering.ContourListColumns, DefinitionRendering.ContourListRow(contour));
+        string printed = Render(DefinitionRendering.FlowListColumns, DefinitionRendering.FlowListRow(flow));
 
         printed.Should().Contain("build[red]");
     }

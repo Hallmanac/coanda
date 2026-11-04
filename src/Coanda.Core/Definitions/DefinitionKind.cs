@@ -10,6 +10,6 @@ namespace Coanda.Core.Definitions;
 public enum DefinitionKind
 {
     ParcelType,
-    Contour,
+    Flow,
     Agent,
 }

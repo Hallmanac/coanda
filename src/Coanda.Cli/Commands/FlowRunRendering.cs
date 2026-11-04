@@ -11,12 +11,12 @@ namespace Coanda.Cli.Commands;
 /// </summary>
 internal static class FlowRunRendering
 {
-    public static readonly string[] ListColumns = ["Id", "Contour", "Status", "Step", "Started"];
+    public static readonly string[] ListColumns = ["Id", "Flow", "Status", "Step", "Started"];
 
     public static string[] ListRow(FlowRunView flowRun) =>
     [
         Ids.Short(flowRun.Id),
-        $"{flowRun.ContourName} v{flowRun.ContourVersion}",
+        $"{flowRun.FlowName} v{flowRun.FlowVersion}",
         flowRun.Status,
         flowRun.CurrentStep,
         flowRun.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
@@ -27,7 +27,7 @@ internal static class FlowRunRendering
         List<string> lines =
         [
             Pair("Flow run", flowRun.Id.ToString()),
-            Pair("Contour", $"{flowRun.ContourName} v{flowRun.ContourVersion} ({flowRun.ContourHash})"),
+            Pair("Flow", $"{flowRun.FlowName} v{flowRun.FlowVersion} ({flowRun.FlowHash})"),
             Pair("Parcel", flowRun.ParcelId.ToString()),
             Pair("Status", flowRun.Status),
         ];

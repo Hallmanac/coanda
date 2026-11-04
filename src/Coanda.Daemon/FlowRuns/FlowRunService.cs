@@ -4,7 +4,7 @@ using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
@@ -21,7 +21,7 @@ namespace Coanda.Daemon.FlowRuns;
 /// <summary>
 /// The daemon's side of every flow run command and query: pass the registry for the method's own
 /// entry, fetch for writing, ask <see cref="FlowRunDecider"/>, append, save. A new flow run takes the
-/// contour that resolution returns for the project by name; an existing flow run keeps the version
+/// flow that resolution returns for the project by name; an existing flow run keeps the version
 /// whose hash it recorded.
 /// </summary>
 /// <remarks>
@@ -30,7 +30,7 @@ namespace Coanda.Daemon.FlowRuns;
 /// flow run stream, through <c>FetchForWriting</c>, so the parcel stream's expected version guards it.
 /// The loser of a race fails the version check, its flow run stream is never written, and it is
 /// refused with the rule. Ending and stopping append <see cref="ParcelFlowRunReleased"/> the same way,
-/// and the end of a flow run whose contour declares a closing resolution appends the parcel's
+/// and the end of a flow run whose flow declares a closing resolution appends the parcel's
 /// <see cref="ParcelClosed"/> in that same save, running the gates the service is given, so the end,
 /// the release, and the close are recorded together or not at all.
 /// A resume hands the flow run to the <see cref="IFlowRunAdvancer"/>, when the service has one, so a
@@ -54,20 +54,20 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     /// <summary>The gates a close at a flow run's end runs, the shipped set when the service is given none.</summary>
     private readonly GateSet gates = gates ?? GateSet.Shipped;
 
-    public async Task<FlowRun> StartAsync(Principal principal, string project, Guid parcelId, string contourName, CancellationToken cancellationToken)
+    public async Task<FlowRun> StartAsync(Principal principal, string project, Guid parcelId, string flowName, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.start", principal);
         RefuseSessionStart(principal);
         string tenant = Tenants.RequireProject(project);
-        Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Contour, contourName, cancellationToken)
-            ?? throw new DomainException($"'{contourName}' is not a published contour of project '{tenant}'; coa contour list names the ones that are.");
-        Contour contour = Contour.FromJson(published.Content);
+        Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Flow, flowName, cancellationToken)
+            ?? throw new DomainException($"'{flowName}' is not a published flow of project '{tenant}'; coa flow list names the ones that are.");
+        Flow flow = Flow.FromJson(published.Content);
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         var parcelStream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parcelId, tenant);
         (FlowRunStarted started, ParcelFlowRunAttached attached) =
-            FlowRunDecider.Start(contour, published.VersionNumber, parcel, principal.Id, clock.GetUtcNow());
+            FlowRunDecider.Start(flow, published.VersionNumber, parcel, principal.Id, clock.GetUtcNow());
         parcelStream.AppendOne(attached);
         session.Events.StartStream<FlowRun>(started.FlowRunId, started);
         await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
@@ -76,26 +76,26 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     }
 
     /// <summary>
-    /// Starts the contour resolution returns for the project by <paramref name="contourName"/> as the next
-    /// link of <paramref name="parentFlowRunId"/>'s chain, on the parent's parcel. The contour's follow
+    /// Starts the flow resolution returns for the project by <paramref name="flowName"/> as the next
+    /// link of <paramref name="parentFlowRunId"/>'s chain, on the parent's parcel. The flow's follow
     /// must match how the parent ended, and every rule of a start holds too.
     /// </summary>
     public async Task<FlowRun> FollowAsync(
-        Principal principal, string project, Guid parentFlowRunId, string contourName, CancellationToken cancellationToken)
+        Principal principal, string project, Guid parentFlowRunId, string flowName, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.start", principal);
         RefuseSessionStart(principal);
         string tenant = Tenants.RequireProject(project);
-        Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Contour, contourName, cancellationToken)
-            ?? throw new DomainException($"'{contourName}' is not a published contour of project '{tenant}'; coa contour list names the ones that are.");
-        Contour contour = Contour.FromJson(published.Content);
+        Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Flow, flowName, cancellationToken)
+            ?? throw new DomainException($"'{flowName}' is not a published flow of project '{tenant}'; coa flow list names the ones that are.");
+        Flow flow = Flow.FromJson(published.Content);
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         FlowRun parent = await session.LoadAsync<FlowRun>(parentFlowRunId, cancellationToken) ?? throw FlowRunNotFound(parentFlowRunId, tenant);
         var parcelStream = await session.Events.FetchForWriting<Parcel>(parent.ParcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parent.ParcelId, tenant);
         (FlowRunStarted started, ParcelFlowRunAttached attached) =
-            FlowRunDecider.Follow(contour, published.VersionNumber, parcel, parent, principal.Id, clock.GetUtcNow());
+            FlowRunDecider.Follow(flow, published.VersionNumber, parcel, parent, principal.Id, clock.GetUtcNow());
         parcelStream.AppendOne(attached);
         session.Events.StartStream<FlowRun>(started.FlowRunId, started);
         await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
@@ -106,7 +106,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     public Task<FlowRun> StartStepAsync(Principal principal, string project, Guid flowRunId, string step, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.step", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.StartStep(contour, flowRun, step, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.StartStep(flow, flowRun, step, clock.GetUtcNow()),
             (flowRun, started) => flowRun.Apply(started),
             cancellationToken);
 
@@ -114,7 +114,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     public Task<FlowRun> RespawnAsync(Principal principal, string project, Guid flowRunId, string step, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.respawn", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.Respawn(contour, flowRun, step, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Respawn(flow, flowRun, step, clock.GetUtcNow()),
             (flowRun, respawned) => flowRun.Apply(respawned),
             cancellationToken);
 
@@ -126,7 +126,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         Principal principal, string project, Guid flowRunId, string step, string agentHash, ModelSpec model, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.spawn", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.Spawn(contour, flowRun, step, agentHash, model, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Spawn(flow, flowRun, step, agentHash, model, clock.GetUtcNow()),
             (flowRun, spawned) => flowRun.Apply(spawned),
             cancellationToken);
 
@@ -135,7 +135,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         Principal principal, string project, Guid flowRunId, string step, Guid sessionId, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.session", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.OpenSession(contour, flowRun, step, sessionId, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.OpenSession(flow, flowRun, step, sessionId, clock.GetUtcNow()),
             (flowRun, opened) => flowRun.Apply(opened),
             cancellationToken);
 
@@ -154,7 +154,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.answer", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.Answer(contour, flowRun, step, agent, sessionId, agentHash, model, answer, measurement, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Answer(flow, flowRun, step, agent, sessionId, agentHash, model, answer, measurement, clock.GetUtcNow()),
             (flowRun, answered) => flowRun.Apply(answered),
             cancellationToken);
 
@@ -166,7 +166,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         Principal principal, string project, Guid flowRunId, string step, string agent, Guid sessionId, Measurement usage, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.usage", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.RecordUsage(contour, flowRun, step, agent, sessionId, usage, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.RecordUsage(flow, flowRun, step, agent, sessionId, usage, clock.GetUtcNow()),
             (flowRun, recorded) => flowRun.Apply(recorded),
             cancellationToken);
 
@@ -174,7 +174,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         Principal principal, string project, Guid flowRunId, string step, string action, JsonElement result, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.result", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.Complete(contour, flowRun, step, action, result, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, action, result, clock.GetUtcNow()),
             (flowRun, completed) => flowRun.Apply(completed),
             cancellationToken);
 
@@ -202,7 +202,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.pause", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.Pause(contour, flowRun, reason, lever, principal.Id, clock.GetUtcNow(), usage, session),
+            (flow, flowRun) => FlowRunDecider.Pause(flow, flowRun, reason, lever, principal.Id, clock.GetUtcNow(), usage, session),
             (flowRun, paused) => flowRun.Apply(paused),
             cancellationToken);
 
@@ -210,7 +210,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         FlowRun resumed = await WriteAsync(
             "flow-run.resume", principal, project, flowRunId,
-            (contour, flowRun) => FlowRunDecider.Resume(contour, flowRun, note, principal.Id, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Resume(flow, flowRun, note, principal.Id, clock.GetUtcNow()),
             (flowRun, recorded) => flowRun.Apply(recorded),
             cancellationToken);
 
@@ -232,22 +232,22 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 var flowRunStream = await session.Events.FetchForWriting<FlowRun>(flowRunId, token);
                 FlowRun flowRun = flowRunStream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
                 RequireBoundLaunch(principal, flowRun);
-                Contour contour = await RequireStartedUnderContourAsync(tenant, flowRun, token);
+                Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
                 DateTimeOffset now = clock.GetUtcNow();
-                (FlowRunEnded ended, ParcelFlowRunReleased released) = FlowRunDecider.End(contour, flowRun, outcome, principal.Id, now);
+                (FlowRunEnded ended, ParcelFlowRunReleased released) = FlowRunDecider.End(flow, flowRun, outcome, principal.Id, now);
                 flowRunStream.AppendOne(ended);
                 IEventStream<Parcel> parcelStream = await AppendReleaseAsync(session, flowRun, released, token);
                 Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(flowRun.ParcelId, tenant);
 
-                // A contour that closes its parcel closes it in the same save as the end and the
+                // A flow that closes its parcel closes it in the same save as the end and the
                 // release, decided against the parcel as the release leaves it; a refusal saves none of them.
-                if (contour.Closes is not null)
+                if (flow.Closes is not null)
                 {
                     ParcelType type = await definitions.ResolveParcelTypeByHashAsync(tenant, parcel.TypeHash, token)
                         ?? throw new DomainException(
                             $"The '{parcel.TypeName}' type version {parcel.TypeHash} that parcel {Ids.Short(parcel.Id)} was created under is no longer held, so flow run {Ids.Short(flowRun.Id)} cannot close it at its end.");
                     ParcelClosed? closed = FlowRunDecider.CloseOnEnd(
-                        contour, flowRun, type, gates, parcel, FlowRunAdvancer.PrincipalFor(flowRun.Id).Id, now);
+                        flow, flowRun, type, gates, parcel, FlowRunAdvancer.PrincipalFor(flowRun.Id).Id, now);
                     if (closed is not null)
                     {
                         parcelStream.AppendOne(closed);
@@ -264,7 +264,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
 
     /// <summary>
     /// Stops a live flow run and, once the stop is saved, ends the judgment or action it was running and
-    /// has its worktree removed. It needs no contour, so a flow run whose contour is no longer held can
+    /// has its worktree removed. It needs no flow, so a flow run whose flow is no longer held can
     /// still be stopped.
     /// </summary>
     public async Task<FlowRun> StopAsync(Principal principal, string project, Guid flowRunId, string reason, CancellationToken cancellationToken)
@@ -326,11 +326,11 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         return [.. onParcel.Where(f => f.RootFlowRunId == member.RootFlowRunId)];
     }
 
-    /// <summary>The contour version the flow run started under, which is the one it keeps.</summary>
-    public async Task<Contour> ContourOfAsync(Principal principal, string project, FlowRun flowRun, CancellationToken cancellationToken)
+    /// <summary>The flow version the flow run started under, which is the one it keeps.</summary>
+    public async Task<Flow> FlowOfAsync(Principal principal, string project, FlowRun flowRun, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.show", principal);
-        return await RequireStartedUnderContourAsync(Tenants.RequireProject(project), flowRun, cancellationToken);
+        return await RequireStartedUnderFlowAsync(Tenants.RequireProject(project), flowRun, cancellationToken);
     }
 
     /// <summary>
@@ -353,7 +353,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         Principal principal,
         string project,
         Guid flowRunId,
-        Func<Contour, FlowRun, TEvent> decide,
+        Func<Flow, FlowRun, TEvent> decide,
         Action<FlowRun, TEvent> apply,
         CancellationToken cancellationToken)
         where TEvent : notnull
@@ -369,8 +369,8 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 var stream = await session.Events.FetchForWriting<FlowRun>(flowRunId, token);
                 FlowRun flowRun = stream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
                 RequireBoundLaunch(principal, flowRun);
-                Contour contour = await RequireStartedUnderContourAsync(tenant, flowRun, token);
-                TEvent recorded = decide(contour, flowRun);
+                Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
+                TEvent recorded = decide(flow, flowRun);
                 stream.AppendOne(recorded);
                 await session.SaveChangesAsync(token);
 
@@ -493,13 +493,13 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     private static string ParcelChanged(Guid parcelId) =>
         $"A parcel has at most one live flow run; parcel {Ids.Short(parcelId)} or its flow run changed while this was being recorded, so nothing was. Read them again and retry.";
 
-    /// <summary>A flow run keeps the contour version it started under; a newer version applies to new flow runs only.</summary>
-    private async Task<Contour> RequireStartedUnderContourAsync(string project, FlowRun flowRun, CancellationToken cancellationToken)
+    /// <summary>A flow run keeps the flow version it started under; a newer version applies to new flow runs only.</summary>
+    private async Task<Flow> RequireStartedUnderFlowAsync(string project, FlowRun flowRun, CancellationToken cancellationToken)
     {
-        Definition? found = await definitions.ResolveByHashAsync(project, DefinitionKind.Contour, flowRun.ContourHash, cancellationToken);
+        Definition? found = await definitions.ResolveByHashAsync(project, DefinitionKind.Flow, flowRun.FlowHash, cancellationToken);
         return found is null
-            ? throw new DomainException($"The '{flowRun.ContourName}' contour version {flowRun.ContourHash} that flow run {Ids.Short(flowRun.Id)} started under is no longer held.")
-            : Contour.FromJson(found.Content);
+            ? throw new DomainException($"The '{flowRun.FlowName}' flow version {flowRun.FlowHash} that flow run {Ids.Short(flowRun.Id)} started under is no longer held.")
+            : Flow.FromJson(found.Content);
     }
 
     private static DomainException ParcelNotFound(Guid parcelId, string project) =>

@@ -3,7 +3,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
@@ -28,7 +28,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
-    private static readonly ContourStep Step = new() { Name = "open-pr", Action = SoftwareActions.OpenPr };
+    private static readonly FlowStep Step = new() { Name = "open-pr", Action = SoftwareActions.OpenPr };
 
     private readonly TemporaryHome temp = new();
     private readonly ScriptedCommandRunner runner = new();
@@ -115,18 +115,18 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         const string Theirs = "aaaabbbbccccddddeeeeffff0000111122223333";
         const string Built = "1111222233334444555566667777888899990000";
         var worktree = new WorktreeAction(projects, clones, new FlowRunService(store, TimeProvider.System), new FlowRunWorkers());
-        ContourStep checkoutStep = Step with { Name = "worktree", Action = SoftwareActions.Worktree };
+        FlowStep checkoutStep = Step with { Name = "worktree", Action = SoftwareActions.Worktree };
         Parcel parcel = await TaskAsync(Project, "Build on the reviewer's update");
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid first = Ids.New();
-        await worktree.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, first, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
+        await worktree.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, first, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
         Opened(await PerformAsync(parcel.Id, first));
         await clones.RemoveAsync(Project, first, None);
         runner.SetRemoteBranch(Clone, branch, Theirs);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Theirs);
         Guid second = Ids.New();
 
-        ActionOutcome checkedOut = await worktree.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, second, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
+        ActionOutcome checkedOut = await worktree.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, second, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
         runner.AddBranch(Clone, branch, Built);
         Opened(await PerformAsync(parcel.Id, second));
 
@@ -240,35 +240,35 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task It_answers_opened_under_the_shipped_build_contour_which_moves_the_flow_run_to_review()
+    public async Task It_answers_opened_under_the_shipped_build_flow_which_moves_the_flow_run_to_review()
     {
-        Parcel parcel = await TaskAsync(Project, "Under the shipped contour");
+        Parcel parcel = await TaskAsync(Project, "Under the shipped flow");
 
-        ActionOutcome outcome = await PerformUnderAsync(ShippedContours.Build, parcel.Id);
+        ActionOutcome outcome = await PerformUnderAsync(ShippedFlows.Build, parcel.Id);
 
-        Decide(ShippedContours.Build, Answered(outcome, OpenPrAction.OpenedVerdict)).Should().Be(new FlowRunMove.GoTo("move-to-review"));
+        Decide(ShippedFlows.Build, Answered(outcome, OpenPrAction.OpenedVerdict)).Should().Be(new FlowRunMove.GoTo("move-to-review"));
     }
 
     [Fact]
-    public async Task It_answers_done_to_a_flow_run_pinned_to_the_build_contour_before_it_which_routed_open_pr_only_on_done()
+    public async Task It_answers_done_to_a_flow_run_pinned_to_the_build_flow_before_it_which_routed_open_pr_only_on_done()
     {
-        Parcel parcel = await TaskAsync(Project, "Pinned to an earlier contour");
+        Parcel parcel = await TaskAsync(Project, "Pinned to an earlier flow");
 
-        ActionOutcome outcome = await PerformUnderAsync(PreviousContours.BuildWithGatedMerge, parcel.Id);
+        ActionOutcome outcome = await PerformUnderAsync(PreviousFlows.BuildWithGatedMerge, parcel.Id);
 
-        Decide(PreviousContours.BuildWithGatedMerge, Answered(outcome, ActionOutcome.DoneVerdict)).Should().Be(new FlowRunMove.GoTo("gated-merge"));
+        Decide(PreviousFlows.BuildWithGatedMerge, Answered(outcome, ActionOutcome.DoneVerdict)).Should().Be(new FlowRunMove.GoTo("gated-merge"));
         (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
     }
 
     [Fact]
     public void A_step_routing_on_both_opened_and_done_is_answered_opened()
     {
-        ContourStep both = Step with
+        FlowStep both = Step with
         {
             Transitions =
             [
-                new ContourTransition { Field = ActionOutcome.Verdict, Value = ContourValue.Of("done"), Target = "a" },
-                new ContourTransition { Field = ActionOutcome.Verdict, Value = ContourValue.Of("opened"), Target = "b" },
+                new FlowTransition { Field = ActionOutcome.Verdict, Value = FlowValue.Of("done"), Target = "a" },
+                new FlowTransition { Field = ActionOutcome.Verdict, Value = FlowValue.Of("opened"), Target = "b" },
             ],
         };
 
@@ -420,7 +420,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         });
 
         Task<ActionOutcome> checkout = worktree.PerformAsync(
-            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedContours.Build, Step with { Name = "worktree", Action = SoftwareActions.Worktree }, false), None).AsTask();
+            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedFlows.Build, Step with { Name = "worktree", Action = SoftwareActions.Worktree }, false), None).AsTask();
         await fetching.Task;
         Task<ActionOutcome> push = PerformAsync(parcel.Id, Ids.New()).AsTask();
         await WhenReadAsync(runner, () => runner.Commands.Any(c => c.Program == "gh"));
@@ -462,19 +462,19 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     }
 
     private ValueTask<ActionOutcome> PerformAsync(Guid parcelId, Guid flowRunId, string project = Project) =>
-        action.PerformAsync(new ActionRequest(FlowRunPrincipal, project, flowRunId, parcelId, ShippedContours.Build, Step, Resumed: false), None);
+        action.PerformAsync(new ActionRequest(FlowRunPrincipal, project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
 
-    private ValueTask<ActionOutcome> PerformUnderAsync(Contour contour, Guid parcelId)
+    private ValueTask<ActionOutcome> PerformUnderAsync(Flow flow, Guid parcelId)
     {
-        ContourStep openPr = contour.Step("open-pr") ?? throw new InvalidOperationException("The contour has no open-pr step.");
-        return action.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, contour, openPr, Resumed: false), None);
+        FlowStep openPr = flow.Step("open-pr") ?? throw new InvalidOperationException("The flow has no open-pr step.");
+        return action.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, flow, openPr, Resumed: false), None);
     }
 
-    private static FlowRunMove Decide(Contour contour, JsonElement answer)
+    private static FlowRunMove Decide(Flow flow, JsonElement answer)
     {
         using JsonDocument document = JsonDocument.Parse(answer.GetRawText());
         var atOpenPr = new FlowRunPosition("open-pr", ImmutableDictionary<string, int>.Empty.Add("open-pr", 1), Spawns: 0);
-        return Interpreter.Decide(contour, atOpenPr, document);
+        return Interpreter.Decide(flow, atOpenPr, document);
     }
 
     private static JsonElement Opened(ActionOutcome outcome) => Answered(outcome, OpenPrAction.OpenedVerdict);

@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
@@ -25,10 +25,10 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
-    private static readonly ContourStep Step = new() { Name = "worktree", Action = SoftwareActions.Worktree };
+    private static readonly FlowStep Step = new() { Name = "worktree", Action = SoftwareActions.Worktree };
 
-    /// <summary>A contour whose one step is open-pr, so a flow run of it can hold a recorded push.</summary>
-    private static readonly Contour Recorder = new()
+    /// <summary>A flow whose one step is open-pr, so a flow run of it can hold a recorded push.</summary>
+    private static readonly Flow Recorder = new()
     {
         Name = "recorder",
         Accepts = ["task"],
@@ -37,11 +37,11 @@ public sealed class WorktreeActionTests : IAsyncLifetime
         SpawnCap = 1,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "open-pr",
                 Action = SoftwareActions.OpenPr,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("opened"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("opened"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     };
@@ -64,8 +64,8 @@ public sealed class WorktreeActionTests : IAsyncLifetime
         flowRuns = new FlowRunService(store, TimeProvider.System);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
         Definition draft = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, Recorder.Name,
-            Contour.CanonicalJson(Recorder), Recorder.Hash, null, None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, Recorder.Name,
+            Flow.CanonicalJson(Recorder), Recorder.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         action = new WorktreeAction(
             new ProjectService(store, TimeProvider.System),
@@ -382,7 +382,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
         using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
 
         Func<Task> takeover = async () => await action.PerformAsync(
-            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedContours.Build, Step, Resumed: false), stop.Token);
+            new ActionRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, Step, Resumed: false), stop.Token);
 
         await takeover.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -509,7 +509,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     public async Task A_project_with_no_record_pauses_naming_the_step_and_the_project_and_runs_nothing()
     {
         ActionOutcome outcome = await action.PerformAsync(
-            new ActionRequest(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedContours.Build, Step, Resumed: false), None);
+            new ActionRequest(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
 
         ActionOutcome.Paused paused = Paused(outcome);
         paused.Reason.Should().StartWith("Step 'worktree'").And.Contain("Project 'nowhere' is not registered");
@@ -701,7 +701,7 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     private string[] ExcludeLines() => File.ReadAllText(ExcludePath).ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
 
     private ValueTask<ActionOutcome> PerformAsync(Guid parcelId, Guid flowRunId) =>
-        action.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, flowRunId, parcelId, ShippedContours.Build, Step, Resumed: false), None);
+        action.PerformAsync(new ActionRequest(FlowRunPrincipal, Project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
 
     private static JsonElement Done(ActionOutcome outcome)
     {

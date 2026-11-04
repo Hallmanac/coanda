@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Projects;
 using Coanda.Core.Software;
@@ -23,7 +23,7 @@ namespace Coanda.Daemon.Actions;
 /// with changes, a remote that is no github.com repository, no token, a failed push, and a request
 /// GitHub refuses each pause with the perform-again lever; a push the lease refuses pauses with a
 /// lever to stop the flow run, because performing the step again would be refused the same way.
-/// A flow run keeps the contour version it started under, and the build contour before this one routed
+/// A flow run keeps the flow version it started under, and the build flow before this one routed
 /// open-pr only on <c>done</c>, so a step that routes on <c>done</c> and not on
 /// <see cref="OpenedVerdict"/> is answered <c>done</c> instead, and such a flow run moves past it.
 /// </summary>
@@ -121,14 +121,14 @@ public sealed class OpenPrAction(
 
     /// <summary>
     /// The verdict <paramref name="step"/> routes on once the pull request is open: <see cref="OpenedVerdict"/>,
-    /// unless the step routes on <c>done</c> and not on it, as the build contour before this one did.
+    /// unless the step routes on <c>done</c> and not on it, as the build flow before this one did.
     /// </summary>
-    public static string VerdictFor(ContourStep step) =>
+    public static string VerdictFor(FlowStep step) =>
         RoutesOn(step, ActionOutcome.DoneVerdict) && !RoutesOn(step, OpenedVerdict)
             ? ActionOutcome.DoneVerdict
             : OpenedVerdict;
 
-    private static bool RoutesOn(ContourStep step, string verdict) =>
+    private static bool RoutesOn(FlowStep step, string verdict) =>
         step.Transitions.Any(t =>
             t.Field == ActionOutcome.Verdict
             && t.Value.ValueKind == JsonValueKind.String

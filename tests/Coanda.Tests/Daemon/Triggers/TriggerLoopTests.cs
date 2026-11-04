@@ -22,7 +22,7 @@ public sealed class TriggerLoopTests
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
 
-    /// <summary>A project's own type whose doing state binds a contour nobody published.</summary>
+    /// <summary>A project's own type whose doing state binds a flow nobody published.</summary>
     private static readonly ParcelType Chore = new()
     {
         Name = "chore",
@@ -32,7 +32,7 @@ public sealed class TriggerLoopTests
         Resolutions = ["done"],
         PausedState = ShippedTypes.Paused,
         Moves = new Dictionary<string, IReadOnlyList<string>> { ["todo"] = ["doing"] },
-        ContourBindings = [new ContourBinding("doing", "no-such-contour")],
+        FlowBindings = [new FlowBinding("doing", "no-such-flow")],
     };
 
     private static async Task PublishTypeAsync(RunningDaemon daemon, ParcelType type)
@@ -65,7 +65,7 @@ public sealed class TriggerLoopTests
         // The loop handles entries in order, so once a later entry has its flow run, the earlier one was read again if it ever would be.
         ParcelView later = await FlowRunDriver.TaskAtBuildAsync(again, Project, "Run later");
         await FlowRunDriver.BoundAsync(again, Project, later.Id);
-        (await FlowRunDriver.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
+        (await FlowRunDriver.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.FlowName)
             .Should().Equal(["build", "merge"], "the bound entry started one flow run, and the merge followed its end");
 
         await second.StopAsync(None);
@@ -95,7 +95,7 @@ public sealed class TriggerLoopTests
         {
             using var client = new DaemonClient(temp.Home);
             FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, parcelId);
-            bound.ContourName.Should().Be("build");
+            bound.FlowName.Should().Be("build");
             await second.StopAsync(None);
         }
 
@@ -145,14 +145,14 @@ public sealed class TriggerLoopTests
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, chore.Id, "doing"), None);
         ParcelView task = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Still builds");
 
-        (await FlowRunDriver.BoundAsync(client, Project, task.Id)).ContourName.Should().Be("build");
+        (await FlowRunDriver.BoundAsync(client, Project, task.Id)).FlowName.Should().Be("build");
         (await FlowRunDriver.OfParcelAsync(client, Project, chore.Id)).Should().BeEmpty();
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task Moving_an_idea_to_discovery_starts_the_discovery_contour()
+    public async Task Moving_an_idea_to_discovery_starts_the_discovery_flow()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
@@ -162,7 +162,7 @@ public sealed class TriggerLoopTests
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Think it through", null), None);
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, idea.Id, "discovery"), None);
 
-        (await FlowRunDriver.BoundAsync(client, Project, idea.Id)).ContourName.Should().Be("discovery");
+        (await FlowRunDriver.BoundAsync(client, Project, idea.Id)).FlowName.Should().Be("discovery");
 
         await daemon.StopAsync(None);
     }
@@ -205,7 +205,7 @@ public sealed class TriggerLoopTests
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "review"), None);
         await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "build"), None);
         await FlowRunDriver.BoundAsync(client, Project, (await FlowRunDriver.TaskAtBuildAsync(client, Project, "Marks the re-entry handled")).Id);
-        (await BoundToBuildAsync(client, held.Id)).Should().ContainSingle("an entry made with no live flow run starts the bound contour once");
+        (await BoundToBuildAsync(client, held.Id)).Should().ContainSingle("an entry made with no live flow run starts the bound flow once");
 
         await daemon.StopAsync(None);
     }

@@ -115,7 +115,7 @@ public sealed class DefinitionResolutionTests
     {
         Definition shipped = Make(DefinitionScope.Shipped, 1);
 
-        DefinitionResolution.Resolve([shipped], "alpha", DefinitionKind.Contour, "task").Should().BeNull();
+        DefinitionResolution.Resolve([shipped], "alpha", DefinitionKind.Flow, "task").Should().BeNull();
     }
 
     [Fact]

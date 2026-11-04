@@ -15,7 +15,7 @@ public abstract record ActionOutcome
     /// <summary>The verdict of an action that did what it was asked.</summary>
     public const string DoneVerdict = "done";
 
-    /// <summary>The verdict of an action that ran and found the work failing, which a contour routes on like any other.</summary>
+    /// <summary>The verdict of an action that ran and found the work failing, which a flow routes on like any other.</summary>
     public const string FailedVerdict = "failed";
 
     private ActionOutcome()

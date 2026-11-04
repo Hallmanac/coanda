@@ -4,7 +4,7 @@ using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
@@ -30,7 +30,7 @@ public sealed class FlowRunAdvancerTests
     ];
 
     [Fact]
-    public async Task A_task_moved_to_build_runs_the_build_contours_clean_path_to_its_end_with_no_contour_start()
+    public async Task A_task_moved_to_build_runs_the_build_flows_clean_path_to_its_end_with_no_flow_start()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
@@ -43,7 +43,7 @@ public sealed class FlowRunAdvancerTests
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
         flowRun.Outcome.Should().Be("pr-opened");
-        flowRun.ContourName.Should().Be("build");
+        flowRun.FlowName.Should().Be("build");
         FlowRunView merge = await FlowRunDriver.MergedAsync(client, Project, parcel.Id, started.Id);
         (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.Id)
             .Should().Equal([started.Id, merge.Id], "the binding starts one flow run for the one entry to build, and the merge follows its end");
@@ -64,7 +64,7 @@ public sealed class FlowRunAdvancerTests
 
         ScriptedSpawn build = executor.Spawns[0];
         build.WorkingDirectory.Should().Be(temp.Home.FlowRunWorkPath(Project, started.Id));
-        build.Caps.Should().Be(new SpawnCaps(ShippedContours.Build.Budget, DaemonOptions.DefaultJudgmentLimit));
+        build.Caps.Should().Be(new SpawnCaps(ShippedFlows.Build.Budget, DaemonOptions.DefaultJudgmentLimit));
         build.CredentialProfile.Should().BeNull();
         build.AnswerSchema.Should().Be("build");
         build.Context.Should().Contain("Title: Run the clean path").And.Contain("Step: build");
@@ -183,7 +183,7 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        var hold = new Contour
+        var hold = new Flow
         {
             Name = "hold-for-a-person",
             Accepts = ["task"],
@@ -192,18 +192,18 @@ public sealed class FlowRunAdvancerTests
             SpawnCap = 1,
             Steps =
             [
-                new ContourStep
+                new FlowStep
                 {
                     Name = "approve",
                     Action = CoreActions.WaitForHuman,
-                    Arguments = new Dictionary<string, JsonElement> { ["lever"] = ContourValue.Of("Read the task and resume to approve it.") },
-                    Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                    Arguments = new Dictionary<string, JsonElement> { ["lever"] = FlowValue.Of("Read the task and resume to approve it.") },
+                    Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                 },
             ],
         };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
         Definition draft = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, hold.Name, Contour.CanonicalJson(hold), hold.Hash, null, None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, hold.Name, Flow.CanonicalJson(hold), hold.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Needs a nod", null), None);
 
@@ -324,14 +324,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour shouted = await PublishAsync(daemon, new Contour
+        Flow shouted = await PublishAsync(daemon, new Flow
         {
             Name = "shouted-agent",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 1m,
             SpawnCap = 1,
-            Steps = [Judge("build", "BUILD", Contour.End)],
+            Steps = [Judge("build", "BUILD", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Loud", null), None);
 
@@ -358,14 +358,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour capped = await PublishAsync(daemon, new Contour
+        Flow capped = await PublishAsync(daemon, new Flow
         {
             Name = "one-spawn",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 1m,
             SpawnCap = 1,
-            Steps = [Judge("first", "build", "second"), Judge("second", "build", Contour.End)],
+            Steps = [Judge("first", "build", "second"), Judge("second", "build", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Capped", null), None);
 
@@ -376,9 +376,9 @@ public sealed class FlowRunAdvancerTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowRunView after = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        after.PauseReason.Should().Be("Contour 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
+        after.PauseReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
         after.Lever.Should().Be(FlowRunLevers.SpawnCapReached(capped.Name));
-        executor.Spawns.Should().ContainSingle("a resume never spawns past the contour's cap");
+        executor.Spawns.Should().ContainSingle("a resume never spawns past the flow's cap");
         after.Steps.Should().ContainSingle();
 
         await daemon.StopAsync(None);
@@ -395,14 +395,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour refused = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow refused = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "never-answers",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
             SpawnCap = 2,
-            Steps = [Judge("build", "build", Contour.End)],
+            Steps = [Judge("build", "build", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unanswered", null), None);
 
@@ -423,9 +423,9 @@ public sealed class FlowRunAdvancerTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         FlowRunView capped = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        capped.PauseReason.Should().Be("Contour 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
+        capped.PauseReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
         capped.Lever.Should().Be(FlowRunLevers.SpawnCapReached(refused.Name));
-        executor.Spawns.Should().HaveCount(2, "a resume never spawns past the contour's cap");
+        executor.Spawns.Should().HaveCount(2, "a resume never spawns past the flow's cap");
         capped.Spawns.Should().Be(2);
 
         await daemon.StopAsync(None);
@@ -442,14 +442,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour once = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow once = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "answers-late",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
             SpawnCap = 2,
-            Steps = [Judge("build", "build", Contour.End)],
+            Steps = [Judge("build", "build", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Late answer", null), None);
 
@@ -477,14 +477,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour chained = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow chained = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "two-judgments",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
             SpawnCap = 2,
-            Steps = [Judge("a", "build", "b"), Judge("b", "build", Contour.End)],
+            Steps = [Judge("a", "build", "b"), Judge("b", "build", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Chained", null), None);
 
@@ -512,14 +512,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour late = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow late = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "agent-published-late",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
             SpawnCap = 1,
-            Steps = [Judge("build", "late-builder", Contour.End)],
+            Steps = [Judge("build", "late-builder", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "No agent yet", null), None);
 
@@ -554,14 +554,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour unanswered = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow unanswered = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "never-answers",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
             SpawnCap = 2,
-            Steps = [Judge("build", "build", Contour.End)],
+            Steps = [Judge("build", "build", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Measured anyway", null), None);
 
@@ -619,14 +619,14 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour twice = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow twice = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "launch-fails-once",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
             SpawnCap = 2,
-            Steps = [Judge("build", "build", Contour.End)],
+            Steps = [Judge("build", "build", Flow.End)],
         });
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Launch fails", null), None);
         FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
@@ -809,26 +809,26 @@ public sealed class FlowRunAdvancerTests
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Not a task", null), None);
 
         await FluentActions.Awaiting(() => FlowRunDriver.StartAsync(client, Project, idea.Id, "build"))
-            .Should().ThrowAsync<DomainException>().WithMessage("Contour 'build' accepts parcels of type task, not 'idea'.");
+            .Should().ThrowAsync<DomainException>().WithMessage("Flow 'build' accepts parcels of type task, not 'idea'.");
 
         await daemon.StopAsync(None);
     }
 
-    private static ContourStep Judge(string name, string agent, string target) => new()
+    private static FlowStep Judge(string name, string agent, string target) => new()
     {
         Name = name,
         Agent = agent,
         AnswerSchema = "build",
-        Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = target }],
+        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = target }],
     };
 
-    private static async Task<Contour> PublishAsync(RunningDaemon daemon, Contour contour)
+    private static async Task<Flow> PublishAsync(RunningDaemon daemon, Flow flow)
     {
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
         Definition draft = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, contour.Name, Contour.CanonicalJson(contour), contour.Hash, null, None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, flow.Name, Flow.CanonicalJson(flow), flow.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
-        return contour;
+        return flow;
     }
 
     private static void ExpectJudgment(FlowRunStepView step, AgentDefinition agent, int ordinal)

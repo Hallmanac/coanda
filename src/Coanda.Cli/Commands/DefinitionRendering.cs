@@ -5,14 +5,14 @@ using Spectre.Console;
 namespace Coanda.Cli.Commands;
 
 /// <summary>
-/// The rows <c>coa type list</c> and <c>coa contour list</c> write, as markup with every cell
+/// The rows <c>coa type list</c> and <c>coa flow list</c> write, as markup with every cell
 /// escaped, so a name holding square brackets prints as itself rather than being read as a style.
 /// </summary>
 internal static class DefinitionRendering
 {
     public static readonly string[] TypeListColumns = ["Type", "Hash", "States", "Resolutions"];
 
-    public static readonly string[] ContourListColumns = ["Contour", "Version", "Hash"];
+    public static readonly string[] FlowListColumns = ["Flow", "Version", "Hash"];
 
     public static string[] TypeListRow(TypeView type) => Escaped(
     [
@@ -22,11 +22,11 @@ internal static class DefinitionRendering
         string.Join(", ", type.Resolutions),
     ]);
 
-    public static string[] ContourListRow(ContourView contour) => Escaped(
+    public static string[] FlowListRow(FlowView flow) => Escaped(
     [
-        contour.Name,
-        contour.Version.ToString(CultureInfo.InvariantCulture),
-        contour.Hash,
+        flow.Name,
+        flow.Version.ToString(CultureInfo.InvariantCulture),
+        flow.Hash,
     ]);
 
     private static string[] Escaped(string[] cells) => [.. cells.Select(Markup.Escape)];

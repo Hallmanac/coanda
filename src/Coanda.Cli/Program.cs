@@ -78,16 +78,16 @@ app.Configure(config =>
         type.AddCommand<TypeListCommand>("list").WithDescription("List the installed parcel types.").WithExample("type", "list");
     });
 
-    config.AddBranch("contour", contour =>
+    config.AddBranch("flow", flow =>
     {
-        contour.SetDescription("Contours are the loops a flow run follows to move a parcel; build, discovery, and review-on-assignment ship installed.");
-        contour.AddCommand<ContourListCommand>("list").WithDescription("List the contours that govern the project.").WithExample("contour", "list");
-        contour.AddCommand<ContourStartCommand>("start").WithDescription("Start a flow run of a contour on a parcel; the daemon advances it from there.").WithExample("contour", "start", "build", "--parcel", "0192a3b4");
+        flow.SetDescription("Flows are the loops a flow run follows to move a parcel; build, discovery, and review-on-assignment ship installed.");
+        flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
+        flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flow run of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "build", "--parcel", "0192a3b4");
     });
 
     config.AddBranch("flow-run", flowRun =>
     {
-        flowRun.SetDescription("A flow run is one execution of a contour on a parcel; a parcel has at most one live flow run.");
+        flowRun.SetDescription("A flow run is one execution of a flow on a parcel; a parcel has at most one live flow run.");
         flowRun.AddCommand<FlowRunListCommand>("list").WithDescription("List a parcel's flow runs, oldest first.").WithExample("flow-run", "list", "--parcel", "0192a3b4");
         flowRun.AddCommand<FlowRunShowCommand>("show").WithDescription("Show one flow run and the steps it entered.").WithExample("flow-run", "show", "0192a3b4");
         flowRun.AddCommand<FlowRunPauseCommand>("pause").WithDescription("Pause a running flow run; a resume performs its current step again.").WithExample("flow-run", "pause", "0192a3b4", "--reason", "\"Waiting on the API owner\"");

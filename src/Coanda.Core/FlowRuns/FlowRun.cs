@@ -1,13 +1,13 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using Coanda.Core.FlowRuns.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 
 namespace Coanda.Core.FlowRuns;
 
 /// <summary>
-/// One execution of a contour on a parcel. State changes only through <c>Apply</c>; the rules live in
-/// <see cref="FlowRunDecider"/>. Replaying the events alone, without the contour, yields the same
+/// One execution of a flow on a parcel. State changes only through <c>Apply</c>; the rules live in
+/// <see cref="FlowRunDecider"/>. Replaying the events alone, without the flow, yields the same
 /// <see cref="Position"/> the interpreter's start and apply produce, because every step entered
 /// carries its kind. The one exception is <see cref="JudgmentRespawned"/>: a resumed judgment that
 /// paused without an answer spawns again on the same visit, a position the interpreter never
@@ -22,12 +22,12 @@ public sealed class FlowRun
     [JsonInclude]
     public Guid ParcelId { get; private set; }
     [JsonInclude]
-    public string ContourName { get; private set; } = string.Empty;
+    public string FlowName { get; private set; } = string.Empty;
     /// <summary>Not called <c>Version</c>: the store gives an aggregate property of that name the stream's event count.</summary>
     [JsonInclude]
-    public int ContourVersion { get; private set; }
+    public int FlowVersion { get; private set; }
     [JsonInclude]
-    public string ContourHash { get; private set; } = string.Empty;
+    public string FlowHash { get; private set; } = string.Empty;
     [JsonInclude]
     public string StartedBy { get; private set; } = string.Empty;
     [JsonInclude]
@@ -128,9 +128,9 @@ public sealed class FlowRun
     {
         Id = started.FlowRunId;
         ParcelId = started.ParcelId;
-        ContourName = started.ContourName;
-        ContourVersion = started.ContourVersion;
-        ContourHash = started.ContourHash;
+        FlowName = started.FlowName;
+        FlowVersion = started.FlowVersion;
+        FlowHash = started.FlowHash;
         StartedBy = started.StartedBy;
         StartedAt = started.StartedAt;
         ParentFlowRunId = started.ParentFlowRunId;

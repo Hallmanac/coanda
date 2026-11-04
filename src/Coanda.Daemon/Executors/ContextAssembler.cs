@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 
@@ -38,14 +38,14 @@ public static partial class ContextAssembler
     /// Writes a recorded answer or result as compact JSON whose text reads as written: characters such
     /// as <c>&lt;</c>, <c>&amp;</c>, an apostrophe, and non-ASCII letters are not escaped. The context
     /// is never embedded in HTML, which is what the relaxed encoder's caution concerns, and the
-    /// contour's canonical JSON and hash never use these options.
+    /// flow's canonical JSON and hash never use these options.
     /// </summary>
     private static readonly JsonSerializerOptions SourceJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     /// <param name="parcel">The parcel the step's flow run is on.</param>
     /// <param name="step">The step about to spawn.</param>
     /// <param name="visits">Every visit of the flow run the step runs on, in the order entered (<see cref="FlowRun.Steps"/>).</param>
-    public static string Assemble(Parcel parcel, ContourStep step, IReadOnlyList<FlowRunStepEntry> visits)
+    public static string Assemble(Parcel parcel, FlowStep step, IReadOnlyList<FlowRunStepEntry> visits)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(step);

@@ -4,7 +4,7 @@ using Coanda.Core.FlowRuns;
 
 namespace Coanda.Daemon.Api.Endpoints;
 
-public sealed record FlowRunStartRequest(string Project, Guid ParcelId, string Contour);
+public sealed record FlowRunStartRequest(string Project, Guid ParcelId, string Flow);
 
 public sealed record FlowRunPauseRequest(string Project, string Reason);
 
@@ -22,9 +22,9 @@ public sealed record FlowRunView(
     Guid Id,
     string Project,
     Guid ParcelId,
-    string ContourName,
-    int ContourVersion,
-    string ContourHash,
+    string FlowName,
+    int FlowVersion,
+    string FlowHash,
     string Status,
     string CurrentStep,
     int Spawns,
@@ -43,7 +43,7 @@ public sealed record FlowRunView(
     Measurement? PauseUsage)
 {
     public static FlowRunView From(string project, FlowRun flowRun) => new(
-        flowRun.Id, project, flowRun.ParcelId, flowRun.ContourName, flowRun.ContourVersion, flowRun.ContourHash,
+        flowRun.Id, project, flowRun.ParcelId, flowRun.FlowName, flowRun.FlowVersion, flowRun.FlowHash,
         StatusName(flowRun.Status), flowRun.CurrentStep, flowRun.Spawns, flowRun.StartedBy, flowRun.StartedAt, flowRun.UpdatedAt,
         [.. flowRun.Steps.Select(FlowRunStepView.From)], flowRun.PauseReason, flowRun.Lever, flowRun.Outcome, flowRun.StopReason,
         flowRun.ParentFlowRunId, flowRun.RootFlowRunId, flowRun.Depth, flowRun.Cost, flowRun.PauseUsage);

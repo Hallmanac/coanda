@@ -1,26 +1,26 @@
 using System.Text.Json;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 
 namespace Coanda.Core.Software;
 
 /// <summary>
-/// The contours the binary carries: build, merge, discovery, and review on assignment. Each is ordinary
-/// <see cref="Contour"/> data with no privileges a user's contour lacks. Every answer and
+/// The flows the binary carries: build, merge, discovery, and review on assignment. Each is ordinary
+/// <see cref="Flow"/> data with no privileges a user's flow lacks. Every answer and
 /// every action result routes on a string field named <c>verdict</c>. The worktree and gates actions
 /// and move-parcel answer <c>done</c> on success, gates answers <c>failed</c> when the build or tests
-/// fail, and open-pr answers <c>opened</c> once its pull request is open. The build contour ends
+/// fail, and open-pr answers <c>opened</c> once its pull request is open. The build flow ends
 /// there: it opens the pull request, moves the task to review, and ends with the outcome
-/// <c>pr-opened</c>, and the merge is a contour of its own that follows. The merge contour holds the
+/// <c>pr-opened</c>, and the merge is a flow of its own that follows. The merge flow holds the
 /// gated merge, which answers <c>merged</c>, <c>pending</c>, or <c>behind</c>, with a waiting lap
 /// through a timer back to it and a rebase lap (a worktree of the merge flow run's own, a rebase that
 /// answers <c>done</c>, then the same timer) for a head behind the primary branch, and closes its
 /// task as <c>completed</c> when it ends. A flow run's outcome is the one
-/// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
-/// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
+/// its flow declares, carried when it reaches end, so no shipped flow holds an emit-outcome step.
+/// The build flow's judgments declare the task's objective, criteria, and non-goals, so each
 /// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
 /// sources, so it is handed the latest result and findings that routed it there.
 /// </summary>
-public static class ShippedContours
+public static class ShippedFlows
 {
     public const string Verdict = "verdict";
 
@@ -60,14 +60,14 @@ public static class ShippedContours
     /// </summary>
     public const int MergedCap = MergePendingCap + MergeResumes;
 
-    /// <summary>The task fields the build contour's judgments carry in their context: what to build, how it is judged, and what is out of scope.</summary>
+    /// <summary>The task fields the build flow's judgments carry in their context: what to build, how it is judged, and what is out of scope.</summary>
     private static readonly IReadOnlyList<string> Brief = ["objective", "criteria", "non-goals"];
 
     /// <summary>The steps whose latest recordings the fix step's context carries: the gates result and both reviews' findings it acts on.</summary>
-    private static readonly IReadOnlyList<ContourSource> FixSources =
+    private static readonly IReadOnlyList<FlowSource> FixSources =
         [new() { Step = "gates" }, new() { Step = "adversarial-review" }, new() { Step = "conformance-review" }];
 
-    public static readonly Contour Build = new()
+    public static readonly Flow Build = new()
     {
         Name = "build",
         Accepts = ["task"],
@@ -77,44 +77,44 @@ public static class ShippedContours
         Steps =
         [
             Action("worktree", SoftwareActions.Worktree, On("done", "build")),
-            Judgment("build", "build", "build", On("done", "gates"), On("blocked", Contour.Pause)) with { Fields = Brief },
+            Judgment("build", "build", "build", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief },
             Action("gates", SoftwareActions.Gates, On("done", "adversarial-review"), On("failed", "fix")),
             Judgment("adversarial-review", "reviewer-adversarial", "review",
                 On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
             Judgment("conformance-review", "reviewer-conformance", "review",
                 On("clean", "open-pr"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
             Action("open-pr", SoftwareActions.OpenPr, On("opened", "move-to-review")),
-            new ContourStep
+            new FlowStep
             {
                 Name = "move-to-review",
                 Action = CoreActions.MoveParcel,
-                Arguments = new Dictionary<string, JsonElement> { ["state"] = ContourValue.Of("review") },
-                Transitions = [On("done", Contour.End)],
+                Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("review") },
+                Transitions = [On("done", Flow.End)],
             },
-            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Contour.Pause)) with { Fields = Brief, Sources = FixSources },
+            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief, Sources = FixSources },
         ],
     };
 
-    public static readonly Contour Merge = new()
+    public static readonly Flow Merge = new()
     {
         Name = "merge",
         Accepts = ["task"],
         Outcome = "merged",
         Budget = 1m,
         SpawnCap = 1,
-        Follow = new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 3 },
+        Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 3 },
         Closes = "completed",
         Steps =
         [
             Action("gated-merge", SoftwareActions.GatedMerge,
-                On("merged", Contour.End, MergedCap),
+                On("merged", Flow.End, MergedCap),
                 On("pending", "wait-for-checks", MergePendingCap),
                 On("behind", "worktree", MergePendingCap)),
-            new ContourStep
+            new FlowStep
             {
                 Name = "wait-for-checks",
                 Action = CoreActions.Timer,
-                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = ContourValue.Of(MergeWaitSeconds) },
+                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(MergeWaitSeconds) },
                 Transitions = [On("done", "gated-merge", MergePendingCap)],
             },
             Action("worktree", SoftwareActions.Worktree, On("done", "rebase", MergeRebaseCap)),
@@ -122,7 +122,7 @@ public static class ShippedContours
         ],
     };
 
-    public static readonly Contour Discovery = new()
+    public static readonly Flow Discovery = new()
     {
         Name = "discovery",
         Accepts = ["idea"],
@@ -132,12 +132,12 @@ public static class ShippedContours
         Steps =
         [
             Judgment("discover", "discovery", "discovery",
-                On("derive", "derive-parcels"), On("carry-forward", Contour.End)),
-            Action("derive-parcels", CoreActions.DeriveParcels, On("done", Contour.End)),
+                On("derive", "derive-parcels"), On("carry-forward", Flow.End)),
+            Action("derive-parcels", CoreActions.DeriveParcels, On("done", Flow.End)),
         ],
     };
 
-    public static readonly Contour ReviewOnAssignment = new()
+    public static readonly Flow ReviewOnAssignment = new()
     {
         Name = "review-on-assignment",
         Accepts = ["task"],
@@ -147,21 +147,21 @@ public static class ShippedContours
         Steps =
         [
             Judgment("review", "reviewer-adversarial", "review",
-                On("clean", Contour.End), On("not-clean", Contour.End)),
+                On("clean", Flow.End), On("not-clean", Flow.End)),
         ],
     };
 
-    public static readonly IReadOnlyList<Contour> All = [Build, Merge, Discovery, ReviewOnAssignment];
+    public static readonly IReadOnlyList<Flow> All = [Build, Merge, Discovery, ReviewOnAssignment];
 
-    public static Contour? Find(string name) =>
+    public static Flow? Find(string name) =>
         All.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
 
-    private static ContourTransition On(string verdict, string target, int visitCap = DefaultCap) =>
-        new() { Field = Verdict, Value = ContourValue.Of(verdict), VisitCap = visitCap, Target = target };
+    private static FlowTransition On(string verdict, string target, int visitCap = DefaultCap) =>
+        new() { Field = Verdict, Value = FlowValue.Of(verdict), VisitCap = visitCap, Target = target };
 
-    private static ContourStep Judgment(string name, string agent, string answerSchema, params ContourTransition[] transitions) =>
+    private static FlowStep Judgment(string name, string agent, string answerSchema, params FlowTransition[] transitions) =>
         new() { Name = name, Agent = agent, AnswerSchema = answerSchema, Transitions = transitions };
 
-    private static ContourStep Action(string name, string action, params ContourTransition[] transitions) =>
+    private static FlowStep Action(string name, string action, params FlowTransition[] transitions) =>
         new() { Name = name, Action = action, Transitions = transitions };
 }

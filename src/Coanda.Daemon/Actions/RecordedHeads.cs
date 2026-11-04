@@ -9,7 +9,7 @@ namespace Coanda.Daemon.Actions;
 /// <summary>
 /// Reads the commit coanda last pushed for a parcel from what its flow runs recorded: the <c>head</c>
 /// field of the most recently recorded result of a step whose action is open-pr or rebase. A step
-/// is matched by the action it names, never by its name, because a project's own contours may name
+/// is matched by the action it names, never by its name, because a project's own flows may name
 /// steps differently and the worktree step's result carries a <c>head</c> of its own.
 /// </summary>
 public static class RecordedHeads

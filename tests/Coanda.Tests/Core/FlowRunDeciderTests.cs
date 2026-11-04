@@ -3,7 +3,7 @@ using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Software;
@@ -13,7 +13,7 @@ namespace Coanda.Tests.Core;
 public sealed class FlowRunDeciderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
-    private static readonly Contour Build = ShippedContours.Build;
+    private static readonly Flow Build = ShippedFlows.Build;
     private static readonly ModelSpec Model = new("anthropic", "claude-opus-5-5", "high");
     private static readonly Measurement Spend = new(1200, 0.42m, 3, TimeSpan.FromSeconds(63));
 
@@ -47,9 +47,9 @@ public sealed class FlowRunDeciderTests
     }
 
     /// <summary>A build flow run started on a fresh parcel, standing at its first step, the worktree action.</summary>
-    private static FlowRun Started(Contour? contour = null)
+    private static FlowRun Started(Flow? flow = null)
     {
-        (FlowRunStarted started, _) = FlowRunDecider.Start(contour ?? Build, 1, ParcelOf(), "owner", Now);
+        (FlowRunStarted started, _) = FlowRunDecider.Start(flow ?? Build, 1, ParcelOf(), "owner", Now);
         return FlowRun.Create(started);
     }
 
@@ -102,14 +102,14 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_flow_run_whose_first_step_is_a_judgment_counts_one_spawn_at_start()
     {
-        FlowRun flowRun = Started(ShippedContours.ReviewOnAssignment);
+        FlowRun flowRun = Started(ShippedFlows.ReviewOnAssignment);
 
-        flowRun.Position.Should().Be(Interpreter.Start(ShippedContours.ReviewOnAssignment));
+        flowRun.Position.Should().Be(Interpreter.Start(ShippedFlows.ReviewOnAssignment));
         flowRun.Position.Spawns.Should().Be(1);
     }
 
     [Fact]
-    public void Replay_reads_the_events_alone_and_never_the_contour()
+    public void Replay_reads_the_events_alone_and_never_the_flow()
     {
         FlowRun flowRun = FlowRun.Create(new FlowRunStarted(
             Ids.New(), Ids.New(), "any", 1, "h", "owner", "ask", StepKind.Judgment, "an-agent", Now));
@@ -122,15 +122,15 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void A_start_attaches_the_flow_run_to_its_parcel_and_records_the_contour_and_first_step()
+    public void A_start_attaches_the_flow_run_to_its_parcel_and_records_the_flow_and_first_step()
     {
         Parcel parcel = ParcelOf();
         (FlowRunStarted started, ParcelFlowRunAttached attached) = FlowRunDecider.Start(Build, 3, parcel, "owner", Now);
 
         started.ParcelId.Should().Be(parcel.Id);
-        started.ContourName.Should().Be("build");
-        started.ContourVersion.Should().Be(3);
-        started.ContourHash.Should().Be(Build.Hash);
+        started.FlowName.Should().Be("build");
+        started.FlowVersion.Should().Be(3);
+        started.FlowHash.Should().Be(Build.Hash);
         started.FirstStep.Should().Be("worktree");
         started.FirstStepKind.Should().Be(StepKind.Action);
         started.FirstStepPerformer.Should().Be(SoftwareActions.Worktree);
@@ -150,11 +150,11 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void A_start_on_a_parcel_whose_type_the_contour_does_not_accept_is_refused()
+    public void A_start_on_a_parcel_whose_type_the_flow_does_not_accept_is_refused()
     {
         Action start = () => FlowRunDecider.Start(Build, 1, ParcelOf("idea"), "owner", Now);
 
-        start.Should().Throw<DomainException>().WithMessage("Contour 'build' accepts parcels of type task, not 'idea'.");
+        start.Should().Throw<DomainException>().WithMessage("Flow 'build' accepts parcels of type task, not 'idea'.");
     }
 
     [Fact]
@@ -202,11 +202,11 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void Starting_a_step_the_contour_does_not_have_is_refused()
+    public void Starting_a_step_the_flow_does_not_have_is_refused()
     {
         Action step = () => FlowRunDecider.StartStep(Build, Started(), "deploy", Now);
 
-        step.Should().Throw<DomainException>().WithMessage("Contour 'build' has no step 'deploy'; a flow run enters only a step its contour has.");
+        step.Should().Throw<DomainException>().WithMessage("Flow 'build' has no step 'deploy'; a flow run enters only a step its flow has.");
     }
 
     [Fact]
@@ -299,11 +299,11 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void An_end_with_an_outcome_other_than_the_contours_is_refused()
+    public void An_end_with_an_outcome_other_than_the_flows_is_refused()
     {
         Action end = () => FlowRunDecider.End(Build, Started(), "merged", "owner", Now);
 
-        end.Should().Throw<DomainException>().WithMessage("Contour 'build' ends with its declared outcome 'pr-opened', not 'merged'.");
+        end.Should().Throw<DomainException>().WithMessage("Flow 'build' ends with its declared outcome 'pr-opened', not 'merged'.");
     }
 
     [Theory]
@@ -355,25 +355,25 @@ public sealed class FlowRunDeciderTests
     }
 
     [Fact]
-    public void Recording_against_a_contour_other_than_the_one_the_flow_run_started_under_is_refused()
+    public void Recording_against_a_flow_other_than_the_one_the_flow_run_started_under_is_refused()
     {
-        Action step = () => FlowRunDecider.StartStep(ShippedContours.Discovery, Started(), "discover", Now);
+        Action step = () => FlowRunDecider.StartStep(ShippedFlows.Discovery, Started(), "discover", Now);
 
-        step.Should().Throw<DomainException>().WithMessage("*a flow run keeps the contour it started under.");
+        step.Should().Throw<DomainException>().WithMessage("*a flow run keeps the flow it started under.");
     }
 
-    /// <summary>A flow run of <paramref name="contour"/> at its judgment step 'build', launched, paused without an answer and resumed.</summary>
-    private static FlowRun ResumedUnanswered(Contour contour, bool launched = true)
+    /// <summary>A flow run of <paramref name="flow"/> at its judgment step 'build', launched, paused without an answer and resumed.</summary>
+    private static FlowRun ResumedUnanswered(Flow flow, bool launched = true)
     {
-        FlowRun flowRun = Started(contour);
-        flowRun.Apply(FlowRunDecider.StartStep(contour, flowRun, "build", Now));
+        FlowRun flowRun = Started(flow);
+        flowRun.Apply(FlowRunDecider.StartStep(flow, flowRun, "build", Now));
         if (launched)
         {
-            flowRun.Apply(FlowRunDecider.Spawn(contour, flowRun, "build", "agenthash", Model, Now));
+            flowRun.Apply(FlowRunDecider.Spawn(flow, flowRun, "build", "agenthash", Model, Now));
         }
 
-        flowRun.Apply(FlowRunDecider.Pause(contour, flowRun, "no valid answer", "perform it again", "flow-run", Now, Spend));
-        flowRun.Apply(FlowRunDecider.Resume(contour, flowRun, "try again", "owner", Now.AddMinutes(1)));
+        flowRun.Apply(FlowRunDecider.Pause(flow, flowRun, "no valid answer", "perform it again", "flow-run", Now, Spend));
+        flowRun.Apply(FlowRunDecider.Resume(flow, flowRun, "try again", "owner", Now.AddMinutes(1)));
         return flowRun;
     }
 
@@ -403,7 +403,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_resumed_judgment_that_paused_before_it_launched_uses_its_counted_spawn_rather_than_counting_another()
     {
-        Contour capped = Build with { SpawnCap = 1 };
+        Flow capped = Build with { SpawnCap = 1 };
         FlowRun flowRun = ResumedUnanswered(capped, launched: false);
 
         flowRun.Current.Should().NotBeNull();
@@ -419,10 +419,10 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_respawn_is_refused_at_the_spawn_cap_before_a_resume_and_for_an_action_step()
     {
-        Contour capped = Build with { SpawnCap = 1 };
+        Flow capped = Build with { SpawnCap = 1 };
         FluentActions.Invoking(() => FlowRunDecider.Respawn(capped, ResumedUnanswered(capped), "build", Now))
             .Should().Throw<DomainException>()
-            .WithMessage("Contour 'build' reached its spawn cap of 1; performing judgment step 'build' again would spawn another agent.");
+            .WithMessage("Flow 'build' reached its spawn cap of 1; performing judgment step 'build' again would spawn another agent.");
 
         FluentActions.Invoking(() => FlowRunDecider.Respawn(Build, AtJudgment(), "build", Now))
             .Should().Throw<DomainException>().WithMessage("*has not been resumed since it was entered*");

@@ -1,6 +1,6 @@
 using Coanda.Cli;
 using Coanda.Core.Software;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
@@ -22,7 +22,7 @@ public sealed class CredentialProfileFlowRunTests
     private static readonly CredentialProfile OtherVendorWork = new("other-vendor", "work", "/home/me/.other", null);
 
     /// <summary>One judgment by the shipped build agent, which ends the flow run; it may spawn twice.</summary>
-    private static readonly Contour OneJudgment = new()
+    private static readonly Flow OneJudgment = new()
     {
         Name = "one-judgment",
         Accepts = ["task"],
@@ -31,12 +31,12 @@ public sealed class CredentialProfileFlowRunTests
         SpawnCap = 2,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "build",
                 Agent = ShippedAgents.Build.Name,
                 AnswerSchema = "build",
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     };
@@ -54,7 +54,7 @@ public sealed class CredentialProfileFlowRunTests
         var options = new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci, Work] };
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
-        await Publishing.ContourAsync(daemon, Project, OneJudgment);
+        await Publishing.FlowAsync(daemon, Project, OneJudgment);
         using var client = new DaemonClient(temp.Home);
         await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "work"), None);
 
@@ -73,7 +73,7 @@ public sealed class CredentialProfileFlowRunTests
         ScriptedExecutor executor = Builds(1);
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [Work] }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
-        await Publishing.ContourAsync(daemon, Project, OneJudgment);
+        await Publishing.FlowAsync(daemon, Project, OneJudgment);
         using var client = new DaemonClient(temp.Home);
 
         FlowRunView ended = await RunAsync(client, "No profile", "ended");
@@ -98,7 +98,7 @@ public sealed class CredentialProfileFlowRunTests
         // The node's configuration changed between starts: it holds 'work' only under another vendor now.
         ScriptedExecutor executor = Builds(2);
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci] }, None);
-        await Publishing.ContourAsync(daemon, Project, OneJudgment);
+        await Publishing.FlowAsync(daemon, Project, OneJudgment);
         using var client = new DaemonClient(temp.Home);
 
         FlowRunView paused = await RunAsync(client, "Missing profile", "paused");
@@ -116,7 +116,7 @@ public sealed class CredentialProfileFlowRunTests
         executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().Be(Ci);
         FlowRunView heldFromStart = await RunAsync(client, "Profile held from the start", "ended");
         executor.Spawns.Should().HaveCount(2).And.OnlyContain(s => s.CredentialProfile == Ci);
-        resumed.Spawns.Should().Be(heldFromStart.Spawns, "the pause used none of the contour's spawns").And.Be(1);
+        resumed.Spawns.Should().Be(heldFromStart.Spawns, "the pause used none of the flow's spawns").And.Be(1);
 
         await daemon.StopAsync(None);
     }

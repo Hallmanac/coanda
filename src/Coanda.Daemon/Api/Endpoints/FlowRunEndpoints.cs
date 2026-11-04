@@ -35,7 +35,7 @@ public static class FlowRunEndpoints
         group.MapPost("", async (HttpContext context, FlowRunService flowRuns, IFlowRunAdvancer advancer, FlowRunStartRequest request, CancellationToken cancellationToken) =>
             {
                 string project = request.Project.Trim();
-                FlowRun flowRun = await flowRuns.StartAsync(RequestPrincipal.PrincipalOf(context), project, request.ParcelId, request.Contour, cancellationToken);
+                FlowRun flowRun = await flowRuns.StartAsync(RequestPrincipal.PrincipalOf(context), project, request.ParcelId, request.Flow, cancellationToken);
 
                 // The flow run advances on the daemon's own workers; the start answers without waiting for it.
                 _ = advancer.RequestAdvance(project, flowRun.Id);

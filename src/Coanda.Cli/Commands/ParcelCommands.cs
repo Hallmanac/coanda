@@ -224,17 +224,17 @@ public sealed class TypeListCommand : AsyncCommand<ProjectSettings>
     }
 }
 
-public sealed class ContourListCommand : AsyncCommand<ProjectSettings>
+public sealed class FlowListCommand : AsyncCommand<ProjectSettings>
 {
     protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSettings settings, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
         string project = settings.ResolveProject();
-        List<ContourView> contours = await client.GetAsync<List<ContourView>>($"/contours?project={Uri.EscapeDataString(project)}", cancellationToken);
-        var table = new Table().AddColumns(DefinitionRendering.ContourListColumns);
-        foreach (ContourView contour in contours)
+        List<FlowView> flows = await client.GetAsync<List<FlowView>>($"/flows?project={Uri.EscapeDataString(project)}", cancellationToken);
+        var table = new Table().AddColumns(DefinitionRendering.FlowListColumns);
+        foreach (FlowView flow in flows)
         {
-            table.AddRow(DefinitionRendering.ContourListRow(contour));
+            table.AddRow(DefinitionRendering.FlowListRow(flow));
         }
 
         AnsiConsole.Write(table);

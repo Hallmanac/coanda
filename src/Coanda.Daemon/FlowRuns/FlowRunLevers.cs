@@ -6,17 +6,17 @@ public static class FlowRunLevers
     /// <summary>Names the step a resume performs again.</summary>
     public static string PerformAgain(string step) => $"Resume the flow run to perform step '{step}' again.";
 
-    /// <summary>Names the way out of a flow run that has spawned as many agents as its contour allows: a resume cannot spawn another.</summary>
-    public static string SpawnCapReached(string contour) =>
-        $"Stop the flow run; contour '{contour}' allows no more spawns, so a resume cannot perform another judgment.";
+    /// <summary>Names the way out of a flow run that has spawned as many agents as its flow allows: a resume cannot spawn another.</summary>
+    public static string SpawnCapReached(string flow) =>
+        $"Stop the flow run; flow '{flow}' allows no more spawns, so a resume cannot perform another judgment.";
 
     /// <summary>Names the way out of a flow run whose current step no transition's visit cap allows another visit to: a resume pauses it again.</summary>
     public static string VisitCapsSpent(string step) =>
         $"Stop the flow run; every transition out of step '{step}' has spent its visit cap, so a resume pauses it again.";
 
-    /// <summary>Names the way out of a flow run deeper in its chain than its contour's follow allows: a resume pauses it again.</summary>
-    public static string DepthCapReached(string contour) =>
-        $"Stop the flow run; it is past the depth cap of contour '{contour}''s follow, so a resume pauses it again.";
+    /// <summary>Names the way out of a flow run deeper in its chain than its flow's follow allows: a resume pauses it again.</summary>
+    public static string DepthCapReached(string flow) =>
+        $"Stop the flow run; it is past the depth cap of flow '{flow}''s follow, so a resume pauses it again.";
 
     /// <summary>
     /// Names the way out of a flow run whose push someone else's update of the branch on the remote
@@ -50,5 +50,5 @@ public static class FlowRunLevers
     public static string RebaseConflict(string clone, string branch, string primaryBranch) =>
         $"Stop the flow run. Then add a worktree of {branch} from the node's clone at {clone}, at a path outside the daemon's work paths (git --git-dir={clone} worktree add <path> {branch}); "
         + $"in it, fetch {primaryBranch} (git fetch origin {primaryBranch}) and rebase {branch} onto it (git rebase origin/{primaryBranch}), resolving the conflicts, without pushing. "
-        + $"Remove that worktree (git --git-dir={clone} worktree remove <path>), and move the task back to build, so the build contour gates, reviews, and pushes the resolved branch and a merge follows.";
+        + $"Remove that worktree (git --git-dir={clone} worktree remove <path>), and move the task back to build, so the build flow gates, reviews, and pushes the resolved branch and a merge follows.";
 }

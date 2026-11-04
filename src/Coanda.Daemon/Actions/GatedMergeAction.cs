@@ -45,7 +45,7 @@ public sealed class GatedMergeAction(
     /// <summary>The verdict the action answers while what the merge waits for is still to come.</summary>
     public const string PendingVerdict = "pending";
 
-    /// <summary>The verdict the action answers when the head is behind the primary branch, which the merge contour routes to a rebase.</summary>
+    /// <summary>The verdict the action answers when the head is behind the primary branch, which the merge flow routes to a rebase.</summary>
     public const string BehindVerdict = "behind";
 
     public string Name => SoftwareActions.GatedMerge;

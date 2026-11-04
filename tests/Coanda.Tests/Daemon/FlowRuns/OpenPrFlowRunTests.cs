@@ -12,7 +12,7 @@ using Coanda.Tests.Daemon.GitHub;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
 
-/// <summary>The shipped build contour's open-pr step as a running daemon performs it, on a scripted runner and a fake GitHub.</summary>
+/// <summary>The shipped build flow's open-pr step as a running daemon performs it, on a scripted runner and a fake GitHub.</summary>
 public sealed class OpenPrFlowRunTests
 {
     private const string Project = "alpha";

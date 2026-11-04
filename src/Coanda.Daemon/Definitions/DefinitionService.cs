@@ -15,7 +15,7 @@ namespace Coanda.Daemon.Definitions;
 /// save. Project-scope definitions live in their project's tenant; owner-scope and shipped-scope
 /// definitions live in the node tenant (<see cref="Tenants.Node"/>). Writes are serialized so that
 /// two drafts of one name cannot be handed the same version. A drafted parcel type is validated
-/// against the names of the gates the daemon runs, and a drafted or seeded contour against the
+/// against the names of the gates the daemon runs, and a drafted or seeded flow against the
 /// names of the actions it registered; the shipped gate set when it is given no gates, and no
 /// actions when it is given none.
 /// </summary>

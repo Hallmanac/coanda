@@ -71,7 +71,7 @@ public sealed class DaemonApiTests
         using var client = new DaemonClient(temp.Home);
         FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
 
-        // A flow run the service starts is not advanced, and refine binds no contour, so the flow run stays live and alone.
+        // A flow run the service starts is not advanced, and refine binds no flow, so the flow run stays live and alone.
         ParcelView parcel = await client.PostAsync<ParcelView>(
             "/parcels", new ParcelAddRequest("coanda", "task", "Held by a flow run", null), CancellationToken.None);
         FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);

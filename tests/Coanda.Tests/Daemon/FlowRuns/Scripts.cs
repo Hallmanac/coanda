@@ -3,7 +3,7 @@ using Coanda.Daemon.Executors;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
 
-/// <summary>Canned answers for the shipped build contour's agents.</summary>
+/// <summary>Canned answers for the shipped build flow's agents.</summary>
 public static class Scripts
 {
     public static ScriptEntry Answer(string verdict, int ordinal) => new(
@@ -14,7 +14,7 @@ public static class Scripts
     public static Measurement Usage(int ordinal) =>
         new(1000L * ordinal, 0.25m * ordinal, ordinal, TimeSpan.FromSeconds(30 * ordinal));
 
-    /// <summary>build answers done and both reviewers answer clean: the build contour's clean path.</summary>
+    /// <summary>build answers done and both reviewers answer clean: the build flow's clean path.</summary>
     public static Dictionary<string, IReadOnlyList<ScriptEntry>> CleanBuild() => new()
     {
         ["build"] = [Answer("done", 1)],
