@@ -49,6 +49,7 @@ public sealed class TriggerLoopTests
         ParcelView parcel;
         await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
         {
+            await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
             parcel = await Flowing.TaskAtBuildAsync(client, Project, "Run once");
             FlowView bound = await Flowing.BoundAsync(client, Project, parcel.Id);
@@ -80,6 +81,7 @@ public sealed class TriggerLoopTests
         Guid parcelId;
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
+            await RegisteredProjects.AddAsync(store, Project, None);
             var parcels = new ParcelService(store, TimeProvider.System);
             Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Moved while nobody watched", null, None);
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
@@ -110,6 +112,7 @@ public sealed class TriggerLoopTests
         Guid parcelId;
         await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
         {
+            await RegisteredProjects.AddAsync(store, Project, None);
             var parcels = new ParcelService(store, TimeProvider.System);
             Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Already building", null, None);
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
@@ -130,6 +133,7 @@ public sealed class TriggerLoopTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         await PublishTypeAsync(daemon, Chore);
 
@@ -148,6 +152,7 @@ public sealed class TriggerLoopTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
 
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Think it through", null), None);
@@ -163,6 +168,7 @@ public sealed class TriggerLoopTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
         ParcelService parcels = daemon.Services.GetRequiredService<ParcelService>();

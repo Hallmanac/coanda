@@ -52,6 +52,7 @@ public sealed class SubscriptionTests
         ParcelView first;
         await using (RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = CleanReview() }, None))
         {
+            await RegisteredProjects.AddAsync(daemon, Project, None);
             using var client = new DaemonClient(temp.Home);
             await daemon.Services.GetRequiredService<TriggerService>().SubscribeAsync(
                 Teammate, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
@@ -95,6 +96,7 @@ public sealed class SubscriptionTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = CleanReview() }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();
         await triggers.SubscribeAsync(

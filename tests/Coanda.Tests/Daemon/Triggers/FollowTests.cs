@@ -50,6 +50,7 @@ public sealed class FollowTests
         FlowView build;
         await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
         {
+            await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
             await Publishing.ContourAsync(first, Project, AfterBuild);
             await Publishing.ContourAsync(first, Project, AfterNothing);
@@ -102,6 +103,7 @@ public sealed class FollowTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         await Publishing.ContourAsync(daemon, Project, AfterBuild);
         await Publishing.ContourAsync(daemon, Project, AlsoAfterBuild);

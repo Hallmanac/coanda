@@ -69,6 +69,7 @@ public sealed class DaemonSeedingTests
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+            await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
             Definition draft = await definitions.DraftParcelTypeAsync(Principal.LocalOwner, DefinitionScope.Project, "alpha", qa, null, CancellationToken.None);
             await definitions.PublishAsync(Principal.LocalOwner, "alpha", draft.Id, CancellationToken.None);
         }
