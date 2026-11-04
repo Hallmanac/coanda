@@ -53,6 +53,13 @@ The record lives at `~/.coanda/coanda.db`. Do not edit it by hand. The node's ex
 credential profiles live in `~/.coanda/node.json`, described in
 [node configuration](node-configuration.md).
 
+A flow's judgments need Claude Code. With no `node.json`, the daemon runs each judgment as a real
+session of the `claude` executable on the PATH, under whatever login that executable already has,
+and that session's spend is billed to that login. Install Claude Code and sign in to it before a
+flow reaches its first judgment; without it, the judgment pauses saying why. To exercise flows
+with no sessions and no spend, write a `node.json` naming the `scripted` executor, under which
+every judgment pauses.
+
 A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
 commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that
 older build wrote does not carry over, and the daemon refuses to start on it, naming the file. Move the old node home aside (for example
