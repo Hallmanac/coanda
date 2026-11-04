@@ -65,7 +65,8 @@ Brian ruled on these on 2026-11-03, reading the phase 1 review: "model triple" w
 - contour: the stored definition of steps, transitions, and caps, which a flow follows. It replaces
   "flow" in its sense of the definition (and the type name `FlowDefinition`). The name comes from
   the same effect as the product's: a Coanda flow attaches to the contour of a surface and follows
-  it.
+  it. Superseded by the 2026-11-04 entry on flow at the end of this file: the definition is now a
+  flow.
 - flow: one execution of a contour on one parcel; it starts, has steps, may pause, and ends with an
   outcome or is stopped. It replaces "flight". `coa flow list`, `coa flow show <id>`, and
   `coa contour start <contour> --parcel <id>`. Superseded by the 2026-11-04 entry on flow run at the
@@ -102,3 +103,24 @@ this change started a flow holds that flow under the old event names (`flow_star
 siblings), so the daemon refuses it without touching it and names the file; move the node home aside
 and start fresh. A record from that build that never started a flow holds nothing this change renamed,
 and the daemon reads it as it is.
+
+## Added 2026-11-04: flow
+
+Brian ruled on this on 2026-11-04 in the concepts walk, in the same recap as flow run: the
+definition a flow run follows is a flow, and the word contour no longer names anything.
+
+- flow: the stored definition of steps, transitions, and caps, which a flow run follows. It
+  replaces "contour". The code names it `Flow` (with `FlowStep`, `FlowTransition`, `FlowFollow`,
+  `FlowSource`, `FlowValue`, and `FlowBinding` in place of the `Contour` names, and the namespaces
+  `Coanda.Core.Flows` and `Coanda.Daemon.Flows`), the definition kind is `Flow`, and a flow run
+  records `FlowName`, `FlowVersion`, and `FlowHash` rather than `ContourName`, `ContourVersion`,
+  and `ContourHash`. The metaphor holds without the old word: a flow run follows its flow the way a
+  Coanda flow follows the curve of a surface.
+
+The commands moved with the word: `coa contour list` and `coa contour start` became `coa flow list`
+and `coa flow start`, the API moved from `/contours` to `/flows`, the registry entry `contour.list`
+became `flow.list`, and the trigger field that names a flow run's flow on its end became `flow`
+rather than `contour`. The hashed content of a type names its bindings `flows` and a follow names
+its flow `flow`, so the shipped idea and task types and the shipped merge flow hash differently and seed as the next
+version. A record written before this change holds its flows under the kind `Contour`, so the
+daemon refuses it without touching it and names the file; move the node home aside and start fresh.

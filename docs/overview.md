@@ -14,14 +14,14 @@ running.
 - parcel: the unit of work. A parcel has exactly one type and one lifecycle state.
 - type: the definition of a kind of parcel: its lifecycle (states, moves, one terminal state
   called closed with a resolution), its fields, and its bindings.
-- contour: the definition of an agentic loop: judgment steps (an agent) and action steps (something
+- flow: the definition of an agentic loop: judgment steps (an agent) and action steps (something
   the daemon does), with transitions and caps.
-- flow run: one execution of a contour on a parcel. A flow run follows its contour. It pauses when it
+- flow run: one execution of a flow on a parcel. A flow run follows its flow. It pauses when it
   waits for a person or an external event, or when one of its caps (visits, spawns, depth) or its
   budget is reached; a paused flow run is resumed or stopped.
 - agent: a definition of a persona, a model spec (vendor, model, effort), tools, and answer schema that a judgment step spawns.
 - action: a deterministic step the daemon performs (worktree, gates, open PR, merge, timer, wait).
-- trigger: an event subscription that starts a flow run of a contour.
+- trigger: an event subscription that starts a flow run of a flow.
 
 Two types ship installed: idea (open, discovery, paused, closed) and task (refine, build, review,
 paused, closed).
@@ -40,7 +40,7 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
   `coa project set <name> --required-check <check> [--required-check <check> ...]`
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
   `coa parcel close <id>`
-- `coa contour list`, `coa contour start <contour> --parcel <id>`
+- `coa flow list`, `coa flow start <flow> --parcel <id>`
 - `coa flow-run list --parcel <id>`, `coa flow-run show <id>`, `coa flow-run pause <id> --reason <why>`,
   `coa flow-run stop <id> --reason <why>`, `coa flow-run resume <id>`
 
@@ -48,11 +48,11 @@ A parcel with a live flow run, whether that flow run is running or paused, is cl
 only by that flow run's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow run
 that holds it; the flow run has to end or be stopped first. `coa flow-run stop <id> --reason <why>` stops
 it and frees the parcel, and `coa flow-run resume <id>` sets a paused one going again instead. A
-contour that declares `closes` is the one way a flow run closes its parcel: when a flow run of it ends, the
+flow that declares `closes` is the one way a flow run closes its parcel: when a flow run of it ends, the
 flow run's end, the release of the parcel, and its close with that resolution are recorded together.
-The shipped merge contour declares `closes` as completed, and so does any contour a project
-publishes with `closes` set, a contour that replaces the shipped merge included. When several
-contours follow the same end, they start one at a time in name order, except that the ones that
+The shipped merge flow declares `closes` as completed, and so does any flow a project
+publishes with `closes` set, a flow that replaces the shipped merge included. When several
+flows follow the same end, they start one at a time in name order, except that the ones that
 declare `closes` start after every one that does not, so a closing follower never shuts the parcel
 on a follower still waiting to start.
 `coa flow-run pause <id> --reason <why>` pauses a running flow run without freeing the parcel, and a resume
@@ -80,10 +80,8 @@ daemon's PATH and signed in. These steps are not simulated: a build flow run pus
 `coanda/<short id>` branch and opens a real pull request on the project's remote.
 [Getting started](getting-started.md) has the details.
 
-A build from before 2026-11-03 used other words for contours, flow runs, and pauses, and other
-commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that
-older build wrote does not carry over, and the daemon refuses to start on it, naming the file. Move the old node home aside (for example
-`mv ~/.coanda ~/.coanda.pre-rename`) and start again; a fresh home is created on the first start.
-A build from before 2026-11-04 recorded each flow run under other names, so the daemon refuses a
-home in which such a build started one in the same way. A home that build wrote without starting a
-flow run holds nothing that changed, and the daemon reads it as it is.
+A build from before the flow name used other words for flows, flow runs, and pauses, and other
+commands for them; `docs/design/naming.md` maps the old commands to the ones above. A record written
+by any build from before the flow name does not carry over, and the daemon refuses to start on it,
+naming the file. Move the old node home aside (for example `mv ~/.coanda ~/.coanda.pre-flow`) and
+start again; a fresh home is created on the first start.

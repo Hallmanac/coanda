@@ -42,7 +42,7 @@ the flow run pauses at its worktree step and the pause quotes git's own error.
 A build flow run ends once its pull request is open. Its open-pr step pushes the flow run's branch to the
 remote with git's own credentials, opens a pull request from it against the primary branch (or
 reuses the open one that already has that branch as its head), records it in the task's pull-request
-field, and moves the task to review; the merge is a contour of its own. So the remote has to be a
+field, and moves the task to review; the merge is a flow of its own. So the remote has to be a
 github.com repository, written as `https://github.com/<owner>/<repo>`,
 `git@github.com:<owner>/<repo>`, or `ssh://git@github.com/<owner>/<repo>` (with or without `.git`),
 and the GitHub CLI has to be on the daemon's PATH and signed in, because the daemon calls GitHub's
@@ -64,7 +64,7 @@ failure (changes left in the worktree, a remote in another form, no token, a pus
 GitHub refuses) pauses the flow run at its open-pr step with the reason, and a resume performs the step
 again.
 
-When the build flow run ends, the merge contour follows it on the same task with no step taken by hand.
+When the build flow run ends, the merge flow follows it on the same task with no step taken by hand.
 It inspects the pull request and merges it through GitHub's API, never through auto-merge, and only
 when the pull request is open against the primary branch, its head is the commit last pushed for
 the task (by the build, or by a later rebase lap, after which it is the rebased commit), that head
@@ -126,16 +126,12 @@ that home too. A flow run there pushes a real `coanda/<short id>` branch and ope
 the project's remote, and once the checks the project names pass, the merge that follows merges it,
 so register a scratch repository in that home rather than one whose pull requests other people watch.
 
-If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
-when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
-flow runs also changed: `coa contour start <contour> --parcel <id>` starts a flow run, and `coa flow-run list`
-and `coa flow-run show` read them. [The overview](overview.md#operating) has the full list.
-
-A build from 2026-11-04 on calls one execution of a contour a flow run. The commands that read
-them now sit under `coa flow-run` (`coa flow-run list` and `coa flow-run show`), and the API serves
-them under `/flow-runs`, so a script written against the earlier names needs the new ones;
-[the naming notes](design/naming.md#added-2026-11-04-flow-run) map the old names to these. A home in
-which an earlier build started a flow run is refused when the daemon starts, because the record of
-each flow run changed then. Move it aside (for example `mv ~/.coanda ~/.coanda.pre-flow-run`) and
-run the commands above again. A home written from 2026-11-03 on in which no flow run was ever
-started carries over as it is.
+If you ran any build from before the flow name, its record does not carry over, and the daemon
+refuses to start on it, naming the file. Move the home aside (for example
+`mv ~/.coanda ~/.coanda.pre-flow`) and run the commands above again; a fresh home is created on
+the first start. The commands changed with the names: `coa flow list` lists the flows,
+`coa flow start <flow> --parcel <id>` starts a flow run, and `coa flow-run list` and
+`coa flow-run show` read flow runs. The API serves flows under `/flows` and flow runs under
+`/flow-runs`, so a script written against the earlier names needs the new ones;
+[the naming notes](design/naming.md#added-2026-11-04-flow) map the old names to these, and
+[the overview](overview.md#operating) has the full list of commands.
