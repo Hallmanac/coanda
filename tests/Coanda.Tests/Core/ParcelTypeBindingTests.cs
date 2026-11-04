@@ -10,8 +10,11 @@ public sealed class ParcelTypeBindingTests
     private static readonly IReadOnlySet<string> NoGates = GateSet.None.Names;
     private static readonly IReadOnlySet<string> OneGate = new HashSet<string>(StringComparer.Ordinal) { "has-an-owner" };
 
-    /// <summary>The shipped task without the gate bindings it ships with, so a test binds only the gates it names.</summary>
-    private static readonly ParcelType Ungated = ShippedTypes.Task with { GateBindings = [] };
+    /// <summary>
+    /// The shipped task without the gate bindings it ships with, so a test binds only the gates it names,
+    /// and without the fields those bindings enforce, which a type may not declare unenforced.
+    /// </summary>
+    private static readonly ParcelType Ungated = ShippedTypes.Task with { GateBindings = [], Fields = [] };
 
     [Fact]
     public void The_shipped_task_binds_build_to_build_and_the_shipped_idea_binds_discovery_to_discovery_and_nothing_else()
@@ -28,14 +31,14 @@ public sealed class ParcelTypeBindingTests
     [Fact]
     public void A_type_that_binds_nothing_keeps_the_hash_it_had_before_bindings_existed()
     {
-        (Ungated with { ContourBindings = [], Fields = [] }).Hash.Should().Be("43a5a17c3896d58a");
+        (Ungated with { ContourBindings = [] }).Hash.Should().Be("43a5a17c3896d58a");
         (ShippedTypes.Idea with { ContourBindings = [] }).Hash.Should().Be("6d2b888dfd78bbdb");
     }
 
     [Fact]
     public void Adding_or_changing_a_binding_changes_the_hash()
     {
-        ParcelType unbound = Ungated with { ContourBindings = [], Fields = [] };
+        ParcelType unbound = Ungated with { ContourBindings = [] };
         ParcelType bound = unbound with { ContourBindings = [new ContourBinding("build", "build")] };
         ParcelType otherContour = unbound with { ContourBindings = [new ContourBinding("build", "build-carefully")] };
         ParcelType otherState = unbound with { ContourBindings = [new ContourBinding("review", "build")] };
@@ -44,7 +47,7 @@ public sealed class ParcelTypeBindingTests
 
         string[] hashes = [unbound.Hash, bound.Hash, otherContour.Hash, otherState.Hash, gated.Hash, otherGate.Hash];
         hashes.Should().OnlyHaveUniqueItems();
-        bound.Hash.Should().Be((Ungated with { Fields = [] }).Hash, "the hash is a pure function of the content");
+        bound.Hash.Should().Be(Ungated.Hash, "the hash is a pure function of the content");
     }
 
     [Fact]

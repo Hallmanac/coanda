@@ -2,9 +2,9 @@ namespace Coanda.Core.Types;
 
 /// <summary>
 /// A named field a parcel type declares: what <see cref="Kind"/> of value it holds, and the states a
-/// parcel must hold a value in it to leave, which may be none. Whether a move out of one of those
-/// states is actually held back is the type's own choice, made by binding the required-fields gate
-/// to the move.
+/// parcel must hold a value in it to leave, which may be none. A type that declares a field required
+/// to leave a state binds the required-fields gate to every move its table holds out of that state;
+/// validation refuses one that leaves such a move unbound.
 /// </summary>
 public sealed record FieldDeclaration
 {

@@ -10,8 +10,10 @@ public sealed class ParcelGateTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>The shipped task with a stand-in gate in place of its fields and the gate that enforces them.</summary>
     private static readonly ParcelType Gated = ShippedTypes.Task with
     {
+        Fields = [],
         GateBindings = [new GateBinding("refine", "build", StandInGate.DefaultName)],
     };
 
@@ -88,6 +90,7 @@ public sealed class ParcelGateTests
 
     private static readonly ParcelType GatedClose = ShippedTypes.Task with
     {
+        Fields = [],
         GateBindings = [new GateBinding("review", ShippedTypes.Closed, StandInGate.DefaultName)],
     };
 

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Coanda.Core.Contours;
+using Coanda.Core.Parcels;
 
 namespace Coanda.Core.Types;
 
@@ -218,6 +219,65 @@ public sealed record ParcelType
         ValidateFields();
         ValidateContourBindings();
         ValidateGateBindings(knownGates);
+        ValidateFieldEnforcement();
+    }
+
+    /// <summary>
+    /// A field's declarations bind only where the required-fields gate runs, so a declaration the gate
+    /// bindings leave unenforced is refused: every move the table holds out of a state a field is
+    /// required to leave is bound to the gate, and every state some field is required to enter has a
+    /// move into it bound to the gate, which is what a resume into that state runs. An entry in the
+    /// table into the paused or terminal state is a pause or a close, which no empty field refuses, so
+    /// the first rule asks nothing of it. A third rule closes the way around the second: a state no
+    /// route from an entry state reaches requires nothing to enter, so a resume into it checks nothing,
+    /// and a move out of it into a state some field is required to enter is refused, since it would
+    /// carry a parcel there without what every route into that state requires.
+    /// </summary>
+    private void ValidateFieldEnforcement()
+    {
+        bool Bound(string from, string to) => GateBindings.Any(b =>
+            string.Equals(b.From, from, StringComparison.Ordinal)
+            && string.Equals(b.To, to, StringComparison.Ordinal)
+            && string.Equals(b.Gate, RequiredFieldsGate.GateName, StringComparison.Ordinal));
+
+        foreach (FieldDeclaration field in Fields)
+        {
+            foreach (string state in field.RequiredToLeave)
+            {
+                IReadOnlyList<string> targets = Moves.GetValueOrDefault(state) ?? [];
+                string? unbound = targets.FirstOrDefault(to => IsLive(to) && !Bound(state, to));
+                if (unbound is not null)
+                {
+                    throw new DomainException(
+                        $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{state}', and the move from '{state}' to '{unbound}' is not bound to the '{RequiredFieldsGate.GateName}' gate; every move the table holds out of a state a field is required to leave is bound to that gate.");
+                }
+            }
+        }
+
+        Dictionary<string, HashSet<string>> requiredByState = RequiredToEnterByState();
+        foreach (string state in States.Where(IsLive))
+        {
+            IReadOnlyList<string> required = RequiredToEnter(requiredByState, state);
+            bool guarded = Moves.Any(m => m.Value.Contains(state, StringComparer.Ordinal) && Bound(m.Key, state));
+            if (required.Count > 0 && !guarded)
+            {
+                throw new DomainException(
+                    $"State '{state}' of parcel type '{Name}' requires {string.Join(", ", required.Select(f => $"'{f}'"))} to enter, and no move the table holds into it is bound to the '{RequiredFieldsGate.GateName}' gate, so a resume into it would check nothing; a state some field is required to enter has a move into it bound to that gate.");
+            }
+        }
+
+        foreach ((string from, IReadOnlyList<string> targets) in Moves.Where(m => IsLive(m.Key) && !requiredByState.ContainsKey(m.Key)))
+        {
+            foreach (string to in targets.Where(IsLive))
+            {
+                IReadOnlyList<string> required = RequiredToEnter(requiredByState, to);
+                if (required.Count > 0)
+                {
+                    throw new DomainException(
+                        $"State '{to}' of parcel type '{Name}' requires {string.Join(", ", required.Select(f => $"'{f}'"))} to enter, and the move the table holds into it from '{from}', a state no route from an entry state reaches, would carry a parcel resumed into '{from}' there without them; a move out of a state no route reaches goes only into a state that requires nothing to enter.");
+                }
+            }
+        }
     }
 
     private void ValidateFields()

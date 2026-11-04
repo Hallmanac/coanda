@@ -325,7 +325,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_drafted_parcel_type_is_validated_against_the_gate_names_it_is_given()
     {
-        ParcelType gated = ShippedTypes.Task with { GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
+        ParcelType gated = ShippedTypes.Task with { Fields = [], GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
         string content = ParcelType.CanonicalJson(gated);
 
         FluentActions.Invoking(() => DefinitionDecider.Draft(
