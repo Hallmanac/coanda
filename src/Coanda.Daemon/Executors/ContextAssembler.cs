@@ -15,8 +15,10 @@ namespace Coanda.Daemon.Executors;
 /// the context. Six fixed lines come first;
 /// after them, one entry per field the step declares, in the step's order, holding the field's
 /// value or "not set"; after those, one line per source the step declares, in the step's order,
-/// holding the latest recorded visit of the source step on this flow or saying it has not run on
-/// this flow yet. Each value is folded onto its own line, so a title, a field value, or a recorded
+/// holding the latest recorded visit of the source step on this flow since the step's own previous
+/// visit, or saying the source has recorded nothing since then, or has not run on this flow yet. A
+/// recording made before the step's previous visit is never carried again, so a step acting on its
+/// sources is not told to act on what it has already dealt with. Each value is folded onto its own line, so a title, a field value, or a recorded
 /// answer holding a line break cannot start a labelled line of its own, and every field entry begins
 /// with <see cref="FieldLabel"/> and every source line with <see cref="SourceLabel"/>, so none reads
 /// as one of the fixed labels.
@@ -33,6 +35,12 @@ public static partial class ContextAssembler
 
     /// <summary>What a source line says of a step with no recorded visit on the flow.</summary>
     public const string NotRun = "has not run on this flow yet";
+
+    /// <summary>
+    /// What a source line says of a step whose every recorded visit came before the declaring step's
+    /// own latest recorded visit, ahead of that visit's number.
+    /// </summary>
+    public const string NothingSince = "has recorded nothing since";
 
     /// <summary>
     /// Writes a recorded answer or result as compact JSON whose text reads as written: characters such
@@ -65,24 +73,65 @@ public static partial class ContextAssembler
         [
             .. fixedLines,
             .. step.Fields.SelectMany(field => FieldLines(field, parcel.ValueOf(field))),
-            .. step.Sources.Select(source => SourceLine(source.Step ?? string.Empty, visits)),
+            .. step.Sources.Select(source => SourceLine(source.Step ?? string.Empty, step.Name, visits)),
         ]);
     }
 
     /// <summary>
-    /// A source's line: the step's latest visit on the flow that recorded an answer or result, with
-    /// that visit's number among the step's visits counting from 1, when it recorded, and what it
-    /// recorded; or, when no visit of the step has recorded, that it has not run on this flow yet.
+    /// A source's line: the source step's latest visit on the flow that recorded an answer or result
+    /// after the declaring step's previous visit (see <see cref="PreviousVisit"/>), with that visit's
+    /// number among the source step's visits counting from 1, when it recorded, and what it recorded.
+    /// When the source step recorded only before that previous visit, the line says it has recorded
+    /// nothing since, naming that visit's number; when it never recorded, that it has not run on this
+    /// flow yet. Visits are compared by their position in the flow, which is the order entered.
     /// </summary>
-    private static string SourceLine(string source, IReadOnlyList<FlowStepEntry> visits)
+    private static string SourceLine(string source, string declaring, IReadOnlyList<FlowStepEntry> visits)
     {
         string label = $"{SourceLabel} {OneLine(source)}:";
-        FlowStepEntry[] ofSource = [.. visits.Where(entry => string.Equals(entry.Step, source, StringComparison.Ordinal))];
-        int latest = Array.FindLastIndex(ofSource, entry => entry.IsRecorded && (entry.Answer ?? entry.Result) is not null);
+        int since = PreviousVisit(visits, declaring);
+        int latest = LastIndex(visits, visits.Count - 1, entry => Named(entry, source) && entry.IsRecorded && (entry.Answer ?? entry.Result) is not null);
 
-        return latest >= 0 && ofSource[latest] is { RecordedAt: { } recordedAt } visit && (visit.Answer ?? visit.Result) is JsonElement recorded
-            ? $"{label} visit {latest + 1}, recorded {recordedAt.ToString("O", CultureInfo.InvariantCulture)}: {OneLine(JsonSerializer.Serialize(recorded, SourceJson))}"
-            : $"{label} {NotRun}";
+        return latest switch
+        {
+            < 0 => $"{label} {NotRun}",
+            _ when latest < since =>
+                $"{label} {NothingSince} {OneLine(declaring)} visit {VisitNumber(visits, since)}",
+            _ when visits[latest] is { RecordedAt: { } recordedAt } visit && (visit.Answer ?? visit.Result) is JsonElement recorded =>
+                $"{label} visit {VisitNumber(visits, latest)}, recorded {recordedAt.ToString("O", CultureInfo.InvariantCulture)}: {OneLine(JsonSerializer.Serialize(recorded, SourceJson))}",
+            _ => $"{label} {NotRun}",
+        };
+    }
+
+    /// <summary>
+    /// The position of the declaring step's previous visit, the one whose sources it has already acted
+    /// on, or -1 when it has none: its latest recorded visit before the run of its own visits the flow
+    /// ends on. That run holds the visit about to spawn and any visit a resume performed again in its
+    /// place (a blocked answer, say), which never acted on the sources that routed the step there.
+    /// </summary>
+    private static int PreviousVisit(IReadOnlyList<FlowStepEntry> visits, string declaring)
+    {
+        int beforeRun = LastIndex(visits, visits.Count - 1, entry => !Named(entry, declaring));
+        return LastIndex(visits, beforeRun, entry => Named(entry, declaring) && entry.IsRecorded);
+    }
+
+    private static bool Named(FlowStepEntry entry, string step) => string.Equals(entry.Step, step, StringComparison.Ordinal);
+
+    /// <summary>The number, counting from 1, of the visit at <paramref name="index"/> among the visits of its own step.</summary>
+    private static int VisitNumber(IReadOnlyList<FlowStepEntry> visits, int index) =>
+        visits.Take(index + 1).Count(entry => Named(entry, visits[index].Step));
+
+    /// <summary>The position of the last visit at or before <paramref name="from"/> that matches, or -1.</summary>
+    private static int LastIndex(IReadOnlyList<FlowStepEntry> visits, int from, Func<FlowStepEntry, bool> match)
+    {
+        for (int index = from; index >= 0; index--)
+        {
+            if (match(visits[index]))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>

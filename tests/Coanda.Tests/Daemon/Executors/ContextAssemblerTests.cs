@@ -190,6 +190,71 @@ public sealed class ContextAssemblerTests
     }
 
     [Fact]
+    public void A_source_recorded_only_before_the_steps_own_latest_recorded_visit_is_not_carried_again()
+    {
+        FlowStepEntry[] visits =
+        [
+            Visit("gates", null, """{"verdict":"done"}""", 1),
+            Visit("review", """{"verdict":"not-clean","findings":["acted on"]}""", minutes: 2),
+            Visit("fix", """{"verdict":"done"}""", minutes: 3),
+            Visit("gates", null, """{"verdict":"failed","reason":"broken"}""", 4),
+            Visit("fix", null),
+        ];
+
+        string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, visits).Split('\n');
+
+        lines[^3..].Should().Equal(
+            "Source gates: visit 2, recorded 2026-11-04T09:34:15.2500000-05:00: {\"verdict\":\"failed\",\"reason\":\"broken\"}",
+            "Source review: has recorded nothing since fix visit 1",
+            "Source audit: has not run on this flow yet");
+        string.Join('\n', lines).Should().NotContain("acted on");
+    }
+
+    [Fact]
+    public void Only_the_steps_recorded_visits_bound_what_its_sources_carry()
+    {
+        FlowStepEntry[] visits =
+        [
+            Visit("review", """{"verdict":"clean"}""", minutes: 1),
+            Visit("audit", """{"verdict":"not-clean","findings":["first"]}""", minutes: 2),
+            Visit("fix", """{"verdict":"done"}""", minutes: 3),
+            Visit("gates", null, """{"verdict":"done"}""", 4),
+            Visit("review", """{"verdict":"not-clean","findings":["second"]}""", minutes: 5),
+            Visit("fix", """{"verdict":"done"}""", minutes: 6),
+            Visit("gates", null, """{"verdict":"done"}""", 7),
+            Visit("audit", """{"verdict":"not-clean","findings":["third"]}""", minutes: 8),
+            Visit("fix", null),
+        ];
+
+        string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, visits).Split('\n');
+
+        // The third fix visit, still unrecorded, does not bound its own sources; the second does.
+        lines[^3..].Should().Equal(
+            "Source gates: visit 2, recorded 2026-11-04T09:37:15.2500000-05:00: {\"verdict\":\"done\"}",
+            "Source review: has recorded nothing since fix visit 2",
+            "Source audit: visit 2, recorded 2026-11-04T09:38:15.2500000-05:00: {\"verdict\":\"not-clean\",\"findings\":[\"third\"]}");
+    }
+
+    [Fact]
+    public void A_visit_performed_again_after_its_step_answered_blocked_still_carries_what_routed_the_step_there()
+    {
+        FlowStepEntry[] visits =
+        [
+            Visit("gates", null, """{"verdict":"done"}""", 1),
+            Visit("review", """{"verdict":"not-clean","findings":["still open"]}""", minutes: 2),
+            Visit("fix", """{"verdict":"blocked"}""", minutes: 3),
+            Visit("fix", null),
+        ];
+
+        string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, visits).Split('\n');
+
+        lines[^3..].Should().Equal(
+            "Source gates: visit 1, recorded 2026-11-04T09:31:15.2500000-05:00: {\"verdict\":\"done\"}",
+            "Source review: visit 1, recorded 2026-11-04T09:32:15.2500000-05:00: {\"verdict\":\"not-clean\",\"findings\":[\"still open\"]}",
+            "Source audit: has not run on this flow yet");
+    }
+
+    [Fact]
     public void A_source_whose_step_has_visits_but_none_recorded_has_not_run()
     {
         string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, [Visit("gates", null)]).Split('\n');
