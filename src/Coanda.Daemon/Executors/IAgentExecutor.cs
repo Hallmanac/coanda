@@ -1,5 +1,4 @@
 using Coanda.Core.Agents;
-using Coanda.Core.Flows;
 
 namespace Coanda.Daemon.Executors;
 
@@ -32,10 +31,11 @@ public interface IAgentExecutor
     /// <summary>
     /// Ends the session, and reports the usage of its attempt in progress, the one no collect has
     /// returned since the last spawn or resume, or null when the executor reports none. A stop after
-    /// a collect returned has no attempt in progress. What the report says is the only way the usage
-    /// of a judgment ended before it answered reaches its flow.
+    /// a collect returned has no attempt in progress; a collect that failed returned nothing, so its
+    /// attempt is still in progress. What the report says is the only way the usage of a judgment
+    /// that ended before it answered reaches its flow, and it says when that usage holds no cost.
     /// </summary>
-    ValueTask<Measurement?> StopAsync(SessionHandle handle, CancellationToken cancellationToken);
+    ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken);
 
     /// <summary>The handles of the sessions this executor holds that have not been stopped.</summary>
     ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken);

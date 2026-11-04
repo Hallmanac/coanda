@@ -14,11 +14,26 @@ public sealed class JudgmentSpend
     /// <summary>The sum of every report, or null while there has been none.</summary>
     public Measurement? Reported { get; private set; }
 
+    /// <summary>
+    /// Whether the stop reported usage for the attempt in progress without its cost, so
+    /// <see cref="Reported"/> holds no cost for that attempt.
+    /// </summary>
+    public bool CostUnreported { get; private set; }
+
     internal void Add(Measurement? usage)
     {
         if (usage is not null)
         {
             Reported = Reported is null ? usage : Judgment.Sum(Reported, usage);
+        }
+    }
+
+    internal void Add(StopReport? report)
+    {
+        if (report is not null)
+        {
+            Add(report.Usage);
+            CostUnreported |= !report.CostReported;
         }
     }
 }

@@ -1,6 +1,5 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Flows;
 
 namespace Coanda.Daemon.Executors;
 
@@ -102,7 +101,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     }
 
     /// <summary>Reports no usage: a scripted attempt costs nothing until its entry is collected.</summary>
-    public ValueTask<Measurement?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
+    public ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
@@ -112,7 +111,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
             stops.Add(session.Handle);
         }
 
-        return ValueTask.FromResult<Measurement?>(null);
+        return ValueTask.FromResult<StopReport?>(null);
     }
 
     public ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken)
