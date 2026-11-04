@@ -31,13 +31,13 @@ public sealed partial class DaemonStartTests
         {
             Ran started = await RunAsync(temp.Home, "daemon", "start");
 
-            started.ExitCode.Should().Be(0, started.Text);
+            Assert.True(started.ExitCode == 0, started.Text);
             DaemonInfo info = DaemonInfo.Load(temp.Home) ?? throw new XunitException($"The start wrote no address file: {started.Text}");
-            Squashed(started.Output).Should()
-                .Contain(Squashed($"Started the daemon on {info.BaseAddress} (pid {info.Pid}); log at {temp.Home.LogPath}."));
+            Assert.Contains(Squashed($"Started the daemon on {info.BaseAddress} (pid {info.Pid}); log at {temp.Home.LogPath}."), Squashed(started.Output), StringComparison.Ordinal);
 
             Ran status = await RunAsync(temp.Home, "daemon", "status");
-            status.Output.Should().NotContain("No daemon is running").And.Contain(info.Pid.ToString(CultureInfo.InvariantCulture));
+            Assert.DoesNotContain("No daemon is running", status.Output, StringComparison.Ordinal);
+            Assert.Contains(info.Pid.ToString(CultureInfo.InvariantCulture), status.Output, StringComparison.Ordinal);
         }
         finally
         {
@@ -57,14 +57,16 @@ public sealed partial class DaemonStartTests
         try
         {
             Ran started = await RunAsync(temp.Home, "daemon", "start");
-            started.ExitCode.Should().Be(0, started.Text);
+            Assert.True(started.ExitCode == 0, started.Text);
             DaemonInfo info = DaemonInfo.Load(temp.Home) ?? throw new XunitException($"The start wrote no address file: {started.Text}");
 
             // coa is started in this process's group, so its group is the caller's.
             int callers = await ProcessGroupAsync(Environment.ProcessId);
             int daemons = await ProcessGroupAsync(info.Pid);
 
-            daemons.Should().Be(info.Pid, "the daemon leads a process group of its own").And.NotBe(callers);
+            // the daemon leads a process group of its own
+            Assert.Equal(info.Pid, daemons);
+            Assert.NotEqual(callers, daemons);
         }
         finally
         {
@@ -82,13 +84,14 @@ public sealed partial class DaemonStartTests
 
         Ran started = await RunAsync(temp.Home, "daemon", "start");
 
-        started.ExitCode.Should().NotBe(0, started.Text);
-        started.Elapsed.Should().BeLessThan(FailureBound);
+        Assert.True(started.ExitCode != 0, started.Text);
+        Assert.True(started.Elapsed < FailureBound, $"Expected the start to fail within {FailureBound}, but it took {started.Elapsed}.");
         string text = Squashed(started.Text);
-        text.Should().MatchRegex(@"^Thedaemonexited(withcode-?\d+)?beforeitwasready\.");
-        text.Should().Contain(Squashed($"It wrote this to its log at {temp.Home.LogPath}:"));
-        text.Should().Contain("EnsureDatabase").And.Contain(Squashed(temp.Home.DatabasePath));
-        DaemonInfo.Load(temp.Home).Should().BeNull();
+        Assert.Matches(@"^Thedaemonexited(withcode-?\d+)?beforeitwasready\.", text);
+        Assert.Contains(Squashed($"It wrote this to its log at {temp.Home.LogPath}:"), text, StringComparison.Ordinal);
+        Assert.Contains("EnsureDatabase", text, StringComparison.Ordinal);
+        Assert.Contains(Squashed(temp.Home.DatabasePath), text, StringComparison.Ordinal);
+        Assert.Null(DaemonInfo.Load(temp.Home));
     }
 
     [Fact]
@@ -101,13 +104,14 @@ public sealed partial class DaemonStartTests
 
         Ran started = await RunAsync(temp.Home, "daemon", "start");
 
-        started.ExitCode.Should().NotBe(0, started.Text);
-        started.Elapsed.Should().BeLessThan(FailureBound);
+        Assert.True(started.ExitCode != 0, started.Text);
+        Assert.True(started.Elapsed < FailureBound, $"Expected the start to fail within {FailureBound}, but it took {started.Elapsed}.");
         string text = Squashed(started.Text);
-        text.Should().MatchRegex(@"^Thedaemonexited(withcode-?\d+)?beforeitwasready\.");
-        text.Should().Contain(Squashed($"It printed this outside its log, to {temp.Home.DaemonOutputPath}:"));
-        text.Should().Contain("OpenLog").And.Contain(Squashed(temp.Home.LogPath));
-        File.Exists(temp.Home.DaemonOutputPath).Should().BeTrue("what the daemon printed outside its log is kept after the start");
+        Assert.Matches(@"^Thedaemonexited(withcode-?\d+)?beforeitwasready\.", text);
+        Assert.Contains(Squashed($"It printed this outside its log, to {temp.Home.DaemonOutputPath}:"), text, StringComparison.Ordinal);
+        Assert.Contains("OpenLog", text, StringComparison.Ordinal);
+        Assert.Contains(Squashed(temp.Home.LogPath), text, StringComparison.Ordinal);
+        Assert.True(File.Exists(temp.Home.DaemonOutputPath), "what the daemon printed outside its log is kept after the start");
     }
 
     /// <summary>

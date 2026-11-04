@@ -30,15 +30,15 @@ public sealed class DaemonVersionTests
         using var client = new DaemonClient(running.Home, sessionToken: null);
         string refusal = $"The running daemon is version {OtherVersion}, but this coa is version {DaemonHost.Version}, so nothing was sent to it; run coa daemon stop, then run this command again.";
 
-        await FluentActions.Awaiting(() => client.GetAsync<List<ParcelView>>("/parcels?project=coanda", None))
-            .Should().ThrowAsync<DomainException>().WithMessage(refusal);
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("coanda", "idea", "Never sent", null), None))
-            .Should().ThrowAsync<DomainException>().WithMessage(refusal);
-        await FluentActions.Awaiting(() => client.PutAsync<ProjectView>("/projects/coanda", new { }, None))
-            .Should().ThrowAsync<DomainException>().WithMessage(refusal);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<List<ParcelView>>("/parcels?project=coanda", None));
+        Assert.Equal(refusal, exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("coanda", "idea", "Never sent", null), None));
+        Assert.Equal(refusal, exception2.Message);
+        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => client.PutAsync<ProjectView>("/projects/coanda", new { }, None));
+        Assert.Equal(refusal, exception3.Message);
 
-        running.Recorder.Paths.Should().OnlyContain(path => path == "/health", "only the health probe reaches a daemon of another version");
-        running.Recorder.Paths.Should().HaveCount(3);
+        Assert.All(running.Recorder.Paths, path => Assert.True(path == "/health", "only the health probe reaches a daemon of another version"));
+        Assert.Equal(3, running.Recorder.Paths.Count);
     }
 
     [Fact]
@@ -47,11 +47,10 @@ public sealed class DaemonVersionTests
         await using var running = await MismatchedDaemon.StartAsync(version: null, None);
         using var client = new DaemonClient(running.Home, sessionToken: null);
 
-        await FluentActions.Awaiting(() => client.GetAsync<List<ParcelView>>("/parcels?project=coanda", None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage($"The running daemon recorded no version, but this coa is version {DaemonHost.Version}, so nothing was sent to it; run coa daemon stop, then run this command again.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<List<ParcelView>>("/parcels?project=coanda", None));
+        Assert.Equal($"The running daemon recorded no version, but this coa is version {DaemonHost.Version}, so nothing was sent to it; run coa daemon stop, then run this command again.", exception.Message);
 
-        running.Recorder.Paths.Should().Equal("/health");
+        Assert.Equal(["/health"], running.Recorder.Paths);
     }
 
     [Fact]
@@ -60,11 +59,10 @@ public sealed class DaemonVersionTests
         await using var running = await MismatchedDaemon.StartAsync(OtherVersion, None);
         using var client = new DaemonClient(running.Home, sessionToken: "a-session-token");
 
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("coanda", "idea", "Never sent", null), None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage($"The running daemon is version {OtherVersion}, but this coa is version {DaemonHost.Version}, so nothing was sent to it; a person must restart the daemon, since a session cannot stop it.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("coanda", "idea", "Never sent", null), None));
+        Assert.Equal($"The running daemon is version {OtherVersion}, but this coa is version {DaemonHost.Version}, so nothing was sent to it; a person must restart the daemon, since a session cannot stop it.", exception.Message);
 
-        running.Recorder.Paths.Should().Equal("/health");
+        Assert.Equal(["/health"], running.Recorder.Paths);
     }
 
     [Fact]
@@ -74,16 +72,17 @@ public sealed class DaemonVersionTests
         using var client = new DaemonClient(running.Home, sessionToken: null);
 
         DaemonStatusView? status = await client.StatusAsync(None);
-        status.Should().NotBeNull();
-        status.Version.Should().Be(OtherVersion, "status reports the version the daemon's daemon.json records");
-        status.Pid.Should().Be(running.Daemon.Info.Pid);
-        status.Home.Should().Be(running.Home.Path);
+        Assert.NotNull(status);
+        // status reports the version the daemon's daemon.json records
+        Assert.Equal(OtherVersion, status.Version);
+        Assert.Equal(running.Daemon.Info.Pid, status.Pid);
+        Assert.Equal(running.Home.Path, status.Home);
 
         await client.StopAsync(None);
         await running.Daemon.WaitForShutdownAsync(None);
 
-        running.Recorder.Paths.Should().Equal("/health", "/status", "/health", "/stop");
-        File.Exists(running.Home.DaemonInfoPath).Should().BeFalse("the daemon stopped cleanly");
+        Assert.Equal(["/health", "/status", "/health", "/stop"], running.Recorder.Paths);
+        Assert.False(File.Exists(running.Home.DaemonInfoPath), "the daemon stopped cleanly");
     }
 
     [Fact]
@@ -93,11 +92,10 @@ public sealed class DaemonVersionTests
         using var client = new DaemonClient(running.Home, sessionToken: null);
 
         DaemonInfo? found = await client.FindRunningAsync(None);
-        found.Should().NotBeNull();
+        Assert.NotNull(found);
 
-        DaemonClient.RefusalToStartBeside(found).Should().Be(
-            $"A daemon from another build is already running on {found.BaseAddress} (pid {found.Pid}): it is version {OtherVersion}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start.");
-        DaemonClient.RefusalToStartBeside(found with { Version = DaemonHost.Version }).Should().BeNull();
+        Assert.Equal($"A daemon from another build is already running on {found.BaseAddress} (pid {found.Pid}): it is version {OtherVersion}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start.", DaemonClient.RefusalToStartBeside(found));
+        Assert.Null(DaemonClient.RefusalToStartBeside(found with { Version = DaemonHost.Version }));
     }
 
     [Fact]
@@ -108,10 +106,10 @@ public sealed class DaemonVersionTests
         await RegisteredProjects.AddAsync(daemon, "coanda", None);
         using var client = new DaemonClient(temp.Home, sessionToken: null);
 
-        daemon.Info.Version.Should().Be(DaemonHost.Version);
+        Assert.Equal(DaemonHost.Version, daemon.Info.Version);
         ParcelView added = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("coanda", "idea", "Sent", null), None);
         ParcelView shown = await client.GetAsync<ParcelView>($"/parcels/{added.Id}?project=coanda", None);
-        shown.Title.Should().Be("Sent");
+        Assert.Equal("Sent", shown.Title);
 
         await daemon.StopAsync(None);
     }
