@@ -712,6 +712,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         ToolGuardRules rules = GuardOf(fake.Starts.Should().ContainSingle().Subject);
         rules.SessionConfigDirectory.Should().Be(Path.Combine(userHome, ".claude"));
+        rules.ProtectedConfigDirectories.Should().Contain([Path.Combine(userHome, ".claude.json"), Path.Combine(userHome, ".claude.json.backup")]);
     }
 
     /// <summary>The arguments with the tool guard and the setting that keeps hooks on taken out of the settings document.</summary>

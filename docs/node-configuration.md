@@ -120,7 +120,11 @@ a path the call names is one of these directories, is inside one, or contains on
 - the node home, so its token file, database, log, clones, and other flows' work directories;
 - the config directory of every credential profile in `node.json`;
 - the default Claude Code config directory: the `CLAUDE_CONFIG_DIR` the daemon inherited, or
-  `~/.claude` when it inherited none, whatever profile the session runs under.
+  `~/.claude` when it inherited none, whatever profile the session runs under;
+- when the daemon inherited no `CLAUDE_CONFIG_DIR`, Claude Code's global config file `~/.claude.json`
+  and its backup `~/.claude.json.backup`, which sit beside `~/.claude` rather than inside it and hold
+  your account details, your user-scope MCP servers, and any API key stored there. With the variable
+  set, that file lives inside the config directory and is covered by it.
 
 Two directories inside those stay open: the session's own work directory, and the directory Claude
 Code keeps for the session's own conversation (`projects/<encoded work directory>/<session id>` in
@@ -131,8 +135,14 @@ would (`$PWD` is the directory the shell is in at that point, and a variable the
 empty). A relative word in a command is judged against each directory a `cd` or `pushd` earlier in
 the command may have moved the shell to, and against the directory the call runs in as well, unless
 the word's command is joined to the `cd` by `&&`; the destination of a `cd` is judged too, and a bare
-`cd` goes to your home directory, which holds the node home. The guard refuses a call that depends on
-`$OLDPWD` or `cd -`, since it cannot know the shell's previous directory. A word or a Glob pattern
+`cd` goes to your home directory, which holds the node home. A `cd` is recognised behind shell
+keywords such as `then` or `{` and behind `builtin`, `command`, and `eval`. After a `popd`, or a `pushd` that
+rotates the directory stack, a relative word is judged against every directory the shell has been in
+during the command. Every word is judged both as written and with its backslashes removed, as the
+shell reads it outside quotes. The guard refuses a call that depends on `$OLDPWD`, `cd -`, or `~-`,
+since it cannot know the shell's previous directory; on a `~NAME` lookup, since it cannot know
+another user's home or a zsh named directory; and on zsh's two-argument `cd OLD NEW`, which replaces
+part of the current directory's name. A word or a Glob pattern
 with braces is judged as each word its brace expansion gives, since a choice may climb, hold several
 components, or be an absolute path; one that expands to more than 256 words is refused. A path with a
 wildcard is judged by the highest directory it may reach: the part before its first wildcard, climbed

@@ -3,7 +3,8 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// <summary>
 /// What a session's tool guard judges by, rendered at the spawn into the hook's argument list: the
 /// node home, the session's own work directory, the config directory the session runs under, and
-/// every other Claude Code config directory it may not reach. Every path is absolute.
+/// every other Claude Code config directory, or config file kept outside one, it may not reach. Every
+/// path is absolute.
 /// </summary>
 public sealed record ToolGuardRules(
     string NodeHome,

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -38,7 +39,12 @@ public static partial class ShellWords
         for (int i = 0; i < command.Length; i++)
         {
             char c = command[i];
-            if (c is '\n' or '\r' || CommandOperators.Contains(c, StringComparison.Ordinal))
+            if (c == '\\' && LineEndAt(command, i + 1) is int continuation and > 0)
+            {
+                // A backslash before a line end joins the two lines into one, as a shell does.
+                i += continuation;
+            }
+            else if (c is '\n' or '\r' || CommandOperators.Contains(c, StringComparison.Ordinal))
             {
                 EndWord();
                 string op = c switch
@@ -77,6 +83,13 @@ public static partial class ShellWords
         EndCommand(string.Empty);
         return commands;
 
+        static int LineEndAt(string text, int at) => text.AsSpan(at) switch
+        {
+            ['\r', '\n', ..] => 2,
+            ['\n', ..] or ['\r', ..] => 1,
+            _ => 0,
+        };
+
         void EndWord()
         {
             if (word.Length > 0)
@@ -99,33 +112,82 @@ public static partial class ShellWords
     }
 
     /// <summary>
-    /// Where a command changes the shell's directory to, when its first word after any leading
-    /// <c>NAME=value</c> assignments is <c>cd</c> or <c>pushd</c>: the first argument that is not an
-    /// option, which is <c>-</c> for <c>cd -</c>; <c>~</c> for a <c>cd</c> with none; and null for a
-    /// <c>pushd</c> with none, which only reorders directories the shell has already been in, or for
-    /// any other command.
+    /// How a command changes the shell's directory, when its first word after any leading
+    /// <c>NAME=value</c> assignments, shell keywords (<c>then</c>, <c>do</c>, <c>{</c>, <c>!</c>, and
+    /// the like), and the wrappers <c>builtin</c>, <c>command</c>, <c>eval</c>, <c>time</c>, <c>noglob</c>, and
+    /// <c>nocorrect</c> is <c>cd</c>, <c>pushd</c>, or <c>popd</c>, read with its backslashes removed:
+    /// to the first argument that is not an option (<see cref="DirectoryMove.To"/>), which is
+    /// <c>-</c> for <c>cd -</c> and <c>~</c> for a <c>cd</c> with none; back to a directory the shell has
+    /// been in (<see cref="DirectoryMove.Back"/>) for a <c>popd</c>, a <c>pushd</c> with no directory,
+    /// and a <c>cd</c> or <c>pushd</c> to a place on the directory stack such as <c>+1</c>; and to a
+    /// directory the guard cannot know (<see cref="DirectoryMove.Unknown"/>) for zsh's
+    /// <c>cd OLD NEW</c>, which replaces part of the current directory's name. Null for any other
+    /// command.
     /// </summary>
-    public static string? DirectoryChange(IReadOnlyList<string> words)
+    public static DirectoryMove? DirectoryChange(IReadOnlyList<string> words)
     {
         ArgumentNullException.ThrowIfNull(words);
         int first = 0;
-        while (first < words.Count && Assignment().IsMatch(words[first]))
+        while (first < words.Count && (Assignment().IsMatch(words[first]) || Prefixes.Contains(Unescape(words[first]))))
         {
-            first++;
+            // command -p and time -p take an option before the command they run; command -v only prints it.
+            first += Unescape(words[first]) is "command" or "time" && first + 1 < words.Count && words[first + 1] == "-p"
+                ? 2
+                : 1;
         }
 
         string? name = first < words.Count
-            ? words[first]
+            ? Unescape(words[first])
             : null;
-        if (name is not ("cd" or "pushd"))
+        if (name is not ("cd" or "pushd" or "popd"))
         {
             return null;
         }
 
         // An option begins with '-' (and '+' rotates pushd's stack); a lone '-' is cd's previous directory.
-        string? destination = words.Skip(first + 1).FirstOrDefault(w => w == "-" || (w[0] is not ('-' or '+')));
-        return destination ?? (name == "cd" ? "~" : null);
+        string[] arguments = [.. words.Skip(first + 1).SkipWhile(w => w != "-" && !StackPlace().IsMatch(w) && w[0] is '-' or '+')];
+        return (name, arguments) switch
+        {
+            ("popd", _) or (not "cd", []) => DirectoryMove.Back,
+            (_, [{ } place, ..]) when StackPlace().IsMatch(place) => DirectoryMove.Back,
+            ("cd", []) => DirectoryMove.To("~"),
+            ("cd", [_, _, ..]) => DirectoryMove.Unknown,
+            (_, [{ } destination, ..]) => DirectoryMove.To(destination),
+        };
     }
+
+    /// <summary>
+    /// <paramref name="text"/> with each backslash removed and the character after it kept, as a shell
+    /// reads a word outside quotes; a backslash at its end is dropped.
+    /// </summary>
+    public static string Unescape(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (!text.Contains('\\', StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var unescaped = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '\\')
+            {
+                unescaped.Append(text[i]);
+            }
+            else if (i + 1 < text.Length)
+            {
+                unescaped.Append(text[++i]);
+            }
+        }
+
+        return unescaped.ToString();
+    }
+
+    /// <summary>The words that may come before a command's name without being the command it runs.</summary>
+    private static FrozenSet<string> Prefixes { get; } = FrozenSet.Create(
+        StringComparer.Ordinal,
+        "!", "{", "if", "then", "elif", "else", "while", "until", "do", "builtin", "command", "eval", "time", "noglob", "nocorrect");
 
     /// <summary>The most words a brace expansion may give before the guard stops expanding it.</summary>
     public const int BraceLimit = 256;
@@ -217,17 +279,33 @@ public static partial class ShellWords
     }
 
     /// <summary>
-    /// <paramref name="text"/> with a leading <c>~</c> replaced by the home directory, and every
-    /// <c>$NAME</c> and <c>${NAME}</c> replaced by what <paramref name="value"/> gives for the name,
-    /// which is the empty string for a variable the shell does not define, as the shell expands it.
+    /// <paramref name="text"/> with a leading <c>~</c> replaced by the home directory, a leading
+    /// <c>~+</c> by <c>$PWD</c> and <c>~-</c> by <c>$OLDPWD</c>, and a leading <c>~NAME</c> by what
+    /// <paramref name="userHome"/> gives for the name, and with every <c>$NAME</c> and
+    /// <c>${NAME}</c> replaced by what <paramref name="value"/> gives for the name, which is the empty
+    /// string for a variable the shell does not define, as the shell expands it.
     /// </summary>
-    public static string Expand(string text, Func<string, string> value, string home)
+    public static string Expand(string text, Func<string, string> value, string home, Func<string, string> userHome)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(value);
-        string expanded = (text == "~" || text.StartsWith("~/", StringComparison.Ordinal) || (OperatingSystem.IsWindows() && text.StartsWith("~\\", StringComparison.Ordinal)))
-            ? home + text[1..]
-            : text;
+        ArgumentNullException.ThrowIfNull(userHome);
+        string expanded = text;
+        if (text.StartsWith('~'))
+        {
+            int end = text.IndexOfAny(Separators, 1) is int separator and >= 0
+                ? separator
+                : text.Length;
+            string rest = text[end..];
+            expanded = text[1..end] switch
+            {
+                "" => home + rest,
+                "+" => value("PWD") + rest,
+                "-" => value("OLDPWD") + rest,
+                string name => userHome(name) + rest,
+            };
+        }
+
         return Variable().Replace(expanded, match => value(match.Groups["braced"].Success ? match.Groups["braced"].Value : match.Groups["bare"].Value));
     }
 
@@ -306,6 +384,10 @@ public static partial class ShellWords
 
     [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*=")]
     private static partial Regex Assignment();
+
+    /// <summary>A place on the directory stack, as <c>pushd</c> and zsh's <c>cd</c> take one.</summary>
+    [GeneratedRegex(@"^[+-][0-9]+$")]
+    private static partial Regex StackPlace();
 }
 
 /// <summary>
@@ -315,3 +397,26 @@ public static partial class ShellWords
 /// or empty at the start or end of the line.
 /// </summary>
 public sealed record ShellCommand(IReadOnlyList<string> Words, int Depth, string Before, string After);
+
+/// <summary>
+/// Where a command moves the shell: to <see cref="Destination"/>, as written, for a
+/// <see cref="DirectoryMoveKind.To"/>; back to a directory the shell has already been in for a
+/// <see cref="DirectoryMoveKind.Back"/>; or to one nothing the guard receives names for a
+/// <see cref="DirectoryMoveKind.Unknown"/>.
+/// </summary>
+public sealed record DirectoryMove(DirectoryMoveKind Kind, string? Destination)
+{
+    public static DirectoryMove Back { get; } = new(DirectoryMoveKind.Back, null);
+
+    public static DirectoryMove Unknown { get; } = new(DirectoryMoveKind.Unknown, null);
+
+    public static DirectoryMove To(string destination) => new(DirectoryMoveKind.To, destination);
+}
+
+/// <summary>The kinds of <see cref="DirectoryMove"/>.</summary>
+public enum DirectoryMoveKind
+{
+    To,
+    Back,
+    Unknown,
+}
