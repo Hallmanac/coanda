@@ -46,6 +46,15 @@ public static class Flowing
     public static Task<FlowView> StartAsync(DaemonClient client, string project, Guid parcelId, string contour) =>
         client.PostAsync<FlowView>("/flows", new FlowStartRequest(project, parcelId, contour), CancellationToken.None);
 
+    public static Task<FlowView> PauseAsync(DaemonClient client, string project, Guid flowId, string reason) =>
+        client.PostAsync<FlowView>($"/flows/{flowId}/pause", new FlowPauseRequest(project, reason), CancellationToken.None);
+
+    public static Task<FlowView> ResumeAsync(DaemonClient client, string project, Guid flowId, string? note) =>
+        client.PostAsync<FlowView>($"/flows/{flowId}/resume", new FlowResumeRequest(project, note), CancellationToken.None);
+
+    public static Task<FlowView> StopAsync(DaemonClient client, string project, Guid flowId, string reason) =>
+        client.PostAsync<FlowView>($"/flows/{flowId}/stop", new FlowStopRequest(project, reason), CancellationToken.None);
+
     public static Task<FlowView> ShowAsync(DaemonClient client, string project, Guid flowId) =>
         client.GetAsync<FlowView>($"/flows/{flowId}?project={project}", CancellationToken.None);
 
