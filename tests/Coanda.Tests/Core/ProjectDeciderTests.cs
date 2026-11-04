@@ -35,6 +35,20 @@ public sealed class ProjectDeciderTests
             .Should().Throw<DomainException>().WithMessage("Project 'coanda' is already registered*https://example.invalid/a.git*main*");
     }
 
+    [Fact]
+    public void A_name_differing_from_a_registered_one_only_in_letter_case_is_refused_naming_it()
+    {
+        FluentActions.Invoking(() => ProjectDecider.Register(" Coanda ", "https://example.invalid/b.git", "main", null, "brian", Now, registeredNames: ["alpha", "coanda"]))
+            .Should().Throw<DomainException>().WithMessage("Project 'Coanda' differs from the registered project 'coanda' only in letter case*");
+    }
+
+    [Fact]
+    public void A_name_no_registered_one_matches_even_ignoring_case_is_registered()
+    {
+        ProjectDecider.Register("coanda-two", "https://example.invalid/b.git", "main", null, "brian", Now, registeredNames: ["coanda", "Alpha"])
+            .Name.Should().Be("coanda-two");
+    }
+
     [Theory]
     [InlineData("", "main", "*needs the remote of its repository*")]
     [InlineData("   ", "main", "*needs the remote of its repository*")]

@@ -5,7 +5,10 @@ namespace Coanda.Core.Projects;
 /// <summary>
 /// The rules for registering a project, as a pure decision: the event that records it, or a
 /// <see cref="DomainException"/> quoting the rule. The caller has already checked the name the way
-/// every project command does, and hands in the record the name already has, if any. Nothing here
+/// every project command does, and hands in the record the name already has, if any, and the names of
+/// the projects already registered, so a name differing from one of them only in letter case is
+/// refused: the node home gives each project a directory named after it, and on a filesystem that
+/// ignores case the two would share one, and one clone of a repository. Nothing here
 /// parses the remote or contacts it, or reads the build and test commands beyond refusing a blank one.
 /// </summary>
 public static class ProjectDecider
@@ -22,7 +25,8 @@ public static class ProjectDecider
         string registeredBy,
         DateTimeOffset now,
         string? buildCommand = null,
-        string? testCommand = null)
+        string? testCommand = null,
+        IEnumerable<string>? registeredNames = null)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -34,6 +38,12 @@ public static class ProjectDecider
         {
             throw new DomainException(
                 $"Project '{trimmed}' is already registered, with the remote {existing.Remote} and the primary branch {existing.PrimaryBranch}.");
+        }
+
+        if ((registeredNames ?? []).FirstOrDefault(n => string.Equals(n, trimmed, StringComparison.OrdinalIgnoreCase)) is { } differingInCase)
+        {
+            throw new DomainException(
+                $"Project '{trimmed}' differs from the registered project '{differingInCase}' only in letter case; the node keeps each project's clone and work in a directory named after it, and on a filesystem that ignores case the two would share them, so choose another name.");
         }
 
         if (string.IsNullOrWhiteSpace(remote))
