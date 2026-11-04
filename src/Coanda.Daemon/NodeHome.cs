@@ -3,7 +3,8 @@ using Coanda.Core;
 namespace Coanda.Daemon;
 
 /// <summary>
-/// Where a node keeps everything: one SQLite database, the running daemon's address, and its log.
+/// Where a node keeps everything: one SQLite database, the running daemon's address, its log, and
+/// its configuration.
 /// Defaults to <c>~/.coanda</c>; the <c>COANDA_HOME</c> variable overrides it, which is how tests
 /// and a second node on one machine keep apart.
 /// </summary>
@@ -14,6 +15,9 @@ public sealed record NodeHome(string Path)
     public string DatabasePath => System.IO.Path.Combine(Path, "coanda.db");
     public string DaemonInfoPath => System.IO.Path.Combine(Path, "daemon.json");
     public string LogPath => System.IO.Path.Combine(Path, "coanda.log");
+
+    /// <summary>The node configuration <see cref="Api.NodeConfiguration"/> reads when <c>coa daemon run</c> starts; it may be absent.</summary>
+    public string ConfigurationPath => System.IO.Path.Combine(Path, "node.json");
 
     /// <summary>The files SQLite keeps beside the database: the write-ahead log, the shared-memory file, and the rollback journal.</summary>
     public IReadOnlyList<string> DatabaseCompanionPaths => [DatabasePath + "-wal", DatabasePath + "-shm", DatabasePath + "-journal"];
