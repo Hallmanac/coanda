@@ -301,9 +301,21 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_file_named_coanda_outside_the_directory_does_not_count_as_tracked_under_it()
+    public async Task A_commit_that_tracks_coanda_itself_as_a_file_link_or_submodule_pauses_before_any_worktree_is_made()
     {
+        // ls-tree -r lists a .coanda that is no directory as the one entry .coanda.
         runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda\0"));
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+
+        paused.Reason.Should().Contain("tracks .coanda").And.Contain(ScriptedCommandRunner.PrimaryHead);
+        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_path_that_only_begins_with_coanda_does_not_count_as_tracked_under_it()
+    {
+        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(".coanda-notes/a.md\0"));
 
         Done(await PerformAsync(Ids.New(), Ids.New()));
     }
