@@ -85,6 +85,9 @@ public sealed class ContourTests
         { "a follow naming a blank contour", Valid() with { Follow = new ContourFollow { Outcome = "pr-opened", Contour = "", DepthCap = 2 } }, "a followed contour's name is plain" },
         { "a follow with no depth cap", Valid() with { Follow = new ContourFollow { Outcome = "pr-opened" } }, "its follow needs a depth cap greater than zero" },
         { "a follow with a negative depth cap", Valid() with { Follow = new ContourFollow { Outcome = "pr-opened", DepthCap = -1 } }, "its follow needs a depth cap greater than zero" },
+        { "an empty closing resolution", Valid() with { Closes = "" }, "a closing resolution is plain: letters, digits, hyphens, and underscores, and not empty" },
+        { "a blank closing resolution", Valid() with { Closes = " " }, "closes its parcel with the resolution ' '; a closing resolution is plain" },
+        { "a closing resolution that is not plain", Valid() with { Closes = "completed or not" }, "closes its parcel with the resolution 'completed or not'; a closing resolution is plain" },
         { "a missing value", WithFirstStep(s => s with { Transitions = [new ContourTransition { Field = "verdict", VisitCap = 1, Target = "act" }] }), "needs a value that is a JSON string, number, or boolean" },
     };
 
@@ -233,6 +236,31 @@ public sealed class ContourTests
         (Valid() with { Follow = follow with { DepthCap = 3 } }).Hash.Should().NotBe(follower.Hash);
         (Valid() with { Follow = follow with { Contour = null } }).Hash.Should().NotBe(follower.Hash);
         (Valid() with { Follow = follow with { Outcome = "report-produced" } }).Hash.Should().NotBe(follower.Hash);
+    }
+
+    [Fact]
+    public void A_closing_resolution_passes_round_trips_and_changes_the_hash()
+    {
+        Contour closing = Valid() with { Closes = "completed" };
+
+        FluentActions.Invoking(() => closing.Validate(Known)).Should().NotThrow();
+        Contour read = Contour.FromJson(Contour.CanonicalJson(closing));
+        read.Closes.Should().Be("completed");
+        read.Hash.Should().Be(closing.Hash);
+        closing.Hash.Should().NotBe(Valid().Hash);
+        (Valid() with { Closes = "abandoned" }).Hash.Should().NotBe(closing.Hash);
+    }
+
+    [Fact]
+    public void A_contour_without_a_closing_resolution_writes_none_into_its_content_and_reads_back_as_before()
+    {
+        string content = Contour.CanonicalJson(Valid());
+
+        content.Should().NotContain("Closes");
+        Contour read = Contour.FromJson(content);
+        read.Closes.Should().BeNull();
+        read.Hash.Should().Be(Valid().Hash);
+        Contour.CanonicalJson(read).Should().Be(content);
     }
 
     [Fact]

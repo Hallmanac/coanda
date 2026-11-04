@@ -8,10 +8,12 @@ using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
+using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx;
+using JasperFx.Events;
 using JasperFx.Events.Documents;
 
 namespace Coanda.Daemon.Flows;
@@ -27,7 +29,10 @@ namespace Coanda.Daemon.Flows;
 /// <see cref="ParcelFlowAttached"/> to the parcel stream in the same unit of work that starts the
 /// flow stream, through <c>FetchForWriting</c>, so the parcel stream's expected version guards it.
 /// The loser of a race fails the version check, its flow stream is never written, and it is
-/// refused with the rule. Ending and stopping append <see cref="ParcelFlowReleased"/> the same way.
+/// refused with the rule. Ending and stopping append <see cref="ParcelFlowReleased"/> the same way,
+/// and the end of a flow whose contour declares a closing resolution appends the parcel's
+/// <see cref="ParcelClosed"/> in that same save, running the gates the service is given, so the end,
+/// the release, and the close are recorded together or not at all.
 /// A resume hands the flow to the <see cref="IFlowAdvancer"/>, when the service has one, so a
 /// resumed flow advances with no further command; a pause tells it to end the judgment the flow is
 /// running, and a stop to end the judgment or action it is running and remove its worktree, once the
@@ -39,12 +44,15 @@ namespace Coanda.Daemon.Flows;
 /// while that flow, as the write fetched it, still expects its launch, and starts no flow; every
 /// other principal, the runner's and the trigger loop's among them, passes that check untouched.
 /// </remarks>
-public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowAdvancer? advancer = null)
+public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowAdvancer? advancer = null, GateSet? gates = null)
 {
     /// <summary>How many times a write reads the flow and decides before a run of concurrent writes refuses it.</summary>
     private const int Attempts = 5;
 
     private readonly DefinitionResolver definitions = new(store);
+
+    /// <summary>The gates a close at a flow's end runs, the shipped set when the service is given none.</summary>
+    private readonly GateSet gates = gates ?? GateSet.Shipped;
 
     public async Task<Flow> StartAsync(Principal principal, string project, Guid parcelId, string contourName, CancellationToken cancellationToken)
     {
@@ -225,10 +233,28 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
                 Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
                 RequireBoundLaunch(principal, flow);
                 Contour contour = await RequireStartedUnderContourAsync(tenant, flow, token);
-                (FlowEnded ended, ParcelFlowReleased released) = FlowDecider.End(contour, flow, outcome, principal.Id, clock.GetUtcNow());
+                DateTimeOffset now = clock.GetUtcNow();
+                (FlowEnded ended, ParcelFlowReleased released) = FlowDecider.End(contour, flow, outcome, principal.Id, now);
                 flowStream.AppendOne(ended);
-                await ReleaseAsync(session, flow, released, token);
+                IEventStream<Parcel> parcelStream = await AppendReleaseAsync(session, flow, released, token);
+                Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(flow.ParcelId, tenant);
 
+                // A contour that closes its parcel closes it in the same save as the end and the
+                // release, decided against the parcel as the release leaves it; a refusal saves none of them.
+                if (contour.Closes is not null)
+                {
+                    ParcelType type = await definitions.ResolveParcelTypeByHashAsync(tenant, parcel.TypeHash, token)
+                        ?? throw new DomainException(
+                            $"The '{parcel.TypeName}' type version {parcel.TypeHash} that parcel {Ids.Short(parcel.Id)} was created under is no longer held, so flow {Ids.Short(flow.Id)} cannot close it at its end.");
+                    ParcelClosed? closed = FlowDecider.CloseOnEnd(
+                        contour, flow, type, gates, parcel, FlowRunner.PrincipalFor(flow.Id).Id, now);
+                    if (closed is not null)
+                    {
+                        parcelStream.AppendOne(closed);
+                    }
+                }
+
+                await session.SaveChangesAsync(token);
                 flow.Apply(ended);
                 return flow;
             },
@@ -424,6 +450,17 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
 
     private static async Task ReleaseAsync(IDocumentSession session, Flow flow, ParcelFlowReleased released, CancellationToken cancellationToken)
     {
+        await AppendReleaseAsync(session, flow, released, cancellationToken);
+        await session.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Appends the release to the parcel's stream, guarded by its version, when the parcel names the
+    /// flow as its live one, and returns the parcel's stream, its aggregate as the release leaves it, unsaved.
+    /// </summary>
+    private static async Task<IEventStream<Parcel>> AppendReleaseAsync(
+        IDocumentSession session, Flow flow, ParcelFlowReleased released, CancellationToken cancellationToken)
+    {
         var parcelStream = await session.Events.FetchForWriting<Parcel>(flow.ParcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(flow.ParcelId, session.TenantId);
 
@@ -431,9 +468,10 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
         if (parcel.LiveFlowId == flow.Id)
         {
             parcelStream.AppendOne(released);
+            parcel.Apply(released);
         }
 
-        await session.SaveChangesAsync(cancellationToken);
+        return parcelStream;
     }
 
     /// <summary>Saves, turning a failed version check into a refusal that says what moved.</summary>

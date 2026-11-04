@@ -106,9 +106,11 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         SessionTokens sessionTokens,
         TimeProvider clock,
         FlowRunnerOptions options,
+        GateSet gates,
         ILogger<FlowRunner> logger)
     {
-        flows = new FlowService(store, clock);
+        // A flow's end closes its parcel when its contour says so, running the gates the daemon runs.
+        flows = new FlowService(store, clock, advancer: null, gates);
         this.projects = projects;
         this.parcels = parcels;
         this.definitions = definitions;
