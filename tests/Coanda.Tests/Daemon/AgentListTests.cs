@@ -2,6 +2,7 @@ using Coanda.Cli;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
+using Coanda.Core.Software;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;

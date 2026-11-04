@@ -2,6 +2,7 @@ using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
+using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 

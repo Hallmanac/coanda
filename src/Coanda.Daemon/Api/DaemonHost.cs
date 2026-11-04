@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
-using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
+using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
@@ -101,7 +101,7 @@ public sealed class DaemonHost
             // Types come from the store, so the shipped ones are in it before anything is served
             // or advertised: the address file is written only after this returns.
             await app.Services.GetRequiredService<DefinitionService>()
-                .SeedAsync(ShippedDefinition.All, cancellationToken);
+                .SeedAsync(ShippedDefinitions.All, cancellationToken);
 
             // Every live flow that is not paused carries on from its current step.
             await app.Services.GetRequiredService<FlowRunner>().AdvanceLiveAsync(cancellationToken);

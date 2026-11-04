@@ -2,6 +2,7 @@ using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
+using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Parcels;
@@ -210,7 +211,7 @@ public sealed class DefinitionStoreTests
         long before = await CountEventsAsync(store, Tenants.Node);
         before.Should().Be(ShippedTypes.All.Count * 2, "each shipped type is a drafted and a published event");
 
-        IReadOnlyList<Definition> again = await Definitions(store).SeedAsync(ShippedDefinition.ShippedParcelTypes, CancellationToken.None);
+        IReadOnlyList<Definition> again = await Definitions(store).SeedAsync(ShippedDefinitions.ParcelTypes, CancellationToken.None);
 
         again.Should().BeEmpty();
         (await CountEventsAsync(store, Tenants.Node)).Should().Be(before);

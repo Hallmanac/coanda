@@ -1,4 +1,6 @@
-namespace Coanda.Core.Agents;
+using Coanda.Core.Agents;
+
+namespace Coanda.Core.Software;
 
 /// <summary>
 /// The five agents the binary carries: build, reviewer-adversarial, reviewer-conformance, fix, and

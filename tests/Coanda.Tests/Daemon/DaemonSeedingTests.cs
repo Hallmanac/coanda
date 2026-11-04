@@ -53,7 +53,7 @@ public sealed class DaemonSeedingTests
             types.Select(t => (t.Name, t.Hash)).Should().Equal(ShippedTypes.All.Select(t => (t.Name, t.Hash)));
         });
         int afterFirst = await StreamCountAsync(temp.Home);
-        afterFirst.Should().Be(ShippedDefinition.All.Count * 2);
+        afterFirst.Should().Be(ShippedDefinitions.All.Count * 2);
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
         (await StreamCountAsync(temp.Home)).Should().Be(afterFirst);
@@ -97,7 +97,7 @@ public sealed class DaemonSeedingTests
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
         int afterFirst = await StreamCountAsync(temp.Home);
-        afterFirst.Should().Be(ShippedDefinition.All.Count * 2);
+        afterFirst.Should().Be(ShippedDefinitions.All.Count * 2);
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {

@@ -1,5 +1,6 @@
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
+using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;

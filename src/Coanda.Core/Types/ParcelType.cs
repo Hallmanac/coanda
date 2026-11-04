@@ -9,8 +9,8 @@ namespace Coanda.Core.Types;
 /// The definition of a kind of parcel: its lifecycle (states, allowed moves, entry states, the
 /// one terminal state and its resolutions), the paused state reachable from any live state, and
 /// its bindings: a contour to start when a parcel enters a state, and a gate that must pass before a
-/// move. Fields arrive later in phase 1. A type is data; the two shipped types are built in
-/// <see cref="ShippedTypes"/> and a user's type is the same shape.
+/// move. Fields arrive later in phase 1. A type is data; the types the binary ships and a user's
+/// type are the same shape.
 /// </summary>
 public sealed record ParcelType
 {
