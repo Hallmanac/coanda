@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\Coanda.Core\Coanda.Core.csproj" />
     <ProjectReference Include="..\..\src\Coanda.Daemon\Coanda.Daemon.csproj" />
     <ProjectReference Include="..\..\src\Coanda.Cli\Coanda.Cli.csproj" />
+    <ProjectReference Include="..\Coanda.FakeClaude\Coanda.FakeClaude.csproj" />
   </ItemGroup>
 
 </Project>
