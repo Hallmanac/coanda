@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Store;
 
@@ -124,6 +125,43 @@ public sealed class DaemonClient : IDisposable
     }
 
     /// <summary>
+    /// The running daemon a command may send to: the one <see cref="EnsureRunningAsync"/> finds or
+    /// starts, refused before anything is sent when its daemon.json records a version other than
+    /// this build's, since a daemon from another build may not know this build's words and routes.
+    /// </summary>
+    private async Task<DaemonInfo> SameVersionAsync(CancellationToken cancellationToken)
+    {
+        DaemonInfo info = await EnsureRunningAsync(cancellationToken);
+        if (IsOtherVersion(info))
+        {
+            string restart = sessionToken is null
+                ? "run coa daemon stop, then run this command again"
+                : "a person must restart the daemon, since a session cannot stop it";
+            throw new DomainException(
+                $"The running daemon {VersionOf(info)}, but this coa is version {DaemonHost.Version}, so nothing was sent to it; {restart}.");
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// What <c>coa daemon start</c> says when it finds <paramref name="running"/> already running:
+    /// null when that daemon is this build's, and otherwise a refusal naming both versions.
+    /// </summary>
+    public static string? RefusalToStartBeside(DaemonInfo running) =>
+        IsOtherVersion(running)
+            ? $"A daemon from another build is already running on {running.BaseAddress} (pid {running.Pid}): it {VersionOf(running)}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start."
+            : null;
+
+    /// <summary>True when <paramref name="info"/> records no version or one not exactly this build's.</summary>
+    private static bool IsOtherVersion(DaemonInfo info) => !string.Equals(info.Version, DaemonHost.Version, StringComparison.Ordinal);
+
+    private static string VersionOf(DaemonInfo info) =>
+        string.IsNullOrWhiteSpace(info.Version)
+            ? "recorded no version"
+            : $"is version {info.Version}";
+
+    /// <summary>
     /// What happens before a detached start: the home is created or narrowed to owner-only access,
     /// then checked for a record from an older build and for a node configuration the daemon would
     /// refuse. The check opens the database, so the narrowing comes first.
@@ -155,7 +193,7 @@ public sealed class DaemonClient : IDisposable
 
     public async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
-        DaemonInfo info = await EnsureRunningAsync(cancellationToken);
+        DaemonInfo info = await SameVersionAsync(cancellationToken);
         using HttpRequestMessage request = Request(HttpMethod.Get, info, path);
         using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
         return await ReadAsync<T>(response, cancellationToken);
@@ -163,7 +201,7 @@ public sealed class DaemonClient : IDisposable
 
     public async Task<T> PostAsync<T>(string path, object? body, CancellationToken cancellationToken)
     {
-        DaemonInfo info = await EnsureRunningAsync(cancellationToken);
+        DaemonInfo info = await SameVersionAsync(cancellationToken);
         using HttpRequestMessage request = Request(HttpMethod.Post, info, path);
         request.Content = JsonContent.Create(body ?? new { });
         using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
@@ -172,13 +210,31 @@ public sealed class DaemonClient : IDisposable
 
     public async Task<T> PutAsync<T>(string path, object? body, CancellationToken cancellationToken)
     {
-        DaemonInfo info = await EnsureRunningAsync(cancellationToken);
+        DaemonInfo info = await SameVersionAsync(cancellationToken);
         using HttpRequestMessage request = Request(HttpMethod.Put, info, path);
         request.Content = JsonContent.Create(body ?? new { });
         using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
         return await ReadAsync<T>(response, cancellationToken);
     }
 
+    /// <summary>
+    /// The running daemon's status, or null when none answers. Unlike every other read, it is sent
+    /// to a daemon of any version, so a person can see which build is running before stopping it.
+    /// </summary>
+    public async Task<DaemonStatusView?> StatusAsync(CancellationToken cancellationToken)
+    {
+        DaemonInfo? info = await FindRunningAsync(cancellationToken);
+        if (info is null)
+        {
+            return null;
+        }
+
+        using HttpRequestMessage request = Request(HttpMethod.Get, info, "/status");
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
+        return await ReadAsync<DaemonStatusView>(response, cancellationToken);
+    }
+
+    /// <summary>Asks the running daemon to stop, whatever its version.</summary>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         DaemonInfo? info = await FindRunningAsync(cancellationToken);
