@@ -71,7 +71,9 @@ a flow whose judgment is running before you stop the daemon; a pause ends the se
 what it spent.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
-for itself, so a daemon started from inside Claude Code runs its sessions as independent ones.
+for itself, so a daemon started from inside Claude Code runs its sessions as independent ones. It
+also removes `CLAUDE_CODE_SAFE_MODE` and `CLAUDE_CODE_SIMPLE`, which would make Claude Code skip the
+session's tool guard.
 
 ### How a session talks back
 
@@ -106,7 +108,35 @@ once the flow is resumed. The daemon keeps only a hash of each token, in memory,
 survive a daemon restart.
 
 The token governs what a session's calls may record. It does not confine the session's process,
-which runs as your user and can read whatever you can.
+which runs as your user and can read whatever you can; the tool guard below keeps the session's own
+tool calls out of the node home and your Claude Code configuration.
+
+### What a session's tools cannot reach
+
+Every Claude Code session carries a tool guard: a pre-tool-use hook, run as `coa tool-guard`, that
+Claude Code calls before every Read, Edit, Write, Glob, Grep, and Bash call. It refuses the call when
+a path the call names is one of these directories, is inside one, or contains one:
+
+- the node home, so its token file, database, log, clones, and other flows' work directories;
+- the config directory of every credential profile in `node.json`;
+- the default Claude Code config directory: the `CLAUDE_CONFIG_DIR` the daemon inherited, or
+  `~/.claude` when it inherited none, whatever profile the session runs under.
+
+Two directories inside those stay open: the session's own work directory, and the directory Claude
+Code keeps for the session's own conversation (`projects/<encoded work directory>/<session id>` in
+the config directory the session runs under, beside its transcript). The guard reads the file path of
+a Read, Edit, or Write; the path of a Glob or Grep and the pattern of a Glob; and every word of a
+Bash command that looks like a path, after expanding `~` and the variables the session's environment
+defines. It resolves symbolic links before it compares, and on macOS and Windows it ignores case. A
+refused call reaches the session as an error saying the path is in the node home or in a Claude Code
+config directory.
+
+The guard keeps an agent's ordinary tool calls away from those files. It is not a sandbox. A program
+a command starts reads what it likes (`git` reads the clone, and `coa` reads `daemon.json` for the
+daemon's port), and a command written to evade the guard can. The hook is passed inline on Claude
+Code's command line with hooks explicitly left on, so your own settings files cannot switch it off,
+and a guard that cannot run blocks the call rather than letting it through. Managed settings that
+disable hooks still do, since they outrank everything else.
 
 ## Credential profiles
 
