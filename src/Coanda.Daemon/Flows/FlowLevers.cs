@@ -20,10 +20,11 @@ public static class FlowLevers
 
     /// <summary>
     /// Names the way out of a flow whose push someone else's update of the branch on the remote
-    /// refused: a resume pushes with the same lease and is refused the same way.
+    /// refused: a resume pushes with the same lease and is refused the same way, while a new flow's
+    /// worktree step fetches the branch and builds on what the remote holds.
     /// </summary>
     public static string RemoteBranchMoved(string step) =>
-        $"Stop the flow; someone else updated its branch on the remote, so performing step '{step}' again would push with the same lease and be refused the same way.";
+        $"Stop the flow and start a new one on the parcel; someone else updated its branch on the remote, so performing step '{step}' again would push with the same lease and be refused the same way, while a new flow's worktree step fetches the branch and builds on the remote's commits.";
 
     /// <summary>Names the way out of a flow whose budget, or its chain's, is spent: a resume pauses it again.</summary>
     public static string BudgetReached() =>

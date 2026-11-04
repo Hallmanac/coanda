@@ -73,10 +73,16 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
 
     /// <summary>
     /// Makes the flow's work path a worktree of the project's clone on the parcel's branch. A work
-    /// path that already holds it is answered as it stands. A branch the clone does not hold is cut
-    /// from the primary branch as a fetch brings it; one it holds, which an earlier flow on the parcel
-    /// created, is checked out as it stands with nothing fetched. A failing git command throws
-    /// <see cref="GitCommandException"/>.
+    /// path that already holds it is answered as it stands. Otherwise the remote's branch of that
+    /// name is fetched first, so the clone's remote-tracking ref for it, which the push's lease
+    /// expects, holds what the remote holds now, or is deleted when the remote has no such branch.
+    /// A branch the clone does not hold is cut from the remote's branch when there is one, and from
+    /// the primary branch as a fetch brings it when there is not. One it holds, which an earlier flow
+    /// on the parcel created, moves forward to the remote's branch when that contains it, so commits
+    /// someone added on the remote are built on rather than refused at the push; when each has
+    /// commits the other does not, the checkout is refused naming how to reconcile them. A branch
+    /// another live worktree has checked out is neither fetched nor moved. A failing git command
+    /// throws <see cref="GitCommandException"/>.
     /// </summary>
     public async Task<Checkout> CheckOutAsync(Project project, Guid parcelId, Guid flowId, CancellationToken cancellationToken)
     {
@@ -111,8 +117,40 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
                     $"Branch {branch} already exists in the node's clone of project '{project.Name}' and {whose}, so it is not checked out for parcel {parcelId}.");
             }
         }
+
+        // A branch another live worktree has checked out is left as it stands: moving it would move
+        // that worktree's head, and git refuses the worktree below anyway.
+        bool heldElsewhere = listed.Any(w => !w.Bare && !w.Stale && w.Branch == reference && !RealPath.Same(w.Path, workPath));
+        string remote = heldElsewhere
+            ? string.Empty
+            : await FetchParcelBranchAsync(clone, branch, cancellationToken);
+        string from;
+        if (exists)
+        {
+            from = $"branch {branch}";
+            if (remote.Length > 0 && remote != tip)
+            {
+                switch (await AncestryAsync(clone, tip, remote, cancellationToken))
+                {
+                    case Ancestry.Behind:
+                        await git.RunAsync(Git.Against(clone, "update-ref", reference, remote, tip), cancellationToken);
+                        tip = remote;
+                        break;
+                    case Ancestry.Diverged:
+                        return new Checkout.Refused(
+                            $"Branch {branch} in the node's clone of project '{project.Name}' is at {tip}, and the remote's branch, at {remote}, has commits it does not, while it has commits the remote's does not, so neither can be brought onto the other without someone deciding which to keep. "
+                            + $"Reconcile them by hand in {clone}, by moving {reference} to a commit that contains {remote}, or by deleting {reference} there to start again from the remote's branch, and the step checks it out.");
+                }
+            }
+        }
+        else if (remote.Length > 0)
+        {
+            from = $"branch {branch} on the remote";
+            tip = remote;
+        }
         else
         {
+            from = $"primary branch {project.PrimaryBranch}";
             await git.RunAsync(
                 Git.Against(clone, "fetch", "--no-tags", "--quiet", Git.Remote, $"+refs/heads/{project.PrimaryBranch}:refs/remotes/{Git.Remote}/{project.PrimaryBranch}"),
                 cancellationToken);
@@ -140,7 +178,6 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
 
         if (underCoanda.Length > 0)
         {
-            string from = exists ? $"branch {branch}" : $"primary branch {project.PrimaryBranch}";
             return new Checkout.Refused(
                 $"Commit {tip} of {from} tracks .coanda, in any letter case, or files under it, where the daemon keeps its own files at a worktree's root, so no worktree is made from it: {string.Join(", ", underCoanda)}.");
         }
@@ -167,8 +204,9 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
     /// Pushes the parcel's branch to the project's remote, after making sure the flow's worktree has
     /// no changes git status reports. The push names its lease explicitly, expecting the remote's
     /// branch to hold what the clone's remote-tracking ref for it holds, or not to exist when the
-    /// clone holds no such ref, and once it succeeds that ref is set to the pushed commit, so the
-    /// next push on the branch expects it. A failing git command other than the push throws
+    /// clone holds no such ref. <see cref="CheckOutAsync"/> refreshed that ref from the remote when the
+    /// worktree was made, and once the push succeeds it is set to the pushed commit, so the lease
+    /// refuses only an update someone made on the remote since. A failing git command other than the push throws
     /// <see cref="GitCommandException"/>.
     /// </summary>
     public async Task<Push> PushAsync(Project project, Guid parcelId, Guid flowId, CancellationToken cancellationToken)
@@ -343,6 +381,64 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
         Directory.CreateDirectory(Path.Combine(clone, "info"));
         string[] kept = [.. lines.Where(l => l.Length > 0 && l != ExcludeLine), ExcludeLine];
         File.WriteAllText(exclude, string.Join('\n', kept) + "\n");
+    }
+
+    /// <summary>
+    /// Brings the remote's branch <paramref name="branch"/> into the clone's remote-tracking ref for
+    /// it and returns the commit it holds, or deletes that ref and returns an empty string when the
+    /// remote has no such branch, so the push's lease expects what the remote holds now. A fetch that
+    /// fails any other way throws <see cref="GitCommandException"/>.
+    /// </summary>
+    private async Task<string> FetchParcelBranchAsync(string clone, string branch, CancellationToken cancellationToken)
+    {
+        string tracking = TrackingRefOf(branch);
+        CommandLine fetch = Git.Against(clone, "fetch", "--no-tags", "--quiet", Git.Remote, $"+refs/heads/{branch}:{tracking}");
+        CommandResult fetched = await git.TryRunAsync(fetch, cancellationToken);
+        if (!fetched.Succeeded && fetched.StandardError.Contains("couldn't find remote ref", StringComparison.Ordinal))
+        {
+            await git.RunAsync(Git.Against(clone, "update-ref", "-d", tracking), cancellationToken);
+            return string.Empty;
+        }
+
+        if (fetched is not { Succeeded: true, Truncated: false })
+        {
+            throw new GitCommandException(fetch, fetched);
+        }
+
+        return (await git.RunAsync(Git.Against(clone, "for-each-ref", "--format=%(objectname)", tracking), cancellationToken)).Trim();
+    }
+
+    /// <summary>Where the commit <paramref name="local"/> stands against <paramref name="remote"/>, which differs from it.</summary>
+    private async Task<Ancestry> AncestryAsync(string clone, string local, string remote, CancellationToken cancellationToken) =>
+        await IsAncestorAsync(clone, local, remote, cancellationToken)
+            ? Ancestry.Behind
+            : await IsAncestorAsync(clone, remote, local, cancellationToken)
+                ? Ancestry.Ahead
+                : Ancestry.Diverged;
+
+    private async Task<bool> IsAncestorAsync(string clone, string ancestor, string descendant, CancellationToken cancellationToken)
+    {
+        CommandLine check = Git.Against(clone, "merge-base", "--is-ancestor", ancestor, descendant);
+        CommandResult result = await git.TryRunAsync(check, cancellationToken);
+        return result switch
+        {
+            { Succeeded: true } => true,
+            { ExitCode: 1, TimedOut: false } => false,
+            _ => throw new GitCommandException(check, result),
+        };
+    }
+
+    /// <summary>Where a local branch's commit stands against the remote's branch of the same name.</summary>
+    private enum Ancestry
+    {
+        /// <summary>The remote's commit contains the local one, so the local branch moves forward to it.</summary>
+        Behind,
+
+        /// <summary>The local commit contains the remote's, so a push only adds to it.</summary>
+        Ahead,
+
+        /// <summary>Each has commits the other does not.</summary>
+        Diverged,
     }
 
     private async Task<IReadOnlyList<ListedWorktree>> ListAsync(string clone, CancellationToken cancellationToken) =>

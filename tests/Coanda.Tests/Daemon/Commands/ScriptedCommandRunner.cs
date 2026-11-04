@@ -9,8 +9,11 @@ namespace Coanda.Tests.Daemon.Commands;
 /// would leave (the branches, remote-tracking refs, configuration, and worktrees of each clone), so
 /// by default the worktree step takes its first-run path and answers done, the gates pass, a
 /// worktree the step added is listed until a removal removes it, and the open-pr step reads
-/// <see cref="GitHubToken"/>, finds the worktree clean, and pushes, which sets nothing on the model
-/// but the remote-tracking ref the step updates itself. Answering a clone command (<c>git init</c>)
+/// <see cref="GitHubToken"/>, finds the worktree clean, and pushes, which sets the remote's branch
+/// and the remote-tracking ref the step updates itself. The remote holds no branch but the ones a
+/// push or <see cref="SetRemoteBranch"/> gave it, so fetching any other branch but the primary fails
+/// as git does for a missing remote ref, and one commit is an ancestor of another only when it is
+/// the same commit or <see cref="AddAncestry"/> said so. Answering a clone command (<c>git init</c>)
 /// with success creates the empty directory it names and nothing else.
 /// </summary>
 public sealed class ScriptedCommandRunner : ICommandRunner
@@ -21,10 +24,13 @@ public sealed class ScriptedCommandRunner : ICommandRunner
     /// <summary>The token the model's <c>gh auth token</c> prints.</summary>
     public const string GitHubToken = "gho_scriptedTokenNoRecordHolds0123456789";
 
+    private const string ParcelBranchPrefix = "coanda/";
+
     private readonly Lock gate = new();
     private readonly List<CommandLine> commands = [];
     private readonly List<(Func<CommandLine, bool> When, Func<CommandLine, CancellationToken, Task<CommandResult>> Answer)> scripted = [];
     private readonly Dictionary<string, Clone> clones = new(StringComparer.Ordinal);
+    private readonly HashSet<(string Ancestor, string Descendant)> ancestry = [];
 
     /// <summary>Every command run, in order.</summary>
     public IReadOnlyList<CommandLine> Commands
@@ -98,6 +104,42 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         lock (gate)
         {
             CloneAt(clone).TrackingRefs[reference] = head;
+        }
+    }
+
+    /// <summary>Gives the modelled clone's remote a branch, as an earlier push, or someone else, would have left it.</summary>
+    public void SetRemoteBranch(string clone, string branch, string head)
+    {
+        lock (gate)
+        {
+            CloneAt(clone).RemoteBranches[branch] = head;
+        }
+    }
+
+    /// <summary>Removes a branch from the modelled clone's remote, as someone deleting it there would.</summary>
+    public void DeleteRemoteBranch(string clone, string branch)
+    {
+        lock (gate)
+        {
+            CloneAt(clone).RemoteBranches.Remove(branch);
+        }
+    }
+
+    /// <summary>Records that <paramref name="ancestor"/> is an ancestor of <paramref name="descendant"/> in every modelled clone.</summary>
+    public void AddAncestry(string ancestor, string descendant)
+    {
+        lock (gate)
+        {
+            ancestry.Add((ancestor, descendant));
+        }
+    }
+
+    /// <summary>The commit a branch of the modelled clone holds, or null when it holds none.</summary>
+    public string? Branch(string clone, string branch)
+    {
+        lock (gate)
+        {
+            return CloneAt(clone).Branches.GetValueOrDefault(branch);
         }
     }
 
@@ -195,6 +237,28 @@ public sealed class ScriptedCommandRunner : ICommandRunner
                     return Ok(clone.TrackingRefs.TryGetValue(reference, out string? tracked)
                         ? tracked + "\n"
                         : string.Empty);
+                case ["fetch", .., string refspec] when refspec.StartsWith($"+refs/heads/{ParcelBranchPrefix}", StringComparison.Ordinal):
+                    string fetched = refspec["+refs/heads/".Length..refspec.IndexOf(':', StringComparison.Ordinal)];
+                    if (!clone.RemoteBranches.TryGetValue(fetched, out string? remoteTip))
+                    {
+                        return Fails(128, $"fatal: couldn't find remote ref refs/heads/{fetched}\n");
+                    }
+
+                    clone.TrackingRefs[refspec[(refspec.IndexOf(':', StringComparison.Ordinal) + 1)..]] = remoteTip;
+                    return Ok();
+                case ["push", .., string refspec] when refspec.Contains(":refs/heads/", StringComparison.Ordinal):
+                    clone.RemoteBranches[refspec[(refspec.IndexOf(":refs/heads/", StringComparison.Ordinal) + ":refs/heads/".Length)..]] = refspec[..refspec.IndexOf(':', StringComparison.Ordinal)];
+                    return Ok();
+                case ["merge-base", "--is-ancestor", string older, string newer]:
+                    return older == newer || ancestry.Contains((older, newer))
+                        ? Ok()
+                        : Fails(1, string.Empty);
+                case ["update-ref", "-d", string reference]:
+                    clone.TrackingRefs.Remove(reference);
+                    return Ok();
+                case ["update-ref", string reference, string head, _] when reference.StartsWith("refs/heads/", StringComparison.Ordinal):
+                    clone.Branches[reference["refs/heads/".Length..]] = head;
+                    return Ok();
                 case ["update-ref", string reference, string head]:
                     clone.TrackingRefs[reference] = head;
                     return Ok();
@@ -233,6 +297,8 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         public Dictionary<string, string> Config { get; } = new(StringComparer.Ordinal);
 
         public Dictionary<string, string> TrackingRefs { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, string> RemoteBranches { get; } = new(StringComparer.Ordinal);
 
         public List<Worktree> Worktrees { get; } = [];
 
