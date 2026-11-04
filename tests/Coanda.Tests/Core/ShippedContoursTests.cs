@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using Coanda.Core.Definitions;
 using Coanda.Core.Contours;
@@ -193,7 +194,7 @@ public sealed class ShippedContoursTests
         double seconds = timer.Arguments["seconds"].GetDouble();
         (seconds * pending.VisitCap).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all");
         back.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap, "the timer never pauses the lap before the pending cap does");
-        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 5, "a merge on the lap's last visit or on a resume still ends the flow");
+        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 100, "a merge on the lap's last visit or on any of a hundred resumes still ends the flow");
     }
 
     [Fact]
@@ -219,6 +220,25 @@ public sealed class ShippedContoursTests
             .Which.Reason.Should().Contain($"visit cap of {cap}");
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
         Interpreter.Decide(merge, position, merged).Should().Be(new FlowMove.End("merged"), "a merge on the lap's last visit ends the flow");
+    }
+
+    [Fact]
+    public void A_merge_on_the_hundredth_resume_after_the_lap_pauses_still_ends_the_flow()
+    {
+        Contour merge = ShippedContours.Merge;
+        int visits = ShippedContours.MergePendingCap + ShippedContours.MergeResumes;
+        FlowPosition position = new(
+            "gated-merge",
+            ImmutableDictionary.Create<string, int>(StringComparer.Ordinal)
+                .SetItem("gated-merge", visits)
+                .SetItem("wait-for-checks", ShippedContours.MergePendingCap),
+            0);
+        using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
+        using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
+
+        Interpreter.Decide(merge, position, pending).Should().BeOfType<FlowMove.Pause>("a resume past the lap looks once and pauses while checks still run");
+        Interpreter.Decide(merge, position, merged).Should().Be(new FlowMove.End("merged"));
+        Interpreter.CanFireAtNextVisit(merge.Step("gated-merge")!, visits - 1).Should().BeTrue();
     }
 
     [Fact]

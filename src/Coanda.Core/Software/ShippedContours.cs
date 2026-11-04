@@ -35,11 +35,20 @@ public static class ShippedContours
     public const int MergePendingCap = 20;
 
     /// <summary>
-    /// The visit cap on the merge's transition to end: five visits beyond the pending cap, so a merge
-    /// made on the lap's last visit, or on a resume after the lap's pause or a refused close, ends the
-    /// flow rather than pausing on a visit cap.
+    /// How many resumes of the merge, after its lap has paused, can still end the flow with a merge.
+    /// A visit cap counts every visit a flow has made to the step, resumes included, so once the lap
+    /// is spent each resume looks at the pull request once and pauses again while it is still pending;
+    /// this allowance keeps a person who resumes once the checks have finished from ever finding the
+    /// merge's own cap spent first.
     /// </summary>
-    public const int MergedCap = MergePendingCap + 5;
+    public const int MergeResumes = 100;
+
+    /// <summary>
+    /// The visit cap on the merge's transition to end: <see cref="MergeResumes"/> visits beyond the
+    /// pending cap, so a merge made on the lap's last visit, or on any resume after the lap's pause, a
+    /// refused close, or another pause, ends the flow rather than pausing on a visit cap.
+    /// </summary>
+    public const int MergedCap = MergePendingCap + MergeResumes;
 
     /// <summary>The task fields the build contour's judgments carry in their context: what to build, how it is judged, and what is out of scope.</summary>
     private static readonly IReadOnlyList<string> Brief = ["objective", "criteria", "non-goals"];
