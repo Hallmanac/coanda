@@ -41,7 +41,16 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         return Parcel.Create(created);
     }
 
-    public async Task<Parcel> MoveAsync(Principal principal, string project, Guid parcelId, string to, CancellationToken cancellationToken)
+    /// <summary>A move made on nobody's flow's behalf, as a person's move through the API is.</summary>
+    public Task<Parcel> MoveAsync(Principal principal, string project, Guid parcelId, string to, CancellationToken cancellationToken) =>
+        MoveAsync(principal, project, parcelId, to, forFlow: null, cancellationToken);
+
+    /// <summary>
+    /// Moves the parcel on behalf of <paramref name="forFlow"/>, or of no flow when it is null. The flow is
+    /// named explicitly and never read from the principal's id: a parcel a live flow holds moves only for that flow.
+    /// </summary>
+    public async Task<Parcel> MoveAsync(
+        Principal principal, string project, Guid parcelId, string to, Guid? forFlow, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.move", principal);
         string tenant = Tenants.RequireProject(project);
@@ -50,7 +59,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
-        ParcelMoved moved = ParcelDecider.Move(type, gates, parcel, to, principal.Id, clock.GetUtcNow());
+        ParcelMoved moved = ParcelDecider.Move(type, gates, parcel, to, principal.Id, clock.GetUtcNow(), forFlow);
         stream.AppendOne(moved);
         await session.SaveChangesAsync(cancellationToken);
 

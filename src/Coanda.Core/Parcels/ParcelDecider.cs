@@ -7,6 +7,7 @@ namespace Coanda.Core.Parcels;
 /// The rules of a parcel's lifecycle, as pure decisions: given the type, the current parcel, and
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
 /// The decider is given the gates the daemon runs; a move or a close runs every gate its type binds to it.
+/// A parcel a live flow holds (running or paused) is closed by nobody and moved only by that flow.
 /// </summary>
 public static class ParcelDecider
 {
@@ -35,10 +36,21 @@ public static class ParcelDecider
         return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, state, title.Trim(), createdBy, now, origin);
     }
 
-    public static ParcelMoved Move(ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now)
+    /// <summary>
+    /// Moves the parcel. <paramref name="forFlow"/> is the flow the move is made on behalf of, or null for
+    /// a move nobody's flow makes; a parcel a live flow holds is moved only on behalf of that flow.
+    /// </summary>
+    public static ParcelMoved Move(
+        ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now, Guid? forFlow = null)
     {
         RequireOpen(parcel);
         RequireType(type, parcel);
+
+        if (parcel.LiveFlowId is Guid live && live != forFlow)
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcel.Id)} is held by flow {Ids.Short(live)}, and only that flow moves it; stop flow {Ids.Short(live)} (flow.stop) before moving the parcel.");
+        }
 
         if (type.IsTerminal(toState))
         {
@@ -64,6 +76,12 @@ public static class ParcelDecider
     {
         RequireOpen(parcel);
         RequireType(type, parcel);
+
+        if (parcel.LiveFlowId is Guid live)
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcel.Id)} is held by flow {Ids.Short(live)}, and a parcel a live flow holds is closed by nobody; stop flow {Ids.Short(live)} (flow.stop) before closing the parcel.");
+        }
 
         if (!type.IsResolution(resolution))
         {

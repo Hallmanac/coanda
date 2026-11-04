@@ -164,18 +164,20 @@ public sealed class TriggerLoopTests
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        ParcelService parcels = daemon.Services.GetRequiredService<ParcelService>();
 
         // A flow the service starts is not advanced, so it stays live on the parcel while the parcel moves,
-        // the way a flow whose own step moves its parcel is still live at that move.
+        // the way a flow whose own step moves its parcel is still live at that move. Each move is made on
+        // behalf of the flow holding the parcel, as that flow's move-parcel step would make it.
         ParcelView held = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Moved under a live flow", null), None);
         Flow holding = await flows.StartAsync(Principal.LocalOwner, Project, held.Id, "build", None);
-        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, held.Id, "build"), None);
+        await parcels.MoveAsync(FlowRunner.PrincipalFor(holding.Id), Project, held.Id, "build", holding.Id, None);
 
         // This flow is stopped before the loop can be counted on to have read the move, so only the
         // parcel's state at the move, not at handling, refuses the entry.
         ParcelView released = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Released before the loop looked", null), None);
         Flow brief = await flows.StartAsync(Principal.LocalOwner, Project, released.Id, "build", None);
-        await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, released.Id, "build"), None);
+        await parcels.MoveAsync(FlowRunner.PrincipalFor(brief.Id), Project, released.Id, "build", brief.Id, None);
         await flows.StopAsync(Principal.LocalOwner, Project, brief.Id, "gone before the loop read the move", None);
 
         // The loop handles entries in order, so once a later entry has its flow, both moves were handled.

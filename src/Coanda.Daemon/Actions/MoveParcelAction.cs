@@ -8,9 +8,10 @@ namespace Coanda.Daemon.Actions;
 
 /// <summary>
 /// Moves the flow's parcel to the state its <c>state</c> argument names, through the parcel
-/// service and as the flow's principal. A parcel already in that state is left alone, so
-/// performing the step again after a restart moves nothing twice. A move the parcel's type
-/// refuses pauses the flow quoting the rule.
+/// service, as the flow's principal and on behalf of the flow, which is the only flow that may
+/// move a parcel it holds. A parcel already in that state is left alone, so performing the step
+/// again after a restart moves nothing twice. A move the parcel's type refuses pauses the flow
+/// quoting the rule.
 /// </summary>
 public sealed class MoveParcelAction(ParcelService parcels) : IFlowAction
 {
@@ -31,7 +32,7 @@ public sealed class MoveParcelAction(ParcelService parcels) : IFlowAction
 
         try
         {
-            await parcels.MoveAsync(request.Principal, request.Project, request.ParcelId, state, cancellationToken);
+            await parcels.MoveAsync(request.Principal, request.Project, request.ParcelId, state, request.FlowId, cancellationToken);
         }
         catch (DomainException refused)
         {
