@@ -205,7 +205,7 @@ public static class FlowDecider
             throw new DomainException("A launch records the model spec its agent runs on: a vendor, a model, and an effort.");
         }
 
-        return new JudgmentSpawned(flow.Id, current.Step, current.Performer, agentHash.Trim(), model, now);
+        return new JudgmentSpawned(flow.Id, current.Step, current.Performer, agentHash.Trim(), model, now, Ids.New());
     }
 
     /// <summary>
