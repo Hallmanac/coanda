@@ -1,21 +1,60 @@
 using Coanda.Core;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.Executors.ClaudeCode;
 
 namespace Coanda.Tests.Daemon;
 
 public sealed class NodeConfigurationTests
 {
     [Fact]
-    public void A_home_with_no_configuration_runs_the_scripted_executor_with_no_entries_and_holds_no_profiles()
+    public void A_home_with_no_configuration_runs_claude_from_the_path_and_holds_no_profiles()
     {
         using var temp = new TemporaryHome();
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Should().BeEquivalentTo(new DaemonOptions(), "a missing file is what coa daemon run did before the file existed");
-        options.Executor.Should().BeNull("the host then builds a scripted executor with no entries");
+        options.Executor.Should().BeOfType<ClaudeCodeExecutor>("a cold install runs its judgments on Claude Code")
+            .Which.Executable.Should().Be("claude");
         options.Profiles.Should().BeEmpty();
+        options.Gates.Should().BeEmpty();
+        options.JudgmentLimit.Should().Be(DaemonOptions.DefaultJudgmentLimit);
+    }
+
+    [Fact]
+    public void A_configuration_that_selects_claude_code_with_no_executable_runs_claude_from_the_path()
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, """{ "executor": "claude-code", "profiles": { "claude-code": [ { "name": "work", "configDirectory": "accounts/work" } ] } }""");
+
+        DaemonOptions options = NodeConfiguration.Load(temp.Home);
+
+        options.Executor.Should().BeOfType<ClaudeCodeExecutor>().Which.Executable.Should().Be("claude");
+        options.Profiles.Should().ContainSingle().Which.Name.Should().Be("work");
+    }
+
+    [Theory]
+    [InlineData("claude-beta", "claude-beta")]
+    [InlineData("bin/claude", "<home>/bin/claude")]
+    public void A_configured_claude_executable_is_a_name_looked_up_on_the_path_or_a_path_resolved_against_the_home(string configured, string expected)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "claude-code", "claudeExecutable": {{System.Text.Json.JsonSerializer.Serialize(configured)}} }""");
+
+        DaemonOptions options = NodeConfiguration.Load(temp.Home);
+
+        options.Executor.Should().BeOfType<ClaudeCodeExecutor>()
+            .Which.Executable.Should().Be(expected.Replace("<home>/", temp.Home.Path + Path.DirectorySeparatorChar, StringComparison.Ordinal).Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    [Fact]
+    public void An_absolute_claude_executable_is_kept_as_given()
+    {
+        using var temp = new TemporaryHome();
+        string absolute = Path.Combine(Path.GetTempPath(), "tools", OperatingSystem.IsWindows() ? "claude.exe" : "claude");
+        Write(temp, $$"""{ "executor": "claude-code", "claudeExecutable": {{System.Text.Json.JsonSerializer.Serialize(absolute)}} }""");
+
+        NodeConfiguration.Load(temp.Home).Executor.Should().BeOfType<ClaudeCodeExecutor>().Which.Executable.Should().Be(absolute);
     }
 
     [Fact]
@@ -74,7 +113,10 @@ public sealed class NodeConfigurationTests
     [InlineData("""null""", "names no executor")]
     [InlineData("""{ "executor": null }""", "names no executor")]
     [InlineData("""{ "executor": "  " }""", "names no executor")]
-    [InlineData("""{ "executor": "claude-code" }""", "names the executor 'claude-code', which is not a key")]
+    [InlineData("""{ "executor": "claude" }""", "names the executor 'claude', which is not a key this daemon knows; the keys are \"claude-code\" and \"scripted\".")]
+    [InlineData("""{ "executor": "scripted", "claudeExecutable": "claude" }""", "gives a \"claudeExecutable\" while the executor is \"scripted\"")]
+    [InlineData("""{ "executor": "claude-code", "claudeExecutable": 3 }""", "at $.claudeExecutable")]
+    [InlineData("""{ "executor": "claude-code", "claudeExecutable": "bin/a\u0000b" }""", "gives a \"claudeExecutable\" that is not a valid path")]
     [InlineData("""{ "executor": "Scripted" }""", "names the executor 'Scripted', which is not a key")]
     [InlineData("""{ "executor": "scripted", "profiles": { "codex": [ { "name": "work", "configDirectory": "a" } ] } }""", "under the vendor 'codex'")]
     [InlineData("""{ "executor": "scripted", "profiles": { "claude-code": [ { "name": " ", "configDirectory": "a" } ] } }""", "has a blank name on profile 1 under \"claude-code\"")]

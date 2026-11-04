@@ -2,26 +2,32 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Coanda.Core;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.Executors.ClaudeCode;
 
 namespace Coanda.Daemon.Api;
 
 /// <summary>
 /// Reads the node configuration, <see cref="NodeHome.ConfigurationPath"/>, into the options the
 /// daemon starts with: the executor, named by key, and the credential profiles the node holds per
-/// vendor. It is read once, when <c>coa daemon run</c> starts. A missing file is the scripted
-/// executor with no entries and no profiles. Anything else the documented format does not allow is
-/// refused with a <see cref="DomainException"/> naming the file and the offending entry.
+/// vendor. It is read once, when <c>coa daemon run</c> starts. A missing file is the Claude Code
+/// executor running <c>claude</c> from the PATH, with no profiles, so a cold install runs judgments.
+/// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
+/// naming the file and the offending entry.
 /// </summary>
 /// <remarks>
 /// The file holds paths and commands only. Nothing here reads a profile's config directory, runs
 /// its helper command, or checks that either exists. A relative config directory is resolved
 /// against the node home, because a detached start runs in the node home and a foreground one in
-/// the shell's directory, and a profile must mean the same thing under both.
+/// the shell's directory, and a profile must mean the same thing under both. A relative claude
+/// executable path is resolved the same way; a bare name is looked up on the PATH when a judgment spawns.
 /// </remarks>
 public static class NodeConfiguration
 {
     /// <summary>The executor key that runs a scripted executor with no entries.</summary>
     public const string ScriptedExecutor = "scripted";
+
+    /// <summary>The executor key that runs each judgment as a headless Claude Code session.</summary>
+    public const string ClaudeCodeExecutor = "claude-code";
 
     /// <summary>The one vendor a credential profile may be held under.</summary>
     public const string ClaudeCode = "claude-code";
@@ -44,7 +50,7 @@ public static class NodeConfiguration
 
         if (!File.Exists(path))
         {
-            return new DaemonOptions();
+            return new DaemonOptions { Executor = ClaudeCodeOf(home, Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable) };
         }
 
         string text;
@@ -69,16 +75,48 @@ public static class NodeConfiguration
 
         if (file is null || string.IsNullOrWhiteSpace(file.Executor))
         {
-            throw Refused(path, $"names no executor; set \"executor\" to \"{ScriptedExecutor}\".");
+            throw Refused(path, $"names no executor; set \"executor\" to \"{ClaudeCodeExecutor}\" or \"{ScriptedExecutor}\".");
         }
 
-        IAgentExecutor executor = file.Executor switch
+        string? claudeExecutable = Given(file.ClaudeExecutable);
+        IAgentExecutor executor = (file.Executor, claudeExecutable) switch
         {
-            ScriptedExecutor => new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()),
-            _ => throw Refused(path, $"names the executor '{file.Executor}', which is not a key this daemon knows; the only key is \"{ScriptedExecutor}\"."),
+            (ClaudeCodeExecutor, _) => ClaudeCodeOf(home, Executable(home, path, claudeExecutable)),
+            (ScriptedExecutor, null) => new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()),
+            (ScriptedExecutor, { }) => throw Refused(path, $"gives a \"claudeExecutable\" while the executor is \"{ScriptedExecutor}\"; the path is read only under \"{ClaudeCodeExecutor}\"."),
+            _ => throw Refused(path, $"names the executor '{file.Executor}', which is not a key this daemon knows; the keys are \"{ClaudeCodeExecutor}\" and \"{ScriptedExecutor}\"."),
         };
 
         return new DaemonOptions { Executor = executor, Profiles = Profiles(home, path, file.Profiles) };
+    }
+
+    private static ClaudeCodeExecutor ClaudeCodeOf(NodeHome home, string executable) =>
+        new(executable, home, Executors.ClaudeCode.ClaudeCodeExecutor.CurrentEnvironment());
+
+    /// <summary>
+    /// The claude executable to run: the default name when none is given, a bare name as given (it is
+    /// looked up on the PATH when a judgment spawns), and a path resolved against the node home.
+    /// </summary>
+    private static string Executable(NodeHome home, string path, string? configured)
+    {
+        if (configured is null)
+        {
+            return Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable;
+        }
+
+        if (configured.IndexOfAny(['/', '\\']) < 0 && !Path.IsPathRooted(configured))
+        {
+            return configured;
+        }
+
+        try
+        {
+            return Path.GetFullPath(Path.Combine(home.Path, configured));
+        }
+        catch (Exception invalid) when (invalid is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw Refused(path, "gives a \"claudeExecutable\" that is not a valid path.");
+        }
     }
 
     private static List<CredentialProfile> Profiles(NodeHome home, string path, Dictionary<string, List<ProfileShape?>?>? vendors)
@@ -170,6 +208,8 @@ public static class NodeConfiguration
     private sealed class FileShape
     {
         public string? Executor { get; init; }
+
+        public string? ClaudeExecutable { get; init; }
 
         public Dictionary<string, List<ProfileShape?>?>? Profiles { get; init; }
     }
