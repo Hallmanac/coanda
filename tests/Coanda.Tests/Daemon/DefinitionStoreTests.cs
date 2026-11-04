@@ -99,6 +99,43 @@ public sealed class DefinitionStoreTests
     }
 
     [Fact]
+    public async Task An_owner_scope_draft_may_fork_a_seeded_shipped_version()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+
+        Definition draft = await Definitions(store).DraftParcelTypeAsync(
+            Principal.LocalOwner, DefinitionScope.Owner, null, QaTask, new ForkBase("task", 1), CancellationToken.None);
+
+        draft.Scope.Should().Be(DefinitionScope.Owner);
+        draft.ForkBase.Should().Be(new ForkBase("task", 1));
+    }
+
+    [Theory]
+    [InlineData(DefinitionScope.Project, "alpha")]
+    [InlineData(DefinitionScope.Owner, null)]
+    public async Task A_draft_whose_fork_base_names_no_seeded_shipped_version_is_refused(DefinitionScope scope, string? project)
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        DefinitionService definitions = Definitions(store);
+
+        foreach (ForkBase unshipped in new[] { new ForkBase("task", 2), new ForkBase("bug", 1) })
+        {
+            await FluentActions.Awaiting(() => definitions.DraftParcelTypeAsync(
+                    Principal.LocalOwner, scope, project, QaTask, unshipped, CancellationToken.None))
+                .Should().ThrowAsync<DomainException>()
+                .WithMessage($"The fork base '{unshipped.Name}' version {unshipped.Version} of 'task' names no shipped parcel type*");
+        }
+
+        // A shipped definition of another kind is not a fork base for a parcel type.
+        await definitions.SeedAsync(ShippedDefinitions.Contours, CancellationToken.None);
+        await FluentActions.Awaiting(() => definitions.DraftParcelTypeAsync(
+                Principal.LocalOwner, scope, project, QaTask, new ForkBase("build", 1), CancellationToken.None))
+            .Should().ThrowAsync<DomainException>().WithMessage("The fork base 'build' version 1*");
+    }
+
+    [Fact]
     public async Task Versions_count_from_one_per_name_and_per_project_and_a_draft_does_not_resolve()
     {
         using var temp = new TemporaryHome();
