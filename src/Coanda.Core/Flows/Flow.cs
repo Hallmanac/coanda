@@ -105,6 +105,14 @@ public sealed class Flow
     [JsonIgnore]
     public FlowStepEntry? Current => Steps.Count == 0 ? null : Steps[^1];
 
+    /// <summary>
+    /// Whether the flow is running and its current visit still expects the launch
+    /// <paramref name="launchId"/>: see <see cref="FlowStepEntry.ExpectsLaunch"/>. Once this is
+    /// false for a launch it is never true again, since every later launch carries an id of its own.
+    /// </summary>
+    public bool ExpectsLaunch(Guid launchId) =>
+        Status == FlowStatus.Running && Current is { } current && current.ExpectsLaunch(launchId);
+
     /// <summary>Where the flow stands, as the interpreter reads it.</summary>
     [JsonIgnore]
     public FlowPosition Position => new(CurrentStep, Visits.ToImmutableDictionary(StringComparer.Ordinal), Spawns);
@@ -153,7 +161,7 @@ public sealed class Flow
     public void Apply(JudgmentRespawned respawned)
     {
         Spawns += 1;
-        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt, SpawnedAt = null, SessionId = null });
+        Record(entry => entry with { RespawnedAt = respawned.RespawnedAt, SpawnedAt = null, SessionId = null, LaunchId = null });
         UpdatedAt = respawned.RespawnedAt;
     }
 
@@ -172,6 +180,7 @@ public sealed class Flow
             AgentHash = spawned.AgentHash,
             Model = spawned.Model,
             SessionId = null,
+            LaunchId = spawned.LaunchId,
         });
         UpdatedAt = spawned.SpawnedAt;
     }

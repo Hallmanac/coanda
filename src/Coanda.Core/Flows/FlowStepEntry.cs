@@ -62,6 +62,13 @@ public sealed record FlowStepEntry
     public Guid? SessionId { get; init; }
 
     /// <summary>
+    /// The id the daemon assigned this judgment visit's latest launch, or null while the visit has
+    /// no launch on the spawn it last counted (or the launch predates launch ids). A launch sets it
+    /// and a resume's counted spawn clears it.
+    /// </summary>
+    public Guid? LaunchId { get; init; }
+
+    /// <summary>
     /// Whether a resume of this visit spawns another agent beyond those already counted: a judgment
     /// resumed since its last count whose counted spawn was used, by a launch or by the recorded
     /// answer only a launch gives.
@@ -81,4 +88,13 @@ public sealed record FlowStepEntry
     /// longer the visit's even though its id is still held.
     /// </summary>
     public bool Expects(Guid sessionId) => SessionId == sessionId && ResumedAt is null;
+
+    /// <summary>
+    /// Whether this visit still expects what its launch <paramref name="launchId"/> records: it is a
+    /// judgment, that launch is its latest, it has not been resumed since, and it has recorded no
+    /// answer yet. This is the rule an answer is recorded under, stated for the launch rather than
+    /// the session, since a launch is known before its session is returned.
+    /// </summary>
+    public bool ExpectsLaunch(Guid launchId) =>
+        Kind == StepKind.Judgment && LaunchId == launchId && ResumedAt is null && !IsRecorded;
 }
