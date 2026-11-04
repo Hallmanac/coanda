@@ -15,9 +15,10 @@ namespace Coanda.Daemon.Definitions;
 /// save. Project-scope definitions live in their project's tenant; owner-scope and shipped-scope
 /// definitions live in the node tenant (<see cref="Tenants.Node"/>). Writes are serialized so that
 /// two drafts of one name cannot be handed the same version. A drafted parcel type is validated
-/// against the names of the gates the daemon runs, none when it is given none.
+/// against the names of the gates the daemon runs, and a drafted or seeded contour against the
+/// names of the actions it registered; none of either when it is given none.
 /// </summary>
-public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null)
+public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null, IReadOnlySet<string>? actions = null)
 {
     /// <summary>
     /// The principal seeding acts as: the daemon itself, in the Owner role, because seeding is the
@@ -53,7 +54,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             IReadOnlyList<Definition> existing = await session.Query<Definition>().ToListAsync(cancellationToken);
             int latest = LatestVersion(existing, kind, scope, project, name);
             DefinitionDrafted drafted = DefinitionDecider.Draft(
-                kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(), (gates ?? GateSet.None).Names);
+                kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(), (gates ?? GateSet.None).Names, actions);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);
@@ -138,7 +139,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
                 }
 
                 (DefinitionDrafted drafted, DefinitionPublished published) = DefinitionDecider.Seed(
-                    definition, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(), SeedPrincipal.Id, clock.GetUtcNow());
+                    definition, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(), SeedPrincipal.Id, clock.GetUtcNow(), actions);
                 session.Events.StartStream<Definition>(drafted.DefinitionId, drafted, published);
 
                 Definition created = Definition.Create(drafted);

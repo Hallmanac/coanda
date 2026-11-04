@@ -68,7 +68,7 @@ public sealed class DaemonSeedingTests
         ParcelType qa = ShippedTypes.Task with { EntryStates = ["refine", "build"] };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            var definitions = new DefinitionService(store, TimeProvider.System);
+            var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
             Definition draft = await definitions.DraftParcelTypeAsync(Principal.LocalOwner, DefinitionScope.Project, "alpha", qa, null, CancellationToken.None);
             await definitions.PublishAsync(Principal.LocalOwner, "alpha", draft.Id, CancellationToken.None);
         }
@@ -140,7 +140,7 @@ public sealed class DaemonSeedingTests
         Contour quick = ShippedContours.ReviewOnAssignment with { Budget = 1m };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            var definitions = new DefinitionService(store, TimeProvider.System);
+            var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
             Definition draft = await definitions.DraftAsync(
                 Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, "alpha",
                 quick.Name, Contour.CanonicalJson(quick), quick.Hash, null, CancellationToken.None);

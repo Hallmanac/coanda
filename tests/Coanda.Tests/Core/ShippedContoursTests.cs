@@ -38,14 +38,14 @@ public sealed class ShippedContoursTests
         ShippedContours.All.Select(f => f.Name).Should().Equal("build", "discovery", "review-on-assignment");
         foreach (Contour contour in ShippedContours.All)
         {
-            contour.Validate(DefinitionDecider.KnownActions);
+            contour.Validate(ShippedActions.Names);
         }
     }
 
     [Fact]
-    public void The_known_actions_are_the_core_catalog_and_the_software_catalog()
+    public void The_shipped_actions_are_the_core_catalog_and_the_software_catalog()
     {
-        DefinitionDecider.KnownActions.Should().BeEquivalentTo(
+        ShippedActions.Names.Should().BeEquivalentTo(
         [
             "spawn", "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
             "worktree", "gates", "open-pr", "gated-merge", "rebase",
