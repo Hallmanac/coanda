@@ -52,6 +52,17 @@ public static class SettingsEvidence
         return 0;
     }
 
+    /// <summary>
+    /// Whether a session's <paramref name="arguments"/> register the hook, which the marker appearing
+    /// in its settings document shows. A session a daemon before this check spawned has arguments that
+    /// do not, and its process can never print the evidence.
+    /// </summary>
+    public static bool RegisteredIn(IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        return arguments.Any(argument => argument.Contains(Marker, StringComparison.Ordinal));
+    }
+
     /// <summary>Whether the hook's quoted standard error holds the marker as one of its lines.</summary>
     public static bool Holds(string? standardError) =>
         standardError is not null

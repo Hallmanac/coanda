@@ -295,7 +295,8 @@ public sealed class ClaudeCodeFlowRunTests
 
     private static string NotApplied(string version) =>
         $"Step 'build' got no judgment from agent 'build': The session's settings document, and with it its tool guard, was not applied by claude CLI {version}: "
-        + "its init event came without the evidence the document's SessionStart hook prints, so its process was stopped and no answer was collected from it.";
+        + "its init event came without the evidence the document's SessionStart hook prints, so its process was stopped and no answer was collected from it. "
+        + "A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.";
 
     /// <summary>The context a prompt opens with: everything before the paragraph that names the files.</summary>
     private static string ContextOf(string prompt) => prompt[..prompt.IndexOf("\n\nThe task's record is in", StringComparison.Ordinal)];

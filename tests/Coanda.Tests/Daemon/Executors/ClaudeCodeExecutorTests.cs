@@ -1006,7 +1006,6 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         rules.ProtectedConfigDirectories.Should().Contain([Path.Combine(userHome, ".claude.json"), Path.Combine(userHome, ".claude.json.backup")]);
     }
 
-    /// <summary>The arguments with the tool guard and the setting that keeps hooks on taken out of the settings document.</summary>
     [Fact]
     public async Task A_spawn_and_its_resume_are_answered_once_each_process_prints_the_evidence_its_settings_document_registers()
     {
@@ -1046,7 +1045,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         failure.Message.Should().Be(
             "The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.999: its init event came without the evidence "
-            + "the document's SessionStart hook prints, so its process was stopped and no answer was collected from it.");
+            + "the document's SessionStart hook prints, so its process was stopped and no answer was collected from it. "
+            + "A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.");
         int pid = fake.Starts.Should().ContainSingle().Subject.Pid;
         await Until(() => FakeClaude.Finished(pid));
         StopReport? report = await executor.StopAsync(handle, None);
@@ -1094,6 +1094,34 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_session_a_daemon_before_the_check_spawned_is_collected_without_the_evidence_after_an_upgrade()
+    {
+        using var fake = new FakeClaude(new { settings = "skipped", reply = ValidBuild, totalCost = 0.3m });
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
+
+        // The record an older daemon wrote: its settings document registered no evidence hook.
+        string path = temp.Home.SessionRecordPath(handle.Id);
+        JsonNode record = JsonNode.Parse(File.ReadAllText(path)) ?? throw new InvalidOperationException("An empty record.");
+        List<string> arguments = [.. (record["arguments"]?.AsArray() ?? []).Select(argument => (string?)argument ?? string.Empty)];
+        int index = arguments.IndexOf("--settings");
+        JsonNode settings = JsonNode.Parse(arguments[index + 1]) ?? throw new InvalidOperationException("An empty settings document.");
+        settings["hooks"]?.AsObject().Remove(SettingsEvidence.HookEvent);
+        arguments[index + 1] = settings.ToJsonString();
+        SettingsEvidence.RegisteredIn(arguments).Should().BeFalse();
+        record["arguments"] = new JsonArray([.. arguments.Select(argument => (JsonNode?)JsonValue.Create(argument))]);
+        File.WriteAllText(path, record.ToJsonString());
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle) with { Finished = true });
+        CollectedAnswer collected = await restarted.CollectAsync(handle, None);
+
+        collected.Answer.Should().Be(ValidBuild);
+        collected.Usage.CostUsd.Should().Be(0.3m);
+    }
+
+    [Fact]
     public async Task A_session_that_answered_without_the_evidence_while_no_daemon_ran_has_no_answer_collected_from_it()
     {
         using var fake = new FakeClaude(new { settings = "skipped", reply = ValidBuild, totalCost = 0.3m });
@@ -1105,7 +1133,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         InvalidOperationException failure = (await FluentActions.Awaiting(() => restarted.CollectAsync(handle, None).AsTask())
             .Should().ThrowAsync<InvalidOperationException>()).Which;
-        failure.Message.Should().EndWith("so no answer was collected from its process.");
+        failure.Message.Should().Contain("so no answer was collected from its process.");
         (await restarted.StopAsync(handle, None)).Should().NotBeNull("its result was never collected, so the stop reports its usage");
     }
 
@@ -1154,6 +1182,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         return (process.ExitCode, await output, await error);
     }
 
+    /// <summary>The arguments with the tool guard and the setting that keeps hooks on taken out of the settings document.</summary>
     private static List<string> WithoutGuard(IReadOnlyList<string> arguments)
     {
         List<string> stripped = [.. arguments];
