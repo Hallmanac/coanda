@@ -258,8 +258,8 @@ public static class ToolGuard
                 {
                     case null:
                         break;
-                    case { Kind: DirectoryMoveKind.Unknown }:
-                        unknowable ??= "a cd with two directories, which zsh reads as a replacement in the name of the directory the shell is in";
+                    case { Kind: DirectoryMoveKind.Unknown, Destination: { } reason }:
+                        unknowable ??= reason;
                         break;
                     case { Kind: DirectoryMoveKind.To, Destination: "-" }:
                         unknowable ??= "cd -, which returns to the shell's previous directory";
