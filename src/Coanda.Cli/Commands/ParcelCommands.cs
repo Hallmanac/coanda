@@ -160,10 +160,10 @@ public sealed class TypeListCommand : AsyncCommand<ProjectSettings>
         using var client = new DaemonClient(NodeHome.Resolve());
         string project = settings.ResolveProject();
         List<TypeView> types = await client.GetAsync<List<TypeView>>($"/types?project={Uri.EscapeDataString(project)}", cancellationToken);
-        var table = new Table().AddColumns("Type", "Hash", "States", "Resolutions");
+        var table = new Table().AddColumns(DefinitionRendering.TypeListColumns);
         foreach (TypeView type in types)
         {
-            table.AddRow(type.Name, type.Hash, string.Join(", ", type.States), string.Join(", ", type.Resolutions));
+            table.AddRow(DefinitionRendering.TypeListRow(type));
         }
 
         AnsiConsole.Write(table);
@@ -178,10 +178,10 @@ public sealed class ContourListCommand : AsyncCommand<ProjectSettings>
         using var client = new DaemonClient(NodeHome.Resolve());
         string project = settings.ResolveProject();
         List<ContourView> contours = await client.GetAsync<List<ContourView>>($"/contours?project={Uri.EscapeDataString(project)}", cancellationToken);
-        var table = new Table().AddColumns("Contour", "Version", "Hash");
+        var table = new Table().AddColumns(DefinitionRendering.ContourListColumns);
         foreach (ContourView contour in contours)
         {
-            table.AddRow(contour.Name, contour.Version.ToString(), contour.Hash);
+            table.AddRow(DefinitionRendering.ContourListRow(contour));
         }
 
         AnsiConsole.Write(table);
