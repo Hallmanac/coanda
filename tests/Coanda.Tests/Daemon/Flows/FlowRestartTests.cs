@@ -473,6 +473,91 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_resumed_visit_records_what_stopping_its_earlier_session_reports_before_it_launches_another()
+    {
+        using var temp = new TemporaryHome();
+        Measurement left = Scripts.Usage(3);
+        IDocumentStore? store = null;
+        Guid flowId = Guid.Empty;
+        var costAtRelaunch = new TaskCompletionSource<decimal>(TaskCreationOptions.RunContinuationsAsynchronously);
+        GatedExecutor? stopping = null;
+        stopping = new GatedExecutor(Scripts.CleanBuildExecutor())
+        {
+            FailStops = true,
+            CollectsGiveUp = true,
+            InProgressUsage = left,
+            BeforeSpawn = async _ =>
+            {
+                if (stopping?.Inner.Spawns.Count == 1 && store is not null)
+                {
+                    Flow? relaunching = await new FlowService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowId, None);
+                    costAtRelaunch.TrySetResult(relaunching?.Cost ?? -1m);
+                }
+            },
+        };
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stopping }, None);
+        store = daemon.Services.GetRequiredService<IDocumentStore>();
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Left running, then stopped");
+        flowId = (await Flowing.BoundAsync(client, Project, parcel.Id)).Id;
+        FlowView paused = await Flowing.UntilAsync(client, Project, flowId, "paused");
+        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':");
+        SessionHandle issued = stopping.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+        (await stopping.ListAsync(None)).Should().ContainSingle("its stop after the pause failed").Which.Should().Be(issued);
+
+        stopping.FailStops = false;
+        stopping.CollectsGiveUp = false;
+        await Flowing.ResumeAsync(client, Project, flowId, "Again.");
+        decimal relaunchCost = await costAtRelaunch.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        relaunchCost.Should().Be(paused.Cost + left.CostUsd, "the stop's report is recorded before the new launch");
+        stopping.Inner.Stops.Should().Equal(issued);
+        await using (IQuerySession session = store.QuerySession(Project))
+        {
+            IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(flowId, token: None);
+            events.Select(e => e.Data).OfType<JudgmentUsageRecorded>().Should().ContainSingle()
+                .Which.Should().BeEquivalentTo(new { Step = "build", Agent = "build", SessionId = issued.Id, Usage = left });
+        }
+
+        await stopping.Holding.WaitAsync(TimeSpan.FromSeconds(15));
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_resumed_visit_whose_stopped_earlier_session_reports_usage_reaching_the_budget_pauses_on_it_without_launching_another()
+    {
+        using var temp = new TemporaryHome();
+        var stopping = new GatedExecutor(Scripts.CleanBuildExecutor())
+        {
+            FailStops = true,
+            CollectsGiveUp = true,
+            InProgressUsage = new Measurement(1000, ShippedContours.Build.Budget, 1, TimeSpan.FromSeconds(30)),
+        };
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stopping }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Spent by its stop");
+        Guid flowId = (await Flowing.BoundAsync(client, Project, parcel.Id)).Id;
+        (await Flowing.UntilAsync(client, Project, flowId, "paused")).PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':");
+        SessionHandle issued = stopping.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+
+        stopping.FailStops = false;
+        stopping.CollectsGiveUp = false;
+        await Flowing.ResumeAsync(client, Project, flowId, "Again.");
+        await Flowing.UntilAsync(async () => (await Flowing.ShowAsync(client, Project, flowId)).Lever == FlowLevers.BudgetReached(), "the resume pauses on the budget");
+        FlowView spent = await Flowing.ShowAsync(client, Project, flowId);
+
+        spent.Status.Should().Be("paused");
+        spent.Cost.Should().BeGreaterThanOrEqualTo(ShippedContours.Build.Budget);
+        spent.PauseReason.Should().StartWith($"Flow {Ids.Short(flowId)} has recorded a cost of");
+        stopping.Inner.Stops.Should().Equal(issued);
+        stopping.Inner.Spawns.Should().ContainSingle("the budget the stopped session's usage reached launches no other agent");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_resumed_visit_whose_earlier_session_will_not_stop_pauses_without_launching_another()
     {
         using var temp = new TemporaryHome();

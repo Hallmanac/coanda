@@ -26,17 +26,17 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     public ScriptedExecutor Inner => inner;
 
-    /// <summary>When set, every stop is recorded and then fails, as an executor that cannot end its session would.</summary>
-    public bool FailStops { get; init; }
+    /// <summary>While set, every stop is recorded and then fails, as an executor that cannot end its session would.</summary>
+    public bool FailStops { get; set; }
 
     /// <summary>How many of the first spawns fail before returning a handle, as an executor that cannot launch the agent would.</summary>
     public int FailingSpawns { get; init; }
 
     /// <summary>
-    /// When set, every collect throws <see cref="TaskCanceledException"/> of its own accord, with no
+    /// While set, every collect throws <see cref="TaskCanceledException"/> of its own accord, with no
     /// token cancelled, as an executor whose own timeout or I/O gives up would.
     /// </summary>
-    public bool CollectsGiveUp { get; init; }
+    public bool CollectsGiveUp { get; set; }
 
     /// <summary>How many of the first collects pass without waiting at the gate.</summary>
     public int FreeCollects { get; init; }
@@ -163,7 +163,9 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
         lock (records)
         {
             stopTokensCancelled.Add(cancellationToken.IsCancellationRequested);
-            attempting = inProgress.Remove(handle.Id);
+
+            // A stop that fails ends nothing, so the attempt it would have ended is still in progress.
+            attempting = !FailStops && inProgress.Remove(handle.Id);
         }
 
         if (FailStops)
