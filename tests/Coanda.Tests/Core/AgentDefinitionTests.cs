@@ -9,7 +9,7 @@ public sealed class AgentDefinitionTests
     {
         Name = "scribe",
         Persona = new AgentPersona("a role", "a purpose", "an output", "some rules", "some prohibitions"),
-        Model = new ModelTriple("claude-code", "claude-sonnet-5-5", "high"),
+        Model = new ModelSpec("claude-code", "claude-sonnet-5-5", "high"),
         Tools = ["read", "search", "edit"],
         Skills = ["alpha-skill", "beta-skill"],
         McpServers = ["docs", "tracker"],
@@ -60,19 +60,19 @@ public sealed class AgentDefinitionTests
     [InlineData("vendor", "a vendor")]
     [InlineData("model", "a model")]
     [InlineData("effort", "an effort")]
-    public void A_model_triple_with_a_missing_or_blank_part_is_refused(string part, string phrase)
+    public void A_model_spec_with_a_missing_or_blank_part_is_refused(string part, string phrase)
     {
         foreach (string? bad in new string?[] { null, "", "   " })
         {
-            ModelTriple model = Agent().Model;
-            ModelTriple broken = part switch
+            ModelSpec model = Agent().Model;
+            ModelSpec broken = part switch
             {
                 "vendor" => model with { Vendor = bad! },
                 "model" => model with { Model = bad! },
                 _ => model with { Effort = bad! },
             };
 
-            Refused(Agent() with { Model = broken }, $"Agent 'scribe' needs {phrase} in its model triple.");
+            Refused(Agent() with { Model = broken }, $"Agent 'scribe' needs {phrase} in its model spec.");
         }
     }
 
@@ -155,7 +155,7 @@ public sealed class AgentDefinitionTests
         {
             Name = "tiny",
             Persona = new AgentPersona("r", "p", "o", "ru", "pr"),
-            Model = new ModelTriple("v", "m", "e"),
+            Model = new ModelSpec("v", "m", "e"),
             Tools = ["read"],
             Skills = ["s"],
             McpServers = ["x"],

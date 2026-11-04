@@ -86,7 +86,7 @@ public sealed record FlightStepView(
     string Performer,
     DateTimeOffset StartedAt,
     string? AgentHash,
-    ModelTriple? Model,
+    ModelSpec? Model,
     JsonElement? Answer,
     Measurement? Measurement,
     JsonElement? Result,
@@ -102,7 +102,7 @@ public sealed record TypeView(string Name, string Hash, IReadOnlyList<string> St
 
 public sealed record FlowView(string Name, int Version, string Hash);
 
-public sealed record AgentView(string Name, int Version, ModelTriple Model, string Hash)
+public sealed record AgentView(string Name, int Version, ModelSpec Model, string Hash)
 {
     public static AgentView From(Definition definition) => new(
         definition.Name, definition.VersionNumber, AgentDefinition.FromJson(definition.Content).Model, definition.ContentHash);

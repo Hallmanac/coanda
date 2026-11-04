@@ -17,7 +17,7 @@ public sealed record FlightStepEntry
 
     public DateTimeOffset StartedAt { get; init; }
     public string? AgentHash { get; init; }
-    public ModelTriple? Model { get; init; }
+    public ModelSpec? Model { get; init; }
     public JsonElement? Answer { get; init; }
     public Measurement? Measurement { get; init; }
     public JsonElement? Result { get; init; }

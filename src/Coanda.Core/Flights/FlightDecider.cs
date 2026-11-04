@@ -95,7 +95,7 @@ public static class FlightDecider
         string step,
         string agent,
         string agentHash,
-        ModelTriple model,
+        ModelSpec model,
         JsonElement answer,
         Measurement measurement,
         DateTimeOffset now)
@@ -121,7 +121,7 @@ public static class FlightDecider
 
         if (string.IsNullOrWhiteSpace(model.Vendor) || string.IsNullOrWhiteSpace(model.Model) || string.IsNullOrWhiteSpace(model.Effort))
         {
-            throw new DomainException("An answer records the model triple it ran on: a vendor, a model, and an effort.");
+            throw new DomainException("An answer records the model spec it ran on: a vendor, a model, and an effort.");
         }
 
         RequireMeasurement(measurement);

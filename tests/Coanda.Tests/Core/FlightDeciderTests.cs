@@ -14,7 +14,7 @@ public sealed class FlightDeciderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
     private static readonly FlowDefinition Build = ShippedFlows.Build;
-    private static readonly ModelTriple Model = new("anthropic", "claude-opus-5-5", "high");
+    private static readonly ModelSpec Model = new("anthropic", "claude-opus-5-5", "high");
     private static readonly Measurement Spend = new(1200, 0.42m, 3, TimeSpan.FromSeconds(63));
 
     private static Parcel ParcelOf(string type = "task") =>
