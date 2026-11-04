@@ -13,7 +13,8 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// console interrupt aimed at the daemon: its standard input, output, and error are files, never a
 /// pipe to the daemon, and it shares neither the daemon's process group nor its console. A later
 /// daemon finds it again by its process id and the identity recorded at its start (its start time),
-/// so a process id the system has since given another process is never taken for it.
+/// so a process id the system has since given another process is never taken for it. The CLI starts
+/// the daemon itself with it too, so the daemon is detached from the command that started it in the same way.
 /// </summary>
 /// <remarks>
 /// On macOS and Linux it is started with <c>posix_spawn</c> as the leader of a process group of its
@@ -472,7 +473,13 @@ internal sealed class DetachedProcess : IDisposable
                 for (int i = 0; i < standard.Length; i++)
                 {
                     standard[i].DangerousAddRef(ref held[i]);
-                    Marshal.WriteIntPtr(handles, i * IntPtr.Size, standard[i].DangerousGetHandle());
+                }
+
+                // A handle given for more than one stream, such as one file for output and error, is listed once.
+                IntPtr[] inherited = [.. standard.Select(h => h.DangerousGetHandle()).Distinct()];
+                for (int i = 0; i < inherited.Length; i++)
+                {
+                    Marshal.WriteIntPtr(handles, i * IntPtr.Size, inherited[i]);
                 }
 
                 if (!SetFilePointerEx(output, 0, IntPtr.Zero, FileEnd))
@@ -490,7 +497,7 @@ internal sealed class DetachedProcess : IDisposable
                 }
 
                 listReady = true;
-                if (!UpdateProcThreadAttribute(list, 0, HandleList, handles, IntPtr.Size * standard.Length, IntPtr.Zero, IntPtr.Zero))
+                if (!UpdateProcThreadAttribute(list, 0, HandleList, handles, IntPtr.Size * inherited.Length, IntPtr.Zero, IntPtr.Zero))
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error());
                 }

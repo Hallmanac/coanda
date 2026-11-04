@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Coanda.Tests" />
+    <!-- The CLI starts its daemon with the executor's detached launcher. -->
+    <InternalsVisibleTo Include="coa" />
   </ItemGroup>
 
 </Project>
