@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using Coanda.Core;
+using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Projects;
 using Coanda.Core.Software;
@@ -15,12 +17,15 @@ namespace Coanda.Daemon.Actions;
 /// <summary>
 /// Pushes the flow's branch to the project's remote and opens a pull request from it against the
 /// primary branch, or reuses the open one whose head it already is, then records that pull request
-/// in the task's <c>pull-request</c> field and answers <c>done</c> with its
+/// in the task's <c>pull-request</c> field and answers <see cref="OpenedVerdict"/> with its
 /// <c>number</c> and <c>url</c> and the <c>head</c> pushed. The remote is parsed and the token read
 /// before anything is pushed, so a flow that cannot open a pull request pushes nothing. A worktree
 /// with changes, a remote that is no github.com repository, no token, a failed push, and a request
 /// GitHub refuses each pause with the perform-again lever; a push the lease refuses pauses with a
 /// lever to stop the flow, because performing the step again would be refused the same way.
+/// A flow keeps the contour version it started under, and the build contour before this one routed
+/// open-pr only on <c>done</c>, so a step that routes on <c>done</c> and not on
+/// <see cref="OpenedVerdict"/> is answered <c>done</c> instead, and such a flow moves past it.
 /// </summary>
 public sealed class OpenPrAction(
     ParcelService parcels,
@@ -29,6 +34,9 @@ public sealed class OpenPrAction(
     GitHubToken tokens,
     Func<GitHubClient> github) : IFlowAction
 {
+    /// <summary>The verdict the action answers once the pull request is open.</summary>
+    public const string OpenedVerdict = "opened";
+
     /// <summary>The task field the pull request is recorded in.</summary>
     public const string PullRequestField = "pull-request";
 
@@ -108,8 +116,23 @@ public sealed class OpenPrAction(
             await parcels.SetFieldAsync(request.Principal, request.Project, request.ParcelId, PullRequestField, recorded, cancellationToken);
         }
 
-        return ActionOutcome.DoneWith(Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));
+        return ActionOutcome.ResultWith(VerdictFor(request.Step), Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));
     }
+
+    /// <summary>
+    /// The verdict <paramref name="step"/> routes on once the pull request is open: <see cref="OpenedVerdict"/>,
+    /// unless the step routes on <c>done</c> and not on it, as the build contour before this one did.
+    /// </summary>
+    public static string VerdictFor(ContourStep step) =>
+        RoutesOn(step, ActionOutcome.DoneVerdict) && !RoutesOn(step, OpenedVerdict)
+            ? ActionOutcome.DoneVerdict
+            : OpenedVerdict;
+
+    private static bool RoutesOn(ContourStep step, string verdict) =>
+        step.Transitions.Any(t =>
+            t.Field == ActionOutcome.Verdict
+            && t.Value.ValueKind == JsonValueKind.String
+            && t.Value.GetString() == verdict);
 
     /// <summary>The pull request's body: the task's objective, then its criteria as a list.</summary>
     public static string Body(Parcel parcel)

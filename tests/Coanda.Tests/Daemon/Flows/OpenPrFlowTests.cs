@@ -33,7 +33,7 @@ public sealed class OpenPrFlowTests
         FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         JsonElement opened = flow.Steps.Single(s => s.Step == "open-pr").Result.GetValueOrDefault();
-        opened.GetProperty("verdict").GetString().Should().Be(ActionOutcome.DoneVerdict);
+        opened.GetProperty("verdict").GetString().Should().Be(OpenPrAction.OpenedVerdict);
         opened.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
         opened.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);
         opened.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
