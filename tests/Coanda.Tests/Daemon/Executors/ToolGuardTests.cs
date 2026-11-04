@@ -244,21 +244,47 @@ public sealed class ToolGuardTests : IDisposable
     public void A_directory_change_inside_a_subshell_ends_with_the_subshell() =>
         RefusedInNodeHome(Guard(Call("Bash", new { command = "(cd src && ls) && cat ../notes.md" })));
 
+    [Fact]
+    public void A_cd_not_joined_by_and_to_the_next_command_leaves_it_judged_from_where_the_shell_was_too()
+    {
+        Directory.CreateDirectory(Path.Combine(work, "a", "b", "c"));
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cd a/b/c | cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cd missing/b/c; cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cd a/b/c & cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cd a/b/c && ls || cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "true || cd a/b/c && cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cd a/b/c && ls\ncat ../../../daemon.json" })));
+        Allowed(Guard(Call("Bash", new { command = "cd a/b/c && ls ../../.. && cat ../x | grep ../../y" })));
+        Allowed(Guard(Call("Bash", new { command = "true && cd a/b/c && (ls ../..; cat ../x)" })));
+    }
+
     [Theory]
     [InlineData("cat */../../../daemon.json")]
     [InlineData("cat src/*/../../../../daemon.json")]
     [InlineData("cat {..,src}/daemon.json")]
     [InlineData("cat .*/.*/.*/daemon.json")]
     [InlineData("ls .?")]
-    public void A_shell_word_that_may_climb_after_a_wildcard_is_refused(string command) =>
-        RefusedClimbing(Guard(Call("Bash", new { command })));
+    public void A_shell_word_that_may_climb_after_a_wildcard_is_judged_by_the_highest_directory_it_may_reach(string command) =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command })));
 
     [Fact]
-    public void A_glob_whose_pattern_may_climb_after_a_wildcard_is_refused()
+    public void A_glob_whose_pattern_may_climb_after_a_wildcard_is_judged_by_the_highest_directory_it_may_reach()
     {
-        RefusedClimbing(Guard(Call("Glob", new { pattern = "*/../../../*.json" })));
-        RefusedClimbing(Guard(Call("Glob", new { pattern = "*/../../*.json", path = Path.Combine(work, "src") })));
+        RefusedInNodeHome(Guard(Call("Glob", new { pattern = "*/../../../*.json" })));
+        RefusedInNodeHome(Guard(Call("Glob", new { pattern = "*/../../../*.json", path = Path.Combine(work, "src") })));
     }
+
+    [Theory]
+    [InlineData("foo/.*bar", "foo/", 1)]
+    [InlineData("s/.*//", "s/", 1)]
+    [InlineData("https?://.*", "", 0)]
+    [InlineData("*/../../x", "", 1)]
+    [InlineData("a/{..,b}/.?/c", "a/", 2)]
+    [InlineData("src/*.cs", "src/", 0)]
+    [InlineData("src/a.cs", "src/a.cs", 0)]
+    public void The_highest_directory_a_pattern_may_reach_counts_each_climb_beyond_its_descents(string text, string before, int climbs) =>
+        ShellWords.HighestReach(text).Should().Be(before + string.Concat(Enumerable.Repeat(".." + Path.DirectorySeparatorChar, climbs)));
 
     [Theory]
     [InlineData("/c/Users/me/.coanda/daemon.json", @"C:\Users\me\.coanda\daemon.json")]
@@ -413,6 +439,7 @@ public sealed class ToolGuardTests : IDisposable
         Allowed(Guard(Call("Bash", new { command = "cd src && ls $PWD/.." }), environment: environment));
         Allowed(Guard(Call("Bash", new { command = "ls src/*.cs ./src/a{,.bak}.cs && for i in {1..5}; do echo $i; done" }), environment: environment));
         Allowed(Guard(Call("Bash", new { command = "ls -d src/.git*" }), environment: environment));
+        Allowed(Guard(Call("Bash", new { command = "grep -rn \"foo/.*bar\" src && sed 's/.*//' a.txt && rg \"https?://.*\" src" }), environment: environment));
     }
 
     [Fact]
@@ -444,12 +471,6 @@ public sealed class ToolGuardTests : IDisposable
     {
         outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
         outcome.Reason.Should().Contain("which the tool guard cannot know");
-    }
-
-    private static void RefusedClimbing(ToolGuardOutcome outcome)
-    {
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().Contain("may climb to a parent directory after a wildcard");
     }
 
     private static void RefusedUnreadable(ToolGuardOutcome outcome)

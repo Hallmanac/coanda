@@ -128,12 +128,14 @@ the config directory the session runs under, beside its transcript). The guard r
 a Read, Edit, or Write; the path of a Glob or Grep and the pattern of a Glob; and every word of a
 Bash command that looks like a path, after expanding `~` and the session's variables as its shell
 would (`$PWD` is the directory the shell is in at that point, and a variable the session does not define is
-empty). A relative word in a command is judged against the directory a `cd` or `pushd` earlier in
-the command moved to, or the directory the call runs in when there is none, and the destination of a
-`cd` is judged too; a bare `cd` goes to your home directory, which holds the node home. The guard
-refuses a call that depends on `$OLDPWD` or `cd -`, since it cannot know the shell's previous
-directory, and a path that may climb with `..` after a wildcard (`*/../..`, `{..,src}`, or `.*`,
-which some shells match to `..`). On Windows it also reads a Git Bash drive path such as
+empty). A relative word in a command is judged against each directory a `cd` or `pushd` earlier in
+the command may have moved the shell to, and against the directory the call runs in as well, unless
+the word's command is joined to the `cd` by `&&`; the destination of a `cd` is judged too, and a bare
+`cd` goes to your home directory, which holds the node home. The guard refuses a call that depends on
+`$OLDPWD` or `cd -`, since it cannot know the shell's previous directory. A path with a wildcard is
+judged by the highest directory it may reach: the part before its first wildcard, climbed once for
+each `..` after it (including a `..` inside braces, and `.*` or `.?`, which some shells match to
+`..`) beyond the levels its other components descend. On Windows it also reads a Git Bash drive path such as
 `/c/Users/me` as `C:\Users\me`. It resolves symbolic links before it compares, and on macOS and
 Windows it ignores case. A refused call reaches the session as an error saying why.
 

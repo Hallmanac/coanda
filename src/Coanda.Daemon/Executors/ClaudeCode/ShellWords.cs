@@ -23,7 +23,8 @@ public static partial class ShellWords
 
     /// <summary>
     /// The commands of <paramref name="command"/>, in order, each as its words with their quotes
-    /// removed and with how many subshells (parentheses, <c>$(</c>, or backticks) it runs inside.
+    /// removed, with how many subshells (parentheses, <c>$(</c>, or backticks) it runs inside, and
+    /// with the operators on either side of it.
     /// </summary>
     public static IReadOnlyList<ShellCommand> Commands(string command)
     {
@@ -33,12 +34,22 @@ public static partial class ShellWords
         var word = new StringBuilder();
         int depth = 0;
         bool backticks = false;
-        foreach (char c in command)
+        string before = string.Empty;
+        for (int i = 0; i < command.Length; i++)
         {
+            char c = command[i];
             if (c is '\n' or '\r' || CommandOperators.Contains(c, StringComparison.Ordinal))
             {
                 EndWord();
-                EndCommand();
+                string op = c switch
+                {
+                    '&' or '|' when i + 1 < command.Length && command[i + 1] == c => new string(c, 2),
+                    '\n' or '\r' => ";",
+                    '`' => backticks ? ")" : "(",
+                    _ => c.ToString(),
+                };
+                i += op.Length - 1;
+                EndCommand(op);
                 switch (c)
                 {
                     case '(':
@@ -63,7 +74,7 @@ public static partial class ShellWords
         }
 
         EndWord();
-        EndCommand();
+        EndCommand(string.Empty);
         return commands;
 
         void EndWord()
@@ -75,13 +86,15 @@ public static partial class ShellWords
             }
         }
 
-        void EndCommand()
+        void EndCommand(string after)
         {
             if (words.Count > 0)
             {
-                commands.Add(new ShellCommand([.. words], backticks ? depth + 1 : depth));
+                commands.Add(new ShellCommand([.. words], backticks ? depth + 1 : depth, before, after));
                 words.Clear();
             }
+
+            before = after;
         }
     }
 
@@ -160,34 +173,39 @@ public static partial class ShellWords
     }
 
     /// <summary>
-    /// Whether the part of a pattern or word from its first wildcard component on may climb to a
-    /// parent directory, which <see cref="BeforeWildcard"/> leaves unjudged: a component that is
-    /// <c>..</c>, alone or as one choice of a brace, or that begins with <c>.</c> followed by a
-    /// wildcard or a second <c>.</c>, which a shell may match to <c>..</c>.
+    /// The highest directory a pattern or word may reach: <see cref="BeforeWildcard"/>, followed by
+    /// one <c>..</c> for each level the part from its first wildcard component on may climb above it.
+    /// A component that is <c>..</c>, alone or as one choice of a brace, or that begins with <c>.</c>
+    /// followed by a wildcard or a second <c>.</c>, which a shell may match to <c>..</c>, is counted as
+    /// a climb; <c>.</c> and an empty component stay where they are, and any other descends one
+    /// level. Everything the pattern may match lies under the directory this names, so judging it
+    /// judges them all; a regular expression that only looks like such a pattern names a directory
+    /// at or below the one it is resolved against, and is judged by that.
     /// </summary>
-    public static bool MayClimbAfterWildcard(string text)
+    public static string HighestReach(string text)
     {
+        ArgumentNullException.ThrowIfNull(text);
         string before = BeforeWildcard(text);
-        if (before.Length == text.Length)
-        {
-            return false;
-        }
-
+        int depth = 0;
+        int lowest = 0;
         foreach (string component in text[before.Length..].Split(Separators))
         {
-            if (component.Split('{', '}', ',').Contains(".."))
+            depth += component switch
             {
-                return true;
-            }
-
-            if (component.Length > 1 && component[0] == '.' && (component[1] == '.' || Wildcards.Contains(component[1], StringComparison.Ordinal)))
-            {
-                return true;
-            }
+                "" or "." => 0,
+                _ when MayBeParent(component) => -1,
+                _ => 1,
+            };
+            lowest = Math.Min(lowest, depth);
         }
 
-        return false;
+        return before + string.Concat(Enumerable.Repeat(".." + Path.DirectorySeparatorChar, -lowest));
     }
+
+    /// <summary>Whether a shell may read a path component as <c>..</c>.</summary>
+    private static bool MayBeParent(string component) =>
+        component.Split('{', '}', ',').Contains("..")
+        || (component.Length > 1 && component[0] == '.' && (component[1] == '.' || Wildcards.Contains(component[1], StringComparison.Ordinal)));
 
     private static char[] Separators { get; } = OperatingSystem.IsWindows() ? ['/', '\\'] : ['/'];
 
@@ -198,5 +216,10 @@ public static partial class ShellWords
     private static partial Regex Assignment();
 }
 
-/// <summary>One command of a shell command line: its words, and how many subshells it runs inside.</summary>
-public sealed record ShellCommand(IReadOnlyList<string> Words, int Depth);
+/// <summary>
+/// One command of a shell command line: its words, how many subshells it runs inside, and the
+/// operators before and after it. An operator is <c>;</c> (also for a line end), <c>&amp;&amp;</c>,
+/// <c>||</c>, <c>|</c>, <c>&amp;</c>, <c>(</c> or <c>)</c> (also for an opening or closing backtick),
+/// or empty at the start or end of the line.
+/// </summary>
+public sealed record ShellCommand(IReadOnlyList<string> Words, int Depth, string Before, string After);
