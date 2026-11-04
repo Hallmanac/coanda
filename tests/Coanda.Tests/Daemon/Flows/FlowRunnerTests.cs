@@ -115,6 +115,58 @@ public sealed class FlowRunnerTests
     }
 
     [Fact]
+    public async Task A_resume_at_a_review_whose_transitions_have_all_spent_their_visit_caps_pauses_again_without_spawning()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("done", 1)],
+            ["reviewer-adversarial"] = [.. Enumerable.Range(1, 6).Select(n => Scripts.Answer("not-clean", n))],
+            ["fix"] = [.. Enumerable.Range(1, 3).Select(n => Scripts.Answer("done", n))],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
+
+        FlowView started = await Flowing.BoundAsync(client, Project, parcel.Id);
+        FlowView first = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+        first.Steps.Count(s => s.Step == "adversarial-review").Should().Be(4);
+        int spawnsAtFirst = executor.Spawns.Count;
+
+        // The clean transition is capped at 5, so a fifth visit could still route, and the resume performs it.
+        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "One more look.", None);
+        FlowView second = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+
+        executor.Spawns.Should().HaveCount(spawnsAtFirst + 1);
+        second.Steps.Count(s => s.Step == "adversarial-review").Should().Be(5);
+        second.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
+        second.Lever.Should().Be(FlowLevers.PerformAgain("adversarial-review"));
+        List<ScriptedSpawn> spawnsAtSecond = [.. executor.Spawns];
+
+        // No transition out of the step allows a sixth visit, so the resume pauses before entering it.
+        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "And another.", None);
+        FlowView third = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+
+        third.Lever.Should().Be(FlowLevers.VisitCapsSpent("adversarial-review"));
+        third.PauseReason.Should().Be("Step 'adversarial-review' has a visit count of 5, and every transition out of it has a visit cap below 6; performing it again could only pause on a visit cap.");
+        executor.Spawns.Should().Equal(spawnsAtSecond);
+        JsonSerializer.Serialize(third.Steps).Should().Be(JsonSerializer.Serialize(second.Steps), "the resume entered no step and recorded nothing");
+        third.Spawns.Should().Be(second.Spawns);
+
+        // Resuming that pause pauses the same way, still performing nothing.
+        await flows.ResumeAsync(Principal.LocalOwner, Project, started.Id, "Once more.", None);
+        FlowView fourth = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+
+        fourth.Lever.Should().Be(FlowLevers.VisitCapsSpent("adversarial-review"));
+        fourth.PauseReason.Should().Be(third.PauseReason);
+        executor.Spawns.Should().Equal(spawnsAtSecond);
+        JsonSerializer.Serialize(fourth.Steps).Should().Be(JsonSerializer.Serialize(second.Steps), "the resume entered no step and recorded nothing");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_wait_for_human_step_pauses_with_its_lever_and_a_resume_through_the_flow_service_carries_the_flow_to_its_end()
     {
         using var temp = new TemporaryHome();

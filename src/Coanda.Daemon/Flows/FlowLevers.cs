@@ -10,6 +10,10 @@ public static class FlowLevers
     public static string SpawnCapReached(string contour) =>
         $"Stop the flow; contour '{contour}' allows no more spawns, so a resume cannot perform another judgment.";
 
+    /// <summary>Names the way out of a flow whose current step no transition's visit cap allows another visit to: a resume pauses it again.</summary>
+    public static string VisitCapsSpent(string step) =>
+        $"Stop the flow; every transition out of step '{step}' has spent its visit cap, so a resume pauses it again.";
+
     /// <summary>Names the way out of a flow deeper in its chain than its contour's follow allows: a resume pauses it again.</summary>
     public static string DepthCapReached(string contour) =>
         $"Stop the flow; it is past the depth cap of contour '{contour}''s follow, so a resume pauses it again.";
