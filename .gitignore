@@ -11,3 +11,6 @@ TestResults/
 
 # OS
 .DS_Store
+
+# Local node home for the Rider run configurations
+.coanda-dev/
