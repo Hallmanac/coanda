@@ -81,6 +81,15 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, Worker> workers = [];
+
+    /// <summary>The flows whose session the start-up sweep left running for the flow's first advance to reattach.</summary>
+    private readonly HashSet<Guid> claimedAtStart = [];
+
+    /// <summary>
+    /// The launches this runner made whose judgment failed before it recorded an answer or a pause,
+    /// so a reattach of one is not across a daemon restart.
+    /// </summary>
+    private readonly HashSet<Guid> launchedHere = [];
     private bool stopRequested;
 
     public FlowRunner(
@@ -226,6 +235,10 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             if (flow is { Status: FlowStatus.Running, Current: { AwaitsLaunchedSession: true, SessionId: Guid session } })
             {
                 claimed.Add(session);
+                lock (gate)
+                {
+                    claimedAtStart.Add(flowId);
+                }
             }
         }
 
@@ -306,6 +319,12 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private async Task AdvanceAsync(string project, Guid flowId, CancellationToken cancellationToken)
     {
         Principal principal = PrincipalFor(flowId);
+        bool claimed;
+        lock (gate)
+        {
+            claimed = claimedAtStart.Remove(flowId);
+        }
+
         bool moving = true;
         while (moving)
         {
@@ -318,8 +337,17 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
             if (flow is not { Status: FlowStatus.Running })
             {
+                // Paused or stopped by a person after the start-up sweep left its session running,
+                // and before any watch was there for that pause or stop to end.
+                if (claimed && flow is not null)
+                {
+                    await EndClaimedSessionAsync(principal, project, flow, cancellationToken);
+                }
+
                 return;
             }
+
+            claimed = false;
 
             try
             {
@@ -446,6 +474,56 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Stops the session the start-up sweep left running for a flow that a person paused or stopped
+    /// before the flow's first advance read it, so no reattach's watch was there for that pause or
+    /// stop to end, and records what the session reported spending. A session the executor no
+    /// longer holds is not stopped, though usage it kept from before its retry is still recorded.
+    /// </summary>
+    private async Task EndClaimedSessionAsync(Principal principal, string project, Flow flow, CancellationToken cancellationToken)
+    {
+        if (flow.Current is not { AwaitsLaunchedSession: true, SessionId: Guid id } entry)
+        {
+            return;
+        }
+
+        Reattachment? found = await executor.ReattachAsync(new SessionHandle(id, entry.Performer), access: null, cancellationToken);
+        var spend = new JudgmentSpend();
+        switch (found)
+        {
+            case ReattachedSession { Attempt: > 1 } retrying:
+                spend.Add(retrying.Earlier);
+                break;
+            case LostSession lost:
+                spend.Add(lost.Earlier);
+                break;
+        }
+
+        if (found is ReattachedSession live)
+        {
+            logger.LogInformation(
+                "Stopping session {Session} of agent '{Agent}', whose flow {Flow} a person paused or stopped before it was reattached.",
+                Ids.Short(id), entry.Performer, Ids.Short(flow.Id));
+            using var grace = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            grace.CancelAfter(Judgment.StopGrace);
+            spend.Add(await executor.StopAsync(live.Handle, grace.Token));
+        }
+
+        if (spend.Reported is not { } usage)
+        {
+            return;
+        }
+
+        try
+        {
+            await flows.RecordUsageAsync(principal, project, flow.Id, entry.Step, entry.Performer, id, usage, cancellationToken);
+        }
+        catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(refused, "Flow {Flow} could not record what the judgment of step '{Step}' spent.", Ids.Short(flow.Id), entry.Step);
+        }
+    }
+
     /// <summary>What a step recorded, with the flow as that recording left it.</summary>
     private readonly record struct Recording(Flow Flow, JsonElement Value);
 
@@ -544,6 +622,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             Flow spawned = await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
             launch = spawned.Current?.LaunchId
                 ?? throw new InvalidOperationException($"The launch of step '{step.Name}' on flow {Ids.Short(flow.Id)} was recorded without a launch id.");
+            Launching(launch.Value, here: true);
 
             // Issued once the launch is recorded and before the agent starts, since the session's
             // environment is fixed when its process starts; it resolves only while this launch runs.
@@ -554,7 +633,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             // The session's id is recorded before its first collect, so a daemon stop after that
             // leaves the session alive (the judgment does not stop it) and the flow names it; the
             // next start reattaches it rather than launching again.
-            return await RunJudgmentAsync(
+            Recording? recorded = await RunJudgmentAsync(
                 principal, project, flow.Id, step, launched, judgmentLimit,
                 (spend, bounded) => Judgment.RunAsync(
                     executor,
@@ -570,6 +649,10 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                     bounded),
                 ended.Token,
                 cancellationToken);
+
+            // Recorded as answered or paused; a failure before either keeps the launch remembered.
+            Launching(launch.Value, here: false);
+            return recorded;
         }
         finally
         {
@@ -607,8 +690,21 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private async Task<Recording?> ReattachAsync(
         Principal principal, string project, Flow flow, ContourStep step, FlowStepEntry current, CancellationToken cancellationToken)
     {
-        // Issued for the recorded launch, so it resolves only while the flow still expects that launch.
         Guid? launch = current.LaunchId;
+
+        // A launch this runner made reaches here only after its judgment failed to record its answer
+        // or its pause, with no daemon restart since. It is forgotten here, and remembered again
+        // should this reattach fail the same way.
+        bool restarted;
+        lock (gate)
+        {
+            restarted = launch is not Guid made || !launchedHere.Remove(made);
+        }
+
+        string lostWhen = restarted ? "across a daemon restart" : "before its answer was recorded";
+        string unobserved = restarted ? "observed" : "recorded";
+
+        // Issued for the recorded launch, so it resolves only while the flow still expects that launch.
         SessionAccess? access = launch is Guid issuedFor
             ? new SessionAccess(sessionTokens.Issue(new SessionBinding(project.Trim(), flow.Id, issuedFor)), home.Path, project.Trim())
             : null;
@@ -664,7 +760,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                 };
                 await PauseAsync(
                     principal, project, flow.Id,
-                    $"Step '{step.Name}' lost the session agent '{current.Performer}' was launched in across a daemon restart ({which}), so its usage was not observed.",
+                    $"Step '{step.Name}' lost the session agent '{current.Performer}' was launched in {lostWhen} ({which}), so its usage was not {unobserved}.",
                     FlowLevers.PerformAgain(step.Name),
                     cancellationToken);
                 return null;
@@ -698,6 +794,11 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             {
                 Unwatch(flow.Id, ended);
             }
+        }
+        catch (Exception) when (!restarted && launch is Guid kept && !cancellationToken.IsCancellationRequested)
+        {
+            Launching(kept, here: true);
+            throw;
         }
         finally
         {
@@ -944,6 +1045,18 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogError(refused, "Flow {Flow} could not record what the judgment of step '{Step}' spent.", Ids.Short(flowId), launched.Step);
+        }
+    }
+
+    /// <summary>
+    /// Remembers a launch this runner made while its judgment may yet fail before recording its
+    /// answer or its pause, or forgets it once one of them is recorded.
+    /// </summary>
+    private void Launching(Guid launch, bool here)
+    {
+        lock (gate)
+        {
+            _ = here ? launchedHere.Add(launch) : launchedHere.Remove(launch);
         }
     }
 
