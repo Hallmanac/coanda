@@ -51,13 +51,13 @@ public sealed class DaemonSeedingTests
         await RunAndStopAsync(temp.Home, async client =>
         {
             List<TypeView> types = await TypesAsync(client, "alpha");
-            types.Select(t => (t.Name, t.Hash)).Should().Equal(ShippedTypes.All.Select(t => (t.Name, t.Hash)));
+            Assert.Equal(ShippedTypes.All.Select(t => (t.Name, t.Hash)), types.Select(t => (t.Name, t.Hash)));
         });
         int afterFirst = await StreamCountAsync(temp.Home);
-        afterFirst.Should().Be(ShippedDefinitions.All.Count * 2);
+        Assert.Equal(ShippedDefinitions.All.Count * 2, afterFirst);
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
-        (await StreamCountAsync(temp.Home)).Should().Be(afterFirst);
+        Assert.Equal(afterFirst, await StreamCountAsync(temp.Home));
     }
 
     [Fact]
@@ -77,15 +77,15 @@ public sealed class DaemonSeedingTests
 
         await RunAndStopAsync(temp.Home, async client =>
         {
-            (await TypesAsync(client, "alpha")).Single(t => t.Name == "task").Hash.Should().Be(qa.Hash);
-            (await TypesAsync(client, "beta")).Single(t => t.Name == "task").Hash.Should().Be(ShippedTypes.Task.Hash);
+            Assert.Equal(qa.Hash, (await TypesAsync(client, "alpha")).Single(t => t.Name == "task").Hash);
+            Assert.Equal(ShippedTypes.Task.Hash, (await TypesAsync(client, "beta")).Single(t => t.Name == "task").Hash);
 
             ParcelView added = await client.PostAsync<ParcelView>(
                 "/parcels", new ParcelAddRequest("alpha", "task", "Starts building", "build"), CancellationToken.None);
-            added.TypeHash.Should().Be(qa.Hash);
+            Assert.Equal(qa.Hash, added.TypeHash);
 
-            await FluentActions.Awaiting(() => client.GetAsync<List<TypeView>>("/types?project=_node", CancellationToken.None))
-                .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
+            DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<List<TypeView>>("/types?project=_node", CancellationToken.None));
+            Assert.Contains("reserved for node-level records", exception.Message, StringComparison.Ordinal);
         });
     }
 
@@ -99,20 +99,20 @@ public sealed class DaemonSeedingTests
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
         int afterFirst = await StreamCountAsync(temp.Home);
-        afterFirst.Should().Be(ShippedDefinitions.All.Count * 2);
+        Assert.Equal(ShippedDefinitions.All.Count * 2, afterFirst);
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             await using IQuerySession session = store.QuerySession(Tenants.Node);
             IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
             List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
-            flows.Select(d => (d.Name, d.ContentHash)).Should().BeEquivalentTo(ShippedFlows.All.Select(f => (f.Name, f.Hash)));
-            flows.Should().OnlyContain(d => d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1);
-            flows.Should().OnlyContain(d => Flow.FromJson(d.Content).Hash == d.ContentHash);
+            Assert.Equivalent(ShippedFlows.All.Select(f => (f.Name, f.Hash)), flows.Select(d => (d.Name, d.ContentHash)), strict: true);
+            Assert.All(flows, d => Assert.True(d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1));
+            Assert.All(flows, d => Assert.True(Flow.FromJson(d.Content).Hash == d.ContentHash));
         }
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
-        (await StreamCountAsync(temp.Home)).Should().Be(afterFirst);
+        Assert.Equal(afterFirst, await StreamCountAsync(temp.Home));
     }
 
     [Fact]
@@ -124,12 +124,11 @@ public sealed class DaemonSeedingTests
         {
             List<FlowView> flows = await FlowsAsync(client, "alpha");
 
-            flows.Select(f => (f.Name, f.Version, f.Hash)).Should().Equal(
-                ShippedFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)));
-            flows.Select(f => f.Name).Should().BeEquivalentTo("build", "merge", "discovery", "review-on-assignment");
+            Assert.Equal(ShippedFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)), flows.Select(f => (f.Name, f.Version, f.Hash)));
+            Assert.Equivalent(new[] { "build", "merge", "discovery", "review-on-assignment" }, flows.Select(f => f.Name), strict: true);
 
-            await FluentActions.Awaiting(() => client.GetAsync<List<FlowView>>("/flows?project=_node", CancellationToken.None))
-                .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
+            DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<List<FlowView>>("/flows?project=_node", CancellationToken.None));
+            Assert.Contains("reserved for node-level records", exception.Message, StringComparison.Ordinal);
         });
     }
 
@@ -151,8 +150,8 @@ public sealed class DaemonSeedingTests
 
         await RunAndStopAsync(temp.Home, async client =>
         {
-            (await FlowsAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(quick.Hash);
-            (await FlowsAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(ShippedFlows.ReviewOnAssignment.Hash);
+            Assert.Equal(quick.Hash, (await FlowsAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash);
+            Assert.Equal(ShippedFlows.ReviewOnAssignment.Hash, (await FlowsAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash);
         });
     }
 
@@ -161,7 +160,7 @@ public sealed class DaemonSeedingTests
     {
         foreach (Role role in Enum.GetValues<Role>())
         {
-            CommandRegistry.Require("flow.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
+            Assert.Equal(EntryKind.Query, CommandRegistry.Require("flow.list", new Principal("someone", role)).Kind);
         }
     }
 
@@ -178,9 +177,9 @@ public sealed class DaemonSeedingTests
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
         List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
-        flows.Select(d => (d.Name, d.VersionNumber, d.ContentHash)).Should().BeEquivalentTo(
-            ShippedFlows.All.Select(c => (c.Name, 1, c.Hash)), "the merge flow is published as its first version and the others are left as they were");
-        flows.Should().OnlyContain(d => d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Shipped);
+        // the merge flow is published as its first version and the others are left as they were
+        Assert.Equivalent(ShippedFlows.All.Select(c => (c.Name, 1, c.Hash)), flows.Select(d => (d.Name, d.VersionNumber, d.ContentHash)), strict: true);
+        Assert.All(flows, d => Assert.True(d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Shipped));
     }
 
     [Fact]
@@ -195,8 +194,8 @@ public sealed class DaemonSeedingTests
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
-        build.VersionNumber.Should().Be(2);
-        build.ContentHash.Should().Be(ShippedFlows.Build.Hash);
+        Assert.Equal(2, build.VersionNumber);
+        Assert.Equal(ShippedFlows.Build.Hash, build.ContentHash);
     }
 
     [Fact]
@@ -205,15 +204,15 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         Flow previous = PreviousFlows.BuildWithGatedMerge;
         Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
-        before.Hash.Should().NotBe(previous.Hash);
+        Assert.NotEqual(previous.Hash, before.Hash);
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
-        build.VersionNumber.Should().Be(2);
-        build.ContentHash.Should().Be(ShippedFlows.Build.Hash);
+        Assert.Equal(2, build.VersionNumber);
+        Assert.Equal(ShippedFlows.Build.Hash, build.ContentHash);
     }
 
     [Fact]
@@ -229,10 +228,11 @@ public sealed class DaemonSeedingTests
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
-        build.VersionNumber.Should().Be(3);
-        build.Status.Should().Be(DefinitionStatus.Published);
-        build.ContentHash.Should().Be(ShippedFlows.Build.Hash).And.NotBe(previous.Hash);
-        Flow.FromJson(build.Content).Steps.Should().NotContain(s => s.Name == "gated-merge");
+        Assert.Equal(3, build.VersionNumber);
+        Assert.Equal(DefinitionStatus.Published, build.Status);
+        Assert.Equal(ShippedFlows.Build.Hash, build.ContentHash);
+        Assert.NotEqual(previous.Hash, build.ContentHash);
+        Assert.DoesNotContain(Flow.FromJson(build.Content).Steps, s => s.Name == "gated-merge");
     }
 
     [Fact]
@@ -246,9 +246,10 @@ public sealed class DaemonSeedingTests
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
         Definition merge = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "merge");
-        merge.VersionNumber.Should().Be(2);
-        merge.Status.Should().Be(DefinitionStatus.Published);
-        merge.ContentHash.Should().Be(ShippedFlows.Merge.Hash).And.NotBe(previous.Hash);
-        Flow.FromJson(merge.Content).Steps.Select(s => s.Name).Should().Equal("gated-merge", "wait-for-checks", "worktree", "rebase");
+        Assert.Equal(2, merge.VersionNumber);
+        Assert.Equal(DefinitionStatus.Published, merge.Status);
+        Assert.Equal(ShippedFlows.Merge.Hash, merge.ContentHash);
+        Assert.NotEqual(previous.Hash, merge.ContentHash);
+        Assert.Equal(["gated-merge", "wait-for-checks", "worktree", "rebase"], Flow.FromJson(merge.Content).Steps.Select(s => s.Name));
     }
 }

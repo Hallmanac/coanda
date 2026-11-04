@@ -60,31 +60,32 @@ public sealed class FollowTests
             parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Build, then follow");
 
             build = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
-            (await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended")).Outcome.Should().Be("pr-opened");
+            Assert.Equal("pr-opened", (await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended")).Outcome);
             FlowRunView follower = await FlowRunDriver.FollowerAsync(client, Project, parcel.Id, build.Id, AfterBuild.Name);
             FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, follower.Id, "ended");
 
-            ended.FlowName.Should().Be(AfterBuild.Name);
-            ended.ParcelId.Should().Be(parcel.Id);
-            ended.ParentFlowRunId.Should().Be(build.Id);
-            ended.RootFlowRunId.Should().Be(build.Id);
-            ended.Depth.Should().Be(1);
-            ended.StartedBy.Should().Be(TriggerLoop.PrincipalFor(build.Id).Id);
-            ended.Outcome.Should().Be("followed");
+            Assert.Equal(AfterBuild.Name, ended.FlowName);
+            Assert.Equal(parcel.Id, ended.ParcelId);
+            Assert.Equal(build.Id, ended.ParentFlowRunId);
+            Assert.Equal(build.Id, ended.RootFlowRunId);
+            Assert.Equal(1, ended.Depth);
+            Assert.Equal(TriggerLoop.PrincipalFor(build.Id).Id, ended.StartedBy);
+            Assert.Equal("followed", ended.Outcome);
 
             FlowRunView root = await FlowRunDriver.ShowAsync(client, Project, build.Id);
-            root.ParentFlowRunId.Should().BeNull();
-            root.RootFlowRunId.Should().Be(build.Id);
-            root.Depth.Should().Be(0);
+            Assert.Null(root.ParentFlowRunId);
+            Assert.Equal(build.Id, root.RootFlowRunId);
+            Assert.Equal(0, root.Depth);
 
             IReadOnlyList<string> lines = FlowRunRendering.Show(ended);
-            lines.Should().Contain($"Parent  {build.Id}").And.Contain("Depth   1");
-            FlowRunRendering.Show(root).Should().NotContain(line => line.StartsWith("Parent", StringComparison.Ordinal) || line.StartsWith("Depth", StringComparison.Ordinal));
+            Assert.Contains($"Parent  {build.Id}", lines);
+            Assert.Contains("Depth   1", lines);
+            Assert.DoesNotContain(FlowRunRendering.Show(root), line => line.StartsWith("Parent", StringComparison.Ordinal) || line.StartsWith("Depth", StringComparison.Ordinal));
 
             // The followers started from the same end, so the loop has handled it: the flow following an unproduced outcome started nothing.
             // The shipped merge closes the parcel, so it starts only once the project's follower releases it.
             await FlowRunDriver.MergedAsync(client, Project, parcel.Id, build.Id);
-            (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.FlowName).Should().Equal("build", AfterBuild.Name, "merge");
+            Assert.Equal(["build", AfterBuild.Name, "merge"], (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.FlowName));
             await first.StopAsync(None);
         }
 
@@ -98,8 +99,8 @@ public sealed class FollowTests
         await FlowRunDriver.UntilAsync(again, Project, (await FlowRunDriver.FollowerAsync(again, Project, later.Id, laterBuild.Id, AfterBuild.Name)).Id, "ended");
         await FlowRunDriver.MergedAsync(again, Project, later.Id, laterBuild.Id);
 
-        (await FlowRunDriver.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.FlowName)
-            .Should().Equal(["build", AfterBuild.Name, "merge"], "a restart starts no second follower of an end already followed");
+        // a restart starts no second follower of an end already followed
+        Assert.Equal(["build", AfterBuild.Name, "merge"], (await FlowRunDriver.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.FlowName));
 
         await second.StopAsync(None);
     }
@@ -128,10 +129,11 @@ public sealed class FollowTests
             $"every follower of flow run {build.Id} ends");
 
         // The shipped merge follows the same end and closes the parcel, so it starts after both and closes the task.
-        followers.Select(f => f.FlowName).Should().Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"]);
-        followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlowRunId == build.Id);
-        followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
-        (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "each follower starts once");
+        Assert.Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"], followers.Select(f => f.FlowName));
+        Assert.All(followers, f => Assert.True(f.Depth == 1 && f.RootFlowRunId == build.Id));
+        Assert.Equal(["followed", "followed", "merged"], followers.Select(f => f.Outcome));
+        // each follower starts once
+        Assert.Equal(4, (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Count);
 
         await daemon.StopAsync(None);
     }
@@ -161,9 +163,9 @@ public sealed class FollowTests
 
         // "notify-pr" sorts after "merge", but the merge closes the parcel, so every follower that
         // does not close it starts first and none is refused on a closed parcel.
-        followers.Select(f => f.FlowName).Should().Equal([AfterBuild.Name, NotifyAfterBuild.Name, "merge"]);
-        followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("closed");
+        Assert.Equal([AfterBuild.Name, NotifyAfterBuild.Name, "merge"], followers.Select(f => f.FlowName));
+        Assert.Equal(["followed", "followed", "merged"], followers.Select(f => f.Outcome));
+        Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
 
         await daemon.StopAsync(None);
     }

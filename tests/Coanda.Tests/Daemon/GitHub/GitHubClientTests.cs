@@ -24,12 +24,13 @@ public sealed class GitHubClientTests
         GitHubPullRequest? found = await provider.GetRequiredService<GitHubClient>()
             .FindOpenAsync(GitHubRepository.Parse("https://github.com/example/repo") ?? throw new InvalidOperationException("The remote parses."), "coanda/abc", Token, None);
 
-        found.Should().BeNull();
-        FakeGitHub.Sent sent = github.Requests.Should().ContainSingle().Subject;
-        sent.Authorization.Should().Be($"Bearer {Token}");
-        sent.Uri.GetLeftPart(UriPartial.Authority).Should().Be("https://api.github.com");
-        log.Entries.Should().Contain(e => e.Level == LogLevel.Trace && e.Message.Contains("Authorization", StringComparison.Ordinal), "the trace log lists the request's headers");
-        log.Entries.Should().NotContain(e => e.Message.Contains(Token, StringComparison.Ordinal));
+        Assert.Null(found);
+        FakeGitHub.Sent sent = Assert.Single(github.Requests);
+        Assert.Equal($"Bearer {Token}", sent.Authorization);
+        Assert.Equal("https://api.github.com", sent.Uri.GetLeftPart(UriPartial.Authority));
+        // the trace log lists the request's headers
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Trace && e.Message.Contains("Authorization", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains(Token, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -41,9 +42,9 @@ public sealed class GitHubClientTests
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { CommandRunner = new ScriptedCommandRunner() }, None);
         GitHubClient client = daemon.Services.GetRequiredService<GitHubClient>();
 
-        await FluentActions.Awaiting(() => client.FindOpenAsync(
-                GitHubRepository.Parse("https://github.com/example/repo") ?? throw new InvalidOperationException("The remote parses."), "coanda/abc", "t", None))
-            .Should().ThrowAsync<HttpRequestException>().WithMessage("*no GitHub handler*");
+        HttpRequestException exception = await Assert.ThrowsAsync<HttpRequestException>(() => client.FindOpenAsync(
+                GitHubRepository.Parse("https://github.com/example/repo") ?? throw new InvalidOperationException("The remote parses."), "coanda/abc", "t", None));
+        Assert.Contains("no GitHub handler", exception.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }

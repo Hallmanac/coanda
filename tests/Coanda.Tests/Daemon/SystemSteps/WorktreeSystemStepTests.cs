@@ -91,26 +91,14 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, flowRunId));
 
-        result.GetProperty("branch").GetString().Should().Be(branch);
-        result.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
-        runner.GitCalls.Should().Equal(
-            $"init --bare --quiet {partial}",
-            $"remote add origin {RegisteredProjects.Remote}",
-            "worktree list --porcelain",
-            $"for-each-ref --format=%(objectname) refs/heads/{branch}",
-            $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
-            $"update-ref -d {ProjectClones.TrackingRefOf(branch)}",
-            $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}",
-            $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}",
-            $"ls-tree -z --name-only {ScriptedCommandRunner.PrimaryHead}",
-            $"config {ProjectClones.OwnerKeyOf(branch)} {parcelId}",
-            $"branch --no-track {branch} {ScriptedCommandRunner.PrimaryHead}",
-            $"worktree add --quiet {workPath} {branch}");
-        runner.Commands.Skip(1).Should().OnlyContain(c => c.GitDirectory() == Clone || c.GitDirectory() == partial);
-        runner.Config(Clone, ProjectClones.OwnerKeyOf(branch)).Should().Be(parcelId.ToString());
-        Directory.Exists(Clone).Should().BeTrue("the clone is moved into place once it is made");
-        Directory.Exists(partial).Should().BeFalse();
-        ExcludeLines().Should().ContainSingle(l => l == ProjectClones.ExcludeLine);
+        Assert.Equal(branch, result.GetProperty("branch").GetString());
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
+        Assert.Equal([$"init --bare --quiet {partial}", $"remote add origin {RegisteredProjects.Remote}", "worktree list --porcelain", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}", $"update-ref -d {ProjectClones.TrackingRefOf(branch)}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"ls-tree -z --name-only {ScriptedCommandRunner.PrimaryHead}", $"config {ProjectClones.OwnerKeyOf(branch)} {parcelId}", $"branch --no-track {branch} {ScriptedCommandRunner.PrimaryHead}", $"worktree add --quiet {workPath} {branch}"], runner.GitCalls);
+        Assert.All(runner.Commands.Skip(1), c => Assert.True(c.GitDirectory() == Clone || c.GitDirectory() == partial));
+        Assert.Equal(parcelId.ToString(), runner.Config(Clone, ProjectClones.OwnerKeyOf(branch)));
+        Assert.True(Directory.Exists(Clone), "the clone is moved into place once it is made");
+        Assert.False(Directory.Exists(partial));
+        Assert.Single(ExcludeLines(), l => l == ProjectClones.ExcludeLine);
     }
 
     [Fact]
@@ -118,11 +106,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         await PerformAsync(Ids.New(), Ids.New());
 
-        runner.Commands.Should().NotBeEmpty().And.OnlyContain(c =>
-            c.Program == "git"
+        Assert.NotEmpty(runner.Commands);
+        Assert.All(runner.Commands, c => Assert.True(c.Program == "git"
             && c.Environment["GIT_TERMINAL_PROMPT"] == "0"
             && c.Environment["GIT_SSH_COMMAND"].Contains("BatchMode=yes")
-            && c.Environment["LC_ALL"] == "C");
+            && c.Environment["LC_ALL"] == "C"));
     }
 
     [Fact]
@@ -136,11 +124,12 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement again = Done(await PerformAsync(parcelId, flowRunId));
 
-        again.GetProperty("branch").GetString().Should().Be($"coanda/{Ids.Short(parcelId)}");
-        again.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
-        runner.GitCalls.Skip(before).Should().Equal("rev-parse --is-bare-repository", "worktree list --porcelain");
-        ExcludeLines().Should().ContainSingle(l => l == ProjectClones.ExcludeLine);
-        File.GetLastWriteTimeUtc(ExcludePath).Should().Be(written, "the exclude line is written only when it is missing");
+        Assert.Equal($"coanda/{Ids.Short(parcelId)}", again.GetProperty("branch").GetString());
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, again.GetProperty("head").GetString());
+        Assert.Equal(["rev-parse --is-bare-repository", "worktree list --porcelain"], runner.GitCalls.Skip(before));
+        Assert.Single(ExcludeLines(), l => l == ProjectClones.ExcludeLine);
+        // the exclude line is written only when it is missing
+        Assert.Equal(written, File.GetLastWriteTimeUtc(ExcludePath));
     }
 
     [Fact]
@@ -158,18 +147,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, later));
 
-        result.GetProperty("head").GetString().Should().Be(Moved, "the branch is checked out at its own tip, not the primary's");
-        runner.GitCalls.Skip(before).Should().Equal(
-            "rev-parse --is-bare-repository",
-            "worktree list --porcelain",
-            $"for-each-ref --format=%(objectname) refs/heads/{branch}",
-            $"config --get --default  {ProjectClones.OwnerKeyOf(branch)}",
-            $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
-            $"update-ref -d {ProjectClones.TrackingRefOf(branch)}",
-            $"ls-tree -z --name-only {Moved}",
-            $"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, later)} {branch}");
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().BeNull(
-            "someone deleted the branch on the remote, so the next push's lease expects it absent");
+        // the branch is checked out at its own tip, not the primary's
+        Assert.Equal(Moved, result.GetProperty("head").GetString());
+        Assert.Equal(["rev-parse --is-bare-repository", "worktree list --porcelain", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"config --get --default  {ProjectClones.OwnerKeyOf(branch)}", $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}", $"update-ref -d {ProjectClones.TrackingRefOf(branch)}", $"ls-tree -z --name-only {Moved}", $"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, later)} {branch}"], runner.GitCalls.Skip(before));
+        // someone deleted the branch on the remote, so the next push's lease expects it absent
+        Assert.Null(runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
     }
 
     [Fact]
@@ -188,13 +170,18 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, later));
 
-        result.GetProperty("head").GetString().Should().Be(Ahead, "a commit someone added on the remote is built on");
-        runner.Branch(Clone, branch).Should().Be(Ahead);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Ahead, "the next push's lease expects what the remote holds now");
-        runner.GitCalls.Should().ContainInOrder(
-            $"update-ref refs/heads/{branch} {Ahead} {Moved}",
-            $"ls-tree -z --name-only {Ahead}",
-            $"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, later)} {branch}");
+        // a commit someone added on the remote is built on
+        Assert.Equal(Ahead, result.GetProperty("head").GetString());
+        Assert.Equal(Ahead, runner.Branch(Clone, branch));
+        // the next push's lease expects what the remote holds now
+        Assert.Equal(Ahead, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        SequenceAssert.ContainsInOrder(
+            [
+                $"update-ref refs/heads/{branch} {Ahead} {Moved}",
+                $"ls-tree -z --name-only {Ahead}",
+                $"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, later)} {branch}",
+            ],
+            runner.GitCalls);
     }
 
     [Fact]
@@ -211,10 +198,10 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, Ids.New()));
 
-        result.GetProperty("head").GetString().Should().Be(Moved);
-        runner.Branch(Clone, branch).Should().Be(Moved);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(ScriptedCommandRunner.PrimaryHead);
-        runner.GitCalls.Should().NotContain(c => c.StartsWith($"update-ref refs/heads/{branch}", StringComparison.Ordinal));
+        Assert.Equal(Moved, result.GetProperty("head").GetString());
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith($"update-ref refs/heads/{branch}", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -231,10 +218,14 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        paused.Reason.Should().Contain($"Branch {branch}").And.Contain(Moved).And.Contain(Ahead).And.Contain("Reconcile them by hand").And.Contain(Clone);
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        runner.Branch(Clone, branch).Should().Be(Moved);
-        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
+        Assert.Contains($"Branch {branch}", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(Moved, paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(Ahead, paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("Reconcile them by hand", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(Clone, paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree add", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -248,11 +239,12 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, Ids.New()));
 
-        result.GetProperty("head").GetString().Should().Be(Moved);
-        runner.Branch(Clone, branch).Should().Be(Moved);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Moved);
-        runner.GitCalls.Skip(before).Should().Contain($"branch --no-track {branch} {Moved}")
-            .And.NotContain(c => c.StartsWith($"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:", StringComparison.Ordinal));
+        Assert.Equal(Moved, result.GetProperty("head").GetString());
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
+        Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        IEnumerable<string> actual = runner.GitCalls.Skip(before);
+        Assert.Contains($"branch --no-track {branch} {Moved}", actual);
+        Assert.DoesNotContain(actual, c => c.StartsWith($"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -266,11 +258,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        paused.Reason.Should().Contain($"flow run {holder}").And.Contain("still live").And.Contain(held);
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        runner.GitCalls.Skip(before).Should().NotContain(c =>
+        Assert.Contains($"flow run {holder}", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("still live", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(held, paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c =>
             c.StartsWith("fetch ", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal) || c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
-        runner.Branch(Clone, branch).Should().Be(Moved);
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
     }
 
     [Fact]
@@ -286,9 +280,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        paused.Reason.Should().Contain(mine).And.Contain("no work path of a flow run the node holds");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        runner.Worktrees(Clone).Should().Contain(mine, "nothing removes a worktree whose flow run is unknown");
+        Assert.Contains(mine, paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("no work path of a flow run the node holds", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        // nothing removes a worktree whose flow run is unknown
+        Assert.Contains(mine, runner.Worktrees(Clone));
     }
 
     [Fact]
@@ -304,9 +300,9 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        paused.Reason.Should().Contain(unknown);
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        runner.Worktrees(Clone).Should().Contain(unknown);
+        Assert.Contains(unknown, paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        Assert.Contains(unknown, runner.Worktrees(Clone));
     }
 
     [Fact]
@@ -320,19 +316,22 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, taker));
 
-        result.GetProperty("branch").GetString().Should().Be(branch);
-        runner.GitCalls.Skip(before).Should().ContainInOrder(
-            $"worktree remove --force --force {held}",
-            "worktree list --porcelain",
-            $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
-            $"worktree add --quiet {workPath} {branch}");
-        runner.Worktrees(Clone).Should().Equal(workPath);
+        Assert.Equal(branch, result.GetProperty("branch").GetString());
+        SequenceAssert.ContainsInOrder(
+            [
+                $"worktree remove --force --force {held}",
+                "worktree list --porcelain",
+                $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
+                $"worktree add --quiet {workPath} {branch}",
+            ],
+            runner.GitCalls.Skip(before));
+        Assert.Equal([workPath], runner.Worktrees(Clone));
 
         // A removal of the stopped flow run's worktree that runs afterwards finds nothing at its work path.
         before = runner.Commands.Count;
-        (await Clones().RemoveAsync(Project, holder, None)).Should().BeFalse();
-        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree prune", StringComparison.Ordinal));
-        runner.Worktrees(Clone).Should().Equal(workPath);
+        Assert.False(await Clones().RemoveAsync(Project, holder, None));
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree prune", StringComparison.Ordinal));
+        Assert.Equal([workPath], runner.Worktrees(Clone));
     }
 
     [Fact]
@@ -340,13 +339,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         (Guid parcelId, string branch, Guid holder, _) = await HeldByFlowRunAsync();
         await flowRuns.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
-        (await Clones().RemoveAsync(Project, holder, None)).Should().BeTrue("the stopped flow run's own removal runs first");
+        Assert.True(await Clones().RemoveAsync(Project, holder, None), "the stopped flow run's own removal runs first");
         Guid taker = Ids.New();
 
         JsonElement result = Done(await PerformAsync(parcelId, taker));
 
-        result.GetProperty("branch").GetString().Should().Be(branch);
-        runner.Worktrees(Clone).Should().Equal(temp.Home.FlowRunWorkPath(Project, taker));
+        Assert.Equal(branch, result.GetProperty("branch").GetString());
+        Assert.Equal([temp.Home.FlowRunWorkPath(Project, taker)], runner.Worktrees(Clone));
     }
 
     [Fact]
@@ -363,14 +362,16 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         await FlowRunDriver.UntilAsync(() => runner.GitCalls.Skip(before).Any(c => c == "worktree list --porcelain"), "the takeover has listed the worktrees");
         await Task.Delay(TimeSpan.FromMilliseconds(100));
 
-        takeover.IsCompleted.Should().BeFalse("the takeover waits for the stopped flow run's worker");
-        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
-        (await Clones().RemoveAsync(Project, Ids.New(), None)).Should().BeFalse("the clone's turn is not held while the takeover waits");
+        Assert.False(takeover.IsCompleted, "the takeover waits for the stopped flow run's worker");
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
+        Assert.False(await Clones().RemoveAsync(Project, Ids.New(), None), "the clone's turn is not held while the takeover waits");
 
         workers.Returned(holder);
         working.SetResult();
         Done(await takeover.WaitAsync(TimeSpan.FromSeconds(15)));
-        runner.GitCalls.Skip(before).Should().Contain($"worktree remove --force --force {held}").And.Contain($"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, taker)} {branch}");
+        IEnumerable<string> actual = runner.GitCalls.Skip(before);
+        Assert.Contains($"worktree remove --force --force {held}", actual);
+        Assert.Contains($"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, taker)} {branch}", actual);
     }
 
     [Fact]
@@ -384,7 +385,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Func<Task> takeover = async () => await systemStep.PerformAsync(
             new SystemStepRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, Step, Resumed: false), stop.Token);
 
-        await takeover.Should().ThrowAsync<OperationCanceledException>();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(takeover);
     }
 
     [Fact]
@@ -403,11 +404,14 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcelId, later));
 
-        result.GetProperty("head").GetString().Should().Be(Moved, "the clone's branch is checked out as it stands");
-        runner.Branch(Clone, branch).Should().Be(Moved);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Ahead, "the push's lease expects what the remote holds");
-        runner.GitCalls.Skip(before).Should().Contain($"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, later)} {branch}")
-            .And.NotContain(c => c.StartsWith($"update-ref refs/heads/{branch}", StringComparison.Ordinal));
+        // the clone's branch is checked out as it stands
+        Assert.Equal(Moved, result.GetProperty("head").GetString());
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
+        // the push's lease expects what the remote holds
+        Assert.Equal(Ahead, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        IEnumerable<string> actual = runner.GitCalls.Skip(before);
+        Assert.Contains($"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, later)} {branch}", actual);
+        Assert.DoesNotContain(actual, c => c.StartsWith($"update-ref refs/heads/{branch}", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -424,8 +428,9 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        paused.Reason.Should().Contain("Reconcile them by hand").And.Contain("not the commit last recorded as pushed");
-        runner.Branch(Clone, branch).Should().Be(Moved);
+        Assert.Contains("Reconcile them by hand", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("not the commit last recorded as pushed", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
     }
 
     [Fact]
@@ -441,10 +446,12 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), other.ToString());
         SystemStepOutcome.Paused owned = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        unowned.Reason.Should().Contain($"Branch {branch} already exists").And.Contain("names no parcel as its owner");
-        owned.Reason.Should().Contain($"Branch {branch} already exists").And.Contain($"belongs to parcel {other}");
-        owned.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal) && c.EndsWith(branch, StringComparison.Ordinal));
+        Assert.Contains($"Branch {branch} already exists", unowned.Reason, StringComparison.Ordinal);
+        Assert.Contains("names no parcel as its owner", unowned.Reason, StringComparison.Ordinal);
+        Assert.Contains($"Branch {branch} already exists", owned.Reason, StringComparison.Ordinal);
+        Assert.Contains($"belongs to parcel {other}", owned.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), owned.Lever);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree add", StringComparison.Ordinal) && c.EndsWith(branch, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -456,8 +463,8 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         Done(await PerformAsync(parcelId, Ids.New()));
 
-        runner.GitCalls.Should().Contain(c => c.StartsWith("fetch ", StringComparison.Ordinal));
-        runner.Config(Clone, ProjectClones.OwnerKeyOf(branch)).Should().Be(parcelId.ToString());
+        Assert.Contains(runner.GitCalls, c => c.StartsWith("fetch ", StringComparison.Ordinal));
+        Assert.Equal(parcelId.ToString(), runner.Config(Clone, ProjectClones.OwnerKeyOf(branch)));
     }
 
     [Fact]
@@ -466,12 +473,15 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         string error = string.Join('\n', Enumerable.Range(1, 30).Select(n => $"remote line {n}")) + "\n";
         runner.On(c => c.IsGit("fetch"), ScriptedCommandRunner.Fails(128, error));
 
-        GitCommandException failed = (await FluentActions.Awaiting(() => PerformAsync(Ids.New(), Ids.New()).AsTask())
-            .Should().ThrowAsync<GitCommandException>()).Subject.Single();
+        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => PerformAsync(Ids.New(), Ids.New()).AsTask());
 
-        failed.Message.Should().StartWith("git --git-dir=").And.Contain(" fetch ").And.Contain("exited with code 128");
-        failed.Message.Should().Contain("remote line 11").And.Contain("remote line 30").And.NotContain("remote line 10\n");
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("branch ", StringComparison.Ordinal));
+        Assert.StartsWith("git --git-dir=", failed.Message, StringComparison.Ordinal);
+        Assert.Contains(" fetch ", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("exited with code 128", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("remote line 11", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("remote line 30", failed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("remote line 10\n", failed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("branch ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -479,7 +489,8 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Done(await PerformAsync(Ids.New(), Ids.New()));
 
-        runner.Commands.Should().NotBeEmpty().And.OnlyContain(c => c.Program != "git" || c.Limit == Git.Limit);
+        Assert.NotEmpty(runner.Commands);
+        Assert.All(runner.Commands, c => Assert.True(c.Program != "git" || c.Limit == Git.Limit));
     }
 
     [Fact]
@@ -487,10 +498,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsGit("fetch"), CommandResult.LimitReached(string.Empty, "remote: Counting objects\n", "remote: Counting objects\n"));
 
-        GitCommandException failed = (await FluentActions.Awaiting(() => PerformAsync(Ids.New(), Ids.New()).AsTask())
-            .Should().ThrowAsync<GitCommandException>()).Subject.Single();
+        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => PerformAsync(Ids.New(), Ids.New()).AsTask());
 
-        failed.Message.Should().Contain(" fetch ").And.Contain("was still running after 30 minutes and was ended").And.Contain("Counting objects");
+        Assert.Contains(" fetch ", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("was still running after 30 minutes and was ended", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("Counting objects", failed.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -498,11 +510,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(string.Empty) with { Truncated = true });
 
-        GitCommandException failed = (await FluentActions.Awaiting(() => PerformAsync(Ids.New(), Ids.New()).AsTask())
-            .Should().ThrowAsync<GitCommandException>()).Subject.Single();
+        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => PerformAsync(Ids.New(), Ids.New()).AsTask());
 
-        failed.Message.Should().Contain(" ls-tree ").And.Contain("wrote more output than the daemon keeps");
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+        Assert.Contains(" ls-tree ", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("wrote more output than the daemon keeps", failed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree add", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -512,9 +524,10 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
             new SystemStepRequest(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
 
         SystemStepOutcome.Paused paused = Paused(outcome);
-        paused.Reason.Should().StartWith("Step 'worktree'").And.Contain("Project 'nowhere' is not registered");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("worktree"));
-        runner.Commands.Should().BeEmpty();
+        Assert.StartsWith("Step 'worktree'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("Project 'nowhere' is not registered", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        Assert.Empty(runner.Commands);
     }
 
     [Fact]
@@ -525,15 +538,15 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         await File.WriteAllTextAsync(Path.Combine(partial, "objects", "half"), "left by a clone ended part way", None);
         runner.On(c => c.IsGit("init"), (command, _) =>
         {
-            Directory.Exists(partial).Should().BeFalse("the leftover is deleted before the clone starts");
+            Assert.False(Directory.Exists(partial), "the leftover is deleted before the clone starts");
             Directory.CreateDirectory(command.Arguments[^1]);
             return Task.FromResult(ScriptedCommandRunner.Ok());
         });
 
         Done(await PerformAsync(Ids.New(), Ids.New()));
 
-        File.Exists(Path.Combine(Clone, "objects", "half")).Should().BeFalse();
-        Directory.Exists(partial).Should().BeFalse();
+        Assert.False(File.Exists(Path.Combine(Clone, "objects", "half")));
+        Assert.False(Directory.Exists(partial));
     }
 
     [Fact]
@@ -545,9 +558,10 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
-        paused.Reason.Should().Contain(Clone).And.Contain("does not recognize");
-        runner.GitCalls.Should().Equal("rev-parse --is-bare-repository");
-        File.Exists(Path.Combine(Clone, "notes.txt")).Should().BeTrue("nothing at the clone's path is ever deleted");
+        Assert.Contains(Clone, paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("does not recognize", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(["rev-parse --is-bare-repository"], runner.GitCalls);
+        Assert.True(File.Exists(Path.Combine(Clone, "notes.txt")), "nothing at the clone's path is ever deleted");
     }
 
     [Fact]
@@ -567,13 +581,18 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         Done(await PerformAsync(parcelId, flowRunId));
 
-        runner.GitCalls.Skip(before).Should().ContainInConsecutiveOrder(
-            $"worktree unlock {workPath}",
-            "worktree prune",
-            "worktree prune",
-            $"worktree add --quiet {workPath} {branch}");
-        runner.Worktrees(Clone).Should().ContainSingle(p => p == workPath, "the stale entry is gone and the new one is listed")
-            .And.NotContain(earlier);
+        SequenceAssert.ContainsConsecutively(
+            [
+                $"worktree unlock {workPath}",
+                "worktree prune",
+                "worktree prune",
+                $"worktree add --quiet {workPath} {branch}",
+            ],
+            runner.GitCalls.Skip(before));
+        IReadOnlyList<string> actual = runner.Worktrees(Clone);
+        // the stale entry is gone and the new one is listed
+        Assert.Single(actual, p => p == workPath);
+        Assert.DoesNotContain(earlier, actual);
     }
 
     [Fact]
@@ -583,8 +602,9 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
-        paused.Reason.Should().Contain(".coanda/task.md, .coanda/notes/a.md").And.Contain(ScriptedCommandRunner.PrimaryHead);
-        runner.GitCalls.Should().NotContain(c =>
+        Assert.Contains(".coanda/task.md, .coanda/notes/a.md", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(ScriptedCommandRunner.PrimaryHead, paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(runner.GitCalls, c =>
             c.StartsWith("config coanda", StringComparison.Ordinal)
             || c.StartsWith("config branch.", StringComparison.Ordinal)
             || c.StartsWith("branch ", StringComparison.Ordinal)
@@ -598,7 +618,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
-        paused.Reason.Should().Contain(".coanda/na\u00efve \"x\".md");
+        Assert.Contains(".coanda/na\u00efve \"x\".md", paused.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -609,8 +629,9 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
-        paused.Reason.Should().Contain("tracks .coanda").And.Contain(ScriptedCommandRunner.PrimaryHead);
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+        Assert.Contains("tracks .coanda", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(ScriptedCommandRunner.PrimaryHead, paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree add", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -619,7 +640,8 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         runner.On(c => c.IsGit("ls-tree", "-z"), ScriptedCommandRunner.Ok("src\0.coanda-notes\0.coanda.md\0"));
 
         Done(await PerformAsync(Ids.New(), Ids.New()));
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("ls-tree -r", StringComparison.Ordinal), "no root entry matched, so nothing is listed under one");
+        // no root entry matched, so nothing is listed under one
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("ls-tree -r", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -631,9 +653,9 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
 
-        paused.Reason.Should().Contain($"{name}/task.md");
-        runner.GitCalls.Should().Contain($"ls-tree -r -z --name-only {ScriptedCommandRunner.PrimaryHead} -- {name}");
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+        Assert.Contains($"{name}/task.md", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains($"ls-tree -r -z --name-only {ScriptedCommandRunner.PrimaryHead} -- {name}", runner.GitCalls);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree add", StringComparison.Ordinal));
     }
 
     /// <summary>Scripts the commit's root listing to hold <paramref name="rootEntry"/>, and the listing under it.</summary>
@@ -651,7 +673,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
         Done(await PerformAsync(Ids.New(), Ids.New()));
 
-        ExcludeLines().Should().Equal("# kept", "*.log", ProjectClones.ExcludeLine);
+        Assert.Equal(["# kept", "*.log", ProjectClones.ExcludeLine], ExcludeLines());
     }
 
     [Fact]
@@ -659,9 +681,9 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
 
-        (await clones.RemoveAsync("team/alpha", Ids.New(), None)).Should().BeFalse();
+        Assert.False(await clones.RemoveAsync("team/alpha", Ids.New(), None));
 
-        runner.Commands.Should().BeEmpty();
+        Assert.Empty(runner.Commands);
     }
 
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
@@ -705,12 +727,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
     private static JsonElement Done(SystemStepOutcome outcome)
     {
-        JsonElement result = outcome.Should().BeOfType<SystemStepOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be("done");
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.Worktree);
+        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        Assert.Equal("done", result.GetProperty("verdict").GetString());
+        Assert.Equal(SoftwareSystemSteps.Worktree, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) =>
-        outcome.Should().BeOfType<SystemStepOutcome.Paused>().Subject;
+    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
 }

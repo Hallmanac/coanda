@@ -34,9 +34,9 @@ public sealed class AgentStepTests
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        SessionHandle session = executor.Spawns.Should().ContainSingle().Subject.Handle;
-        outcome.Should().Be(new AgentStepOutcome.Answered(session, Valid, "/t/1.jsonl", FirstUsage));
-        executor.Resumes.Should().BeEmpty();
+        SessionHandle session = Assert.Single(executor.Spawns).Handle;
+        Assert.Equal(new AgentStepOutcome.Answered(session, Valid, "/t/1.jsonl", FirstUsage), outcome);
+        Assert.Empty(executor.Resumes);
     }
 
     [Fact]
@@ -49,11 +49,12 @@ public sealed class AgentStepTests
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        executor.Spawns.Should().ContainSingle();
-        outcome.Should().Be(new AgentStepOutcome.Answered(executor.Spawns[0].Handle, Valid, "/t/2.jsonl", Summed));
-        ScriptedMessage resume = executor.Resumes.Should().ContainSingle().Subject;
-        resume.Handle.Should().Be(executor.Spawns[0].Handle);
-        resume.Message.Should().Contain("'review'").And.Contain(failure);
+        Assert.Single(executor.Spawns);
+        Assert.Equal(new AgentStepOutcome.Answered(executor.Spawns[0].Handle, Valid, "/t/2.jsonl", Summed), outcome);
+        ScriptedMessage resume = Assert.Single(executor.Resumes);
+        Assert.Equal(executor.Spawns[0].Handle, resume.Handle);
+        Assert.Contains("'review'", resume.Message, StringComparison.Ordinal);
+        Assert.Contains(failure, resume.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -66,13 +67,16 @@ public sealed class AgentStepTests
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        executor.Spawns.Should().ContainSingle();
-        executor.Resumes.Should().ContainSingle()
-            .Which.Message.Should().Contain("No answer document was found").And.Contain("'review'");
-        AgentStepOutcome.Paused pause = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
-        pause.Reason.Should().Contain($"'{Agent}'").And.Contain("'review'").And.Contain(failure);
-        pause.Lever.Should().Be("/t/2.jsonl");
-        pause.Usage.Should().Be(Summed);
+        Assert.Single(executor.Spawns);
+        ScriptedMessage resume = Assert.Single(executor.Resumes);
+        Assert.Contains("No answer document was found", resume.Message, StringComparison.Ordinal);
+        Assert.Contains("'review'", resume.Message, StringComparison.Ordinal);
+        AgentStepOutcome.Paused pause = Assert.IsType<AgentStepOutcome.Paused>(outcome);
+        Assert.Contains($"'{Agent}'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains("'review'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains(failure, pause.Reason, StringComparison.Ordinal);
+        Assert.Equal("/t/2.jsonl", pause.Lever);
+        Assert.Equal(Summed, pause.Usage);
     }
 
     [Fact]
@@ -83,16 +87,22 @@ public sealed class AgentStepTests
             new ScriptEntry(InvalidAgain, "/t/2.jsonl", SecondUsage));
         string firstFailure = AnswerValidator.Validate(AnswerSchemas.Review, Invalid).Failures[0];
         string secondFailure = AnswerValidator.Validate(AnswerSchemas.Review, InvalidAgain).Failures[0];
-        firstFailure.Should().NotBe(secondFailure, "the pause must be shown to quote the second attempt");
+        // the pause must be shown to quote the second attempt
+        Assert.NotEqual(secondFailure, firstFailure);
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        executor.Spawns.Should().ContainSingle();
-        executor.Resumes.Should().ContainSingle().Which.Message.Should().Contain("'review'").And.Contain(firstFailure);
-        AgentStepOutcome.Paused pause = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
-        pause.Reason.Should().Contain($"'{Agent}'").And.Contain("'review'").And.Contain(secondFailure).And.NotContain(firstFailure);
-        pause.Lever.Should().Be("/t/2.jsonl");
-        pause.Usage.Should().Be(Summed);
+        Assert.Single(executor.Spawns);
+        ScriptedMessage resume = Assert.Single(executor.Resumes);
+        Assert.Contains("'review'", resume.Message, StringComparison.Ordinal);
+        Assert.Contains(firstFailure, resume.Message, StringComparison.Ordinal);
+        AgentStepOutcome.Paused pause = Assert.IsType<AgentStepOutcome.Paused>(outcome);
+        Assert.Contains($"'{Agent}'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains("'review'", pause.Reason, StringComparison.Ordinal);
+        Assert.Contains(secondFailure, pause.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(firstFailure, pause.Reason, StringComparison.Ordinal);
+        Assert.Equal("/t/2.jsonl", pause.Lever);
+        Assert.Equal(Summed, pause.Usage);
     }
 
     [Fact]
@@ -104,8 +114,7 @@ public sealed class AgentStepTests
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Paused>()
-            .Which.Reason.Should().Contain(AgentStep.NoAnswerFound);
+        Assert.Contains(AgentStep.NoAnswerFound, Assert.IsType<AgentStepOutcome.Paused>(outcome).Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -117,10 +126,10 @@ public sealed class AgentStepTests
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Paused>();
-        outcome.Session.Should().Be(executor.Spawns.Should().ContainSingle().Subject.Handle);
-        executor.Stops.Should().BeEmpty();
-        (await executor.ListAsync(CancellationToken.None)).Should().Equal(outcome.Session);
+        Assert.IsType<AgentStepOutcome.Paused>(outcome);
+        Assert.Equal(Assert.Single(executor.Spawns).Handle, outcome.Session);
+        Assert.Empty(executor.Stops);
+        Assert.Equal([outcome.Session], await executor.ListAsync(CancellationToken.None));
     }
 
     [Fact]
@@ -144,9 +153,9 @@ public sealed class AgentStepTests
             CancellationToken.None,
             CancellationToken.None);
 
-        received.Should().Be(outcome.Session);
-        spawnsSeen.Should().Be(1);
-        resumesSeen.Should().Be(0);
+        Assert.Equal(outcome.Session, received);
+        Assert.Equal(1, spawnsSeen);
+        Assert.Equal(0, resumesSeen);
     }
 
     [Fact]
@@ -156,9 +165,10 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
-        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
-        executor.Stops.Should().Equal(executor.Spawns.Should().ContainSingle().Subject.Handle);
-        (await executor.ListAsync(CancellationToken.None)).Should().BeEmpty();
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(run);
+        Assert.Contains("no entry 1", exception.Message, StringComparison.Ordinal);
+        Assert.Equal([Assert.Single(executor.Spawns).Handle], executor.Stops);
+        Assert.Empty(await executor.ListAsync(CancellationToken.None));
     }
 
     [Fact]
@@ -179,10 +189,11 @@ public sealed class AgentStepTests
             cancellation.Token,
             cancellation.Token);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Stops.Should().BeEmpty();
-        SessionHandle taken = received.Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
-        (await executor.ReattachAsync(taken, access: null, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(taken));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        Assert.Empty(executor.Stops);
+        Assert.NotNull(received);
+        SessionHandle taken = Assert.IsType<SessionHandle>(received);
+        Assert.Equal(ReattachedSession.OnSpawn(taken), await executor.ReattachAsync(taken, access: null, CancellationToken.None));
     }
 
     [Fact]
@@ -198,9 +209,9 @@ public sealed class AgentStepTests
             CancellationToken.None,
             limit.Token);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Stops.Should().Equal(executor.Spawns.Should().ContainSingle().Subject.Handle);
-        (await executor.ListAsync(CancellationToken.None)).Should().BeEmpty();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        Assert.Equal([Assert.Single(executor.Spawns).Handle], executor.Stops);
+        Assert.Empty(await executor.ListAsync(CancellationToken.None));
     }
 
     [Fact]
@@ -215,8 +226,8 @@ public sealed class AgentStepTests
             CancellationToken.None,
             CancellationToken.None);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Stops.Should().Equal(executor.Spawns.Should().ContainSingle().Subject.Handle);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        Assert.Equal([Assert.Single(executor.Spawns).Handle], executor.Stops);
     }
 
     [Fact]
@@ -226,8 +237,9 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.RunAsync(executor, Request with { AnswerSchema = "reveiw" }, CancellationToken.None);
 
-        await run.Should().ThrowAsync<DomainException>().WithMessage("*'reveiw'*");
-        executor.Spawns.Should().BeEmpty();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(run);
+        Assert.Contains("'reveiw'", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(executor.Spawns);
     }
 
     [Fact]
@@ -237,8 +249,9 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.RunAsync(executor, Request with { AnswerSchema = AnswerSchemas.Build }, CancellationToken.None);
 
-        await run.Should().ThrowAsync<DomainException>().WithMessage($"*'{AnswerSchemas.Build}'*'{Agent}'*'{AnswerSchemas.Review}'*");
-        executor.Spawns.Should().BeEmpty();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(run);
+        Assert.Matches(WildcardPattern.ToRegex($"*'{AnswerSchemas.Build}'*'{Agent}'*'{AnswerSchemas.Review}'*"), exception.Message);
+        Assert.Empty(executor.Spawns);
     }
 
     [Fact]
@@ -251,10 +264,12 @@ public sealed class AgentStepTests
 
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
 
-        outcome.Should().Be(new AgentStepOutcome.Answered(held, Valid, "/t/2.jsonl", Summed));
-        executor.Spawns.Should().ContainSingle("the reattach spawns nothing");
-        executor.Resumes.Should().ContainSingle().Which.Handle.Should().Be(held);
-        executor.Stops.Should().BeEmpty("the caller stops the session once the outcome is recorded");
+        Assert.Equal(new AgentStepOutcome.Answered(held, Valid, "/t/2.jsonl", Summed), outcome);
+        // the reattach spawns nothing
+        Assert.Single(executor.Spawns);
+        Assert.Equal(held, Assert.Single(executor.Resumes).Handle);
+        // the caller stops the session once the outcome is recorded
+        Assert.Empty(executor.Stops);
     }
 
     [Fact]
@@ -266,17 +281,20 @@ public sealed class AgentStepTests
         SessionHandle held = await SpawnAsync(executor);
         await executor.CollectAsync(held, CancellationToken.None);
         await executor.ResumeAsync(held, "Answer again.", CancellationToken.None);
-        ReattachedSession retrying = (await executor.ReattachAsync(held, access: null, CancellationToken.None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
-        retrying.Should().Be(new ReattachedSession(held, 2, FirstUsage));
+        Reattachment? actual = await executor.ReattachAsync(held, access: null, CancellationToken.None);
+        Assert.NotNull(actual);
+        ReattachedSession retrying = Assert.IsType<ReattachedSession>(actual);
+        Assert.Equal(new ReattachedSession(held, 2, FirstUsage), retrying);
         var spend = new AgentStepSpend();
 
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, retrying, AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None, CancellationToken.None);
 
-        AgentStepOutcome.Paused paused = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
-        paused.Reason.Should().StartWith($"Agent '{Agent}' gave no valid '{AnswerSchemas.Review}' answer after one retry:");
-        paused.Usage.Should().Be(Summed);
-        spend.Reported.Should().Be(Summed);
-        executor.Resumes.Should().ContainSingle("the retry before the restart was the one retry");
+        AgentStepOutcome.Paused paused = Assert.IsType<AgentStepOutcome.Paused>(outcome);
+        Assert.StartsWith($"Agent '{Agent}' gave no valid '{AnswerSchemas.Review}' answer after one retry:", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(Summed, paused.Usage);
+        Assert.Equal(Summed, spend.Reported);
+        // the retry before the restart was the one retry
+        Assert.Single(executor.Resumes);
     }
 
     [Fact]
@@ -292,9 +310,10 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.ReattachAsync(executor, new ReattachedSession(held, 2, FirstUsage), AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None, limit.Token);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Stops.Should().Equal(held);
-        spend.Reported.Should().Be(FirstUsage, "nothing recorded the earlier attempt's usage at the daemon stop");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        Assert.Equal([held], executor.Stops);
+        // nothing recorded the earlier attempt's usage at the daemon stop
+        Assert.Equal(FirstUsage, spend.Reported);
     }
 
     [Fact]
@@ -307,8 +326,8 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, limit.Token);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Stops.Should().Equal(held);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        Assert.Equal([held], executor.Stops);
     }
 
     [Fact]
@@ -317,15 +336,16 @@ public sealed class AgentStepTests
         ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
         SessionHandle held = await SpawnAsync(executor);
         executor.Finish(held);
-        ReattachedSession finished = (await executor.ReattachAsync(held, access: null, CancellationToken.None)).Should().BeOfType<ReattachedSession>().Subject;
-        finished.Finished.Should().BeTrue();
+        ReattachedSession finished = Assert.IsType<ReattachedSession>(await executor.ReattachAsync(held, access: null, CancellationToken.None));
+        Assert.True(finished.Finished);
         using var limit = new CancellationTokenSource();
         await limit.CancelAsync();
 
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, finished, AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, limit.Token);
 
-        outcome.Should().Be(new AgentStepOutcome.Answered(held, Valid, "/t/1.jsonl", FirstUsage));
-        executor.Stops.Should().BeEmpty("the caller stops the session once the outcome is recorded");
+        Assert.Equal(new AgentStepOutcome.Answered(held, Valid, "/t/1.jsonl", FirstUsage), outcome);
+        // the caller stops the session once the outcome is recorded
+        Assert.Empty(executor.Stops);
     }
 
     [Fact]
@@ -341,10 +361,12 @@ public sealed class AgentStepTests
         Func<Task> run = () => AgentStep.ReattachAsync(
             executor, new ReattachedSession(held, 1, ReattachedSession.Nothing, Finished: true), AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None, limit.Token);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Resumes.Should().BeEmpty("a retry would run past the limit");
-        executor.Stops.Should().Equal(held);
-        spend.Reported.Should().Be(FirstUsage, "the finished attempt's collect returned its usage");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        // a retry would run past the limit
+        Assert.Empty(executor.Resumes);
+        Assert.Equal([held], executor.Stops);
+        // the finished attempt's collect returned its usage
+        Assert.Equal(FirstUsage, spend.Reported);
     }
 
     [Fact]
@@ -358,8 +380,8 @@ public sealed class AgentStepTests
         Func<Task> run = () => AgentStep.ReattachAsync(
             executor, new ReattachedSession(held, 1, ReattachedSession.Nothing, Finished: true), AnswerSchemas.Review, spend: null, CancellationToken.None, ended.Token, ended.Token);
 
-        await run.Should().ThrowAsync<OperationCanceledException>();
-        executor.Stops.Should().Equal(held);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
+        Assert.Equal([held], executor.Stops);
     }
 
     [Fact]
@@ -372,9 +394,11 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, stopping.Token, CancellationToken.None, CancellationToken.None);
 
-        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
-        executor.Stops.Should().BeEmpty("a failure while the daemon stops is a daemon stop, whatever its type");
-        (await executor.ReattachAsync(held, access: null, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(held));
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(run);
+        Assert.Contains("no entry 1", exception.Message, StringComparison.Ordinal);
+        // a failure while the daemon stops is a daemon stop, whatever its type
+        Assert.Empty(executor.Stops);
+        Assert.Equal(ReattachedSession.OnSpawn(held), await executor.ReattachAsync(held, access: null, CancellationToken.None));
     }
 
     [Fact]
@@ -385,8 +409,9 @@ public sealed class AgentStepTests
 
         Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
 
-        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
-        executor.Stops.Should().Equal(held);
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(run);
+        Assert.Contains("no entry 1", exception.Message, StringComparison.Ordinal);
+        Assert.Equal([held], executor.Stops);
     }
 
     private static Task<SessionHandle> SpawnAsync(ScriptedExecutor executor) =>

@@ -13,7 +13,7 @@ public sealed class NodeHomeTests
     {
         Guid flowRunId = Ids.New();
 
-        Home.FlowRunWorkPath("alpha", flowRunId).Should().Be(Path.Combine(Home.Path, "work", "alpha", flowRunId.ToString()));
+        Assert.Equal(Path.Combine(Home.Path, "work", "alpha", flowRunId.ToString()), Home.FlowRunWorkPath("alpha", flowRunId));
     }
 
     [Theory]
@@ -28,8 +28,10 @@ public sealed class NodeHomeTests
         Action work = () => Home.FlowRunWorkPath(project, Ids.New());
         Action transcripts = () => Home.FlowRunTranscriptPath(project, Ids.New());
 
-        work.Should().Throw<DomainException>().WithMessage($"Project '{project}' is not a plain directory name*");
-        transcripts.Should().Throw<DomainException>().WithMessage($"Project '{project}' is not a plain directory name*");
+        DomainException exception = Assert.Throws<DomainException>(work);
+        Assert.StartsWith($"Project '{project}' is not a plain directory name", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = Assert.Throws<DomainException>(transcripts);
+        Assert.StartsWith($"Project '{project}' is not a plain directory name", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -40,8 +42,9 @@ public sealed class NodeHomeTests
 
         string transcripts = Home.TranscriptDirectoryOf(work);
 
-        transcripts.Should().Be(Path.Combine(Home.Path, "transcripts", "alpha", flowRunId.ToString())).And.Be(Home.FlowRunTranscriptPath("alpha", flowRunId));
-        transcripts.Should().NotStartWith(work);
+        Assert.Equal(Path.Combine(Home.Path, "transcripts", "alpha", flowRunId.ToString()), transcripts);
+        Assert.Equal(Home.FlowRunTranscriptPath("alpha", flowRunId), transcripts);
+        Assert.False(transcripts.StartsWith(work, StringComparison.Ordinal), $"Expected {transcripts} not to start with {work}.");
     }
 
     [Theory]
@@ -54,7 +57,8 @@ public sealed class NodeHomeTests
     {
         Action find = () => Home.TranscriptDirectoryOf(Path.Combine(Home.Path, relative));
 
-        find.Should().Throw<DomainException>().WithMessage("*is not a flow run's working directory under the node home*");
+        DomainException exception = Assert.Throws<DomainException>(find);
+        Assert.Contains("is not a flow run's working directory under the node home", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -70,12 +74,13 @@ public sealed class NodeHomeTests
         {
             reader.Open();
             Action read = () => Execute(reader, "SELECT count(*) FROM sqlite_master;", timeoutSeconds: 1);
-            read.Should().Throw<SqliteException>().Where(e => e.SqliteErrorCode == 5, "the holder's exclusive lock keeps every other connection out");
+            SqliteException exception = Assert.Throws<SqliteException>(read);
+            Assert.True(exception.SqliteErrorCode == 5, "the holder's exclusive lock keeps every other connection out");
         }
 
         Action prepare = () => home.EnsureExists().EnsureDatabase();
 
-        prepare.Should().NotThrow();
+        prepare();
     }
 
     private static void Execute(SqliteConnection connection, string sql, int timeoutSeconds = 30)

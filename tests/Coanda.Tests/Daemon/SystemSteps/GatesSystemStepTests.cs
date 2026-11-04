@@ -49,13 +49,14 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
         SystemStepOutcome outcome = await PerformAsync(Project, flowRunId);
 
         JsonElement result = Result(outcome, "done");
-        result.GetProperty("build").GetString().Should().Be(ProjectDefaults.DefaultBuild);
-        result.GetProperty("test").GetString().Should().Be(ProjectDefaults.DefaultTest);
-        runner.Commands.Should().HaveCount(2).And.OnlyContain(c => c.WorkingDirectory == temp.Home.FlowRunWorkPath(Project, flowRunId));
-        runner.ShellLines.Should().Equal(ProjectDefaults.DefaultBuild, ProjectDefaults.DefaultTest);
-        (runner.Commands[0].Program, runner.Commands[0].VerbatimArguments).Should().Be(OperatingSystem.IsWindows()
+        Assert.Equal(ProjectDefaults.DefaultBuild, result.GetProperty("build").GetString());
+        Assert.Equal(ProjectDefaults.DefaultTest, result.GetProperty("test").GetString());
+        Assert.Equal(2, runner.Commands.Count);
+        Assert.All(runner.Commands, c => Assert.True(c.WorkingDirectory == temp.Home.FlowRunWorkPath(Project, flowRunId)));
+        Assert.Equal([ProjectDefaults.DefaultBuild, ProjectDefaults.DefaultTest], runner.ShellLines);
+        Assert.Equal(OperatingSystem.IsWindows()
             ? ("cmd.exe", $"/d /s /c \"{ProjectDefaults.DefaultBuild}\"")
-            : ("/bin/sh", null));
+            : ("/bin/sh", null), (runner.Commands[0].Program, runner.Commands[0].VerbatimArguments));
     }
 
     [Fact]
@@ -63,7 +64,8 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         Result(await PerformAsync(Project, Ids.New()), "done");
 
-        runner.Commands.Should().HaveCount(2).And.OnlyContain(c => c.Limit == Limit);
+        Assert.Equal(2, runner.Commands.Count);
+        Assert.All(runner.Commands, c => Assert.True(c.Limit == Limit));
     }
 
     [Fact]
@@ -73,9 +75,9 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
 
-        result.GetProperty("reason").GetString().Should()
-            .StartWith("The test command 'dotnet test' was still running after 45 minutes, the limit for one gates command, and was ended.")
-            .And.Contain("Running 12 tests");
+        string? actual = result.GetProperty("reason").GetString();
+        Assert.StartsWith("The test command 'dotnet test' was still running after 45 minutes, the limit for one gates command, and was ended.", actual, StringComparison.Ordinal);
+        Assert.Contains("Running 12 tests", actual, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -85,7 +87,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         Result(await PerformAsync("beta", Ids.New()), "done");
 
-        runner.ShellLines.Should().Equal("make all", "make check");
+        Assert.Equal(["make all", "make check"], runner.ShellLines);
     }
 
     [Fact]
@@ -95,10 +97,10 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
 
-        result.GetProperty("reason").GetString().Should()
-            .StartWith("The build command 'dotnet build' exited with code 1.")
-            .And.Contain("error CS1002\nBuild FAILED.");
-        runner.ShellLines.Should().Equal(ProjectDefaults.DefaultBuild);
+        string? actual = result.GetProperty("reason").GetString();
+        Assert.StartsWith("The build command 'dotnet build' exited with code 1.", actual, StringComparison.Ordinal);
+        Assert.Contains("error CS1002\nBuild FAILED.", actual, StringComparison.Ordinal);
+        Assert.Equal([ProjectDefaults.DefaultBuild], runner.ShellLines);
     }
 
     [Fact]
@@ -108,7 +110,9 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
 
-        result.GetProperty("reason").GetString().Should().StartWith("The test command 'dotnet test' exited with code 127.").And.Contain("not found");
+        string? actual = result.GetProperty("reason").GetString();
+        Assert.StartsWith("The test command 'dotnet test' exited with code 127.", actual, StringComparison.Ordinal);
+        Assert.Contains("not found", actual, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -119,8 +123,9 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         string reason = Result(await PerformAsync(Project, Ids.New()), "failed").GetProperty("reason").GetString() ?? string.Empty;
 
-        reason.Should().Contain("The last 100 lines of its output:\nline 51\n").And.EndWith("line 150");
-        reason.Should().NotContain("line 50\n");
+        Assert.Contains("The last 100 lines of its output:\nline 51\n", reason, StringComparison.Ordinal);
+        Assert.EndsWith("line 150", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("line 50\n", reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -131,7 +136,9 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         string reason = Result(await PerformAsync(Project, Ids.New()), "failed").GetProperty("reason").GetString() ?? string.Empty;
 
-        reason.Should().Contain("https://example.invalid/repo.git/").And.Contain("git@example.invalid:team/repo.git").And.NotContain("s3cret");
+        Assert.Contains("https://example.invalid/repo.git/", reason, StringComparison.Ordinal);
+        Assert.Contains("git@example.invalid:team/repo.git", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -142,8 +149,9 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = AsPaused(await PerformAsync(Project, Ids.New()));
 
-        paused.Reason.Should().StartWith("Step 'gates' could not start the shell to run the build command 'dotnet build'").And.Contain("No such file or directory");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("gates"));
+        Assert.StartsWith("Step 'gates' could not start the shell to run the build command 'dotnet build'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("No such file or directory", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("gates"), paused.Lever);
     }
 
     [Fact]
@@ -151,9 +159,11 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         SystemStepOutcome.Paused paused = AsPaused(await PerformAsync("nowhere", Ids.New()));
 
-        paused.Reason.Should().StartWith("Step 'gates'").And.Contain("project 'nowhere'").And.Contain("Project 'nowhere' is not registered");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("gates"));
-        runner.Commands.Should().BeEmpty();
+        Assert.StartsWith("Step 'gates'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("project 'nowhere'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("Project 'nowhere' is not registered", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("gates"), paused.Lever);
+        Assert.Empty(runner.Commands);
     }
 
     private ValueTask<SystemStepOutcome> PerformAsync(string project, Guid flowRunId) =>
@@ -161,12 +171,11 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
 
     private static JsonElement Result(SystemStepOutcome outcome, string verdict)
     {
-        JsonElement result = outcome.Should().BeOfType<SystemStepOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be(verdict);
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.Gates);
+        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        Assert.Equal(verdict, result.GetProperty("verdict").GetString());
+        Assert.Equal(SoftwareSystemSteps.Gates, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused AsPaused(SystemStepOutcome outcome) =>
-        outcome.Should().BeOfType<SystemStepOutcome.Paused>().Subject;
+    private static SystemStepOutcome.Paused AsPaused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
 }

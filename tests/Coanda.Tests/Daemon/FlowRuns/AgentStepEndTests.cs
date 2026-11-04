@@ -39,23 +39,24 @@ public sealed class AgentStepEndTests
         await executor.Collecting.WaitAsync(Patience);
 
         // A refused pause or stop leaves the agent step running.
-        await FluentActions.Awaiting(() => FlowRunDriver.PauseAsync(client, Project, started.Id, " "))
-            .Should().ThrowAsync<DomainException>().WithMessage("A pause records why the flow run stopped; give a reason.");
-        await FluentActions.Awaiting(() => FlowRunDriver.StopAsync(client, Project, started.Id, ""))
-            .Should().ThrowAsync<DomainException>().WithMessage("Stopping a flow run records why; give a reason.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.PauseAsync(client, Project, started.Id, " "));
+        Assert.Equal("A pause records why the flow run stopped; give a reason.", exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.StopAsync(client, Project, started.Id, ""));
+        Assert.Equal("Stopping a flow run records why; give a reason.", exception2.Message);
         await Task.Delay(TimeSpan.FromMilliseconds(200), None);
-        executor.Inner.Stops.Should().BeEmpty("a refused pause or stop does not end the agent step");
+        // a refused pause or stop does not end the agent step
+        Assert.Empty(executor.Inner.Stops);
 
         await FlowRunDriver.PauseAsync(client, Project, started.Id, "Waiting on the API owner.");
         await advancer.RequestAdvance(Project, started.Id).WaitAsync(Patience);
 
-        SessionHandle held = executor.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        executor.Inner.Stops.Should().Equal(held);
+        SessionHandle held = Assert.Single(executor.Inner.Spawns).Handle;
+        Assert.Equal([held], executor.Inner.Stops);
         FlowRunView paused = await FlowRunDriver.ShowAsync(client, Project, started.Id);
-        paused.Status.Should().Be("paused");
-        paused.PauseReason.Should().Be("Waiting on the API owner.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
+        Assert.Equal("paused", paused.Status);
+        Assert.Equal("Waiting on the API owner.", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Null(Assert.Single(paused.Steps).Answer);
 
         await daemon.StopAsync(None);
     }
@@ -75,12 +76,12 @@ public sealed class AgentStepEndTests
         await FlowRunDriver.StopAsync(client, Project, started.Id, "Not needed any more.");
         await advancer.RequestAdvance(Project, started.Id).WaitAsync(Patience);
 
-        SessionHandle held = executor.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        executor.Inner.Stops.Should().Equal(held);
+        SessionHandle held = Assert.Single(executor.Inner.Spawns).Handle;
+        Assert.Equal([held], executor.Inner.Stops);
         FlowRunView stopped = await FlowRunDriver.ShowAsync(client, Project, started.Id);
-        stopped.Status.Should().Be("stopped");
-        stopped.StopReason.Should().Be("Not needed any more.");
-        stopped.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
+        Assert.Equal("stopped", stopped.Status);
+        Assert.Equal("Not needed any more.", stopped.StopReason);
+        Assert.Null(Assert.Single(stopped.Steps).Answer);
 
         await daemon.StopAsync(None);
     }
@@ -100,16 +101,18 @@ public sealed class AgentStepEndTests
         await FlowRunDriver.PauseAsync(client, Project, started.Id, "Hold on.");
         await advancer.RequestAdvance(Project, started.Id).WaitAsync(Patience);
         FlowRunView paused = await FlowRunDriver.ShowAsync(client, Project, started.Id);
-        paused.Cost.Should().Be(InProgress.CostUsd, "the stopped attempt's reported usage is recorded");
-        paused.PauseReason.Should().Be("Hold on.");
-        paused.PauseUsage.Should().BeNull("the usage record leaves the person's pause as it was");
+        // the stopped attempt's reported usage is recorded
+        Assert.Equal(InProgress.CostUsd, paused.Cost);
+        Assert.Equal("Hold on.", paused.PauseReason);
+        // the usage record leaves the person's pause as it was
+        Assert.Null(paused.PauseUsage);
 
         executor.Open();
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Go on.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        ended.Cost.Should().Be(InProgress.CostUsd + Scripts.Usage(2).CostUsd);
-        ended.Steps.Should().ContainSingle().Which.Measurement.Should().Be(Scripts.Usage(2));
+        Assert.Equal(InProgress.CostUsd + Scripts.Usage(2).CostUsd, ended.Cost);
+        Assert.Equal(Scripts.Usage(2), Assert.Single(ended.Steps).Measurement);
 
         await daemon.StopAsync(None);
     }
@@ -130,8 +133,8 @@ public sealed class AgentStepEndTests
         await advancer.RequestAdvance(Project, started.Id).WaitAsync(Patience);
 
         FlowRunView stopped = await FlowRunDriver.ShowAsync(client, Project, started.Id);
-        stopped.Status.Should().Be("stopped");
-        stopped.Cost.Should().Be(InProgress.CostUsd);
+        Assert.Equal("stopped", stopped.Status);
+        Assert.Equal(InProgress.CostUsd, stopped.Cost);
 
         await daemon.StopAsync(None);
     }
@@ -147,15 +150,16 @@ public sealed class AgentStepEndTests
         IFlowRunAdvancer advancer = daemon.Services.GetRequiredService<IFlowRunAdvancer>();
         FlowRunView started = await StartSingleAsync(daemon, client, "Paused mid-retry");
         await executor.Holding.WaitAsync(Patience);
-        executor.Inner.Resumes.Should().ContainSingle("the invalid first answer was retried in the same session");
+        // the invalid first answer was retried in the same session
+        Assert.Single(executor.Inner.Resumes);
 
         await FlowRunDriver.PauseAsync(client, Project, started.Id, "Hold on.");
         await advancer.RequestAdvance(Project, started.Id).WaitAsync(Patience);
 
         FlowRunView paused = await FlowRunDriver.ShowAsync(client, Project, started.Id);
-        paused.Status.Should().Be("paused");
-        paused.Cost.Should().Be(Scripts.Usage(1).CostUsd);
-        executor.Inner.Stops.Should().ContainSingle();
+        Assert.Equal("paused", paused.Status);
+        Assert.Equal(Scripts.Usage(1).CostUsd, paused.Cost);
+        Assert.Single(executor.Inner.Stops);
 
         await daemon.StopAsync(None);
     }
@@ -172,9 +176,9 @@ public sealed class AgentStepEndTests
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':");
-        paused.PauseUsage.Should().Be(InProgress);
-        paused.Cost.Should().Be(InProgress.CostUsd);
+        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(InProgress, paused.PauseUsage);
+        Assert.Equal(InProgress.CostUsd, paused.Cost);
 
         await daemon.StopAsync(None);
     }
@@ -194,25 +198,30 @@ public sealed class AgentStepEndTests
         await executor.Holding.WaitAsync(Patience);
 
         await FlowRunDriver.PauseAsync(client, Project, started.Id, "Hold on.");
-        (await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Go on.")).Status.Should().Be("running");
-        executor.Inner.Spawns.Should().ContainSingle("the held collect has not returned, so nothing performed the step again yet");
+        Assert.Equal("running", (await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Go on.")).Status);
+        // the held collect has not returned, so nothing performed the step again yet
+        Assert.Single(executor.Inner.Spawns);
         executor.Open();
 
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
         IReadOnlyList<ScriptedSpawn> spawns = executor.Inner.Spawns;
-        spawns.Should().HaveCount(2, "a second spawn performs the resumed step");
-        FlowRunStepView build = ended.Steps.Should().ContainSingle().Subject;
-        build.Answer.GetValueOrDefault().GetProperty("summary").GetString().Should().Be("answer 2", "only the second spawn's answer is recorded");
-        build.Measurement.Should().Be(Scripts.Usage(2));
-        ended.Cost.Should().Be(Scripts.Usage(1).CostUsd + Scripts.Usage(2).CostUsd, "the refused answer counts once");
+        // a second spawn performs the resumed step
+        Assert.Equal(2, spawns.Count);
+        FlowRunStepView build = Assert.Single(ended.Steps);
+        // only the second spawn's answer is recorded
+        Assert.Equal("answer 2", build.Answer.GetValueOrDefault().GetProperty("summary").GetString());
+        Assert.Equal(Scripts.Usage(2), build.Measurement);
+        // the refused answer counts once
+        Assert.Equal(Scripts.Usage(1).CostUsd + Scripts.Usage(2).CostUsd, ended.Cost);
 
         IReadOnlyList<object> events = await EventsAsync(daemon, started.Id);
-        events.OfType<FlowRunPaused>().Should().ContainSingle("the refused answer does not pause the flow run").Which.Reason.Should().Be("Hold on.");
-        AgentStepUsageRecorded dropped = events.OfType<AgentStepUsageRecorded>().Should().ContainSingle().Subject;
-        dropped.SessionId.Should().Be(spawns[0].Handle.Id);
-        dropped.Usage.Should().Be(Scripts.Usage(1));
-        events.OfType<AgentStepAnswered>().Should().ContainSingle();
+        // the refused answer does not pause the flow run
+        Assert.Equal("Hold on.", Assert.Single(events.OfType<FlowRunPaused>()).Reason);
+        AgentStepUsageRecorded dropped = Assert.Single(events.OfType<AgentStepUsageRecorded>());
+        Assert.Equal(spawns[0].Handle.Id, dropped.SessionId);
+        Assert.Equal(Scripts.Usage(1), dropped.Usage);
+        Assert.Single(events.OfType<AgentStepAnswered>());
 
         await daemon.StopAsync(None);
     }

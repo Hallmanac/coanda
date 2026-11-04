@@ -57,10 +57,11 @@ public sealed class FlowRunControlApiTests
 
         await RefusedAsync(http, daemon, $"/flow-runs/{started.Id}/pause", new FlowRunPauseRequest(Project, " "), "A pause records why the flow run stopped; give a reason.");
         await RefusedAsync(http, daemon, $"/flow-runs/{started.Id}/stop", new FlowRunStopRequest(Project, ""), "Stopping a flow run records why; give a reason.");
-        (await FlowRunDriver.ShowAsync(client, Project, started.Id)).Status.Should().Be("running", "a refused pause or stop changes nothing");
+        // a refused pause or stop changes nothing
+        Assert.Equal("running", (await FlowRunDriver.ShowAsync(client, Project, started.Id)).Status);
 
         FlowRunView paused = await FlowRunDriver.PauseAsync(client, Project, started.Id, "Waiting on the API owner.");
-        paused.Status.Should().Be("paused");
+        Assert.Equal("paused", paused.Status);
 
         // The pause cancels the held collect on the pool, so the gate opens only once the held
         // session is stopped; opened sooner, the held collect could pass it and take the entry.
@@ -68,19 +69,21 @@ public sealed class FlowRunControlApiTests
         executor.Open();
 
         FlowRunView held = await FlowRunDriver.ShowAsync(client, Project, started.Id);
-        held.Status.Should().Be("paused");
-        held.PauseReason.Should().Be("Waiting on the API owner.");
-        held.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        held.Steps.Should().ContainSingle().Which.Answer.Should().BeNull("the held agent step's late answer is dropped");
-        executor.Inner.Spawns.Should().ContainSingle();
+        Assert.Equal("paused", held.Status);
+        Assert.Equal("Waiting on the API owner.", held.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), held.Lever);
+        // the held agent step's late answer is dropped
+        Assert.Null(Assert.Single(held.Steps).Answer);
+        Assert.Single(executor.Inner.Spawns);
 
         FlowRunView resumed = await FlowRunDriver.ResumeAsync(client, Project, started.Id, "The API owner answered.");
-        resumed.Status.Should().Be("running");
+        Assert.Equal("running", resumed.Status);
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        executor.Inner.Spawns.Should().HaveCount(2, "the resume performs the step again");
-        FlowRunStepView build = ended.Steps.Should().ContainSingle().Subject;
-        build.Answer.GetValueOrDefault().GetProperty("summary").GetString().Should().Be("answer 2");
+        // the resume performs the step again
+        Assert.Equal(2, executor.Inner.Spawns.Count);
+        FlowRunStepView build = Assert.Single(ended.Steps);
+        Assert.Equal("answer 2", build.Answer.GetValueOrDefault().GetProperty("summary").GetString());
 
         await RefusedAsync(http, daemon, $"/flow-runs/{started.Id}/stop", new FlowRunStopRequest(Project, "Too late."), $"Flow run {Ids.Short(started.Id)} has ended; only a live flow run stops.");
 
@@ -105,17 +108,19 @@ public sealed class FlowRunControlApiTests
         await RefusedAsync(http, daemon, $"/flow-runs/{paused.Id}/pause", new FlowRunPauseRequest(Project, "Again."), $"Flow run {id} is paused; only a running flow run can pause it.");
 
         FlowRunView stopped = await FlowRunDriver.StopAsync(client, Project, paused.Id, "Taking this by hand.");
-        stopped.Status.Should().Be("stopped");
-        stopped.StopReason.Should().Be("Taking this by hand.");
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).LiveFlowRunId.Should().BeNull("a stopped flow run releases its parcel");
+        Assert.Equal("stopped", stopped.Status);
+        Assert.Equal("Taking this by hand.", stopped.StopReason);
+        // a stopped flow run releases its parcel
+        Assert.Null((await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).LiveFlowRunId);
 
         await RefusedAsync(http, daemon, $"/flow-runs/{paused.Id}/resume", new FlowRunResumeRequest(Project, null), $"Flow run {id} has been stopped; only a paused flow run resumes.");
         await RefusedAsync(http, daemon, $"/flow-runs/{paused.Id}/stop", new FlowRunStopRequest(Project, "Twice."), $"Flow run {id} has been stopped; only a live flow run stops.");
         await RefusedAsync(http, daemon, $"/flow-runs/{paused.Id}/pause", new FlowRunPauseRequest(Project, "Late."), $"Flow run {id} has been stopped; only a running flow run can pause it.");
 
         FlowRunView after = await FlowRunDriver.ShowAsync(client, Project, paused.Id);
-        after.Status.Should().Be("stopped");
-        after.UpdatedAt.Should().Be(stopped.UpdatedAt, "every refusal leaves the flow run as it was");
+        Assert.Equal("stopped", after.Status);
+        // every refusal leaves the flow run as it was
+        Assert.Equal(stopped.UpdatedAt, after.UpdatedAt);
 
         await daemon.StopAsync(None);
     }
@@ -144,9 +149,9 @@ public sealed class FlowRunControlApiTests
         request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
 
         using HttpResponseMessage response = await http.SendAsync(request, None);
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         ErrorView? error = await response.Content.ReadFromJsonAsync<ErrorView>(None);
-        error.Should().NotBeNull();
-        error.Error.Should().Be(rule);
+        Assert.NotNull(error);
+        Assert.Equal(rule, error.Error);
     }
 }

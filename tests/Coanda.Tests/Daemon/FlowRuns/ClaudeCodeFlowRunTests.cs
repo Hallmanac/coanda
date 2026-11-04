@@ -39,23 +39,27 @@ public sealed class ClaudeCodeFlowRunTests
 
         string work = temp.Home.FlowRunWorkPath(Project, started.Id);
         string transcripts = temp.Home.FlowRunTranscriptPath(Project, started.Id);
-        string transcript = Directory.GetFiles(transcripts).Should().ContainSingle().Subject;
-        paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry");
-        paused.Lever.Should().Be(transcript);
-        Path.GetFileNameWithoutExtension(transcript).Should().Be(fake.Starts[0].After("--session-id"));
+        string transcript = Assert.Single(Directory.GetFiles(transcripts));
+        Assert.StartsWith("Agent 'build' gave no valid 'build' answer after one retry", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(transcript, paused.Lever);
+        Assert.Equal(fake.Starts[0].After("--session-id"), Path.GetFileNameWithoutExtension(transcript));
         foreach (string input in new[] { "task.md", "prompt.md", "persona.md" })
         {
-            File.Exists(Path.Combine(work, ".coanda", input)).Should().BeTrue();
+            Assert.True(File.Exists(Path.Combine(work, ".coanda", input)));
         }
 
-        Directory.EnumerateFiles(work, "*", SearchOption.AllDirectories).Should().HaveCount(3, "the runner and the adapter write nothing else into the work directory, and no transcript");
-        File.ReadAllText(Path.Combine(work, ".coanda", "task.md")).Should().Be("rewritten by the session");
+        // the runner and the adapter write nothing else into the work directory, and no transcript
+        Assert.Equal(3, Directory.EnumerateFiles(work, "*", SearchOption.AllDirectories).Count());
+        Assert.Equal("rewritten by the session", File.ReadAllText(Path.Combine(work, ".coanda", "task.md")));
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
-        (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome.Should().Be("built");
-        File.ReadAllText(Path.Combine(work, ".coanda", "task.md")).Should().StartWith("# Try twice").And.Contain($"- Parcel: {parcel.Id}");
-        File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")).Should().Be(ContextOf(fake.Starts[2].Input));
-        Directory.GetFiles(transcripts).Should().HaveCount(2, "the resume's new spawn writes a transcript of its own");
+        Assert.Equal("built", (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome);
+        string actual = File.ReadAllText(Path.Combine(work, ".coanda", "task.md"));
+        Assert.StartsWith("# Try twice", actual, StringComparison.Ordinal);
+        Assert.Contains($"- Parcel: {parcel.Id}", actual, StringComparison.Ordinal);
+        Assert.Equal(ContextOf(fake.Starts[2].Input), File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")));
+        // the resume's new spawn writes a transcript of its own
+        Assert.Equal(2, Directory.GetFiles(transcripts).Length);
 
         await daemon.StopAsync(None);
     }
@@ -84,13 +88,13 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().Be(
-            "Step 'build' got no judgment from agent 'build': The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($3)");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.PauseUsage.Should().Be(new Measurement(10, 3.1m, 5, TimeSpan.FromSeconds(20)));
-        paused.Cost.Should().Be(3.1m);
-        fake.Starts.Should().ContainSingle("an error result is not retried");
-        fake.Starts[0].After("--max-budget-usd").Should().Be("3");
+        Assert.Equal("Step 'build' got no judgment from agent 'build': The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($3)", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Equal(new Measurement(10, 3.1m, 5, TimeSpan.FromSeconds(20)), paused.PauseUsage);
+        Assert.Equal(3.1m, paused.Cost);
+        // an error result is not retried
+        Assert.Single(fake.Starts);
+        Assert.Equal("3", fake.Starts[0].After("--max-budget-usd"));
 
         await daemon.StopAsync(None);
     }
@@ -118,16 +122,17 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
         FlowRunView paused = await UntilPausedAsync(client, started.Id);
 
-        paused.PauseReason.Should().Be(
-            "Step 'build' ran past the wall-clock limit of 5 seconds for one agent step, so its session was stopped. "
-            + "The session did not report the cost of its attempt in progress, so none is recorded for it; the spawn ran under a cost ceiling of $3.00.");
+        Assert.Equal("Step 'build' ran past the wall-clock limit of 5 seconds for one agent step, so its session was stopped. "
+            + "The session did not report the cost of its attempt in progress, so none is recorded for it; the spawn ran under a cost ceiling of $3.00.", paused.PauseReason);
         Measurement usage = paused.PauseUsage ?? throw new InvalidOperationException("The pause recorded no usage.");
-        usage.Tokens.Should().Be(100 + (1 + 9 + 0 + 50) + (2 + 3 + 4 + 60), "msg_a printed twice is counted once, at its last figure");
-        usage.CostUsd.Should().Be(0.2m, "only the first attempt reported a cost");
-        usage.Turns.Should().Be(2 + 2);
-        usage.Duration.Should().BeGreaterThan(TimeSpan.FromMilliseconds(1500));
-        paused.Cost.Should().Be(0.2m);
-        fake.Starts.Should().HaveCount(2);
+        // msg_a printed twice is counted once, at its last figure
+        Assert.Equal(100 + (1 + 9 + 0 + 50) + (2 + 3 + 4 + 60), usage.Tokens);
+        // only the first attempt reported a cost
+        Assert.Equal(0.2m, usage.CostUsd);
+        Assert.Equal(2 + 2, usage.Turns);
+        Assert.True(usage.Duration > TimeSpan.FromMilliseconds(1500), $"Expected more than 1.5 seconds, but found {usage.Duration}.");
+        Assert.Equal(0.2m, paused.Cost);
+        Assert.Equal(2, fake.Starts.Count);
 
         await daemon.StopAsync(None);
     }
@@ -139,15 +144,16 @@ public sealed class ClaudeCodeFlowRunTests
         using var fake = new FakeClaude(Answer(Valid, cost: 0.6m, waitFor: "release"));
         (Guid flowRunId, int pid) = await StopWhileRunningAsync(temp, fake);
 
-        FakeClaude.Running(pid).Should().BeTrue("the daemon's stop leaves the session's process running");
+        Assert.True(FakeClaude.Running(pid), "the daemon's stop leaves the session's process running");
         fake.Release();
         FlowRunView ended = await RestartUntilAsync(temp, fake, flowRunId, "ended");
 
-        ended.Outcome.Should().Be("built");
-        ended.Steps.Should().ContainSingle().Which.Measurement.Should().Be(new Measurement(100, 0.6m, 2, TimeSpan.FromMilliseconds(1500)));
-        ended.Cost.Should().Be(0.6m);
-        ended.Spawns.Should().Be(1);
-        fake.Starts.Should().ContainSingle("the next daemon starts no process for a session it reattaches");
+        Assert.Equal("built", ended.Outcome);
+        Assert.Equal(new Measurement(100, 0.6m, 2, TimeSpan.FromMilliseconds(1500)), Assert.Single(ended.Steps).Measurement);
+        Assert.Equal(0.6m, ended.Cost);
+        Assert.Equal(1, ended.Spawns);
+        // the next daemon starts no process for a session it reattaches
+        Assert.Single(fake.Starts);
     }
 
     [Fact]
@@ -161,8 +167,8 @@ public sealed class ClaudeCodeFlowRunTests
         await FlowRunDriver.UntilAsync(() => FakeClaude.Finished(pid), "the session's process has answered and exited");
         FlowRunView ended = await RestartUntilAsync(temp, fake, flowRunId, "ended");
 
-        ended.Steps.Should().ContainSingle().Which.Measurement.Should().Be(new Measurement(100, 0.6m, 2, TimeSpan.FromMilliseconds(1500)));
-        fake.Starts.Should().ContainSingle();
+        Assert.Equal(new Measurement(100, 0.6m, 2, TimeSpan.FromMilliseconds(1500)), Assert.Single(ended.Steps).Measurement);
+        Assert.Single(fake.Starts);
     }
 
     [Fact]
@@ -175,9 +181,9 @@ public sealed class ClaudeCodeFlowRunTests
         fake.Release();
         FlowRunView ended = await RestartUntilAsync(temp, fake, flowRunId, "ended");
 
-        ended.Steps.Should().ContainSingle().Which.Measurement.Should().Be(new Measurement(200, 0.75m, 4, TimeSpan.FromMilliseconds(3000)));
-        fake.Starts.Should().HaveCount(2);
-        fake.Starts[1].After("--resume").Should().Be(fake.Starts[0].After("--session-id"));
+        Assert.Equal(new Measurement(200, 0.75m, 4, TimeSpan.FromMilliseconds(3000)), Assert.Single(ended.Steps).Measurement);
+        Assert.Equal(2, fake.Starts.Count);
+        Assert.Equal(fake.Starts[0].After("--session-id"), fake.Starts[1].After("--resume"));
     }
 
     [Fact]
@@ -191,10 +197,10 @@ public sealed class ClaudeCodeFlowRunTests
         await FlowRunDriver.UntilAsync(() => FakeClaude.Finished(pid), "the session's process has exited");
         FlowRunView paused = await RestartUntilAsync(temp, fake, flowRunId, "paused");
 
-        paused.PauseReason.Should().StartWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart")
-            .And.EndWith("so its usage was not observed.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        fake.Starts.Should().ContainSingle();
+        Assert.StartsWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart", paused.PauseReason, StringComparison.Ordinal);
+        Assert.EndsWith("so its usage was not observed.", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Single(fake.Starts);
     }
 
     [Fact]
@@ -209,10 +215,11 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().StartWith(NotApplied("2.1.400"));
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.PauseUsage.Should().NotBeNull("the stop reports what a process stopped while it ran may have spent");
-        int pid = fake.Starts.Should().ContainSingle().Subject.Pid;
+        Assert.StartsWith(NotApplied("2.1.400"), paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        // the stop reports what a process stopped while it ran may have spent
+        Assert.NotNull(paused.PauseUsage);
+        int pid = Assert.Single(fake.Starts).Pid;
         await FlowRunDriver.UntilAsync(() => !FakeClaude.Running(pid), "the session's process was stopped, though the fake would have run on");
 
         await daemon.StopAsync(None);
@@ -230,10 +237,11 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().StartWith(NotApplied("2.1.318"));
-        paused.PauseUsage?.CostUsd.Should().Be(0.2m, "the spawn's collected attempt still counts");
-        fake.Starts.Should().HaveCount(2);
-        fake.Starts[1].After("--resume").Should().Be(fake.Starts[0].After("--session-id"));
+        Assert.StartsWith(NotApplied("2.1.318"), paused.PauseReason, StringComparison.Ordinal);
+        // the spawn's collected attempt still counts
+        Assert.Equal(0.2m, paused.PauseUsage?.CostUsd);
+        Assert.Equal(2, fake.Starts.Count);
+        Assert.Equal(fake.Starts[0].After("--session-id"), fake.Starts[1].After("--resume"));
         await FlowRunDriver.UntilAsync(() => !FakeClaude.Running(fake.Starts[1].Pid), "the resumed process was stopped, though the fake would have run on");
 
         await daemon.StopAsync(None);
@@ -246,12 +254,12 @@ public sealed class ClaudeCodeFlowRunTests
         using var fake = new FakeClaude(new { settings = "skipped", holdInit = "release", result = "hang" });
         (Guid flowRunId, int pid) = await StopWhileRunningAsync(temp, fake);
 
-        FakeClaude.Running(pid).Should().BeTrue("the first daemon saw no init event, so it left the session running for a reattach");
+        Assert.True(FakeClaude.Running(pid), "the first daemon saw no init event, so it left the session running for a reattach");
         fake.Release();
         FlowRunView paused = await RestartUntilAsync(temp, fake, flowRunId, "paused");
 
-        paused.PauseReason.Should().StartWith(NotApplied("2.1.318"));
-        fake.Starts.Should().ContainSingle();
+        Assert.StartsWith(NotApplied("2.1.318"), paused.PauseReason, StringComparison.Ordinal);
+        Assert.Single(fake.Starts);
         await FlowRunDriver.UntilAsync(() => FakeClaude.Finished(pid), "the reattached process was stopped, though the fake would have run on");
     }
 
@@ -275,8 +283,8 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, outsider.Name)).Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().StartWith($"Step 'build' got no judgment from agent 'outsider': {rule}");
-        fake.Starts.Should().BeEmpty();
+        Assert.StartsWith($"Step 'build' got no judgment from agent 'outsider': {rule}", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Empty(fake.Starts);
 
         await daemon.StopAsync(None);
     }

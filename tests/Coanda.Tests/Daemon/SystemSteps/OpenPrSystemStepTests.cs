@@ -67,32 +67,26 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         JsonElement result = Opened(await PerformAsync(parcel.Id, flowRunId));
 
-        result.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
-        result.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);
-        result.GetProperty("head").GetString().Should().Be(Moved);
-        runner.Commands[0].Should().Match<CommandLine>(c => c.Program == "gh" && string.Join(' ', c.Arguments) == "auth token --hostname github.com");
-        runner.Commands.Single(c => c.IsGit("status")).WorkingDirectory.Should().Be(temp.Home.FlowRunWorkPath(Project, flowRunId));
-        runner.GitCalls.Should().Equal(
-            "status --porcelain --untracked-files=all",
-            $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}",
-            $"for-each-ref --format=%(objectname) refs/remotes/origin/{branch}",
-            $"push --force-with-lease=refs/heads/{branch}: origin {Moved}:refs/heads/{branch}",
-            $"update-ref refs/remotes/origin/{branch} {Moved}");
-        runner.Commands.Where(c => c.Program == "git" && !c.IsGit("status")).Should().OnlyContain(c => c.GitDirectory() == Clone);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Moved, "the next push on the branch expects what this one pushed");
+        Assert.Equal(FakeGitHub.Number, result.GetProperty("number").GetInt32());
+        Assert.Equal(FakeGitHub.Url, result.GetProperty("url").GetString());
+        Assert.Equal(Moved, result.GetProperty("head").GetString());
+        CommandLine first = runner.Commands[0];
+        Assert.True(first.Program == "gh" && string.Join(' ', first.Arguments) == "auth token --hostname github.com");
+        Assert.Equal(temp.Home.FlowRunWorkPath(Project, flowRunId), runner.Commands.Single(c => c.IsGit("status")).WorkingDirectory);
+        Assert.Equal(["status --porcelain --untracked-files=all", $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}", $"for-each-ref --format=%(objectname) refs/remotes/origin/{branch}", $"push --force-with-lease=refs/heads/{branch}: origin {Moved}:refs/heads/{branch}", $"update-ref refs/remotes/origin/{branch} {Moved}"], runner.GitCalls);
+        Assert.All(runner.Commands.Where(c => c.Program == "git" && !c.IsGit("status")), c => Assert.True(c.GitDirectory() == Clone));
+        // the next push on the branch expects what this one pushed
+        Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
 
-        github.Requests.Select(r => $"{r.Method} {r.PathAndQuery}").Should().Equal(
-            $"GET /repos/example/repo/pulls?state=open&head=example%3Acoanda%2F{Ids.Short(parcel.Id)}",
-            "POST /repos/example/repo/pulls");
-        github.Requests.Should().OnlyContain(r => r.Uri.Host == "api.github.com" && r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}");
+        Assert.Equal([$"GET /repos/example/repo/pulls?state=open&head=example%3Acoanda%2F{Ids.Short(parcel.Id)}", "POST /repos/example/repo/pulls"], github.Requests.Select(r => $"{r.Method} {r.PathAndQuery}"));
+        Assert.All(github.Requests, r => Assert.True(r.Uri.Host == "api.github.com" && r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}"));
         JsonNode body = JsonNode.Parse(github.Requests[1].Body ?? "{}") ?? new JsonObject();
-        ((string?)body["title"]).Should().Be("Open the pull request");
-        ((string?)body["head"]).Should().Be(branch);
-        ((string?)body["base"]).Should().Be(RegisteredProjects.Branch);
-        ((string?)body["body"]).Should().Be(
-            $"{TaskFields.ObjectiveValue.Text}\n\n## Criteria\n\n{string.Concat((TaskFields.CriteriaValue.Items ?? []).Select(c => $"- {c}\n"))}");
+        Assert.Equal("Open the pull request", (string?)body["title"]);
+        Assert.Equal(branch, (string?)body["head"]);
+        Assert.Equal(RegisteredProjects.Branch, (string?)body["base"]);
+        Assert.Equal($"{TaskFields.ObjectiveValue.Text}\n\n## Criteria\n\n{string.Concat((TaskFields.CriteriaValue.Items ?? []).Select(c => $"- {c}\n"))}", (string?)body["body"]);
 
-        (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
+        Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), await FieldAsync(parcel.Id));
     }
 
     [Fact]
@@ -105,8 +99,8 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         Opened(await PerformAsync(parcel.Id, Ids.New()));
 
-        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{branch}:{ScriptedCommandRunner.PrimaryHead} origin {Moved}:refs/heads/{branch}");
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Moved);
+        Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{ScriptedCommandRunner.PrimaryHead} origin {Moved}:refs/heads/{branch}", runner.GitCalls);
+        Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
     }
 
     [Fact]
@@ -130,9 +124,9 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         runner.AddBranch(Clone, branch, Built);
         Opened(await PerformAsync(parcel.Id, second));
 
-        checkedOut.Should().BeOfType<SystemStepOutcome.Done>().Which.Result.GetProperty("head").GetString().Should().Be(Theirs);
-        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{branch}:{Theirs} origin {Built}:refs/heads/{branch}");
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Built);
+        Assert.Equal(Theirs, Assert.IsType<SystemStepOutcome.Done>(checkedOut).Result.GetProperty("head").GetString());
+        Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{Theirs} origin {Built}:refs/heads/{branch}", runner.GitCalls);
+        Assert.Equal(Built, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
     }
 
     [Fact]
@@ -144,11 +138,11 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         JsonElement result = Opened(await PerformAsync(parcel.Id, Ids.New()));
 
-        result.GetProperty("number").GetInt32().Should().Be(5);
-        result.GetProperty("url").GetString().Should().Be(Reused);
-        runner.GitCalls.Should().Contain(c => c.StartsWith("push ", StringComparison.Ordinal));
-        github.Requests.Should().ContainSingle().Which.IsLookup.Should().BeTrue();
-        (await FieldAsync(parcel.Id)).Should().Be(new FieldReference("5", Reused));
+        Assert.Equal(5, result.GetProperty("number").GetInt32());
+        Assert.Equal(Reused, result.GetProperty("url").GetString());
+        Assert.Contains(runner.GitCalls, c => c.StartsWith("push ", StringComparison.Ordinal));
+        Assert.True(Assert.Single(github.Requests).IsLookup);
+        Assert.Equal(new FieldReference("5", Reused), await FieldAsync(parcel.Id));
     }
 
     [Fact]
@@ -162,13 +156,12 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         JsonElement again = Opened(await PerformAsync(parcel.Id, flowRunId));
 
-        again.GetRawText().Should().Be(first.GetRawText());
-        github.Requests.Count(r => r.IsOpen).Should().Be(1);
-        runner.GitCalls.Where(c => c.StartsWith("push ", StringComparison.Ordinal)).Should().Equal(
-            $"push --force-with-lease=refs/heads/{branch}: origin {ScriptedCommandRunner.PrimaryHead}:refs/heads/{branch}",
-            $"push --force-with-lease=refs/heads/{branch}:{ScriptedCommandRunner.PrimaryHead} origin {ScriptedCommandRunner.PrimaryHead}:refs/heads/{branch}");
-        (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
-        (await VersionAsync(parcel.Id)).Should().Be(version, "a field already holding the pull request is not written again");
+        Assert.Equal(first.GetRawText(), again.GetRawText());
+        Assert.Equal(1, github.Requests.Count(r => r.IsOpen));
+        Assert.Equal([$"push --force-with-lease=refs/heads/{branch}: origin {ScriptedCommandRunner.PrimaryHead}:refs/heads/{branch}", $"push --force-with-lease=refs/heads/{branch}:{ScriptedCommandRunner.PrimaryHead} origin {ScriptedCommandRunner.PrimaryHead}:refs/heads/{branch}"], runner.GitCalls.Where(c => c.StartsWith("push ", StringComparison.Ordinal)));
+        Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), await FieldAsync(parcel.Id));
+        // a field already holding the pull request is not written again
+        Assert.Equal(version, await VersionAsync(parcel.Id));
     }
 
     [Fact]
@@ -187,7 +180,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         Opened(await PerformAsync(parcel.Id, flowRunId));
 
-        (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
+        Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), await FieldAsync(parcel.Id));
     }
 
     [Fact]
@@ -201,11 +194,13 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().StartWith($"Step 'open-pr' pushed nothing: someone else updated branch {branch} on the remote").And.Contain("(stale info)");
-        paused.Lever.Should().Be(FlowRunLevers.RemoteBranchMoved("open-pr"));
-        paused.Lever.Should().StartWith("Stop the flow run");
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Moved, "a refused push moves no ref");
-        github.Requests.Should().BeEmpty();
+        Assert.StartsWith($"Step 'open-pr' pushed nothing: someone else updated branch {branch} on the remote", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("(stale info)", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.RemoteBranchMoved("open-pr"), paused.Lever);
+        Assert.StartsWith("Stop the flow run", paused.Lever, StringComparison.Ordinal);
+        // a refused push moves no ref
+        Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        Assert.Empty(github.Requests);
     }
 
     [Fact]
@@ -217,10 +212,12 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().StartWith("Step 'open-pr' could not push: ").And.Contain("exited with code 128").And.Contain("terminal prompts disabled");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("update-ref", StringComparison.Ordinal));
-        github.Requests.Should().BeEmpty();
+        Assert.StartsWith("Step 'open-pr' could not push: ", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("exited with code 128", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("terminal prompts disabled", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("update-ref", StringComparison.Ordinal));
+        Assert.Empty(github.Requests);
     }
 
     [Theory]
@@ -235,8 +232,9 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().StartWith("Step 'open-pr' could not push: ").And.Contain(reason);
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
+        Assert.StartsWith("Step 'open-pr' could not push: ", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(reason, paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
     }
 
     [Fact]
@@ -246,7 +244,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome outcome = await PerformUnderAsync(ShippedFlows.Build, parcel.Id);
 
-        Decide(ShippedFlows.Build, Answered(outcome, OpenPrSystemStep.OpenedVerdict)).Should().Be(new FlowRunMove.GoTo("move-to-review"));
+        Assert.Equal(new FlowRunMove.GoTo("move-to-review"), Decide(ShippedFlows.Build, Answered(outcome, OpenPrSystemStep.OpenedVerdict)));
     }
 
     [Fact]
@@ -256,8 +254,8 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome outcome = await PerformUnderAsync(PreviousFlows.BuildWithGatedMerge, parcel.Id);
 
-        Decide(PreviousFlows.BuildWithGatedMerge, Answered(outcome, SystemStepOutcome.DoneVerdict)).Should().Be(new FlowRunMove.GoTo("gated-merge"));
-        (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
+        Assert.Equal(new FlowRunMove.GoTo("gated-merge"), Decide(PreviousFlows.BuildWithGatedMerge, Answered(outcome, SystemStepOutcome.DoneVerdict)));
+        Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), await FieldAsync(parcel.Id));
     }
 
     [Fact]
@@ -272,8 +270,8 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
             ],
         };
 
-        OpenPrSystemStep.VerdictFor(both).Should().Be(OpenPrSystemStep.OpenedVerdict);
-        OpenPrSystemStep.VerdictFor(Step).Should().Be(OpenPrSystemStep.OpenedVerdict);
+        Assert.Equal(OpenPrSystemStep.OpenedVerdict, OpenPrSystemStep.VerdictFor(both));
+        Assert.Equal(OpenPrSystemStep.OpenedVerdict, OpenPrSystemStep.VerdictFor(Step));
     }
 
     [Fact]
@@ -284,10 +282,10 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().Be("Step 'open-pr' pushed nothing: the worktree has changes that git status reports, which a push would leave out: src/Changed.cs, notes.txt.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("push", StringComparison.Ordinal));
-        github.Requests.Should().BeEmpty();
+        Assert.Equal("Step 'open-pr' pushed nothing: the worktree has changes that git status reports, which a push would leave out: src/Changed.cs, notes.txt.", paused.Reason);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("push", StringComparison.Ordinal));
+        Assert.Empty(github.Requests);
     }
 
     public static TheoryData<HttpStatusCode, string, bool> Refusals => new()
@@ -310,11 +308,12 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().StartWith($"Step 'open-pr' pushed {ScriptedCommandRunner.PrimaryHead} but has no pull request: GitHub answered")
-            .And.Contain($"status {(int)status}").And.Contain(message);
-        paused.Reason.Should().NotContain(ScriptedCommandRunner.GitHubToken);
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
-        (await FieldAsync(parcel.Id)).Should().BeNull();
+        Assert.StartsWith($"Step 'open-pr' pushed {ScriptedCommandRunner.PrimaryHead} but has no pull request: GitHub answered", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains($"status {(int)status}", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(message, paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
+        Assert.Null(await FieldAsync(parcel.Id));
     }
 
     [Fact]
@@ -325,8 +324,9 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().Contain("could not reach GitHub").And.Contain("no GitHub handler");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
+        Assert.Contains("could not reach GitHub", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("no GitHub handler", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
     }
 
     [Fact]
@@ -337,10 +337,11 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        paused.Reason.Should().StartWith("Step 'open-pr' pushed nothing: no GitHub token is available").And.Contain("no oauth token found");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
-        runner.Commands.Should().NotContain(c => c.Program == "git");
-        github.Requests.Should().BeEmpty();
+        Assert.StartsWith("Step 'open-pr' pushed nothing: no GitHub token is available", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("no oauth token found", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
+        Assert.DoesNotContain(runner.Commands, c => c.Program == "git");
+        Assert.Empty(github.Requests);
     }
 
     [Fact]
@@ -353,9 +354,11 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         runner.On(c => c.Program == "gh", ScriptedCommandRunner.Ok("\n"));
         SystemStepOutcome.Paused empty = Paused(await PerformAsync(parcel.Id, Ids.New()));
 
-        unstarted.Reason.Should().Contain("no GitHub token is available").And.Contain("gh could not be started");
-        empty.Reason.Should().Contain("no GitHub token is available").And.Contain("printed no single token");
-        runner.Commands.Should().NotContain(c => c.Program == "git");
+        Assert.Contains("no GitHub token is available", unstarted.Reason, StringComparison.Ordinal);
+        Assert.Contains("gh could not be started", unstarted.Reason, StringComparison.Ordinal);
+        Assert.Contains("no GitHub token is available", empty.Reason, StringComparison.Ordinal);
+        Assert.Contains("printed no single token", empty.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(runner.Commands, c => c.Program == "git");
     }
 
     [Fact]
@@ -367,11 +370,13 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New(), Other));
 
-        paused.Reason.Should().StartWith("Step 'open-pr' pushed nothing: the remote 'https://gitlab.example.com/team/repo.git' of project 'beta' is not a github.com repository");
-        paused.Reason.Should().NotContain("s3cr3t").And.NotContain("someone");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
-        runner.Commands.Should().BeEmpty("neither the token is read nor anything pushed");
-        github.Requests.Should().BeEmpty();
+        Assert.StartsWith("Step 'open-pr' pushed nothing: the remote 'https://gitlab.example.com/team/repo.git' of project 'beta' is not a github.com repository", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cr3t", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("someone", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
+        // neither the token is read nor anything pushed
+        Assert.Empty(runner.Commands);
+        Assert.Empty(github.Requests);
     }
 
     [Fact]
@@ -383,9 +388,10 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New(), Other));
 
-        paused.Reason.Should().Contain("the remote 'https://github.com/example/repo.git' of project 'gamma'");
-        paused.Reason.Should().NotContain("ghp_inTheRemote").And.NotContain("x-access-token");
-        runner.Commands.Should().BeEmpty();
+        Assert.Contains("the remote 'https://github.com/example/repo.git' of project 'gamma'", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("ghp_inTheRemote", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("x-access-token", paused.Reason, StringComparison.Ordinal);
+        Assert.Empty(runner.Commands);
     }
 
     [Fact]
@@ -398,11 +404,11 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         SystemStepOutcome done = await PerformAsync(opened.Id, Ids.New());
         SystemStepOutcome paused = await PerformAsync(refused.Id, Ids.New());
 
-        github.Requests.Should().OnlyContain(r => r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}", "the token was sent");
-        Opened(done).GetRawText().Should().NotContain(ScriptedCommandRunner.GitHubToken);
+        Assert.All(github.Requests, r => Assert.True(r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}", "the token was sent"));
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, Opened(done).GetRawText(), StringComparison.Ordinal);
         SystemStepOutcome.Paused pause = Paused(paused);
-        pause.Reason.Should().NotContain(ScriptedCommandRunner.GitHubToken);
-        pause.Lever.Should().NotContain(ScriptedCommandRunner.GitHubToken);
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, pause.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, pause.Lever, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -427,13 +433,16 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         int held = runner.Commands.Count;
         await Task.Delay(TimeSpan.FromMilliseconds(100), None);
 
-        runner.Commands.Should().HaveCount(held, "no git command of the push runs while the checkout holds the clone");
-        push.IsCompleted.Should().BeFalse();
+        // no git command of the push runs while the checkout holds the clone
+        Assert.Equal(held, runner.Commands.Count);
+        Assert.False(push.IsCompleted);
         release.SetResult();
         await checkout;
         Opened(await push);
         List<string> calls = [.. runner.GitCalls];
-        calls.IndexOf("status --porcelain --untracked-files=all").Should().BeGreaterThan(calls.FindLastIndex(c => c.StartsWith("worktree add", StringComparison.Ordinal)));
+        int status = calls.IndexOf("status --porcelain --untracked-files=all");
+        int added = calls.FindLastIndex(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+        Assert.True(status > added, $"Expected the status call after the worktree add at {added}, but it is at {status}.");
     }
 
     private static async Task WhenReadAsync(ScriptedCommandRunner runner, Func<bool> condition)
@@ -481,12 +490,11 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
 
     private static JsonElement Answered(SystemStepOutcome outcome, string verdict)
     {
-        JsonElement result = outcome.Should().BeOfType<SystemStepOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be(verdict);
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.OpenPr);
+        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        Assert.Equal(verdict, result.GetProperty("verdict").GetString());
+        Assert.Equal(SoftwareSystemSteps.OpenPr, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) =>
-        outcome.Should().BeOfType<SystemStepOutcome.Paused>().Subject;
+    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
 }

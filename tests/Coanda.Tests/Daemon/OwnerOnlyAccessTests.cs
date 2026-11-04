@@ -67,7 +67,8 @@ public sealed class OwnerOnlyAccessTests
             Execute(connection, "PRAGMA journal_mode=WAL; CREATE TABLE seed (x TEXT); INSERT INTO seed VALUES ('a');");
         }
 
-        home.DatabaseCompanionPaths.Where(File.Exists).Should().BeEmpty("a clean close removes the companion files");
+        // a clean close removes the companion files
+        Assert.DoesNotContain(home.DatabaseCompanionPaths, File.Exists);
         Widen(home.DatabasePath);
         AssertWider(home.DatabasePath);
 
@@ -113,8 +114,7 @@ public sealed class OwnerOnlyAccessTests
 
         AssertOwnerOnly(home.LogPath);
         AssertHomeDirectory(home);
-        (await File.ReadAllTextAsync(home.LogPath, CancellationToken.None))
-            .Should().Be("earlier" + Environment.NewLine + "later" + Environment.NewLine);
+        Assert.Equal("earlier" + Environment.NewLine + "later" + Environment.NewLine, await File.ReadAllTextAsync(home.LogPath, CancellationToken.None));
     }
 
     private static string Wal(NodeHome home) => home.DatabasePath + "-wal";
@@ -131,8 +131,8 @@ public sealed class OwnerOnlyAccessTests
     /// <summary>SQLite deletes the companion files on a clean close, so they are read while the daemon runs.</summary>
     private static void AssertWhileRunning(NodeHome home)
     {
-        File.Exists(Wal(home)).Should().BeTrue("the store runs in write-ahead-log mode");
-        File.Exists(Shm(home)).Should().BeTrue("the store runs in write-ahead-log mode");
+        Assert.True(File.Exists(Wal(home)), "the store runs in write-ahead-log mode");
+        Assert.True(File.Exists(Shm(home)), "the store runs in write-ahead-log mode");
         foreach (string path in (string[])[home.DaemonInfoPath, home.DatabasePath, Wal(home), Shm(home)])
         {
             AssertOwnerOnly(path);
@@ -160,8 +160,10 @@ public sealed class OwnerOnlyAccessTests
             from.CopyTo(to);
         }
 
-        new FileInfo(Wal(home)).Length.Should().BePositive();
-        new FileInfo(Shm(home)).Length.Should().BePositive();
+        long wal = new FileInfo(Wal(home)).Length;
+        long shm = new FileInfo(Shm(home)).Length;
+        Assert.True(wal > 0, $"Expected a write-ahead log with content, but its length is {wal}.");
+        Assert.True(shm > 0, $"Expected a shared-memory file with content, but its length is {shm}.");
     }
 
     private static SqliteConnection Open(string database)
@@ -194,13 +196,15 @@ public sealed class OwnerOnlyAccessTests
     {
         if (OperatingSystem.IsWindows())
         {
-            new FileInfo(path).GetAccessControl()
+            int rules = new FileInfo(path).GetAccessControl()
                 .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
-                .Count.Should().BeGreaterThan(1, $"{path} is seeded with wider access");
+                .Count;
+            Assert.True(rules > 1, $"{path} is seeded with wider access, but holds {rules} access rule(s).");
         }
         else
         {
-            File.GetUnixFileMode(path).Should().Be(Wider, $"{path} is seeded with wider access");
+            // {path} is seeded with wider access
+            Assert.Equal(Wider, File.GetUnixFileMode(path));
         }
     }
 
@@ -209,11 +213,12 @@ public sealed class OwnerOnlyAccessTests
         if (OperatingSystem.IsWindows())
         {
             FileSystemAccessRule rule = SingleRule(new FileInfo(path).GetAccessControl(), path);
-            rule.InheritanceFlags.Should().Be(InheritanceFlags.None);
+            Assert.Equal(InheritanceFlags.None, rule.InheritanceFlags);
         }
         else
         {
-            File.GetUnixFileMode(path).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite, $"{path} is owner-only");
+            // {path} is owner-only
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
         }
     }
 
@@ -226,22 +231,23 @@ public sealed class OwnerOnlyAccessTests
         }
 
         DirectorySecurity security = new DirectoryInfo(home.Path).GetAccessControl();
-        security.AreAccessRulesProtected.Should().BeTrue("the home's access list is not inherited from its parent");
+        Assert.True(security.AreAccessRulesProtected, "the home's access list is not inherited from its parent");
         FileSystemAccessRule rule = SingleRule(security, home.Path);
-        rule.IsInherited.Should().BeFalse();
-        rule.InheritanceFlags.Should().Be(InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit);
-        rule.PropagationFlags.Should().Be(PropagationFlags.None);
+        Assert.False(rule.IsInherited);
+        Assert.Equal(InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, rule.InheritanceFlags);
+        Assert.Equal(PropagationFlags.None, rule.PropagationFlags);
     }
 
     [SupportedOSPlatform("windows")]
     private static FileSystemAccessRule SingleRule(FileSystemSecurity security, string path)
     {
         AuthorizationRuleCollection rules = security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier));
-        rules.Count.Should().Be(1, $"{path} grants its owner alone");
-        FileSystemAccessRule rule = rules[0].Should().BeOfType<FileSystemAccessRule>().Subject;
-        rule.IdentityReference.Should().Be(WindowsIdentity.GetCurrent().User);
-        rule.AccessControlType.Should().Be(AccessControlType.Allow);
-        rule.FileSystemRights.Should().Be(FileSystemRights.FullControl);
+        // {path} grants its owner alone
+        Assert.Single(rules);
+        FileSystemAccessRule rule = Assert.IsType<FileSystemAccessRule>(rules[0]);
+        Assert.Equal(WindowsIdentity.GetCurrent().User, rule.IdentityReference);
+        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
+        Assert.Equal(FileSystemRights.FullControl, rule.FileSystemRights);
         return rule;
     }
 

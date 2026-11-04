@@ -34,27 +34,31 @@ public sealed class ProjectProfileTests
         var projects = new ProjectService(store, TimeProvider.System, Held);
         await RegisteredProjects.AddAsync(store, Project, None);
 
-        (await projects.ProfileOfAsync(Owner, Project, None)).Should().BeNull("a project names no profile until one is set");
+        // a project names no profile until one is set
+        Assert.Null(await projects.ProfileOfAsync(Owner, Project, None));
 
         ProjectProfile first = await projects.SetProfileAsync(Owner, $" {Project} ", " work ", None);
-        first.Profile.Should().Be("work", "names are compared and recorded after trimming");
-        first.Project.Should().Be(Project);
-        (await projects.ProfileOfAsync(Owner, Project, None)).Should().Be("work");
+        // names are compared and recorded after trimming
+        Assert.Equal("work", first.Profile);
+        Assert.Equal(Project, first.Project);
+        Assert.Equal("work", await projects.ProfileOfAsync(Owner, Project, None));
 
         ProjectProfile second = await projects.SetProfileAsync(Owner, Project, "ci", None);
-        second.Id.Should().Be(first.Id, "a project has one setting, which a later call replaces");
-        (await projects.ProfileOfAsync(Owner, Project, None)).Should().Be("ci");
-        (await projects.ProfilesAsync(Owner, None)).Should().Equal(new Dictionary<string, string> { [Project] = "ci" });
+        // a project has one setting, which a later call replaces
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal("ci", await projects.ProfileOfAsync(Owner, Project, None));
+        Assert.Equal(new Dictionary<string, string> { [Project] = "ci" }, await projects.ProfilesAsync(Owner, None));
 
         await using IQuerySession node = store.QuerySession(Tenants.Node);
         IReadOnlyList<IEvent> events = await node.Events.FetchStreamAsync(first.Id, token: None);
-        events.Select(e => e.Data).OfType<ProjectProfileSet>().Select(e => e.Profile).Should().Equal("work", "ci");
+        Assert.Equal(["work", "ci"], events.Select(e => e.Data).OfType<ProjectProfileSet>().Select(e => e.Profile));
 
         await using IQuerySession own = store.QuerySession(Project);
         IReadOnlyList<ProjectProfile> ownSettings = await own.Query<ProjectProfile>().ToListAsync(None);
-        ownSettings.Should().BeEmpty("nothing in the project's own tenant carries the setting");
+        // nothing in the project's own tenant carries the setting
+        Assert.Empty(ownSettings);
         IReadOnlyList<IEvent> ownStream = await own.Events.FetchStreamAsync(first.Id, token: None);
-        ownStream.Should().BeEmpty();
+        Assert.Empty(ownStream);
     }
 
     [Fact]
@@ -65,11 +69,11 @@ public sealed class ProjectProfileTests
         var projects = new ProjectService(store, TimeProvider.System, Held);
         await RegisteredProjects.AddAsync(store, Project, None);
 
-        await FluentActions.Awaiting(() => projects.SetProfileAsync(new Principal("flow-run:x", Role.Agent), Project, "work", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'project.set-profile' is not open to the Agent role.");
-        await FluentActions.Awaiting(() => projects.SetProfileAsync(new Principal("someone", Role.Member), Project, "work", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'project.set-profile' is not open to the Member role.");
-        (await projects.ProfileOfAsync(Owner, Project, None)).Should().BeNull();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(new Principal("flow-run:x", Role.Agent), Project, "work", None));
+        Assert.Equal("'project.set-profile' is not open to the Agent role.", exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(new Principal("someone", Role.Member), Project, "work", None));
+        Assert.Equal("'project.set-profile' is not open to the Member role.", exception2.Message);
+        Assert.Null(await projects.ProfileOfAsync(Owner, Project, None));
     }
 
     [Fact]
@@ -79,10 +83,10 @@ public sealed class ProjectProfileTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System, Held);
 
-        await FluentActions.Awaiting(() => projects.SetProfileAsync(Owner, "nowhere", "work", None))
-            .Should().ThrowAsync<DomainException>().WithMessage(ProjectService.Unregistered("nowhere"));
-        ProjectService.Unregistered("nowhere").Should().Contain("coa project add");
-        (await projects.ProfileOfAsync(Owner, "nowhere", None)).Should().BeNull();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(Owner, "nowhere", "work", None));
+        Assert.Equal(ProjectService.Unregistered("nowhere"), exception.Message);
+        Assert.Contains("coa project add", ProjectService.Unregistered("nowhere"), StringComparison.Ordinal);
+        Assert.Null(await projects.ProfileOfAsync(Owner, "nowhere", None));
     }
 
     [Theory]
@@ -96,9 +100,8 @@ public sealed class ProjectProfileTests
         var projects = new ProjectService(store, TimeProvider.System, Held);
         await RegisteredProjects.AddAsync(store, Project, None);
 
-        await FluentActions.Awaiting(() => projects.SetProfileAsync(Owner, Project, profile, None))
-            .Should().ThrowAsync<DomainException>();
-        (await projects.ProfileOfAsync(Owner, Project, None)).Should().BeNull();
+        await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(Owner, Project, profile, None));
+        Assert.Null(await projects.ProfileOfAsync(Owner, Project, None));
     }
 
     [Fact]
@@ -108,11 +111,10 @@ public sealed class ProjectProfileTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, None);
 
-        await FluentActions.Awaiting(() => new ProjectService(store, TimeProvider.System, Held).SetProfileAsync(Owner, Project, "personal", None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage("The running daemon's node configuration holds no credential profile named 'personal', so project 'coanda' cannot name it; the configuration holds 'ci', 'work'.");
-        await FluentActions.Awaiting(() => new ProjectService(store, TimeProvider.System).SetProfileAsync(Owner, Project, "work", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*the configuration holds no credential profiles.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => new ProjectService(store, TimeProvider.System, Held).SetProfileAsync(Owner, Project, "personal", None));
+        Assert.Equal("The running daemon's node configuration holds no credential profile named 'personal', so project 'coanda' cannot name it; the configuration holds 'ci', 'work'.", exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => new ProjectService(store, TimeProvider.System).SetProfileAsync(Owner, Project, "work", None));
+        Assert.EndsWith("the configuration holds no credential profiles.", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -123,17 +125,17 @@ public sealed class ProjectProfileTests
         using var client = new DaemonClient(temp.Home);
         await RegisteredProjects.AddAsync(daemon, Project, None);
 
-        (await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(Project), None)).Profile.Should().BeNull();
+        Assert.Null((await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(Project), None)).Profile);
 
         ProjectView set = await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "work"), None);
-        set.Profile.Should().Be("work");
-        (await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(Project), None)).Profile.Should().Be("work");
-        (await client.GetAsync<List<ProjectView>>("/projects", None)).Should().ContainSingle().Which.Profile.Should().Be("work");
+        Assert.Equal("work", set.Profile);
+        Assert.Equal("work", (await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(Project), None)).Profile);
+        Assert.Equal("work", Assert.Single(await client.GetAsync<List<ProjectView>>("/projects", None)).Profile);
 
-        await FluentActions.Awaiting(() => client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "personal"), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*holds no credential profile named 'personal'*");
-        await FluentActions.Awaiting(() => client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest("nowhere", "work"), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*coa project add*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "personal"), None));
+        Assert.Contains("holds no credential profile named 'personal'", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest("nowhere", "work"), None));
+        Assert.Contains("coa project add", exception2.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }

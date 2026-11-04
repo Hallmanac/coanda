@@ -11,8 +11,8 @@ public sealed class ClaudeStreamTests
 
         stream.Read("""{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":null,"cache_read_input_tokens":"7"}}}""");
 
-        stream.MessageCount.Should().Be(1);
-        stream.MessageTokens.Should().Be(15);
+        Assert.Equal(1, stream.MessageCount);
+        Assert.Equal(15, stream.MessageTokens);
     }
 
     [Fact]
@@ -23,12 +23,12 @@ public sealed class ClaudeStreamTests
         stream.Read("""{"type":"result","subtype":"success","is_error":false,"result":"done","total_cost_usd":0.5,"num_turns":null,"duration_ms":"12","usage":{"input_tokens":3,"output_tokens":null},"model_usage_since_last_result":{"m":{"inputTokens":null,"outputTokens":4,"costUSD":0.25}}}""");
 
         ClaudeResult? result = stream.Result;
-        result.Should().NotBeNull();
-        result.Text.Should().Be("done");
-        result.Turns.Should().Be(0);
-        result.Duration.Should().Be(TimeSpan.Zero);
-        result.UsageTokens.Should().Be(3);
-        result.SinceLastResult.Should().Be((4L, 0.25m));
+        Assert.NotNull(result);
+        Assert.Equal("done", result.Text);
+        Assert.Equal(0, result.Turns);
+        Assert.Equal(TimeSpan.Zero, result.Duration);
+        Assert.Equal(3, result.UsageTokens);
+        Assert.Equal((4L, 0.25m), result.SinceLastResult);
     }
 
     [Fact]
@@ -39,9 +39,9 @@ public sealed class ClaudeStreamTests
         stream.Read("""{"type":"result","subtype":"success","is_error":false,"result":"done","num_turns":99999999999,"duration_ms":-5}""");
 
         ClaudeResult? result = stream.Result;
-        result.Should().NotBeNull();
-        result.Turns.Should().Be(int.MaxValue);
-        result.Duration.Should().Be(TimeSpan.Zero);
+        Assert.NotNull(result);
+        Assert.Equal(int.MaxValue, result.Turns);
+        Assert.Equal(TimeSpan.Zero, result.Duration);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class ClaudeStreamTests
 
         stream.Read("""{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":9223372036854775807,"output_tokens":1}}}""");
 
-        stream.MessageCount.Should().Be(0);
+        Assert.Equal(0, stream.MessageCount);
     }
 
     private const string Init = """{"type":"system","subtype":"init","session_id":"s","claude_code_version":"2.1.318"}""";
@@ -60,14 +60,15 @@ public sealed class ClaudeStreamTests
     public void The_settings_document_reads_as_applied_only_once_its_evidence_comes_before_the_init_event()
     {
         ClaudeStream stream = new();
-        stream.SettingsApplied.Should().BeNull("the stream holds neither yet");
+        // the stream holds neither yet
+        Assert.Null(stream.SettingsApplied);
 
         stream.Read(Hook("SessionStart", "SessionStart:startup", $"{SettingsEvidence.Marker}\\n"));
         stream.Read(Init);
 
-        stream.SettingsApplied.Should().BeTrue();
-        stream.Initialized.Should().BeTrue();
-        stream.CliVersion.Should().Be("2.1.318");
+        Assert.True(stream.SettingsApplied);
+        Assert.True(stream.Initialized);
+        Assert.Equal("2.1.318", stream.CliVersion);
     }
 
     [Fact]
@@ -78,7 +79,7 @@ public sealed class ClaudeStreamTests
         stream.Read(Init);
         stream.Read(Hook("SessionStart", "SessionStart:startup", $"{SettingsEvidence.Marker}\\n"));
 
-        stream.SettingsApplied.Should().BeFalse();
+        Assert.False(stream.SettingsApplied);
     }
 
     [Theory]
@@ -93,7 +94,7 @@ public sealed class ClaudeStreamTests
         stream.Read(Hook(hookEvent, $"{hookEvent}:startup", stderr));
         stream.Read(Init);
 
-        stream.SettingsApplied.Should().BeFalse(what);
+        Assert.False(stream.SettingsApplied, what);
     }
 
     [Fact]
@@ -104,7 +105,7 @@ public sealed class ClaudeStreamTests
         stream.Read($$"""{"type":"system","subtype":"hook_response","hook_name":"SessionStart:startup","hook_event":"SessionStart","output":"{{SettingsEvidence.Marker}}\n","stdout":"{{SettingsEvidence.Marker}}\n","stderr":"","exit_code":0}""");
         stream.Read(Init);
 
-        stream.SettingsApplied.Should().BeFalse("standard output reaches the session's context, so the evidence is read from standard error alone");
+        Assert.False(stream.SettingsApplied, "standard output reaches the session's context, so the evidence is read from standard error alone");
     }
 
     [Fact]
@@ -114,8 +115,8 @@ public sealed class ClaudeStreamTests
 
         stream.Read(Hook("SessionStart", "SessionStart:resume", $"warming up\\r\\n{SettingsEvidence.Marker}\\r\\n"));
 
-        stream.SettingsApplied.Should().BeTrue();
-        stream.Initialized.Should().BeFalse();
+        Assert.True(stream.SettingsApplied);
+        Assert.False(stream.Initialized);
     }
 
     private static string Hook(string hookEvent, string name, string stderr) =>

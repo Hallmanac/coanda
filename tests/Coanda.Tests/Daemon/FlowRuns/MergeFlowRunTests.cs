@@ -131,10 +131,10 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Wait for CI", "ended");
 
-        merge.Steps.Select(s => s.Step).Should().Equal("gated-merge", "wait-for-checks", "gated-merge", "wait-for-checks", "gated-merge");
-        merge.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("pending");
-        merge.Steps[0].Result.GetValueOrDefault().GetProperty("reason").GetString().Should().Contain("is in_progress");
-        github.Requests.Should().ContainSingle(r => r.IsMerge);
+        Assert.Equal(["gated-merge", "wait-for-checks", "gated-merge", "wait-for-checks", "gated-merge"], merge.Steps.Select(s => s.Step));
+        Assert.Equal("pending", merge.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.Contains("is in_progress", merge.Steps[0].Result.GetValueOrDefault().GetProperty("reason").GetString(), StringComparison.Ordinal);
+        Assert.Single(github.Requests, r => r.IsMerge);
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
     }
 
@@ -148,12 +148,12 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("CI never finishes", "paused");
 
-        merge.PauseReason.Should().Be($"Step 'gated-merge' reached the visit cap of {LapCap} on its transition to 'wait-for-checks'.");
-        merge.Steps.Count(s => s.Step == "gated-merge").Should().Be(LapCap + 1);
-        github.Requests.Should().NotContain(r => r.IsMerge);
+        Assert.Equal($"Step 'gated-merge' reached the visit cap of {LapCap} on its transition to 'wait-for-checks'.", merge.PauseReason);
+        Assert.Equal(LapCap + 1, merge.Steps.Count(s => s.Step == "gated-merge"));
+        Assert.DoesNotContain(github.Requests, r => r.IsMerge);
         ParcelView parcel = await harness.ParcelAsync(build.ParcelId);
-        parcel.Stage.Should().Be("review");
-        parcel.LiveFlowRunId.Should().Be(merge.Id);
+        Assert.Equal("review", parcel.Stage);
+        Assert.Equal(merge.Id, parcel.LiveFlowRunId);
     }
 
     [Fact]
@@ -170,8 +170,9 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("CI passes at the last moment", "ended");
 
-        merge.Steps.Count(s => s.Step == "gated-merge").Should().Be(LapCap + 1, "the merge came on the visit a pending answer would have paused");
-        merge.Outcome.Should().Be("merged");
+        // the merge came on the visit a pending answer would have paused
+        Assert.Equal(LapCap + 1, merge.Steps.Count(s => s.Step == "gated-merge"));
+        Assert.Equal("merged", merge.Outcome);
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
     }
 
@@ -190,13 +191,12 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Behind main", "ended", pr);
 
-        merge.Steps.Select(s => s.Step).Should().Equal(
-            "gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge", "wait-for-checks", "gated-merge");
-        merge.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("behind");
-        merge.Steps[2].Result.GetValueOrDefault().GetProperty("head").GetString().Should().Be(Rebased);
-        merge.Steps[4].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("pending");
-        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(Rebased);
-        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{pr.Branch}:{ScriptedCommandRunner.PrimaryHead} origin {Rebased}:refs/heads/{pr.Branch}");
+        Assert.Equal(["gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge", "wait-for-checks", "gated-merge"], merge.Steps.Select(s => s.Step));
+        Assert.Equal("behind", merge.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.Equal(Rebased, merge.Steps[2].Result.GetValueOrDefault().GetProperty("head").GetString());
+        Assert.Equal("pending", merge.Steps[4].Result.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.Equal(Rebased, (string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]);
+        Assert.Contains($"push --force-with-lease=refs/heads/{pr.Branch}:{ScriptedCommandRunner.PrimaryHead} origin {Rebased}:refs/heads/{pr.Branch}", runner.GitCalls);
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
         await ExpectOnlyTheMergesOwnEndRemovedItsWorktreeAsync(runner, harness, build, merge);
     }
@@ -215,9 +215,8 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Falls behind while CI runs", "ended", pr);
 
-        merge.Steps.Select(s => s.Step).Should().Equal(
-            "gated-merge", "wait-for-checks", "gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge");
-        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(Rebased);
+        Assert.Equal(["gated-merge", "wait-for-checks", "gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge"], merge.Steps.Select(s => s.Step));
+        Assert.Equal(Rebased, (string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]);
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
     }
 
@@ -232,9 +231,10 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Main moves at the last moment", "ended", pr);
 
-        merge.Steps.Select(s => s.Step).Should().Equal("gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge");
-        github.Requests.Where(r => r.IsCompare).Should().HaveCount(4, "both comparisons ran on each visit");
-        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(Rebased);
+        Assert.Equal(["gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge"], merge.Steps.Select(s => s.Step));
+        // both comparisons ran on each visit
+        Assert.Equal(4, github.Requests.Where(r => r.IsCompare).Count());
+        Assert.Equal(Rebased, (string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]);
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
     }
 
@@ -249,12 +249,13 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Main never stops moving", "paused", pr);
 
-        merge.PauseReason.Should().Be($"Step 'worktree' reached the visit cap of {RebaseLaps} on its transition to 'rebase'.");
-        merge.Steps.Count(s => s.Step == "rebase").Should().Be(RebaseLaps);
-        merge.Steps.Count(s => s.Step == "worktree").Should().Be(RebaseLaps + 1);
-        runner.GitCalls.Count(c => c.StartsWith("push ", StringComparison.Ordinal)).Should().Be(1 + RebaseLaps, "the build's push and one per rebase lap");
-        github.Requests.Should().NotContain(r => r.IsMerge);
-        (await harness.ParcelAsync(build.ParcelId)).LiveFlowRunId.Should().Be(merge.Id);
+        Assert.Equal($"Step 'worktree' reached the visit cap of {RebaseLaps} on its transition to 'rebase'.", merge.PauseReason);
+        Assert.Equal(RebaseLaps, merge.Steps.Count(s => s.Step == "rebase"));
+        Assert.Equal(RebaseLaps + 1, merge.Steps.Count(s => s.Step == "worktree"));
+        // the build's push and one per rebase lap
+        Assert.Equal(1 + RebaseLaps, runner.GitCalls.Count(c => c.StartsWith("push ", StringComparison.Ordinal)));
+        Assert.DoesNotContain(github.Requests, r => r.IsMerge);
+        Assert.Equal(merge.Id, (await harness.ParcelAsync(build.ParcelId)).LiveFlowRunId);
     }
 
     [Fact]
@@ -275,9 +276,10 @@ public sealed class MergeFlowRunTests
         await using Harness harness = await Harness.StartAsync(github, project: null, executor: executor, runner: runner);
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Conflicts with main", "paused", pr);
-        merge.CurrentStep.Should().Be("rebase");
-        merge.PauseReason.Should().Contain("stopped on a conflict").And.Contain("src/Program.cs");
-        merge.Lever.Should().Contain("move the task back to build");
+        Assert.Equal("rebase", merge.CurrentStep);
+        Assert.Contains("stopped on a conflict", merge.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("src/Program.cs", merge.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("move the task back to build", merge.Lever, StringComparison.Ordinal);
 
         await FlowRunDriver.StopAsync(harness.Client, Project, merge.Id, "resolving the conflict by hand");
         await FlowRunDriver.UntilAsync(harness.Client, Project, merge.Id, "stopped");
@@ -285,7 +287,8 @@ public sealed class MergeFlowRunTests
         await FlowRunDriver.UntilAsync(() => !runner.Worktrees(clone).Any(), "the stopped merge flow run's worktree is removed");
         runner.ConflictOnRebase();
         runner.AddBranch(clone, pr.Branch, ByHand);
-        runner.RemoteBranch(clone, pr.Branch).Should().Be(ScriptedCommandRunner.PrimaryHead, "the remote still holds what the earlier chain's open-pr pushed");
+        // the remote still holds what the earlier chain's open-pr pushed
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, runner.RemoteBranch(clone, pr.Branch));
 
         await harness.Client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, build.ParcelId, "build"), None);
         FlowRunView rebuild = await FlowRunDriver.UntilAsync(
@@ -293,12 +296,13 @@ public sealed class MergeFlowRunTests
             (await WaitForAsync(harness, build.ParcelId, f => f.FlowName == "build" && f.Id != build.Id)).Id,
             "ended");
 
-        rebuild.RootFlowRunId.Should().Be(rebuild.Id, "a move back to build starts a fresh chain");
-        rebuild.Steps[0].Result.GetValueOrDefault().GetProperty("head").GetString().Should().Be(ByHand);
-        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{pr.Branch}:{ScriptedCommandRunner.PrimaryHead} origin {ByHand}:refs/heads/{pr.Branch}");
+        // a move back to build starts a fresh chain
+        Assert.Equal(rebuild.Id, rebuild.RootFlowRunId);
+        Assert.Equal(ByHand, rebuild.Steps[0].Result.GetValueOrDefault().GetProperty("head").GetString());
+        Assert.Contains($"push --force-with-lease=refs/heads/{pr.Branch}:{ScriptedCommandRunner.PrimaryHead} origin {ByHand}:refs/heads/{pr.Branch}", runner.GitCalls);
         FlowRunView merged = await FlowRunDriver.MergedAsync(harness.Client, Project, build.ParcelId, rebuild.Id);
-        merged.Steps.Select(s => s.Step).Should().Equal("gated-merge");
-        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(ByHand);
+        Assert.Equal(["gated-merge"], merged.Steps.Select(s => s.Step));
+        Assert.Equal(ByHand, (string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]);
     }
 
     [Fact]
@@ -314,23 +318,26 @@ public sealed class MergeFlowRunTests
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Closed only when released", "paused");
 
-        merge.PauseReason.Should().StartWith("Flow run could not go on from step 'gated-merge': ")
-            .And.Contain($"of flow 'merge' reached its end, but its parcel could not be closed as 'completed'")
-            .And.Contain($"The gate '{HoldingGate.GateName}' refused the move from 'review' to 'closed': {HoldingGate.Reason}");
-        merge.Lever.Should().Be(FlowRunLevers.PerformAgain("gated-merge"));
+        Assert.StartsWith("Flow run could not go on from step 'gated-merge': ", merge.PauseReason, StringComparison.Ordinal);
+        Assert.Contains($"of flow 'merge' reached its end, but its parcel could not be closed as 'completed'", merge.PauseReason, StringComparison.Ordinal);
+        Assert.Contains($"The gate '{HoldingGate.GateName}' refused the move from 'review' to 'closed': {HoldingGate.Reason}", merge.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("gated-merge"), merge.Lever);
         ParcelView held = await harness.ParcelAsync(build.ParcelId);
-        held.Stage.Should().Be("review");
-        held.Resolution.Should().BeNull();
-        held.LiveFlowRunId.Should().Be(merge.Id, "the end, the release, and the close were recorded together or not at all");
-        github.Requests.Should().ContainSingle(r => r.IsMerge);
+        Assert.Equal("review", held.Stage);
+        Assert.Null(held.Resolution);
+        // the end, the release, and the close were recorded together or not at all
+        Assert.Equal(merge.Id, held.LiveFlowRunId);
+        Assert.Single(github.Requests, r => r.IsMerge);
 
         hold.Holding = false;
         await FlowRunDriver.ResumeAsync(harness.Client, Project, merge.Id, "the gate no longer holds");
         FlowRunView ended = await FlowRunDriver.UntilAsync(harness.Client, Project, merge.Id, "ended");
 
-        ended.Outcome.Should().Be("merged");
-        ended.Steps.Where(s => s.Step == "gated-merge").Should().HaveCount(2, "the resume performs gated-merge again as a new visit");
-        github.Requests.Should().ContainSingle(r => r.IsMerge, "the pull request is already merged, so the resume makes no second merge request");
+        Assert.Equal("merged", ended.Outcome);
+        // the resume performs gated-merge again as a new visit
+        Assert.Equal(2, ended.Steps.Where(s => s.Step == "gated-merge").Count());
+        // the pull request is already merged, so the resume makes no second merge request
+        Assert.Single(github.Requests, r => r.IsMerge);
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
     }
 
@@ -356,20 +363,22 @@ public sealed class MergeFlowRunTests
         // QA holds its review open: the build's end started QA alone, and nothing has asked GitHub to merge.
         await executor.Holding.WaitAsync(TimeSpan.FromSeconds(15));
         FlowRunView qa = await FlowRunDriver.FollowerAsync(harness.Client, Project, parcel.Id, build.Id, Qa.Name);
-        (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName).Should().Equal("build", "qa");
-        github.Requests.Should().NotContain(r => r.IsMerge || r.IsPullRequestRead);
+        Assert.Equal(["build", "qa"], (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName));
+        Assert.DoesNotContain(github.Requests, r => r.IsMerge || r.IsPullRequestRead);
 
         executor.Open();
         qa = await FlowRunDriver.UntilAsync(harness.Client, Project, qa.Id, "ended");
         FlowRunView merge = await FlowRunDriver.FollowerAsync(harness.Client, Project, parcel.Id, qa.Id, "merge");
         merge = await FlowRunDriver.UntilAsync(harness.Client, Project, merge.Id, "ended");
 
-        merge.FlowHash.Should().Be(MergeAfterQa.Hash, "the project's own merge replaces the shipped one by name");
-        merge.Depth.Should().Be(2);
-        merge.RootFlowRunId.Should().Be(build.Id);
-        (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName).Should().Equal("build", "qa", "merge");
-        github.Requests.Should().ContainSingle(r => r.IsMerge);
-        mergedAt.Should().NotBeNull().And.BeOnOrAfter(qa.UpdatedAt, "the merge request was made after the QA flow run ended");
+        // the project's own merge replaces the shipped one by name
+        Assert.Equal(MergeAfterQa.Hash, merge.FlowHash);
+        Assert.Equal(2, merge.Depth);
+        Assert.Equal(build.Id, merge.RootFlowRunId);
+        Assert.Equal(["build", "qa", "merge"], (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName));
+        Assert.Single(github.Requests, r => r.IsMerge);
+        Assert.NotNull(mergedAt);
+        Assert.True(mergedAt >= qa.UpdatedAt, $"Expected the merge request at or after {qa.UpdatedAt:O}, but it was made at {mergedAt:O}: the merge request was made after the QA flow run ended.");
         await harness.ExpectClosedAsync(parcel.Id, merge.Id);
     }
 
@@ -387,7 +396,7 @@ public sealed class MergeFlowRunTests
 
         qa = await FlowRunDriver.UntilAsync(harness.Client, Project, qa.Id, "paused");
 
-        qa.PauseReason.Should().Contain("pauses on its answer");
+        Assert.Contains("pauses on its answer", qa.PauseReason, StringComparison.Ordinal);
         await harness.ExpectNoMergeAsync(parcel.Id, ["build", "qa"]);
     }
 
@@ -407,7 +416,7 @@ public sealed class MergeFlowRunTests
 
         await FlowRunDriver.StopAsync(harness.Client, Project, qa.Id, "QA is not wanted on this one");
 
-        (await FlowRunDriver.UntilAsync(harness.Client, Project, qa.Id, "stopped")).Status.Should().Be("stopped");
+        Assert.Equal("stopped", (await FlowRunDriver.UntilAsync(harness.Client, Project, qa.Id, "stopped")).Status);
         await harness.ExpectNoMergeAsync(parcel.Id, ["build", "qa"]);
     }
 
@@ -432,10 +441,11 @@ public sealed class MergeFlowRunTests
         IReadOnlyList<string> calls = runner.GitCalls;
         int lastPush = calls.Select((c, i) => (c, i)).Last(p => p.c.StartsWith("push ", StringComparison.Ordinal)).i;
         int[] removals = [.. calls.Select((c, i) => (c, i)).Where(p => p.c == $"worktree remove --force --force {mergePath}").Select(p => p.i)];
-        removals.Should().HaveCountLessThanOrEqualTo(1).And.OnlyContain(i => i > lastPush);
+        Assert.True(removals.Length <= 1, $"Expected at most one removal of the merge's worktree, but found {removals.Length}.");
+        Assert.All(removals, i => Assert.True(i > lastPush));
         FlowRunView after = await FlowRunDriver.ShowAsync(harness.Client, Project, build.Id);
-        after.Steps.Should().HaveCount(build.Steps.Count);
-        after.PauseReason.Should().BeNull();
+        Assert.Equal(build.Steps.Count, after.Steps.Count);
+        Assert.Null(after.PauseReason);
     }
 
     /// <summary>
@@ -595,19 +605,20 @@ public sealed class MergeFlowRunTests
         public async Task ExpectClosedAsync(Guid parcelId, Guid mergeId)
         {
             ParcelView parcel = await ParcelAsync(parcelId);
-            parcel.Stage.Should().Be("closed");
-            parcel.Resolution.Should().Be("completed");
-            parcel.LiveFlowRunId.Should().BeNull();
-            parcel.CloseReason.Should().Contain($"of flow 'merge' reached its end");
+            Assert.Equal("closed", parcel.Stage);
+            Assert.Equal("completed", parcel.Resolution);
+            Assert.Null(parcel.LiveFlowRunId);
+            Assert.Contains($"of flow 'merge' reached its end", parcel.CloseReason, StringComparison.Ordinal);
 
             await using IQuerySession session = Daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Project);
             IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: None);
-            ParcelClosed closed = events.Select(e => e.Data).OfType<ParcelClosed>().Should().ContainSingle().Subject;
-            closed.ClosedBy.Should().Be(FlowRunAdvancer.PrincipalFor(mergeId).Id);
+            ParcelClosed closed = Assert.Single(events.Select(e => e.Data).OfType<ParcelClosed>());
+            Assert.Equal(FlowRunAdvancer.PrincipalFor(mergeId).Id, closed.ClosedBy);
             object[] tail = [.. events.TakeLast(2).Select(e => e.Data)];
-            tail[0].Should().BeOfType<ParcelFlowRunReleased>().Which.FlowRunId.Should().Be(mergeId);
-            tail[1].Should().BeSameAs(closed);
-            events.TakeLast(2).Select(e => e.Version).Should().BeInAscendingOrder();
+            Assert.Equal(mergeId, Assert.IsType<ParcelFlowRunReleased>(tail[0]).FlowRunId);
+            Assert.Same(closed, tail[1]);
+            long[] versions = [.. events.TakeLast(2).Select(e => e.Version)];
+            Assert.Equal(versions.Order(), versions);
         }
 
         /// <summary>
@@ -619,11 +630,11 @@ public sealed class MergeFlowRunTests
             ParcelView later = await FlowRunDriver.TaskAtBuildAsync(Client, Project, "A later task");
             await FlowRunDriver.BoundAsync(Client, Project, later.Id);
 
-            (await FlowRunDriver.OfParcelAsync(Client, Project, parcelId)).Select(f => f.FlowName).Should().Equal(flowRuns);
-            GitHub.Requests.Should().NotContain(r => r.IsMerge);
+            Assert.Equal(flowRuns, (await FlowRunDriver.OfParcelAsync(Client, Project, parcelId)).Select(f => f.FlowName));
+            Assert.DoesNotContain(GitHub.Requests, r => r.IsMerge);
             ParcelView parcel = await ParcelAsync(parcelId);
-            parcel.Stage.Should().Be("review");
-            parcel.Resolution.Should().BeNull();
+            Assert.Equal("review", parcel.Stage);
+            Assert.Null(parcel.Resolution);
         }
 
         public async ValueTask DisposeAsync()

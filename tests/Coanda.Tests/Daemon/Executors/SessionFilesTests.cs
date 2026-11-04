@@ -35,15 +35,15 @@ public sealed class SessionFilesTests : IDisposable
 
         SessionFiles.Write(work, SessionFiles.TaskFile, "fresh record");
 
-        File.Exists(Path.Combine(outside, "task.md")).Should().BeFalse("the linked directory is never written into");
-        new DirectoryInfo(Path.Combine(work, ".coanda")).LinkTarget.Should().BeNull();
-        File.ReadAllText(Path.Combine(work, ".coanda", "task.md")).Should().Be("fresh record");
+        Assert.False(File.Exists(Path.Combine(outside, "task.md")), "the linked directory is never written into");
+        Assert.Null(new DirectoryInfo(Path.Combine(work, ".coanda")).LinkTarget);
+        Assert.Equal("fresh record", File.ReadAllText(Path.Combine(work, ".coanda", "task.md")));
 
         File.CreateSymbolicLink(Path.Combine(work, ".coanda", "prompt.md"), victim);
         SessionFiles.Write(work, SessionFiles.PromptFile, "fresh context");
 
-        File.ReadAllText(victim).Should().Be("untouched");
-        new FileInfo(Path.Combine(work, ".coanda", "prompt.md")).LinkTarget.Should().BeNull();
-        File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")).Should().Be("fresh context");
+        Assert.Equal("untouched", File.ReadAllText(victim));
+        Assert.Null(new FileInfo(Path.Combine(work, ".coanda", "prompt.md")).LinkTarget);
+        Assert.Equal("fresh context", File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")));
     }
 }

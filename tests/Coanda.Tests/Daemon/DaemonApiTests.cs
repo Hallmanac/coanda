@@ -23,30 +23,30 @@ public sealed class DaemonApiTests
         using var client = new DaemonClient(temp.Home);
 
         DaemonInfo? found = await client.FindRunningAsync(CancellationToken.None);
-        found.Should().NotBeNull();
-        found.Port.Should().Be(daemon.Info.Port);
+        Assert.NotNull(found);
+        Assert.Equal(daemon.Info.Port, found.Port);
 
         ParcelView added = await client.PostAsync<ParcelView>(
             "/parcels", new ParcelAddRequest("coanda", "idea", "A lump of clay", null), CancellationToken.None);
-        added.Stage.Should().Be("open");
+        Assert.Equal("open", added.Stage);
 
         List<ParcelView> listed = await client.GetAsync<List<ParcelView>>("/parcels?project=coanda", CancellationToken.None);
-        listed.Should().ContainSingle(p => p.Id == added.Id);
+        Assert.Single(listed, p => p.Id == added.Id);
 
         ParcelView shown = await client.GetAsync<ParcelView>($"/parcels/{added.Id}?project=coanda", CancellationToken.None);
-        shown.Title.Should().Be("A lump of clay");
+        Assert.Equal("A lump of clay", shown.Title);
 
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>(
-                "/parcels/move", new ParcelMoveRequest("coanda", added.Id, "build"), CancellationToken.None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*does not allow a move from 'open' to 'build'*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>(
+                "/parcels/move", new ParcelMoveRequest("coanda", added.Id, "build"), CancellationToken.None));
+        Assert.Contains("does not allow a move from 'open' to 'build'", exception.Message, StringComparison.Ordinal);
 
         ParcelView closed = await client.PostAsync<ParcelView>(
             "/parcels/close", new ParcelCloseRequest("coanda", added.Id, "archived", "Nothing came of it."), CancellationToken.None);
-        closed.Resolution.Should().Be("archived");
+        Assert.Equal("archived", closed.Resolution);
 
         await client.StopAsync(CancellationToken.None);
         await daemon.WaitForShutdownAsync(CancellationToken.None);
-        File.Exists(temp.Home.DaemonInfoPath).Should().BeFalse("a clean stop removes the daemon's address");
+        Assert.False(File.Exists(temp.Home.DaemonInfoPath), "a clean stop removes the daemon's address");
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class DaemonApiTests
         using var http = new HttpClient();
 
         using HttpResponseMessage response = await http.GetAsync($"{daemon.Info.BaseAddress}/parcels?project=coanda", CancellationToken.None);
-        response.StatusCode.Should().Be(System.Net.HttpStatusCode.Unauthorized);
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
 
         await daemon.StopAsync(CancellationToken.None);
     }
@@ -76,7 +76,7 @@ public sealed class DaemonApiTests
             "/parcels", new ParcelAddRequest("coanda", "task", "Held by a flow run", null), CancellationToken.None);
         FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
         ParcelView held = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
-        held.LiveFlowRunId.Should().Be(flowRun.Id);
+        Assert.Equal(flowRun.Id, held.LiveFlowRunId);
         string refusal = $"*held by flow run {Ids.Short(flowRun.Id)}*(flow-run.stop)*";
 
         using var http = new HttpClient { BaseAddress = new Uri(daemon.Info.BaseAddress) };
@@ -87,7 +87,8 @@ public sealed class DaemonApiTests
             http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), FlowRunAdvancer.PrincipalFor(flowRun.Id).Id, refusal + "before moving the parcel.");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
-        after.Should().BeEquivalentTo(held, "every refusal leaves the parcel as it was");
+        // every refusal leaves the parcel as it was
+        Assert.Equivalent(held, after, strict: true);
 
         await daemon.StopAsync(CancellationToken.None);
     }
@@ -108,30 +109,31 @@ public sealed class DaemonApiTests
 
         FlowRunView resumed = await client.PostAsync<FlowRunView>(
             $"/flow-runs/{flowRun.Id}/resume", new FlowRunResumeRequest("coanda", "Carry on."), CancellationToken.None);
-        resumed.Status.Should().Be("running");
+        Assert.Equal("running", resumed.Status);
 
         // The stock executor holds no script, so the resumed flow run pauses again at its first agent step;
         // waiting for that keeps the stop below from racing the runner's own writes.
         await FlowRunDriver.UntilAsync(client, "coanda", flowRun.Id, "paused");
 
-        await FluentActions.Awaiting(() => client.PostAsync<FlowRunView>(
-                $"/flow-runs/{flowRun.Id}/stop", new FlowRunStopRequest("coanda", " "), CancellationToken.None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Stopping a flow run records why; give a reason.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<FlowRunView>(
+                $"/flow-runs/{flowRun.Id}/stop", new FlowRunStopRequest("coanda", " "), CancellationToken.None));
+        Assert.Equal("Stopping a flow run records why; give a reason.", exception.Message);
 
         FlowRunView stopped = await client.PostAsync<FlowRunView>(
             $"/flow-runs/{flowRun.Id}/stop", new FlowRunStopRequest("coanda", "Taking this by hand."), CancellationToken.None);
-        stopped.Status.Should().Be("stopped");
-        stopped.StopReason.Should().Be("Taking this by hand.");
+        Assert.Equal("stopped", stopped.Status);
+        Assert.Equal("Taking this by hand.", stopped.StopReason);
 
         ParcelView freed = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
-        freed.LiveFlowRunId.Should().BeNull("a stopped flow run releases its parcel");
+        // a stopped flow run releases its parcel
+        Assert.Null(freed.LiveFlowRunId);
         ParcelView closed = await client.PostAsync<ParcelView>(
             "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "abandoned", "Done by hand."), CancellationToken.None);
-        closed.Resolution.Should().Be("abandoned");
+        Assert.Equal("abandoned", closed.Resolution);
 
-        await FluentActions.Awaiting(() => client.PostAsync<FlowRunView>(
-                $"/flow-runs/{flowRun.Id}/resume", new FlowRunResumeRequest("coanda", null), CancellationToken.None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*only a paused flow run resumes.");
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<FlowRunView>(
+                $"/flow-runs/{flowRun.Id}/resume", new FlowRunResumeRequest("coanda", null), CancellationToken.None));
+        Assert.EndsWith("only a paused flow run resumes.", exception2.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(CancellationToken.None);
     }
@@ -143,9 +145,9 @@ public sealed class DaemonApiTests
         request.Headers.Add(DaemonHost.PrincipalHeader, principal);
 
         using HttpResponseMessage response = await http.SendAsync(request, CancellationToken.None);
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         ErrorView? error = await response.Content.ReadFromJsonAsync<ErrorView>(CancellationToken.None);
-        error.Should().NotBeNull();
-        error.Error.Should().Match(message);
+        Assert.NotNull(error);
+        Assert.Matches(WildcardPattern.ToRegex(message), error.Error);
     }
 }

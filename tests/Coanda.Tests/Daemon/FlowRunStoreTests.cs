@@ -69,28 +69,28 @@ public sealed class FlowRunStoreTests
         using var client = new DaemonClient(temp.Home);
 
         FlowRunView shown = await client.GetAsync<FlowRunView>($"/flow-runs/{flowRunId}?project={Project}", CancellationToken.None);
-        shown.ParcelId.Should().Be(parcelId);
-        shown.FlowName.Should().Be("build");
-        shown.FlowHash.Should().Be(ShippedFlows.Build.Hash);
-        shown.Status.Should().Be("paused");
-        shown.CurrentStep.Should().Be("build");
-        shown.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
+        Assert.Equal(parcelId, shown.ParcelId);
+        Assert.Equal("build", shown.FlowName);
+        Assert.Equal(ShippedFlows.Build.Hash, shown.FlowHash);
+        Assert.Equal("paused", shown.Status);
+        Assert.Equal("build", shown.CurrentStep);
+        Assert.Equal(["worktree", "build"], shown.Steps.Select(s => s.Step));
 
         FlowRunStepView build = shown.Steps[1];
-        build.Kind.Should().Be("agent-step");
-        build.Performer.Should().Be("build");
-        build.AgentHash.Should().Be("agenthash1");
-        build.Model.Should().Be(Model);
-        build.Measurement.Should().Be(Spend);
-        build.Answer.HasValue.Should().BeTrue();
-        build.Answer.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("done");
-        shown.Steps[0].Result.GetValueOrDefault().GetProperty("path").GetString().Should().Be("/tmp/wt");
+        Assert.Equal("agent-step", build.Kind);
+        Assert.Equal("build", build.Performer);
+        Assert.Equal("agenthash1", build.AgentHash);
+        Assert.Equal(Model, build.Model);
+        Assert.Equal(Spend, build.Measurement);
+        Assert.True(build.Answer.HasValue);
+        Assert.Equal("done", build.Answer.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.Equal("/tmp/wt", shown.Steps[0].Result.GetValueOrDefault().GetProperty("path").GetString());
 
         List<FlowRunView> listed = await client.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}&parcel={parcelId}", CancellationToken.None);
-        listed.Should().ContainSingle(f => f.Id == flowRunId);
+        Assert.Single(listed, f => f.Id == flowRunId);
 
         ParcelView parcelView = await client.GetAsync<ParcelView>($"/parcels/{parcelId}?project={Project}", CancellationToken.None);
-        parcelView.LiveFlowRunId.Should().Be(flowRunId);
+        Assert.Equal(flowRunId, parcelView.LiveFlowRunId);
 
         await daemon.StopAsync(CancellationToken.None);
     }
@@ -106,29 +106,30 @@ public sealed class FlowRunStoreTests
         CancellationToken none = CancellationToken.None;
 
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "One at a time", null), none);
-        parcel.LiveFlowRunId.Should().BeNull();
+        Assert.Null(parcel.LiveFlowRunId);
 
         FlowRun first = await flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none);
         await flowRuns.PauseAsync(Owner, Project, first.Id, "Needs a decision.", "Answer the question in the journal.", none);
 
         ParcelView whilePaused = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", none);
-        whilePaused.LiveFlowRunId.Should().Be(first.Id, "a paused flow run is still live");
+        // a paused flow run is still live
+        Assert.Equal(first.Id, whilePaused.LiveFlowRunId);
 
-        await FluentActions.Awaiting(() => flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none))
-            .Should().ThrowAsync<DomainException>().WithMessage("A parcel has at most one live flow run;*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none));
+        Assert.StartsWith("A parcel has at most one live flow run;", exception.Message, StringComparison.Ordinal);
 
         await flowRuns.StopAsync(Owner, Project, first.Id, "Nobody will answer it.", none);
         ParcelView afterStop = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", none);
-        afterStop.LiveFlowRunId.Should().BeNull();
+        Assert.Null(afterStop.LiveFlowRunId);
 
         FlowRun second = await flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none);
         ParcelView other = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Someone else's", null), none);
         await flowRuns.StartAsync(Owner, Project, other.Id, "build", none);
         ParcelView withSecond = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", none);
-        withSecond.LiveFlowRunId.Should().Be(second.Id);
+        Assert.Equal(second.Id, withSecond.LiveFlowRunId);
 
         List<FlowRunView> listed = await client.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}&parcel={parcel.Id}", none);
-        listed.Select(f => (f.Id, f.Status)).Should().Equal((first.Id, "stopped"), (second.Id, "running"));
+        Assert.Equal([(first.Id, "stopped"), (second.Id, "running")], listed.Select(f => (f.Id, f.Status)));
 
         await daemon.StopAsync(none);
     }
@@ -147,10 +148,10 @@ public sealed class FlowRunStoreTests
         FlowRun flowRun = await flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none);
         FlowRun ended = await flowRuns.EndAsync(Owner, Project, flowRun.Id, ShippedFlows.Build.Outcome, none);
 
-        ended.Status.Should().Be(FlowRunStatus.Ended);
+        Assert.Equal(FlowRunStatus.Ended, ended.Status);
         Parcel? after = await parcels.ShowAsync(Owner, Project, parcel.Id, none);
-        after.Should().NotBeNull();
-        after.LiveFlowRunId.Should().BeNull();
+        Assert.NotNull(after);
+        Assert.Null(after.LiveFlowRunId);
     }
 
     [Fact]
@@ -166,17 +167,17 @@ public sealed class FlowRunStoreTests
         // The racing start reads the parcel with no live flow run, then the service's start commits first.
         await using IDocumentSession racing = store.LightweightSession(Project);
         var stale = await racing.Events.FetchForWriting<Parcel>(parcel.Id, none);
-        stale.Aggregate.Should().NotBeNull();
-        stale.Aggregate.LiveFlowRunId.Should().BeNull();
+        Assert.NotNull(stale.Aggregate);
+        Assert.Null(stale.Aggregate.LiveFlowRunId);
 
         FlowRun winner = await flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none);
 
         stale.AppendOne(new ParcelFlowRunAttached(parcel.Id, Ids.New(), DateTimeOffset.UtcNow));
-        await FluentActions.Awaiting(() => racing.SaveChangesAsync(none)).Should().ThrowAsync<JasperFx.ConcurrencyException>();
+        await Assert.ThrowsAnyAsync<JasperFx.ConcurrencyException>(() => racing.SaveChangesAsync(none));
 
         Parcel? after = await new ParcelService(store, TimeProvider.System).ShowAsync(Owner, Project, parcel.Id, none);
-        after.Should().NotBeNull();
-        after.LiveFlowRunId.Should().Be(winner.Id);
+        Assert.NotNull(after);
+        Assert.Equal(winner.Id, after.LiveFlowRunId);
     }
 
     [Fact]
@@ -199,15 +200,15 @@ public sealed class FlowRunStoreTests
         await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, Json("""{"verdict":"done"}"""), none);
         await flowRuns.StartStepAsync(agent, Project, flowRun.Id, "build", none);
         await flowRuns.PauseAsync(agent, Project, flowRun.Id, "Asked a question.", "Answer it.", none);
-        await FluentActions.Awaiting(() => flowRuns.ResumeAsync(agent, Project, flowRun.Id, null, none))
-            .Should().ThrowAsync<DomainException>().WithMessage("'flow-run.resume' is not open to the Agent role.");
-        await FluentActions.Awaiting(() => flowRuns.StopAsync(agent, Project, flowRun.Id, "Done with it.", none))
-            .Should().ThrowAsync<DomainException>().WithMessage("'flow-run.stop' is not open to the Agent role.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.ResumeAsync(agent, Project, flowRun.Id, null, none));
+        Assert.Equal("'flow-run.resume' is not open to the Agent role.", exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => flowRuns.StopAsync(agent, Project, flowRun.Id, "Done with it.", none));
+        Assert.Equal("'flow-run.stop' is not open to the Agent role.", exception2.Message);
 
         IReadOnlyList<FlowRun> listed = await flowRuns.ListAsync(agent, Project, parcel.Id, none);
-        listed.Should().ContainSingle();
+        Assert.Single(listed);
         FlowRun? shown = await flowRuns.ShowAsync(agent, Project, flowRun.Id, none);
-        shown.Should().NotBeNull();
+        Assert.NotNull(shown);
     }
 
     [Fact]
@@ -227,19 +228,17 @@ public sealed class FlowRunStoreTests
         FlowRunView view = await FlowRunLookup.FindAsync(client, Project, Ids.Short(flowRun.Id), none);
         IReadOnlyList<string> lines = FlowRunRendering.Show(view);
 
-        lines.Should().Contain($"Flow    build v1 ({ShippedFlows.Build.Hash})");
-        lines.Should().Contain($"Parcel  {parcel.Id}");
-        lines.Should().Contain("Status  paused");
-        lines.Should().Contain("Reason  The build agent asked a question.");
-        lines.Should().Contain("Lever   Answer it in the journal.");
+        Assert.Contains($"Flow    build v1 ({ShippedFlows.Build.Hash})", lines);
+        Assert.Contains($"Parcel  {parcel.Id}", lines);
+        Assert.Contains("Status  paused", lines);
+        Assert.Contains("Reason  The build agent asked a question.", lines);
+        Assert.Contains("Lever   Answer it in the journal.", lines);
         int steps = lines.ToList().IndexOf("Steps");
-        lines.Skip(steps + 1).Should().Equal(
-            "  worktree  system-step worktree  verdict=done  path=/tmp/wt  reused=false",
-            "  build  agent-step build  verdict=done  files=3  tokens 1200, cost $0.42, 63s");
+        Assert.Equal(["  worktree  system-step worktree  verdict=done  path=/tmp/wt  reused=false", "  build  agent-step build  verdict=done  files=3  tokens 1200, cost $0.42, 63s"], lines.Skip(steps + 1));
 
         List<FlowRunView> listed = await client.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}&parcel={parcel.Id}", none);
-        FlowRunView row = listed.Should().ContainSingle().Subject;
-        FlowRunRendering.ListRow(row).Take(4).Should().Equal(Ids.Short(flowRun.Id), "build v1", "paused", "build");
+        FlowRunView row = Assert.Single(listed);
+        Assert.Equal([Ids.Short(flowRun.Id), "build v1", "paused", "build"], FlowRunRendering.ListRow(row).Take(4));
 
         await daemon.StopAsync(none);
     }

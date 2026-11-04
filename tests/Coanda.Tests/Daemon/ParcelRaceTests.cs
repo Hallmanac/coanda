@@ -34,13 +34,12 @@ public sealed class ParcelRaceTests
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "raced-task", "Raced move", null), None);
 
         racing.Arm(daemon.Services.GetRequiredService<IDocumentStore>(), parcel.Id);
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage(Refusal(parcel.Id));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None));
+        Assert.Equal(Refusal(parcel.Id), exception.Message);
 
-        racing.Raced.Should().BeTrue();
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("refine");
-        (await EventsAsync(daemon, parcel.Id)).Should().NotContain(e => e is ParcelMoved);
+        Assert.True(racing.Raced);
+        Assert.Equal("refine", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
+        Assert.DoesNotContain(await EventsAsync(daemon, parcel.Id), e => e is ParcelMoved);
 
         await daemon.StopAsync(None);
     }
@@ -55,14 +54,13 @@ public sealed class ParcelRaceTests
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "raced-task", "Raced close", null), None);
 
         racing.Arm(daemon.Services.GetRequiredService<IDocumentStore>(), parcel.Id);
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>(
-                "/parcels/close", new ParcelCloseRequest(Project, parcel.Id, "abandoned", "Not needed."), None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage(Refusal(parcel.Id));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>(
+                "/parcels/close", new ParcelCloseRequest(Project, parcel.Id, "abandoned", "Not needed."), None));
+        Assert.Equal(Refusal(parcel.Id), exception.Message);
 
-        racing.Raced.Should().BeTrue();
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("refine");
-        (await EventsAsync(daemon, parcel.Id)).Should().NotContain(e => e is ParcelClosed);
+        Assert.True(racing.Raced);
+        Assert.Equal("refine", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
+        Assert.DoesNotContain(await EventsAsync(daemon, parcel.Id), e => e is ParcelClosed);
 
         await daemon.StopAsync(None);
     }

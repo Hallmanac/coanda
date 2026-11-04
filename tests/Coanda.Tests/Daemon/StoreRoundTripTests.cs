@@ -21,7 +21,7 @@ public sealed class StoreRoundTripTests
             id = created.Id;
             await service.BriefAsync(Principal.LocalOwner, "alpha", id, cancellationToken: CancellationToken.None);
             Parcel moved = await service.MoveAsync(Principal.LocalOwner, "alpha", id, "build", CancellationToken.None);
-            moved.Stage.Should().Be("build");
+            Assert.Equal("build", moved.Stage);
         }
 
         await using (IDocumentStore reopened = await SeededStore.OpenAsync(temp.Home.DatabasePath))
@@ -29,22 +29,23 @@ public sealed class StoreRoundTripTests
             var service = new ParcelService(reopened, TimeProvider.System);
 
             Parcel? shown = await service.ShowAsync(Principal.LocalOwner, "alpha", id, CancellationToken.None);
-            shown.Should().NotBeNull();
-            shown.Stage.Should().Be("build");
-            shown.Title.Should().Be("Survive a restart");
-            shown.ValueOf(TaskFields.Objective).Should().BeEquivalentTo(TaskFields.ObjectiveValue);
-            shown.ValueOf(TaskFields.Criteria).Should().BeEquivalentTo(TaskFields.CriteriaValue);
-            shown.ValueOf(TaskFields.PullRequest).Should().BeEquivalentTo(TaskFields.PullRequestValue);
-            shown.ValueOf(TaskFields.NonGoals).Should().BeNull();
+            Assert.NotNull(shown);
+            Assert.Equal("build", shown.Stage);
+            Assert.Equal("Survive a restart", shown.Title);
+            Assert.Equivalent(TaskFields.ObjectiveValue, shown.ValueOf(TaskFields.Objective), strict: true);
+            Assert.Equivalent(TaskFields.CriteriaValue, shown.ValueOf(TaskFields.Criteria), strict: true);
+            Assert.Equivalent(TaskFields.PullRequestValue, shown.ValueOf(TaskFields.PullRequest), strict: true);
+            Assert.Null(shown.ValueOf(TaskFields.NonGoals));
 
             IReadOnlyList<Parcel> alpha = await service.ListAsync(Principal.LocalOwner, "alpha", CancellationToken.None);
-            alpha.Should().ContainSingle(p => p.Id == id);
+            Assert.Single(alpha, p => p.Id == id);
 
             IReadOnlyList<Parcel> beta = await service.ListAsync(Principal.LocalOwner, "beta", CancellationToken.None);
-            beta.Should().BeEmpty("the project is the tenant and another project sees nothing");
+            // the project is the tenant and another project sees nothing
+            Assert.Empty(beta);
 
             Parcel? crossed = await service.ShowAsync(Principal.LocalOwner, "beta", id, CancellationToken.None);
-            crossed.Should().BeNull();
+            Assert.Null(crossed);
         }
     }
 
@@ -56,7 +57,7 @@ public sealed class StoreRoundTripTests
         var service = new ParcelService(store, TimeProvider.System);
         var agent = new Principal("build-session", Role.Agent);
 
-        await FluentActions.Awaiting(() => service.AddAsync(agent, "alpha", "task", "x", null, CancellationToken.None))
-            .Should().ThrowAsync<Coanda.Core.DomainException>().WithMessage("*not open to the Agent role*");
+        Coanda.Core.DomainException exception = await Assert.ThrowsAsync<Coanda.Core.DomainException>(() => service.AddAsync(agent, "alpha", "task", "x", null, CancellationToken.None));
+        Assert.Contains("not open to the Agent role", exception.Message, StringComparison.Ordinal);
     }
 }

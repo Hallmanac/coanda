@@ -53,17 +53,16 @@ public sealed class AgentListTests
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
         List<Definition> held = await AgentsInStoreAsync(temp.Home);
-        held.Should().HaveCount(5);
-        held.Should().OnlyContain(d => d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1);
-        held.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => (d.Name, d.ContentHash))
-            .Should().Equal(ShippedAgents.All.OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => (a.Name, a.Hash)));
-        held.Should().OnlyContain(d => AgentDefinition.FromJson(d.Content).Hash == d.ContentHash);
+        Assert.Equal(5, held.Count);
+        Assert.All(held, d => Assert.True(d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1));
+        Assert.Equal(ShippedAgents.All.OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => (a.Name, a.Hash)), held.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => (d.Name, d.ContentHash)));
+        Assert.All(held, d => Assert.True(AgentDefinition.FromJson(d.Content).Hash == d.ContentHash));
         int events = await AgentEventCountAsync(temp.Home);
-        events.Should().Be(10);
+        Assert.Equal(10, events);
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        (await AgentEventCountAsync(temp.Home)).Should().Be(events);
+        Assert.Equal(events, await AgentEventCountAsync(temp.Home));
     }
 
     [Fact]
@@ -75,9 +74,8 @@ public sealed class AgentListTests
         {
             List<AgentView> agents = await client.GetAsync<List<AgentView>>("/agents?project=alpha", CancellationToken.None);
 
-            agents.Select(a => (a.Name, a.Version, a.Model, a.Hash)).Should().BeEquivalentTo(
-                ShippedAgents.All.Select(a => (a.Name, 1, a.Model, a.Hash)));
-            agents.Should().HaveCount(5);
+            Assert.Equivalent(ShippedAgents.All.Select(a => (a.Name, 1, a.Model, a.Hash)), agents.Select(a => (a.Name, a.Version, a.Model, a.Hash)), strict: true);
+            Assert.Equal(5, agents.Count);
         });
     }
 
@@ -102,9 +100,9 @@ public sealed class AgentListTests
             List<AgentView> alpha = await client.GetAsync<List<AgentView>>("/agents?project=alpha", CancellationToken.None);
             List<AgentView> beta = await client.GetAsync<List<AgentView>>("/agents?project=beta", CancellationToken.None);
 
-            alpha.Should().HaveCount(5);
-            alpha.Single(a => a.Name == "fix").Hash.Should().Be(custom.Hash);
-            beta.Single(a => a.Name == "fix").Hash.Should().Be(ShippedAgents.Fix.Hash);
+            Assert.Equal(5, alpha.Count);
+            Assert.Equal(custom.Hash, alpha.Single(a => a.Name == "fix").Hash);
+            Assert.Equal(ShippedAgents.Fix.Hash, beta.Single(a => a.Name == "fix").Hash);
         });
     }
 
@@ -113,7 +111,7 @@ public sealed class AgentListTests
     {
         foreach (Role role in Enum.GetValues<Role>())
         {
-            CommandRegistry.Require("agent.list", new Principal("someone", role)).Should().NotBeNull();
+            Assert.NotNull(CommandRegistry.Require("agent.list", new Principal("someone", role)));
         }
     }
 }

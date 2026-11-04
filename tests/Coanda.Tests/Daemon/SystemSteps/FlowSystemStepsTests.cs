@@ -52,14 +52,15 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public void The_registered_names_are_the_core_and_software_catalogs_together()
     {
-        systemSteps.Names.Should().BeEquivalentTo([.. CoreSystemSteps.All, .. SoftwareSystemSteps.All]);
+        string[] expected = [.. CoreSystemSteps.All, .. SoftwareSystemSteps.All];
+        Assert.Equivalent(expected, systemSteps.Names, strict: true);
     }
 
     [Fact]
     public void Registering_two_implementations_of_one_name_is_refused()
     {
-        FluentActions.Invoking(() => new FlowSystemSteps([new PlaceholderSystemStep("gates"), new PlaceholderSystemStep("gates")]))
-            .Should().Throw<InvalidOperationException>().WithMessage("*'gates' is registered twice*");
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new FlowSystemSteps([new PlaceholderSystemStep("gates"), new PlaceholderSystemStep("gates")]));
+        Assert.Contains("'gates' is registered twice", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -70,11 +71,11 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
         SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
         JsonElement result = DoneResult(outcome);
-        result.GetProperty("moved").GetBoolean().Should().BeTrue();
+        Assert.True(result.GetProperty("moved").GetBoolean());
         Parcel? moved = await parcels.ShowAsync(Principal.LocalOwner, Project, parcel.Id, CancellationToken.None);
-        moved?.Stage.Should().Be("review");
-        ParcelMoved recorded = (await MovesAsync(parcel.Id)).Should().ContainSingle(m => m.ToStage == "review").Subject;
-        recorded.MovedBy.Should().Be(FlowRunPrincipal.Id);
+        Assert.Equal("review", moved?.Stage);
+        ParcelMoved recorded = Assert.Single(await MovesAsync(parcel.Id), m => m.ToStage == "review");
+        Assert.Equal(FlowRunPrincipal.Id, recorded.MovedBy);
     }
 
     [Fact]
@@ -84,8 +85,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
         SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("build"))), parcel.Id);
 
-        DoneResult(outcome).GetProperty("moved").GetBoolean().Should().BeFalse();
-        (await MovesAsync(parcel.Id)).Should().ContainSingle("only the arrange step's move to build is recorded");
+        Assert.False(DoneResult(outcome).GetProperty("moved").GetBoolean());
+        // only the arrange step's move to build is recorded
+        Assert.Single(await MovesAsync(parcel.Id));
     }
 
     [Fact]
@@ -95,9 +97,10 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
         SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
-        SystemStepOutcome.Paused paused = outcome.Should().BeOfType<SystemStepOutcome.Paused>().Subject;
-        paused.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("act"));
+        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(outcome);
+        Assert.StartsWith("Step 'act' could not move parcel", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("does not allow a move from 'refine' to 'review'", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
     }
 
     [Fact]
@@ -105,8 +108,8 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.Timer, ("seconds", FlowValue.Of(2.5))), Ids.New());
 
-        DoneResult(outcome).GetProperty("seconds").GetDouble().Should().Be(2.5);
-        clock.Waits.Should().Equal(TimeSpan.FromSeconds(2.5));
+        Assert.Equal(2.5, DoneResult(outcome).GetProperty("seconds").GetDouble());
+        Assert.Equal([TimeSpan.FromSeconds(2.5)], clock.Waits);
     }
 
     [Fact]
@@ -114,9 +117,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         FlowStep step = Step(CoreSystemSteps.WaitForHuman, ("lever", FlowValue.Of("Approve the plan in the journal.")));
 
-        SystemStepOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<SystemStepOutcome.Paused>().Subject;
-        paused.Reason.Should().Contain("Step 'act'");
-        paused.Lever.Should().Be("Approve the plan in the journal.");
+        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(await PerformAsync(step, Ids.New()));
+        Assert.Contains("Step 'act'", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal("Approve the plan in the journal.", paused.Lever);
 
         DoneResult(await PerformAsync(step, Ids.New(), resumed: true));
     }
@@ -126,11 +129,12 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         FlowStep step = Step(CoreSystemSteps.WaitForExternalEvent, ("event", FlowValue.Of("ci-finished")));
 
-        SystemStepOutcome.Paused paused = (await PerformAsync(step, Ids.New())).Should().BeOfType<SystemStepOutcome.Paused>().Subject;
-        paused.Reason.Should().Contain("'ci-finished'").And.Contain("Step 'act'");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("act"));
+        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(await PerformAsync(step, Ids.New()));
+        Assert.Contains("'ci-finished'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("Step 'act'", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
 
-        DoneResult(await PerformAsync(step, Ids.New(), resumed: true)).GetProperty("event").GetString().Should().Be("ci-finished");
+        Assert.Equal("ci-finished", DoneResult(await PerformAsync(step, Ids.New(), resumed: true)).GetProperty("event").GetString());
     }
 
     [Fact]
@@ -138,7 +142,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.EmitOutcome), Ids.New());
 
-        DoneResult(outcome).GetProperty("outcome").GetString().Should().Be(ShippedFlows.Build.Outcome);
+        Assert.Equal(ShippedFlows.Build.Outcome, DoneResult(outcome).GetProperty("outcome").GetString());
     }
 
     [Fact]
@@ -148,10 +152,10 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
         JsonElement result = DoneResult(await PerformAsync(Step(SoftwareSystemSteps.Worktree), parcelId));
 
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.Worktree);
-        result.GetProperty("branch").GetString().Should().Be($"coanda/{Ids.Short(parcelId)}");
-        result.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
-        result.TryGetProperty("placeholder", out _).Should().BeFalse();
+        Assert.Equal(SoftwareSystemSteps.Worktree, result.GetProperty("systemStep").GetString());
+        Assert.Equal($"coanda/{Ids.Short(parcelId)}", result.GetProperty("branch").GetString());
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
+        Assert.False(result.TryGetProperty("placeholder", out _));
     }
 
     [Fact]
@@ -159,9 +163,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         JsonElement result = DoneResult(await PerformAsync(Step(SoftwareSystemSteps.Gates), Ids.New()));
 
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.Gates);
-        result.TryGetProperty("placeholder", out _).Should().BeFalse();
-        runner.ShellLines.Should().Equal(Coanda.Core.Projects.Project.DefaultBuild, Coanda.Core.Projects.Project.DefaultTest);
+        Assert.Equal(SoftwareSystemSteps.Gates, result.GetProperty("systemStep").GetString());
+        Assert.False(result.TryGetProperty("placeholder", out _));
+        Assert.Equal([Coanda.Core.Projects.Project.DefaultBuild, Coanda.Core.Projects.Project.DefaultTest], runner.ShellLines);
     }
 
     [Fact]
@@ -169,14 +173,14 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        JsonElement result = (await PerformAsync(OpenPrStep, parcel.Id)).Should().BeOfType<SystemStepOutcome.Done>().Subject.Result;
+        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(await PerformAsync(OpenPrStep, parcel.Id)).Result;
 
-        result.GetProperty("verdict").GetString().Should().Be(OpenPrSystemStep.OpenedVerdict);
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.OpenPr);
-        result.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
-        result.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);
-        result.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
-        result.TryGetProperty("placeholder", out _).Should().BeFalse();
+        Assert.Equal(OpenPrSystemStep.OpenedVerdict, result.GetProperty("verdict").GetString());
+        Assert.Equal(SoftwareSystemSteps.OpenPr, result.GetProperty("systemStep").GetString());
+        Assert.Equal(FakeGitHub.Number, result.GetProperty("number").GetInt32());
+        Assert.Equal(FakeGitHub.Url, result.GetProperty("url").GetString());
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
+        Assert.False(result.TryGetProperty("placeholder", out _));
     }
 
     [Theory]
@@ -186,8 +190,8 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
         SystemStepOutcome outcome = await PerformAsync(Step(systemStep), Ids.New());
 
         JsonElement result = DoneResult(outcome);
-        result.GetProperty("systemStep").GetString().Should().Be(systemStep);
-        result.GetProperty("placeholder").GetBoolean().Should().BeTrue();
+        Assert.Equal(systemStep, result.GetProperty("systemStep").GetString());
+        Assert.True(result.GetProperty("placeholder").GetBoolean());
     }
 
     [Theory]
@@ -206,10 +210,11 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
         SystemStepOutcome outcome = await PerformAsync(step, Ids.New());
 
-        SystemStepOutcome.Paused paused = outcome.Should().BeOfType<SystemStepOutcome.Paused>().Subject;
-        paused.Reason.Should().Contain("Step 'act'").And.Contain($"argument '{argument}'");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("act"));
-        clock.Waits.Should().BeEmpty();
+        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(outcome);
+        Assert.Contains("Step 'act'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains($"argument '{argument}'", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
+        Assert.Empty(clock.Waits);
     }
 
     private async Task<Parcel> TaskAtAsync(string stage)
@@ -235,8 +240,8 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
     private static JsonElement DoneResult(SystemStepOutcome outcome)
     {
-        JsonElement result = outcome.Should().BeOfType<SystemStepOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be("done");
+        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        Assert.Equal("done", result.GetProperty("verdict").GetString());
         return result;
     }
 

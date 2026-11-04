@@ -60,8 +60,8 @@ public sealed class CredentialProfileFlowRunTests
 
         FlowRunView ended = await RunAsync(client, "With a profile", "ended");
 
-        ended.Outcome.Should().Be("built");
-        executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().Be(Work);
+        Assert.Equal("built", ended.Outcome);
+        Assert.Equal(Work, Assert.Single(executor.Spawns).CredentialProfile);
 
         await daemon.StopAsync(None);
     }
@@ -78,8 +78,8 @@ public sealed class CredentialProfileFlowRunTests
 
         FlowRunView ended = await RunAsync(client, "No profile", "ended");
 
-        ended.Outcome.Should().Be("built");
-        executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().BeNull();
+        Assert.Equal("built", ended.Outcome);
+        Assert.Null(Assert.Single(executor.Spawns).CredentialProfile);
 
         await daemon.StopAsync(None);
     }
@@ -103,20 +103,24 @@ public sealed class CredentialProfileFlowRunTests
 
         FlowRunView paused = await RunAsync(client, "Missing profile", "paused");
 
-        paused.PauseReason.Should().Be(
-            $"Project '{Project}' names the credential profile 'work', which the node configuration loaded at start holds no entry for under the vendor '{ShippedAgents.Vendor}' of agent '{ShippedAgents.Build.Name}'.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.Spawns.Should().Be(1, "the spawn the visit counted is left unused, since the launch was never recorded");
-        executor.Spawns.Should().BeEmpty("nothing is spawned under a profile the node does not hold");
+        Assert.Equal($"Project '{Project}' names the credential profile 'work', which the node configuration loaded at start holds no entry for under the vendor '{ShippedAgents.Vendor}' of agent '{ShippedAgents.Build.Name}'.", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        // the spawn the visit counted is left unused, since the launch was never recorded
+        Assert.Equal(1, paused.Spawns);
+        // nothing is spawned under a profile the node does not hold
+        Assert.Empty(executor.Spawns);
 
         await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "ci"), None);
         await daemon.Services.GetRequiredService<FlowRunService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Named a held profile.", None);
         FlowRunView resumed = await FlowRunDriver.UntilAsync(client, Project, paused.Id, "ended");
 
-        executor.Spawns.Should().ContainSingle().Which.CredentialProfile.Should().Be(Ci);
+        Assert.Equal(Ci, Assert.Single(executor.Spawns).CredentialProfile);
         FlowRunView heldFromStart = await RunAsync(client, "Profile held from the start", "ended");
-        executor.Spawns.Should().HaveCount(2).And.OnlyContain(s => s.CredentialProfile == Ci);
-        resumed.Spawns.Should().Be(heldFromStart.Spawns, "the pause used none of the flow's spawns").And.Be(1);
+        Assert.Equal(2, executor.Spawns.Count);
+        Assert.All(executor.Spawns, s => Assert.True(s.CredentialProfile == Ci));
+        // the pause used none of the flow's spawns
+        Assert.Equal(heldFromStart.Spawns, resumed.Spawns);
+        Assert.Equal(1, resumed.Spawns);
 
         await daemon.StopAsync(None);
     }

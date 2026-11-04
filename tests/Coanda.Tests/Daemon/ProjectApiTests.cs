@@ -24,28 +24,27 @@ public sealed class ProjectApiTests
 
         ProjectView added = await client.PostAsync<ProjectView>(
             "/projects", new ProjectAddRequest("coanda", "git@github.com:you/coanda.git", "main"), None);
-        added.Name.Should().Be("coanda");
+        Assert.Equal("coanda", added.Name);
         await client.PostAsync<ProjectView>("/projects", new ProjectAddRequest("beta", "https://example.invalid/beta.git", "trunk"), None);
 
         ProjectView shown = await client.GetAsync<ProjectView>("/projects/coanda", None);
-        shown.Remote.Should().Be("git@github.com:you/coanda.git");
-        shown.PrimaryBranch.Should().Be("main");
+        Assert.Equal("git@github.com:you/coanda.git", shown.Remote);
+        Assert.Equal("main", shown.PrimaryBranch);
 
         List<ProjectView> listed = await client.GetAsync<List<ProjectView>>("/projects", None);
-        listed.Select(p => (p.Name, p.Remote, p.PrimaryBranch)).Should().Equal(
-            ("beta", "https://example.invalid/beta.git", "trunk"),
-            ("coanda", "git@github.com:you/coanda.git", "main"));
+        Assert.Equal([("beta", "https://example.invalid/beta.git", "trunk"), ("coanda", "git@github.com:you/coanda.git", "main")], listed.Select(p => (p.Name, p.Remote, p.PrimaryBranch)));
 
         string[] awkwardNames = ["team/coanda", "50% done", "a%2Fb"];
         foreach (string awkward in awkwardNames)
         {
             await client.PostAsync<ProjectView>("/projects", new ProjectAddRequest(awkward, "https://example.invalid/x.git", "main"), None);
-            (await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(awkward), None)).Name.Should().Be(awkward, "the show path carries any name");
+            // the show path carries any name
+            Assert.Equal(awkward, (await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(awkward), None)).Name);
         }
 
-        await FluentActions.Awaiting(() => client.PostAsync<ProjectView>(
-                "/projects", new ProjectAddRequest("coanda", "https://example.invalid/again.git", "main"), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'coanda' is already registered*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ProjectView>(
+                "/projects", new ProjectAddRequest("coanda", "https://example.invalid/again.git", "main"), None));
+        Assert.StartsWith("Project 'coanda' is already registered", exception.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }
@@ -57,14 +56,14 @@ public sealed class ProjectApiTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
 
-        await FluentActions.Awaiting(() => client.GetAsync<ProjectView>("/projects/nowhere", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'nowhere' is not registered; register it with coa project add nowhere*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<ProjectView>("/projects/nowhere", None));
+        Assert.StartsWith("Project 'nowhere' is not registered; register it with coa project add nowhere", exception.Message, StringComparison.Ordinal);
 
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{daemon.Info.BaseAddress}/projects/nowhere");
         request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
         using HttpResponseMessage response = await http.SendAsync(request, None);
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
         await daemon.StopAsync(None);
     }
@@ -76,12 +75,12 @@ public sealed class ProjectApiTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
 
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Lost", null), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'nowhere' is not registered; register it with coa project add nowhere*");
-        (await client.GetAsync<List<ParcelView>>("/parcels?project=nowhere", None)).Should().BeEmpty();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Lost", null), None));
+        Assert.StartsWith("Project 'nowhere' is not registered; register it with coa project add nowhere", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(await client.GetAsync<List<ParcelView>>("/parcels?project=nowhere", None));
 
         await client.PostAsync<ProjectView>("/projects", new ProjectAddRequest("nowhere", "https://example.invalid/nowhere.git", "main"), None);
-        (await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Found", null), None)).Project.Should().Be("nowhere");
+        Assert.Equal("nowhere", (await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Found", null), None)).Project);
 
         await daemon.StopAsync(None);
     }
@@ -107,7 +106,7 @@ public sealed class ProjectApiTests
         await FlowRunDriver.UntilAsync(
             async () => (await client.GetAsync<List<ParcelView>>("/parcels?project=alpha", None)).Count == 1,
             "the registered project's subscription created its parcel");
-        (await client.GetAsync<List<ParcelView>>("/parcels?project=unregistered", None)).Should().BeEmpty();
+        Assert.Empty(await client.GetAsync<List<ParcelView>>("/parcels?project=unregistered", None));
 
         // The stock daemon's empty scripted executor pauses the flow run at its first agent step; waiting for that keeps the stop from racing the runner.
         ParcelView alpha = (await client.GetAsync<List<ParcelView>>("/parcels?project=alpha", None)).Single();
