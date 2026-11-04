@@ -304,8 +304,10 @@ public sealed class TriggerLoop(
     /// A flow ended: read as a <c>flow-ended</c> event with its contour, its outcome, and its
     /// parcel's type, it starts on that parcel every published contour of the project whose follow
     /// matches it and which accepts the type. The first starts now; the parcel then holds a live
-    /// flow, so each of the others waits for a release, in name order. Each refusal is logged and
-    /// the other followers still start.
+    /// flow, so each of the others waits for a release, in name order, except that a follower whose
+    /// contour declares <c>closes</c> starts after every follower that does not: its end closes the
+    /// parcel, and no follow starts on a closed parcel. Each refusal is logged and the other
+    /// followers still start.
     /// </summary>
     private async Task EndedAsync(string project, FlowEnded ended, CancellationToken cancellationToken)
     {
@@ -320,7 +322,8 @@ public sealed class TriggerLoop(
             .Select(definition => Contour.FromJson(definition.Content))
             .Where(contour => contour.Follow is { } follow
                 && Trigger.ForFollow(follow).Matches(candidate)
-                && contour.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)));
+                && contour.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)))
+            .OrderBy(contour => contour.Closes is not null);
 
         List<PendingFollow> waiting = [];
         foreach (Contour follower in followers)
@@ -329,7 +332,7 @@ public sealed class TriggerLoop(
             {
                 if (await FollowAsync(project, parent, follower.Name, cancellationToken))
                 {
-                    waiting.Add(new PendingFollow(parent.Id, follower.Name));
+                    waiting.Add(new PendingFollow(parent.Id, follower.Name, follower.Closes is not null));
                 }
             }
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
@@ -385,13 +388,18 @@ public sealed class TriggerLoop(
         return false;
     }
 
-    /// <summary>Adds follows to the ones waiting on the parcel, after those already waiting and without repeating one.</summary>
+    /// <summary>
+    /// Adds follows to the ones waiting on the parcel, after those already waiting and without
+    /// repeating one, then moves every follow that closes the parcel behind every follow that does
+    /// not, keeping each group's order: a closing follow that started first would leave the others
+    /// to be refused on a closed parcel.
+    /// </summary>
     private async Task DeferFollowsAsync(string project, Guid parcelId, IReadOnlyList<PendingFollow> follows, CancellationToken cancellationToken)
     {
         await using IDocumentSession session = store.LightweightSession(project);
         DeferredFollows deferred = await session.LoadAsync<DeferredFollows>(parcelId, cancellationToken)
             ?? new DeferredFollows { Id = parcelId };
-        deferred.Pending = [.. deferred.Pending.Union(follows)];
+        deferred.Pending = [.. deferred.Pending.Union(follows).OrderBy(follow => follow.Closes)];
         session.Store(deferred);
         await session.SaveChangesAsync(cancellationToken);
         logger.LogInformation(
