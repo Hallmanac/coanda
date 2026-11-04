@@ -35,6 +35,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         SpawnCaps caps,
         string answerSchema,
         CredentialProfile? credentialProfile,
+        SessionAccess? access,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
@@ -44,7 +45,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         lock (gate)
         {
             sessions.Add(handle.Id, new Session(handle));
-            spawns.Add(new ScriptedSpawn(handle, agent.Name, context, workingDirectory, caps, answerSchema, credentialProfile));
+            spawns.Add(new ScriptedSpawn(handle, agent.Name, context, workingDirectory, caps, answerSchema, credentialProfile, access));
         }
 
         return ValueTask.FromResult(handle);

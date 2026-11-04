@@ -64,6 +64,7 @@ public static class Judgment
             request.Caps,
             request.AnswerSchema,
             request.CredentialProfile,
+            request.Access,
             cancellationToken);
 
         bool handedOver = false;
