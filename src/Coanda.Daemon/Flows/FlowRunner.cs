@@ -348,7 +348,9 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             }
             catch (Exception) when (cancellationToken.IsCancellationRequested)
             {
-                // A daemon stop: the step in progress records nothing and is performed again on the next start.
+                // A daemon stop records no answer, result, or pause for the step in progress, leaving the
+                // flow live for the next start to carry on: it reattaches a judgment whose session the flow
+                // names rather than performing it again, and routes a step recorded but not yet routed.
             }
             catch (Exception failure)
             {
