@@ -14,15 +14,16 @@ running.
 - parcel: the unit of work. A parcel has exactly one type and one lifecycle state.
 - type: the definition of a kind of parcel: its lifecycle (states, moves, one terminal state
   called closed with a resolution), its fields, and its bindings.
-- flow: a definition of an agentic workflow: judgment steps (an agent) and action steps (something
+- contour: the definition of an agentic loop: judgment steps (an agent) and action steps (something
   the daemon does), with transitions and caps.
-- flight: one execution of a flow on a parcel.
-- agent: a definition of a persona, model, tools, and answer schema that a judgment step spawns.
+- flow: one execution of a contour on a parcel. A flow follows its contour; it can pause (waiting
+  for a person, an external event, or a budget) and is then resumed or stopped.
+- agent: a definition of a persona, a model spec (vendor, model, effort), tools, and answer schema that a judgment step spawns.
 - action: a deterministic step the daemon performs (worktree, gates, open PR, merge, timer, wait).
-- trigger: an event subscription that starts a flow.
+- trigger: an event subscription that starts a flow of a contour.
 
-Two types ship installed: idea (open, discovery, parked, closed) and task (refine, build, review,
-parked, closed).
+Two types ship installed: idea (open, discovery, paused, closed) and task (refine, build, review,
+paused, closed).
 
 ## Installing
 
