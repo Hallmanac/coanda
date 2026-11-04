@@ -40,7 +40,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
         var projects = new ProjectService(store, TimeProvider.System);
         var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
         actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit, github.Client,
-            new FlowService(store, TimeProvider.System));
+            new FlowService(store, TimeProvider.System), new FlowWorkers());
     }
 
     public async Task DisposeAsync()
@@ -181,7 +181,6 @@ public sealed class FlowActionsTests : IAsyncLifetime
 
     [Theory]
     [InlineData(CoreActions.DeriveParcels)]
-    [InlineData(SoftwareActions.Rebase)]
     public async Task A_placeholder_answers_done_naming_itself_as_a_placeholder(string action)
     {
         ActionOutcome outcome = await PerformAsync(Step(action), Ids.New());

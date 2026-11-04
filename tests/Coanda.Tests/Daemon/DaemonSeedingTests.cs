@@ -234,4 +234,21 @@ public sealed class DaemonSeedingTests
         build.ContentHash.Should().Be(ShippedContours.Build.Hash).And.NotBe(previous.Hash);
         Contour.FromJson(build.Content).Steps.Should().NotContain(s => s.Name == "gated-merge");
     }
+
+    [Fact]
+    public async Task Seeding_a_store_that_holds_the_merge_contour_before_its_rebase_lap_publishes_the_new_one_as_its_next_version()
+    {
+        using var temp = new TemporaryHome();
+        Contour previous = PreviousContours.MergeWithoutRebase;
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(previous)]);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+
+        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+
+        Definition merge = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "merge");
+        merge.VersionNumber.Should().Be(2);
+        merge.Status.Should().Be(DefinitionStatus.Published);
+        merge.ContentHash.Should().Be(ShippedContours.Merge.Hash).And.NotBe(previous.Hash);
+        Contour.FromJson(merge.Content).Steps.Select(s => s.Name).Should().Equal("gated-merge", "wait-for-checks", "worktree", "rebase");
+    }
 }

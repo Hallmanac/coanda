@@ -180,7 +180,7 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_merge_contours_lap_waits_at_least_twenty_minutes_before_it_pauses_and_a_late_merge_still_ends()
+    public void The_merge_contours_lap_waits_at_least_twenty_minutes_with_its_rebase_laps_taken_out_before_it_pauses_and_a_late_merge_still_ends()
     {
         Contour merge = ShippedContours.Merge;
         ContourStep gated = merge.Step("gated-merge")!;
@@ -188,13 +188,82 @@ public sealed class ShippedContoursTests
         ContourTransition merged = gated.Transitions.Single(t => t.Value.GetString() == "merged");
         ContourStep timer = merge.Step(pending.Target)!;
         ContourTransition back = timer.Transitions.Should().ContainSingle().Subject;
+        ContourTransition rebaseLaps = RebaseLapCap(merge);
 
         timer.Action.Should().Be(CoreActions.Timer);
         back.Target.Should().Be("gated-merge");
         double seconds = timer.Arguments["seconds"].GetDouble();
-        (seconds * pending.VisitCap).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all");
+        (seconds * (pending.VisitCap - rebaseLaps.VisitCap)).Should().BeGreaterThanOrEqualTo(1200, "the lap waits at least twenty minutes in all once the rebase laps' visits are taken out");
         back.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap, "the timer never pauses the lap before the pending cap does");
         merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 100, "a merge on the lap's last visit or on any of a hundred resumes still ends the flow");
+        merged.VisitCap.Should().BeGreaterThanOrEqualTo(pending.VisitCap + 5);
+    }
+
+    [Fact]
+    public void The_merge_contour_routes_a_behind_head_through_a_worktree_and_a_rebase_back_to_the_timer_with_no_judgment()
+    {
+        Contour merge = ShippedContours.Merge;
+        ContourStep gated = merge.Step("gated-merge")!;
+        ContourTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
+        ContourTransition behind = gated.Transitions.Single(t => t.Value.GetString() == "behind");
+        ContourStep worktree = merge.Step(behind.Target)!;
+        ContourTransition checkedOut = worktree.Transitions.Should().ContainSingle().Subject;
+        ContourStep rebase = merge.Step(checkedOut.Target)!;
+        ContourTransition rebased = rebase.Transitions.Should().ContainSingle().Subject;
+
+        worktree.Action.Should().Be(SoftwareActions.Worktree);
+        checkedOut.Value.GetString().Should().Be("done");
+        rebase.Action.Should().Be(SoftwareActions.Rebase);
+        rebased.Value.GetString().Should().Be("done");
+        rebased.Target.Should().Be(pending.Target, "the rebase waits one timer period before the pull request is inspected again");
+        merge.Steps.Should().NotContain(s => s.IsJudgment, "the lap runs no judgment and re-runs no review");
+        behind.VisitCap.Should().Be(pending.VisitCap, "a head is rebased on any visit the pending cap still allows");
+        checkedOut.VisitCap.Should().BeGreaterThanOrEqualTo(1).And.BeLessThan(pending.VisitCap);
+        rebased.VisitCap.Should().BeGreaterThanOrEqualTo(checkedOut.VisitCap);
+    }
+
+    [Fact]
+    public void The_merge_contours_rebase_laps_pause_on_the_worktree_steps_cap_once_spent_before_the_rebase()
+    {
+        Contour merge = ShippedContours.Merge;
+        int laps = RebaseLapCap(merge).VisitCap;
+        FlowPosition position = Interpreter.Start(merge);
+        using JsonDocument behind = JsonDocument.Parse("""{"verdict":"behind"}""");
+        using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
+
+        for (int lap = 1; lap <= laps; lap++)
+        {
+            position = Go(position, behind, "worktree");
+            position = Go(position, done, "rebase");
+            position = Go(position, done, "wait-for-checks");
+            position = Go(position, done, "gated-merge");
+        }
+
+        position = Go(position, behind, "worktree");
+        Interpreter.Decide(merge, position, done).Should().BeOfType<FlowMove.Pause>()
+            .Which.Reason.Should().Be($"Step 'worktree' reached the visit cap of {laps} on its transition to 'rebase'.");
+
+        FlowPosition Go(FlowPosition from, JsonDocument answer, string step)
+        {
+            FlowMove move = Interpreter.Decide(merge, from, answer);
+            move.Should().Be(new FlowMove.GoTo(step));
+            return Interpreter.Apply(merge, from, (FlowMove.GoTo)move);
+        }
+    }
+
+    [Fact]
+    public void The_build_discovery_and_review_on_assignment_contours_hash_as_they_did_before_the_rebase_lap()
+    {
+        ShippedContours.Build.Hash.Should().Be("b04d6a7f9787b3ba");
+        ShippedContours.Discovery.Hash.Should().Be("d7e57364f965bce0");
+        ShippedContours.ReviewOnAssignment.Hash.Should().Be("895e023427d7e4a3");
+    }
+
+    /// <summary>The visit cap on the merge's worktree step's transition to the rebase, which bounds the rebase laps.</summary>
+    private static ContourTransition RebaseLapCap(Contour merge)
+    {
+        ContourTransition behind = merge.Step("gated-merge")!.Transitions.Single(t => t.Value.GetString() == "behind");
+        return merge.Step(behind.Target)!.Transitions.Should().ContainSingle().Subject;
     }
 
     [Fact]

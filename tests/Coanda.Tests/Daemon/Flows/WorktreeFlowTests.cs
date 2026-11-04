@@ -197,6 +197,61 @@ public sealed class WorktreeFlowTests
     }
 
     [Fact]
+    public async Task A_new_flow_whose_branch_a_stopped_flows_worktree_holds_takes_it_over_only_once_that_flows_worker_has_returned()
+    {
+        using var temp = new TemporaryHome();
+        var runner = new ScriptedCommandRunner();
+        var gatesRunning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // The first build command ignores the stop's cancellation, so the stopped flow's worker stays in its step.
+        int builds = 0;
+        runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), async (_, _) =>
+        {
+            if (Interlocked.Increment(ref builds) == 1)
+            {
+                gatesRunning.SetResult();
+                await release.Task;
+            }
+
+            return ScriptedCommandRunner.Ok();
+        });
+        await using RunningDaemon daemon = await Daemons.StartAsync(
+            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), CommandRunner = runner }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Take the worktree over");
+        Guid first = (await Flowing.BoundAsync(client, Project, parcel.Id)).Id;
+        await gatesRunning.Task.WaitAsync(Patience);
+        string held = temp.Home.FlowWorkPath(Project, first);
+
+        await Flowing.StopAsync(client, Project, first, "start again");
+        await Flowing.UntilAsync(client, Project, first, "stopped");
+        FlowView second = await Flowing.StartAsync(client, Project, parcel.Id, "build");
+        string workPath = temp.Home.FlowWorkPath(Project, second.Id);
+        await Flowing.UntilAsync(
+            () => runner.GitCalls.Count(c => c == "worktree list --porcelain") >= 2,
+            "the second flow's worktree step has looked at the clone's worktrees");
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+        runner.GitCalls.Should().NotContain(c => c == $"worktree remove --force --force {held}", "nothing is removed while the stopped flow's worker is in its step");
+        runner.GitCalls.Should().NotContain(c => c.StartsWith($"worktree add --quiet {workPath} ", StringComparison.Ordinal), "nothing is added while the stopped flow's worker is in its step");
+        (await Flowing.ShowAsync(client, Project, second.Id)).Steps[0].Result.Should().BeNull();
+
+        release.SetResult();
+        await Flowing.UntilAsync(
+            async () => (await Flowing.ShowAsync(client, Project, second.Id)).Steps[0].Result is not null,
+            "the second flow's worktree step has recorded its result");
+
+        FlowView after = await Flowing.ShowAsync(client, Project, second.Id);
+        after.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("done");
+        runner.GitCalls.Should().Contain(c => c.StartsWith($"worktree add --quiet {workPath} ", StringComparison.Ordinal));
+        runner.Worktrees(temp.Home.ProjectClonePath(Project)).Should().NotContain(held);
+        (await Flowing.ShowAsync(client, Project, first)).Steps.Should().OnlyContain(s => s.Step != "gates" || s.Result == null, "the stopped flow records nothing");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_removal_that_fails_is_logged_and_the_end_is_still_recorded()
     {
         using var temp = new TemporaryHome();

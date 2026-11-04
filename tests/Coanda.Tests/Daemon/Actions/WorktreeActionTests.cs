@@ -1,14 +1,20 @@
 using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Contours;
+using Coanda.Core.Definitions;
+using Coanda.Core.Flows;
+using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Commands;
+using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
 using Coanda.Tests.Daemon.Commands;
+using Coanda.Tests.Daemon.Flows;
 using Fisher;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -21,9 +27,31 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     private static readonly Principal FlowPrincipal = new("flow:under-test", Role.Agent);
     private static readonly ContourStep Step = new() { Name = "worktree", Action = SoftwareActions.Worktree };
 
+    /// <summary>A contour whose one step is open-pr, so a flow of it can hold a recorded push.</summary>
+    private static readonly Contour Recorder = new()
+    {
+        Name = "recorder",
+        Accepts = ["task"],
+        Outcome = "recorded",
+        Budget = 1m,
+        SpawnCap = 1,
+        Steps =
+        [
+            new ContourStep
+            {
+                Name = "open-pr",
+                Action = SoftwareActions.OpenPr,
+                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("opened"), VisitCap = 1, Target = Contour.End }],
+            },
+        ],
+    };
+
     private readonly TemporaryHome temp = new();
     private readonly ScriptedCommandRunner runner = new();
+    private readonly FlowWorkers workers = new();
     private IDocumentStore store = null!;
+    private ParcelService parcels = null!;
+    private FlowService flows = null!;
     private WorktreeAction action = null!;
 
     private string Clone => temp.Home.ProjectClonePath(Project);
@@ -32,9 +60,18 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     {
         store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, None);
+        parcels = new ParcelService(store, TimeProvider.System);
+        flows = new FlowService(store, TimeProvider.System);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+        Definition draft = await definitions.DraftAsync(
+            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, Recorder.Name,
+            Contour.CanonicalJson(Recorder), Recorder.Hash, null, None);
+        await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         action = new WorktreeAction(
             new ProjectService(store, TimeProvider.System),
-            new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance));
+            new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance),
+            flows,
+            workers);
     }
 
     public async Task DisposeAsync()
@@ -219,19 +256,175 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_branch_another_live_worktree_has_checked_out_is_neither_fetched_nor_moved()
+    public async Task A_branch_a_live_flows_worktree_has_checked_out_pauses_naming_that_flow_and_is_neither_fetched_nor_moved()
     {
-        Guid parcelId = Ids.New();
-        string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(parcelId, Ids.New());
+        (Guid parcelId, string branch, Guid holder, string held) = await HeldByFlowAsync();
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
         runner.AddAncestry(Moved, Ahead);
         int before = runner.Commands.Count;
 
-        await PerformAsync(parcelId, Ids.New());
+        ActionOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
 
-        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("fetch ", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
+        paused.Reason.Should().Contain($"flow {holder}").And.Contain("still live").And.Contain(held);
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("worktree"));
+        runner.GitCalls.Skip(before).Should().NotContain(c =>
+            c.StartsWith("fetch ", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal) || c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
+        runner.Branch(Clone, branch).Should().Be(Moved);
+    }
+
+    [Fact]
+    public async Task A_branch_held_by_a_worktree_at_a_path_that_is_no_flows_work_path_pauses_naming_that_path()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        await PerformAsync(Ids.New(), Ids.New());
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
+        string mine = Path.Combine(temp.Home.ClonesPath, "someones-own-worktree");
+        runner.AddWorktree(Clone, mine, branch, Moved);
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+
+        paused.Reason.Should().Contain(mine).And.Contain("no work path of a flow the node holds");
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("worktree"));
+        runner.Worktrees(Clone).Should().Contain(mine, "nothing removes a worktree whose flow is unknown");
+    }
+
+    [Fact]
+    public async Task A_branch_held_by_the_worktree_of_a_flow_the_store_does_not_hold_pauses_naming_that_path()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        await PerformAsync(Ids.New(), Ids.New());
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
+        string unknown = temp.Home.FlowWorkPath(Project, Ids.New());
+        runner.AddWorktree(Clone, unknown, branch, Moved);
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+
+        paused.Reason.Should().Contain(unknown);
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("worktree"));
+        runner.Worktrees(Clone).Should().Contain(unknown);
+    }
+
+    [Fact]
+    public async Task A_branch_held_by_a_stopped_flows_worktree_is_taken_over_removing_that_worktree_and_checking_the_branch_out_here()
+    {
+        (Guid parcelId, string branch, Guid holder, string held) = await HeldByFlowAsync();
+        await flows.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
+        Guid taker = Ids.New();
+        string workPath = temp.Home.FlowWorkPath(Project, taker);
+        int before = runner.Commands.Count;
+
+        JsonElement result = Done(await PerformAsync(parcelId, taker));
+
+        result.GetProperty("branch").GetString().Should().Be(branch);
+        runner.GitCalls.Skip(before).Should().ContainInOrder(
+            $"worktree remove --force --force {held}",
+            "worktree list --porcelain",
+            $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
+            $"worktree add --quiet {workPath} {branch}");
+        runner.Worktrees(Clone).Should().Equal(workPath);
+
+        // A removal of the stopped flow's worktree that runs afterwards finds nothing at its work path.
+        before = runner.Commands.Count;
+        (await Clones().RemoveAsync(Project, holder, None)).Should().BeFalse();
+        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree prune", StringComparison.Ordinal));
+        runner.Worktrees(Clone).Should().Equal(workPath);
+    }
+
+    [Fact]
+    public async Task A_takeover_whose_holding_worktree_was_already_removed_answers_done()
+    {
+        (Guid parcelId, string branch, Guid holder, _) = await HeldByFlowAsync();
+        await flows.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
+        (await Clones().RemoveAsync(Project, holder, None)).Should().BeTrue("the stopped flow's own removal runs first");
+        Guid taker = Ids.New();
+
+        JsonElement result = Done(await PerformAsync(parcelId, taker));
+
+        result.GetProperty("branch").GetString().Should().Be(branch);
+        runner.Worktrees(Clone).Should().Equal(temp.Home.FlowWorkPath(Project, taker));
+    }
+
+    [Fact]
+    public async Task A_takeover_from_a_stopped_flow_whose_worker_is_still_performing_removes_and_adds_nothing_until_that_worker_returns()
+    {
+        (Guid parcelId, string branch, Guid holder, string held) = await HeldByFlowAsync();
+        await flows.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
+        var working = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        workers.Started(holder, working.Task);
+        Guid taker = Ids.New();
+        int before = runner.Commands.Count;
+
+        Task<ActionOutcome> takeover = PerformAsync(parcelId, taker).AsTask();
+        await Flowing.UntilAsync(() => runner.GitCalls.Skip(before).Any(c => c == "worktree list --porcelain"), "the takeover has listed the worktrees");
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+
+        takeover.IsCompleted.Should().BeFalse("the takeover waits for the stopped flow's worker");
+        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
+        (await Clones().RemoveAsync(Project, Ids.New(), None)).Should().BeFalse("the clone's turn is not held while the takeover waits");
+
+        workers.Returned(holder);
+        working.SetResult();
+        Done(await takeover.WaitAsync(TimeSpan.FromSeconds(15)));
+        runner.GitCalls.Skip(before).Should().Contain($"worktree remove --force --force {held}").And.Contain($"worktree add --quiet {temp.Home.FlowWorkPath(Project, taker)} {branch}");
+    }
+
+    [Fact]
+    public async Task A_takeover_waiting_on_a_worker_ends_when_its_own_step_is_cancelled()
+    {
+        (Guid parcelId, _, Guid holder, _) = await HeldByFlowAsync();
+        await flows.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
+        workers.Started(holder, new TaskCompletionSource().Task);
+        using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+
+        Func<Task> takeover = async () => await action.PerformAsync(
+            new ActionRequest(FlowPrincipal, Project, Ids.New(), parcelId, ShippedContours.Build, Step, Resumed: false), stop.Token);
+
+        await takeover.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task A_branch_rewritten_in_the_clone_while_the_remote_still_holds_the_last_recorded_push_is_checked_out_as_it_stands()
+    {
+        Guid parcelId = await TaskAsync();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        Guid earlier = Ids.New();
+        await PerformAsync(parcelId, earlier);
+        await EndAsync(earlier);
+        await RecordedPushAsync(parcelId, Ahead);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetRemoteBranch(Clone, branch, Ahead);
+        int before = runner.Commands.Count;
+        Guid later = Ids.New();
+
+        JsonElement result = Done(await PerformAsync(parcelId, later));
+
+        result.GetProperty("head").GetString().Should().Be(Moved, "the clone's branch is checked out as it stands");
+        runner.Branch(Clone, branch).Should().Be(Moved);
+        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Ahead, "the push's lease expects what the remote holds");
+        runner.GitCalls.Skip(before).Should().Contain($"worktree add --quiet {temp.Home.FlowWorkPath(Project, later)} {branch}")
+            .And.NotContain(c => c.StartsWith($"update-ref refs/heads/{branch}", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_branch_diverged_from_a_remote_holding_a_commit_nothing_recorded_is_still_refused()
+    {
+        Guid parcelId = await TaskAsync();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        Guid earlier = Ids.New();
+        await PerformAsync(parcelId, earlier);
+        await EndAsync(earlier);
+        await RecordedPushAsync(parcelId, ScriptedCommandRunner.PrimaryHead);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetRemoteBranch(Clone, branch, Ahead);
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+
+        paused.Reason.Should().Contain("Reconcile them by hand").And.Contain("not the commit last recorded as pushed");
         runner.Branch(Clone, branch).Should().Be(Moved);
     }
 
@@ -475,7 +668,33 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     private const string Ahead = "aaaabbbbccccddddeeeeffff0000111122223333";
 
     private async Task EndAsync(Guid flowId) =>
-        await new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance).RemoveAsync(Project, flowId, None);
+        await Clones().RemoveAsync(Project, flowId, None);
+
+    private ProjectClones Clones() => new(temp.Home, runner, NullLogger<ProjectClones>.Instance);
+
+    private async Task<Guid> TaskAsync()
+    {
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Check me out", null, None);
+        return parcel.Id;
+    }
+
+    /// <summary>Records, on a flow of its own, an open-pr result for the parcel whose head is <paramref name="head"/>.</summary>
+    private async Task RecordedPushAsync(Guid parcelId, string head)
+    {
+        Flow started = await flows.StartAsync(Principal.LocalOwner, Project, parcelId, Recorder.Name, None);
+        JsonElement result = JsonSerializer.SerializeToElement(new { verdict = "opened", action = SoftwareActions.OpenPr, number = 17, head });
+        await flows.RecordResultAsync(Principal.LocalOwner, Project, started.Id, "open-pr", SoftwareActions.OpenPr, result, None);
+        await flows.StopAsync(Principal.LocalOwner, Project, started.Id, "only its record is wanted", None);
+    }
+
+    /// <summary>A task whose branch a live flow of its own has checked out at that flow's work path.</summary>
+    private async Task<(Guid ParcelId, string Branch, Guid Holder, string Held)> HeldByFlowAsync()
+    {
+        Guid parcelId = await TaskAsync();
+        Flow holder = await flows.StartAsync(Principal.LocalOwner, Project, parcelId, Recorder.Name, None);
+        Done(await PerformAsync(parcelId, holder.Id));
+        return (parcelId, $"coanda/{Ids.Short(parcelId)}", holder.Id, temp.Home.FlowWorkPath(Project, holder.Id));
+    }
 
     private string ExcludePath => Path.Combine(Clone, "info", "exclude");
 

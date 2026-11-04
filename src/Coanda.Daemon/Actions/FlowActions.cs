@@ -1,5 +1,4 @@
 using Coanda.Core.Contours;
-using Coanda.Core.Software;
 using Coanda.Daemon.Commands;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.GitHub;
@@ -33,13 +32,15 @@ public sealed class FlowActions
 
     /// <summary>
     /// The actions the daemon ships: every name in the core catalog and the software catalog. The
-    /// worktree, gates, and open-pr actions run their commands through <paramref name="runner"/>, the
+    /// worktree, gates, open-pr, and rebase actions run their commands through <paramref name="runner"/>, the
     /// gates action ending each of its commands after <paramref name="gatesCommandLimit"/>; open-pr and
     /// gated-merge read their token through it too and reach GitHub through the client
-    /// <paramref name="github"/> gives them for each performance, and gated-merge reads the head open-pr
-    /// recorded from the flow's chain through <paramref name="flows"/>, a service of its own, since the
-    /// daemon's own flow service hands resumes to the runner that performs these actions. Derive-parcels and rebase are
-    /// still placeholders.
+    /// <paramref name="github"/> gives them for each performance. Gated-merge and rebase read the head
+    /// the flow's chain recorded as pushed, and the worktree action the head last pushed for the
+    /// parcel and the status of a flow whose worktree holds its branch, through <paramref name="flows"/>,
+    /// a service of their own, since the daemon's own flow service hands resumes to the runner that
+    /// performs these actions; for the same reason the worktree action waits on another flow's worker
+    /// through <paramref name="workers"/>, which the runner publishes to. Derive-parcels is still a placeholder.
     /// </summary>
     public static FlowActions Shipped(
         ParcelService parcels,
@@ -50,7 +51,8 @@ public sealed class FlowActions
         TimeProvider clock,
         TimeSpan gatesCommandLimit,
         Func<GitHubClient> github,
-        FlowService flows) => new(
+        FlowService flows,
+        FlowWorkers workers) => new(
     [
         new MoveParcelAction(parcels),
         new TimerAction(clock),
@@ -58,13 +60,11 @@ public sealed class FlowActions
         new WaitForExternalEventAction(),
         new EmitOutcomeAction(),
         new PlaceholderAction(CoreActions.DeriveParcels),
-        new WorktreeAction(projects, clones),
+        new WorktreeAction(projects, clones, flows, workers),
         new GatesAction(projects, runner, home, gatesCommandLimit),
         new OpenPrAction(parcels, projects, clones, new GitHubToken(runner, home), github),
         new GatedMergeAction(parcels, projects, flows, new GitHubToken(runner, home), github),
-        .. SoftwareActions.All
-            .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates or SoftwareActions.OpenPr or SoftwareActions.GatedMerge))
-            .Select(name => new PlaceholderAction(name)),
+        new RebaseAction(projects, clones, flows),
     ]);
 
     public async ValueTask<ActionOutcome> PerformAsync(ActionRequest request, CancellationToken cancellationToken)

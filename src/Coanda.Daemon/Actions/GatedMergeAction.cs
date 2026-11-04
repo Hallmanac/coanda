@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Net;
-using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Projects;
 using Coanda.Core.Software;
@@ -10,26 +8,29 @@ using Coanda.Daemon.Flows;
 using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
-using Coanda.Daemon.Repositories;
 
 namespace Coanda.Daemon.Actions;
 
 /// <summary>
 /// The daemon's own pre-approved merge: it inspects the pull request the task's <c>pull-request</c>
 /// field names and merges exactly the head it inspected. A pull request already merged answers
-/// <see cref="MergedVerdict"/> with GitHub's commit before anything else is checked, so a step
-/// performed again after a merge that was not recorded makes no second request. Otherwise it merges
-/// only an open pull request on the project's primary branch whose head is the commit the chain's
-/// latest open-pr result recorded as <c>head</c>, which is behind the primary branch by no commits,
-/// which GitHub reports mergeable, and on which every check the project's record names has succeeded
-/// and no other reported check has failed or is still running. The merge request carries that head as
-/// the expected head and names the method the repository allows, preferring merge, then squash, then
-/// rebase. The primary branch is compared with the head both before the checks are read and right
-/// before the merge; GitHub's merge takes an expected head but no expected base, so a commit that
-/// lands on the primary branch between that last comparison and the merge is still merged onto,
-/// a window of one request. It answers <see cref="PendingVerdict"/> with a <c>reason</c> while a check or GitHub's
-/// mergeability is still to come, and pauses on everything waiting will not change. Nothing here
-/// enables GitHub's auto-merge, and nothing reads the node's clone.
+/// <see cref="MergedVerdict"/> with GitHub's commit before anything read from its state or from the
+/// recorded head is checked, so a step performed again after a merge that was not recorded makes no
+/// second request. Otherwise it merges only an open pull request on the project's primary branch
+/// whose head is the recorded head (the <c>head</c> of the latest open-pr or rebase result in the
+/// chain, <see cref="RecordedHeads.OfChainAsync"/>), which is behind the primary branch by no
+/// commits, which GitHub reports mergeable, and on which every check the project's record names has
+/// succeeded and no other reported check has failed or is still running. The merge request carries
+/// that head as the expected head and names the method the repository allows, preferring merge,
+/// then squash, then rebase. The primary branch is compared with the head both before mergeability
+/// and the checks are read and right before the merge; a head behind it at either comparison
+/// answers <see cref="BehindVerdict"/>, whatever its checks and mergeability report, since those
+/// describe a head about to be replaced. GitHub's merge takes an expected head but no expected base,
+/// so a commit that lands on the primary branch between that last comparison and the merge is still
+/// merged onto, a window of one request. It answers <see cref="PendingVerdict"/> with a
+/// <c>reason</c> while a check or GitHub's mergeability is still to come, and pauses on everything
+/// waiting or a rebase will not change. Nothing here enables GitHub's auto-merge, and nothing reads
+/// the node's clone.
 /// </summary>
 public sealed class GatedMergeAction(
     ParcelService parcels,
@@ -43,6 +44,9 @@ public sealed class GatedMergeAction(
 
     /// <summary>The verdict the action answers while what the merge waits for is still to come.</summary>
     public const string PendingVerdict = "pending";
+
+    /// <summary>The verdict the action answers when the head is behind the primary branch, which the merge contour routes to a rebase.</summary>
+    public const string BehindVerdict = "behind";
 
     public string Name => SoftwareActions.GatedMerge;
 
@@ -123,10 +127,10 @@ public sealed class GatedMergeAction(
                 : PerformAgain(step, $"found {named} merged, but GitHub reports no commit for the merge.");
         }
 
-        if (await RecordedHeadAsync(request, cancellationToken) is not { } head)
+        if (await RecordedHeads.OfChainAsync(flows, request, cancellationToken) is not { } head)
         {
             return PerformAgain(
-                step, $"merged nothing: no open-pr result with a head is recorded in the flow's chain, so there is no pushed commit to hold {named} to.");
+                step, $"merged nothing: no open-pr or rebase result with a head is recorded in the flow's chain, so there is no pushed commit to hold {named} to.");
         }
 
         if (project.RequiredChecks.Count == 0)
@@ -150,7 +154,7 @@ public sealed class GatedMergeAction(
         if (!string.Equals(pullRequest.HeadSha, head, StringComparison.Ordinal))
         {
             return PerformAgain(
-                step, $"merged nothing: the head of {named} is {pullRequest.HeadSha}, not {head}, the commit open-pr recorded as pushed; a commit nobody reviewed is never merged.");
+                step, $"merged nothing: the head of {named} is {pullRequest.HeadSha}, not {head}, the commit the flow's chain recorded as pushed; a commit nobody reviewed is never merged.");
         }
 
         if (await BehindAsync() is { } early)
@@ -206,36 +210,17 @@ public sealed class GatedMergeAction(
                 step, $"merged nothing: GitHub refused the merge because the head of {named} moved after it was inspected: {refused.Message}");
         }
 
-        async Task<ActionOutcome.Paused?> BehindAsync()
+        async Task<ActionOutcome.Done?> BehindAsync()
         {
             int behind = await client.BehindByAsync(repository, project.PrimaryBranch, head, token, cancellationToken);
             return behind > 0
-                ? new ActionOutcome.Paused(
-                    $"Step '{step}' merged nothing: the head {head} of {named} is behind the primary branch '{project.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran.",
-                    FlowLevers.BehindThroughBuild(ProjectClones.BranchOf(request.ParcelId), project.PrimaryBranch))
+                ? ActionOutcome.ResultWith(
+                    BehindVerdict,
+                    Name,
+                    ("reason", $"The head {head} of {named} is behind the primary branch '{project.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran."),
+                    ("behind", behind))
                 : null;
         }
-    }
-
-    /// <summary>
-    /// The <c>head</c> of the most recently recorded result of an open-pr step among the flows of
-    /// the merge flow's chain, or null when none is recorded or the latest carries none.
-    /// </summary>
-    private async Task<string?> RecordedHeadAsync(ActionRequest request, CancellationToken cancellationToken)
-    {
-        Flow flow = await flows.ShowAsync(request.Principal, request.Project, request.FlowId, cancellationToken)
-            ?? throw new DomainException($"No flow {Ids.Short(request.FlowId)} in project '{request.Project}'.");
-        IReadOnlyList<Flow> chain = await flows.ChainOfAsync(request.Principal, request.Project, flow, cancellationToken);
-        FlowStepEntry? latest = chain
-            .SelectMany(f => f.Steps)
-            .Where(entry => entry is { Kind: StepKind.Action, Performer: SoftwareActions.OpenPr, Result: not null, RecordedAt: not null })
-            .MaxBy(entry => entry.RecordedAt);
-        return latest?.Result is { ValueKind: JsonValueKind.Object } result
-            && result.TryGetProperty("head", out JsonElement head)
-            && head.ValueKind == JsonValueKind.String
-            && head.GetString() is { Length: > 0 } sha
-                ? sha
-                : null;
     }
 
     /// <summary>What the checks on the head say: the first failure, or the checks still to come.</summary>

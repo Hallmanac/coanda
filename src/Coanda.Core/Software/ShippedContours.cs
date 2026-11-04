@@ -11,8 +11,10 @@ namespace Coanda.Core.Software;
 /// fail, and open-pr answers <c>opened</c> once its pull request is open. The build contour ends
 /// there: it opens the pull request, moves the task to review, and ends with the outcome
 /// <c>pr-opened</c>, and the merge is a contour of its own that follows. The merge contour holds the
-/// gated merge, which answers <c>merged</c> or <c>pending</c>, with a waiting lap through a timer
-/// back to it, and closes its task as <c>completed</c> when it ends. A flow's outcome is the one
+/// gated merge, which answers <c>merged</c>, <c>pending</c>, or <c>behind</c>, with a waiting lap
+/// through a timer back to it and a rebase lap (a worktree of the merge flow's own, a rebase that
+/// answers <c>done</c>, then the same timer) for a head behind the primary branch, and closes its
+/// task as <c>completed</c> when it ends. A flow's outcome is the one
 /// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
 /// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
 /// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
@@ -29,10 +31,18 @@ public static class ShippedContours
     public const int MergeWaitSeconds = 60;
 
     /// <summary>
-    /// How many times the merge answers pending and waits again before it pauses: with
-    /// <see cref="MergeWaitSeconds"/>, twenty minutes of waiting in all.
+    /// How many rebase laps a merge flow takes: the visit cap on its worktree step's transition to
+    /// the rebase, the one step visited once per lap. A head still behind after them pauses on that
+    /// cap once the worktree step has run, before the rebase fetches or pushes anything.
     /// </summary>
-    public const int MergePendingCap = 20;
+    public const int MergeRebaseCap = 3;
+
+    /// <summary>
+    /// How many visits to the gated merge can answer pending or behind and go round again before it
+    /// pauses. Every visit counts, a rebase lap's included, so with <see cref="MergeWaitSeconds"/> the
+    /// waiting with the rebase laps taken out is twenty minutes.
+    /// </summary>
+    public const int MergePendingCap = 20 + MergeRebaseCap;
 
     /// <summary>
     /// How many resumes of the merge, after its lap has paused, can still end the flow with a merge.
@@ -97,7 +107,9 @@ public static class ShippedContours
         Steps =
         [
             Action("gated-merge", SoftwareActions.GatedMerge,
-                On("merged", Contour.End, MergedCap), On("pending", "wait-for-checks", MergePendingCap)),
+                On("merged", Contour.End, MergedCap),
+                On("pending", "wait-for-checks", MergePendingCap),
+                On("behind", "worktree", MergePendingCap)),
             new ContourStep
             {
                 Name = "wait-for-checks",
@@ -105,6 +117,8 @@ public static class ShippedContours
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = ContourValue.Of(MergeWaitSeconds) },
                 Transitions = [On("done", "gated-merge", MergePendingCap)],
             },
+            Action("worktree", SoftwareActions.Worktree, On("done", "rebase", MergeRebaseCap)),
+            Action("rebase", SoftwareActions.Rebase, On("done", "wait-for-checks", MergeRebaseCap)),
         ],
     };
 
