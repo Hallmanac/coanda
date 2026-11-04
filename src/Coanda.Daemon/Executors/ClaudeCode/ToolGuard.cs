@@ -40,7 +40,9 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// backslashes removed. <c>$PWD</c> is the directory the
 /// shell is in at that point; a call that depends on <c>$OLDPWD</c>, <c>cd -</c>, <c>~-</c>, a
 /// <c>~NAME</c> lookup, or zsh's two-directory <c>cd</c>, which nothing the guard receives names, is
-/// refused. A Bash word or a Glob pattern holding braces is judged as each word
+/// refused, as is one that names <c>CDPATH</c> or an option that changes where a <c>cd</c> goes
+/// (<see cref="ShellWords.DirectoryRuleChange"/>), or that changes into a directory the
+/// <c>CDPATH</c> it inherits may be searched for. A Bash word or a Glob pattern holding braces is judged as each word
 /// its brace expansion gives (<see cref="ShellWords.Braces"/>), and one giving too many is refused. A
 /// path holding a wildcard is judged by the highest directory it may reach
 /// (<see cref="ShellWords.HighestReach"/>). Files a
@@ -218,6 +220,9 @@ public static class ToolGuard
 
             // Every directory the shell may have been in, which is all a popd may return to.
             List<string> visited = [cwd];
+
+            // A shell that inherits a CDPATH looks a cd's relative directory up in it, which the guard does not follow.
+            bool searched = environment.TryGetValue("CDPATH", out string? cdpath) && cdpath.Length > 0;
             foreach (ShellCommand next in ShellWords.Commands(command))
             {
                 while (levels.Count > next.Depth + 1)
@@ -233,6 +238,11 @@ public static class ToolGuard
                 if (next.Before is not ("&&" or "|" or "("))
                 {
                     levels[^1] = new(Union(levels[^1].Bases, levels[^1].Unless), []);
+                }
+
+                if (ShellWords.DirectoryRuleChange(next) is { } rule)
+                {
+                    unknowable ??= rule;
                 }
 
                 IReadOnlyList<string> at = levels[^1].Bases;
@@ -272,6 +282,11 @@ public static class ToolGuard
                         List<string> moved = [];
                         foreach (string expanded in Unescaped([destination]).SelectMany(text => ExpandedAt(text, at)))
                         {
+                            if (searched && ShellWords.IsSearched(expanded))
+                            {
+                                unknowable ??= $"the CDPATH the shell inherits, which a cd to '{expanded}' searches";
+                            }
+
                             paths.Add(new(expanded, at));
                             moved.AddRange(
                                 from reading in GuardPath.Readings(ShellWords.HighestReach(expanded))

@@ -294,6 +294,71 @@ public static partial class ShellWords
     }
 
     /// <summary>
+    /// Why <paramref name="command"/> may change where a later <c>cd</c> or <c>pushd</c> goes in a way
+    /// the guard does not follow, or null. A word naming <c>CDPATH</c>, or zsh's <c>cdpath</c> tied to
+    /// it, may set the directories a <c>cd</c> searches for a relative directory. A word naming the
+    /// option <c>AUTO_CD</c>, <c>CDABLE_VARS</c>, or <c>PUSHD_TO_HOME</c>, in any case and with any
+    /// underscores, may turn one on, as may the letters <c>J</c>, <c>T</c>, and <c>D</c> zsh's
+    /// <c>set</c>, <c>setopt</c>, and <c>unsetopt</c> take for them. An assignment whose name holds an
+    /// expansion, or a <c>${(P)…}</c> that may assign to the variable another names, may set either
+    /// without naming it. Each word is read with its quotes and backslashes removed.
+    /// </summary>
+    public static string? DirectoryRuleChange(ShellCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        bool setter = false;
+        foreach (string word in command.Words)
+        {
+            string plain = Unescape(word).Replace("\"", string.Empty, StringComparison.Ordinal).Replace("'", string.Empty, StringComparison.Ordinal);
+            string folded = plain.Replace("_", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
+            if (folded.Contains("cdpath", StringComparison.Ordinal))
+            {
+                return "CDPATH, the directories a cd searches for a relative directory";
+            }
+
+            if (DirectoryOptions.Any(option => folded.Contains(option, StringComparison.Ordinal)))
+            {
+                return "a shell option that changes where a cd or pushd goes";
+            }
+
+            if (DynamicAssignment().IsMatch(plain) || IndirectExpansion().IsMatch(plain))
+            {
+                return "an assignment to a variable whose name the shell expands";
+            }
+
+            if (plain is "set" or "setopt" or "unsetopt")
+            {
+                setter = true;
+            }
+            else if (setter && OptionLetters().IsMatch(plain))
+            {
+                return $"{plain}, which may turn on a shell option that changes where a cd or pushd goes";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a <c>cd</c> or <c>pushd</c> may look <paramref name="destination"/>, once expanded, up
+    /// in <c>CDPATH</c>: it is relative and does not begin with a <c>.</c> or <c>..</c> component.
+    /// </summary>
+    public static bool IsSearched(string destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (destination.Length == 0 || Path.IsPathRooted(destination) || destination[0] == '~')
+        {
+            return false;
+        }
+
+        string first = destination.Split(Separators)[0];
+        return first is not ("." or "..");
+    }
+
+    /// <summary>The options, folded to lower case without underscores, that change where a cd or pushd goes.</summary>
+    private static IReadOnlyList<string> DirectoryOptions { get; } = ["autocd", "cdablevars", "pushdtohome"];
+
+    /// <summary>
     /// <paramref name="text"/> with each backslash removed and the character after it kept, as a shell
     /// reads a word outside quotes; a backslash at its end is dropped.
     /// </summary>
@@ -541,6 +606,18 @@ public static partial class ShellWords
     /// <summary>A place on the directory stack, as <c>pushd</c> and zsh's <c>cd</c> take one.</summary>
     [GeneratedRegex(@"^[+-][0-9]+$")]
     private static partial Regex StackPlace();
+
+    /// <summary>An assignment whose name holds a <c>$</c>, such as <c>${v}PATH=x</c>.</summary>
+    [GeneratedRegex(@"^[A-Za-z0-9_]*\$(?:\{[A-Za-z0-9_]+\}|[A-Za-z0-9_]+)[A-Za-z0-9_${}]*=")]
+    private static partial Regex DynamicAssignment();
+
+    /// <summary>A zsh expansion with the P flag, such as <c>${(P)v::=x}</c>, which reads or assigns the variable another names.</summary>
+    [GeneratedRegex(@"\$\{\([^)]*P")]
+    private static partial Regex IndirectExpansion();
+
+    /// <summary>Single-letter options, among them zsh's J (AUTO_CD), T (CDABLE_VARS), or D (PUSHD_TO_HOME).</summary>
+    [GeneratedRegex(@"^[+-][A-Za-z]*[JTD]")]
+    private static partial Regex OptionLetters();
 }
 
 /// <summary>
