@@ -5,6 +5,7 @@ using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
+using Coanda.Daemon.Commands;
 using Coanda.Daemon.Contours;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
@@ -75,6 +76,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<ContourService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
         builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
+        builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton<SessionTokens>();

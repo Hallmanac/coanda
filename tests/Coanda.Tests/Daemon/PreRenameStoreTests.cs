@@ -76,7 +76,7 @@ public sealed class PreRenameStoreTests
     public async Task A_record_this_build_wrote_passes()
     {
         using var temp = new TemporaryHome();
-        await using (RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None))
+        await using (RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None))
         {
             using var client = new DaemonClient(temp.Home);
             await client.StopAsync(CancellationToken.None);
@@ -95,7 +95,7 @@ public sealed class PreRenameStoreTests
         WriteRecord(temp.Home, """{"kind":"Flow","name":"build","content":"{}"}""");
         byte[] before = await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None);
 
-        Func<Task> start = () => DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
         await start.Should().ThrowAsync<DomainException>();
         (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);

@@ -20,7 +20,7 @@ public sealed class SpawnInputsTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Spend some");
@@ -44,7 +44,7 @@ public sealed class SpawnInputsTests
         {
             ["reviewer-adversarial"] = [Costing("clean", 0.6m, 1), Costing("clean", 0.1m, 2)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour seed = await Publishing.ContourAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
@@ -68,7 +68,7 @@ public sealed class SpawnInputsTests
     {
         using var temp = new TemporaryHome();
         var executor = new TamperingExecutor(Scripts.CleanBuildExecutor());
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Render the record");

@@ -25,7 +25,7 @@ public sealed class FlowControlApiTests
         {
             ["build"] = [Scripts.Answer("done", 2)],
         }));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         using HttpClient http = Http(daemon);
@@ -91,7 +91,7 @@ public sealed class FlowControlApiTests
     public async Task A_stop_of_a_live_flow_releases_its_parcel_and_each_verb_refuses_a_flow_in_the_wrong_state_with_422()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         using HttpClient http = Http(daemon);
@@ -124,7 +124,7 @@ public sealed class FlowControlApiTests
     public async Task Each_verb_refuses_a_flow_id_the_project_does_not_hold_with_422_and_the_services_rule()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using HttpClient http = Http(daemon);
         Guid unknown = Ids.New();
         string rule = $"No flow {Ids.Short(unknown)} in project '{Project}'.";

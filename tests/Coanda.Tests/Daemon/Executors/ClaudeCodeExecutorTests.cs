@@ -566,7 +566,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(new { result = "hang", child = true });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.ChildPid is not null);
         int parent = fake.Starts.Single().Pid;

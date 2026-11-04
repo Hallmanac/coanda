@@ -19,7 +19,7 @@ public sealed class ProjectApiTests
     public async Task The_cli_client_adds_shows_and_lists_projects_through_the_running_daemon()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
 
         ProjectView added = await client.PostAsync<ProjectView>(
@@ -54,7 +54,7 @@ public sealed class ProjectApiTests
     public async Task Showing_a_project_with_no_record_answers_404_with_a_rule_naming_coa_project_add()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
 
         await FluentActions.Awaiting(() => client.GetAsync<ProjectView>("/projects/nowhere", None))
@@ -73,7 +73,7 @@ public sealed class ProjectApiTests
     public async Task Adding_a_parcel_through_the_endpoint_in_a_project_with_no_record_is_refused_with_the_rule()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
 
         await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Lost", null), None))
@@ -90,7 +90,7 @@ public sealed class ProjectApiTests
     public async Task A_subscription_firing_in_a_project_with_no_record_creates_no_parcel_and_the_loop_goes_on()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
         TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();
         var trigger = new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" });

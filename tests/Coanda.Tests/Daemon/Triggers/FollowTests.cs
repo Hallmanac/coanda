@@ -48,7 +48,7 @@ public sealed class FollowTests
         using var temp = new TemporaryHome();
         ParcelView parcel;
         FlowView build;
-        await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
         {
             await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
@@ -83,7 +83,7 @@ public sealed class FollowTests
             await first.StopAsync(None);
         }
 
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         using var again = new DaemonClient(temp.Home);
 
         // A later chain's follower ending proves the loop has read past the first chain's end since the restart.
@@ -102,7 +102,7 @@ public sealed class FollowTests
     public async Task Every_contour_following_the_same_end_starts_on_the_parcel_one_after_another()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         await Publishing.ContourAsync(daemon, Project, AfterBuild);

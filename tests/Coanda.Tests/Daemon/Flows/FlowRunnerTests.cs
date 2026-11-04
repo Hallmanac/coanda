@@ -34,7 +34,7 @@ public sealed class FlowRunnerTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Run the clean path");
@@ -71,7 +71,7 @@ public sealed class FlowRunnerTests
     public async Task The_parcel_move_the_move_parcel_step_records_carries_the_flows_principal()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Who moved it");
@@ -97,7 +97,7 @@ public sealed class FlowRunnerTests
             ["reviewer-adversarial"] = [.. Enumerable.Range(1, 4).Select(n => Scripts.Answer("not-clean", n))],
             ["fix"] = [.. Enumerable.Range(1, 3).Select(n => Scripts.Answer("done", n))],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
@@ -128,7 +128,7 @@ public sealed class FlowRunnerTests
             ["reviewer-adversarial"] = [.. Enumerable.Range(1, 6).Select(n => Scripts.Answer("not-clean", n))],
             ["fix"] = [.. Enumerable.Range(1, 3).Select(n => Scripts.Answer("done", n))],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
@@ -174,7 +174,7 @@ public sealed class FlowRunnerTests
     public async Task A_wait_for_human_step_pauses_with_its_lever_and_a_resume_through_the_api_carries_the_flow_to_its_end()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         var hold = new Contour
@@ -221,7 +221,7 @@ public sealed class FlowRunnerTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         IFlowAdvancer advancer = daemon.Services.GetRequiredService<IFlowAdvancer>();
@@ -246,7 +246,7 @@ public sealed class FlowRunnerTests
     public async Task An_agent_with_no_answer_pauses_its_flow_naming_the_agent_while_another_flow_reaches_its_end()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Think first", null), None);
@@ -271,7 +271,7 @@ public sealed class FlowRunnerTests
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
         var options = new DaemonOptions { Executor = executor, JudgmentLimit = TimeSpan.FromMilliseconds(300) };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, options, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Too slow");
@@ -295,7 +295,7 @@ public sealed class FlowRunnerTests
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { FailStops = true };
         var options = new DaemonOptions { Executor = executor, JudgmentLimit = TimeSpan.FromMilliseconds(300) };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, options, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Too slow to stop");
@@ -315,7 +315,7 @@ public sealed class FlowRunnerTests
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("done", 1)] });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour shouted = await PublishAsync(daemon, new Contour
@@ -349,7 +349,7 @@ public sealed class FlowRunnerTests
         {
             ["build"] = [Scripts.Answer("done", 1), Scripts.Answer("done", 2)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour capped = await PublishAsync(daemon, new Contour
@@ -386,7 +386,7 @@ public sealed class FlowRunnerTests
         {
             ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2), Scripts.Answer("maybe", 3), Scripts.Answer("maybe", 4)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour refused = await Publishing.ContourAsync(daemon, Project, new Contour
@@ -433,7 +433,7 @@ public sealed class FlowRunnerTests
         {
             ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2), Scripts.Answer("done", 3)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour once = await Publishing.ContourAsync(daemon, Project, new Contour
@@ -468,7 +468,7 @@ public sealed class FlowRunnerTests
         {
             ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2), Scripts.Answer("done", 3), Scripts.Answer("done", 4)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour chained = await Publishing.ContourAsync(daemon, Project, new Contour
@@ -503,7 +503,7 @@ public sealed class FlowRunnerTests
         {
             ["late-builder"] = [Scripts.Answer("done", 1)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour late = await Publishing.ContourAsync(daemon, Project, new Contour
@@ -545,7 +545,7 @@ public sealed class FlowRunnerTests
         {
             ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour unanswered = await Publishing.ContourAsync(daemon, Project, new Contour
@@ -578,7 +578,7 @@ public sealed class FlowRunnerTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
@@ -610,7 +610,7 @@ public sealed class FlowRunnerTests
         }))
         { FailingSpawns = 1 };
         executor.Open();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour twice = await Publishing.ContourAsync(daemon, Project, new Contour
@@ -652,7 +652,7 @@ public sealed class FlowRunnerTests
         using var temp = new TemporaryHome();
         Guid flowId;
         var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
-        await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stalled }, None))
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None))
         {
             await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
@@ -671,7 +671,7 @@ public sealed class FlowRunnerTests
             between.Current?.IsRecorded.Should().BeFalse("nothing is recorded for a step the stop cancelled");
         }
 
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         using var again = new DaemonClient(temp.Home);
         FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
         ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
@@ -687,7 +687,7 @@ public sealed class FlowRunnerTests
         (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Left running");
 
         stalled.Open();
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stalled }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None);
         using var again = new DaemonClient(temp.Home);
         FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
         ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
@@ -710,7 +710,7 @@ public sealed class FlowRunnerTests
 
         var stubborn = new GatedExecutor(stalled.Inner) { FailStops = true };
         stubborn.Open();
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stubborn }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stubborn }, None);
         using var again = new DaemonClient(temp.Home);
         FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
 
@@ -730,7 +730,7 @@ public sealed class FlowRunnerTests
     {
         Guid flowId;
         Guid sessionId = Guid.Empty;
-        await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = stalled }, None))
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None))
         {
             await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
@@ -771,7 +771,7 @@ public sealed class FlowRunnerTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { CollectsGiveUp = true };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
@@ -823,7 +823,7 @@ public sealed class FlowRunnerTests
             ["reviewer-adversarial"] = [Scripts.Answer("clean", 2)],
             ["reviewer-conformance"] = [Scripts.Answer("clean", 3)],
         });
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         using var client = new DaemonClient(temp.Home);
 
         FlowView ended = await Flowing.UntilAsync(client, Project, flowId, "ended");
@@ -843,7 +843,7 @@ public sealed class FlowRunnerTests
             ["reviewer-adversarial"] = [Scripts.Answer("clean", 3)],
             ["reviewer-conformance"] = [Scripts.Answer("clean", 4)],
         }));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView first = await Flowing.TaskAtBuildAsync(client, Project, "Called off");
@@ -873,7 +873,7 @@ public sealed class FlowRunnerTests
     public async Task A_refused_start_answers_with_the_rule()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Not a task", null), None);

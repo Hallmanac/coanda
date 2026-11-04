@@ -47,7 +47,7 @@ public sealed class TriggerLoopTests
     {
         using var temp = new TemporaryHome();
         ParcelView parcel;
-        await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
         {
             await RegisteredProjects.AddAsync(first, Project, None);
             using var client = new DaemonClient(temp.Home);
@@ -58,7 +58,7 @@ public sealed class TriggerLoopTests
             await first.StopAsync(None);
         }
 
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, None);
         using var again = new DaemonClient(temp.Home);
 
         // The loop handles entries in order, so once a later entry has its flow, the earlier one was read again if it ever would be.
@@ -73,7 +73,7 @@ public sealed class TriggerLoopTests
     public async Task An_entry_recorded_while_the_daemon_was_stopped_starts_its_flow_on_the_next_start_and_only_once()
     {
         using var temp = new TemporaryHome();
-        await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, None))
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, None))
         {
             await first.StopAsync(None);
         }
@@ -89,7 +89,7 @@ public sealed class TriggerLoopTests
             parcelId = parcel.Id;
         }
 
-        await using (RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, None))
+        await using (RunningDaemon second = await Daemons.StartAsync(temp.Home, None))
         {
             using var client = new DaemonClient(temp.Home);
             FlowView bound = await Flowing.BoundAsync(client, Project, parcelId);
@@ -97,7 +97,7 @@ public sealed class TriggerLoopTests
             await second.StopAsync(None);
         }
 
-        await using RunningDaemon third = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon third = await Daemons.StartAsync(temp.Home, None);
         using var again = new DaemonClient(temp.Home);
         ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "Moved later");
         await Flowing.BoundAsync(again, Project, later.Id);
@@ -121,7 +121,7 @@ public sealed class TriggerLoopTests
             parcelId = parcel.Id;
         }
 
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView later = await Flowing.TaskAtBuildAsync(client, Project, "Moved after the install");
         await Flowing.BoundAsync(client, Project, later.Id);
@@ -134,7 +134,7 @@ public sealed class TriggerLoopTests
     public async Task A_refused_start_starts_nothing_and_the_loop_goes_on_to_later_entries()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         await PublishTypeAsync(daemon, Chore);
@@ -153,7 +153,7 @@ public sealed class TriggerLoopTests
     public async Task Moving_an_idea_to_discovery_starts_the_discovery_contour()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
 
@@ -169,7 +169,7 @@ public sealed class TriggerLoopTests
     public async Task An_entry_made_while_the_parcel_has_a_live_flow_starts_nothing_then_or_later()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();

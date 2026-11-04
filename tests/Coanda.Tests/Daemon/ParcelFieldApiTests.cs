@@ -40,7 +40,7 @@ public sealed class ParcelFieldApiTests
     public async Task Each_kind_the_cli_builds_is_set_through_the_endpoint_recorded_as_an_event_and_shown_with_every_declared_field()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView added = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Fielded", null), None);
@@ -86,7 +86,7 @@ public sealed class ParcelFieldApiTests
     public async Task A_refused_set_quotes_the_rule_and_records_nothing()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Refusals", null), None);
@@ -116,7 +116,7 @@ public sealed class ParcelFieldApiTests
     public async Task A_stock_daemon_runs_the_required_fields_gate_with_no_gate_named_in_its_options()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions(), None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions(), None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unbriefed", null), None);

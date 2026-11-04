@@ -18,7 +18,7 @@ public sealed class DaemonApiTests
     public async Task The_cli_client_creates_lists_shows_and_closes_a_parcel_through_the_running_daemon()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
 
@@ -53,7 +53,7 @@ public sealed class DaemonApiTests
     public async Task A_call_without_the_token_is_refused()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         using var http = new HttpClient();
 
         using HttpResponseMessage response = await http.GetAsync($"{daemon.Info.BaseAddress}/parcels?project=coanda", CancellationToken.None);
@@ -66,7 +66,7 @@ public sealed class DaemonApiTests
     public async Task A_move_or_close_of_a_parcel_a_live_flow_holds_is_refused_with_422_whatever_principal_the_request_carries()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
@@ -96,7 +96,7 @@ public sealed class DaemonApiTests
     public async Task A_person_resumes_or_stops_the_flow_that_holds_a_parcel_through_the_api_and_a_stop_frees_the_parcel()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();

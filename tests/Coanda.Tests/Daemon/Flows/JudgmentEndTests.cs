@@ -31,7 +31,7 @@ public sealed class JudgmentEndTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 1)));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         IFlowAdvancer advancer = daemon.Services.GetRequiredService<IFlowAdvancer>();
@@ -65,7 +65,7 @@ public sealed class JudgmentEndTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 1)));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         IFlowAdvancer advancer = daemon.Services.GetRequiredService<IFlowAdvancer>();
@@ -90,7 +90,7 @@ public sealed class JudgmentEndTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 2))) { InProgressUsage = InProgress };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         IFlowAdvancer advancer = daemon.Services.GetRequiredService<IFlowAdvancer>();
@@ -119,7 +119,7 @@ public sealed class JudgmentEndTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 1))) { InProgressUsage = InProgress };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         IFlowAdvancer advancer = daemon.Services.GetRequiredService<IFlowAdvancer>();
@@ -141,7 +141,7 @@ public sealed class JudgmentEndTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("maybe", 1), Scripts.Answer("done", 2))) { FreeCollects = 1 };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         IFlowAdvancer advancer = daemon.Services.GetRequiredService<IFlowAdvancer>();
@@ -165,7 +165,7 @@ public sealed class JudgmentEndTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 1))) { CollectsGiveUp = true, InProgressUsage = InProgress };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         FlowView started = await StartSingleAsync(daemon, client, "Gave up");
@@ -187,7 +187,7 @@ public sealed class JudgmentEndTests
         {
             HeldCollectsIgnoreCancellation = true,
         };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         FlowView started = await StartSingleAsync(daemon, client, "Answered late");
