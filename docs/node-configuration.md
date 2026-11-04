@@ -69,8 +69,9 @@ own), so neither the daemon's exit nor an interrupt you type in the daemon's ter
 The daemon keeps a record of each running session in `sessions/` under the node home. When the
 daemon starts again, a flow whose judgment was running reattaches its session: the daemon collects
 the session's answer, retrying it once if it is invalid, and records it with what the whole session
-spent, without launching the agent again. The judgment's wall-clock limit still runs from when its
-session was launched. A session that finished while the daemon was down is collected the same way.
+spent, without launching the agent again. A session the daemon stopped during its retry is not
+retried a second time, and the turn before the retry counts toward what it spent. The judgment's
+wall-clock limit still runs from when its session was launched. A session that finished while the daemon was down is collected the same way.
 When the session cannot be found again (its process exited without an answer, or the daemon stopped
 before it recorded the session), the flow pauses saying that the session was lost and its usage was
 not observed, and resuming the flow performs the step again with a new session. At start, the

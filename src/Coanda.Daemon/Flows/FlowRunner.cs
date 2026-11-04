@@ -421,12 +421,12 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
         try
         {
-            SessionHandle? live = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), cancellationToken);
+            ReattachedSession? live = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), cancellationToken);
             if (live is not null)
             {
                 using var grace = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 grace.CancelAfter(Judgment.StopGrace);
-                await executor.StopAsync(live, grace.Token);
+                await executor.StopAsync(live.Handle, grace.Token);
             }
 
             return true;
@@ -588,14 +588,16 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// the session the visit names, it is reattached, and its answer is collected, validated against
     /// the step's answer schema, retried once on the same session if it is invalid, and recorded
     /// with the agent hash and model spec the launch recorded, however the agent was published
-    /// since. Its wall-clock limit runs from the launch. Nothing is recorded for the reattach itself.
+    /// since. A session the restart found already on its retry is not retried again, and its answer
+    /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch.
+    /// Nothing is recorded for the reattach itself.
     /// When the visit names no session, or the executor no longer holds it, the flow pauses instead,
     /// and its resume performs the step again with one more spawn counted. Null when it recorded no answer.
     /// </summary>
     private async Task<Recording?> ReattachAsync(
         Principal principal, string project, Flow flow, ContourStep step, FlowStepEntry current, CancellationToken cancellationToken)
     {
-        SessionHandle? live;
+        ReattachedSession? live;
         try
         {
             live = current is { SessionId: Guid id, AgentHash: not null, Model: not null }
@@ -628,7 +630,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             return null;
         }
 
-        var launched = new Launched(step.Name, current.Performer, agentHash, model, ceiling: null) { Session = live, Recorded = true };
+        var launched = new Launched(step.Name, current.Performer, agentHash, model, ceiling: null) { Session = live.Handle, Recorded = true };
         string schema = step.AnswerSchema ?? string.Empty;
         using var ended = new CancellationTokenSource();
         Watch(flow.Id, ended);

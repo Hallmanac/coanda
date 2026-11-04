@@ -1,5 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
+using Coanda.Core.Flows;
 
 namespace Coanda.Daemon.Executors;
 
@@ -83,7 +84,13 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         lock (gate)
         {
             Session session = RequireLive(handle);
+            if (session.Current is { } answered)
+            {
+                session.Earlier = Judgment.Sum(session.Earlier, answered.Usage);
+            }
+
             session.Current = null;
+            session.Attempt++;
             resumes.Add(new ScriptedMessage(session.Handle, message));
         }
 
@@ -125,14 +132,14 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         }
     }
 
-    public ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
+    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
-            SessionHandle? held = sessions.TryGetValue(handle.Id, out Session? session) && !session.Stopped
-                ? session.Handle
+            ReattachedSession? held = sessions.TryGetValue(handle.Id, out Session? session) && !session.Stopped
+                ? new ReattachedSession(session.Handle, session.Attempt, session.Earlier)
                 : null;
             return ValueTask.FromResult(held);
         }
@@ -165,6 +172,12 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
 
         /// <summary>The answer collected since the last spawn or resume, or null until one is.</summary>
         public CollectedAnswer? Current { get; set; }
+
+        /// <summary>The place of the latest attempt in the session: one for the spawn, one more for every resume.</summary>
+        public int Attempt { get; set; } = 1;
+
+        /// <summary>The usage of every answer collected before the latest attempt.</summary>
+        public Measurement Earlier { get; set; } = ReattachedSession.Nothing;
 
         public bool Stopped { get; set; }
     }

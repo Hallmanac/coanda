@@ -45,8 +45,9 @@ public interface IAgentExecutor
     ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Takes a handle issued before a daemon restart and returns it when its session is still held
-    /// and not stopped, or null when the session is gone.
+    /// Takes a handle issued before a daemon restart and returns its session, with the attempt it is
+    /// on and what its earlier attempts' collects returned, when it is still held and not stopped,
+    /// or null when the session is gone.
     /// </summary>
-    ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken);
+    ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken);
 }

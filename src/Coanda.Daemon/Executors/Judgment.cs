@@ -15,7 +15,7 @@ namespace Coanda.Daemon.Executors;
 /// for a reattach. Whether a failure is a daemon stop is decided by that token alone, never by the
 /// failure's type: an executor that throws a cancellation of its own accord has its session stopped.
 /// <see cref="ReattachAsync"/> runs the same collect, validation, and retry on a session a daemon
-/// restart found still held, starting from its handle instead of a spawn.
+/// restart found still held, starting from where that session stands instead of a spawn.
 /// </summary>
 public static class Judgment
 {
@@ -92,13 +92,16 @@ public static class Judgment
     /// Runs the judgment on a session launched before a daemon restart that the executor still
     /// holds: collects it, validates its answer against <paramref name="answerSchema"/>, and retries
     /// once on the same session after a missing or invalid answer, exactly as for a fresh spawn.
-    /// Nothing is spawned. A failure while <paramref name="stopping"/> is cancelled leaves the session
-    /// held for the next start to reattach again; any other failure stops it, and a token cancelled
-    /// before the first collect (a wall-clock limit already past) is such a failure.
+    /// Nothing is spawned. A session already on a later attempt than its spawn's was resumed for the
+    /// retry before the restart, so its answer is the retry's: it is not retried again, and the
+    /// usage its earlier attempts' collects returned, which nothing recorded at the daemon stop, is
+    /// counted with its own. A failure while <paramref name="stopping"/> is cancelled leaves the
+    /// session held for the next start to reattach again; any other failure stops it, and a token
+    /// cancelled before the first collect (a wall-clock limit already past) is such a failure.
     /// </summary>
     public static async Task<JudgmentOutcome> ReattachAsync(
         IAgentExecutor executor,
-        SessionHandle session,
+        ReattachedSession session,
         string answerSchema,
         JudgmentSpend? spend,
         CancellationToken stopping,
@@ -106,15 +109,23 @@ public static class Judgment
     {
         ArgumentNullException.ThrowIfNull(executor);
         ArgumentNullException.ThrowIfNull(session);
+        bool retrying = session.Attempt > 1;
+        if (retrying)
+        {
+            spend?.Add(session.Earlier);
+        }
+
         try
         {
             AnswerSchemas.Require(answerSchema);
             cancellationToken.ThrowIfCancellationRequested();
-            return await AnswerAsync(executor, session, answerSchema, spend, cancellationToken);
+            return retrying
+                ? await RetriedAsync(executor, session.Handle, answerSchema, session.Earlier, spend, cancellationToken)
+                : await AnswerAsync(executor, session.Handle, answerSchema, spend, cancellationToken);
         }
         catch (Exception failure) when (!stopping.IsCancellationRequested)
         {
-            await StopAfterFailureAsync(executor, session, failure, spend);
+            await StopAfterFailureAsync(executor, session.Handle, failure, spend);
             throw;
         }
     }
@@ -135,10 +146,24 @@ public static class Judgment
         }
 
         await executor.ResumeAsync(handle, RetryMessage(answerSchema, first.Answer, firstFailures), cancellationToken);
+        return await RetriedAsync(executor, handle, answerSchema, first.Usage, spend, cancellationToken);
+    }
 
+    /// <summary>
+    /// Collects the session's one retry, whose earlier attempts' collects returned
+    /// <paramref name="earlier"/>, and answers with it or pauses: there is no retry after it.
+    /// </summary>
+    private static async Task<JudgmentOutcome> RetriedAsync(
+        IAgentExecutor executor,
+        SessionHandle handle,
+        string answerSchema,
+        Measurement earlier,
+        JudgmentSpend? spend,
+        CancellationToken cancellationToken)
+    {
         CollectedAnswer second = await executor.CollectAsync(handle, cancellationToken);
         spend?.Add(second.Usage);
-        Measurement usage = Sum(first.Usage, second.Usage);
+        Measurement usage = Sum(earlier, second.Usage);
         IReadOnlyList<string> secondFailures = Check(answerSchema, second.Answer);
         return second.Answer is { } secondAnswer && secondFailures.Count == 0
             ? new JudgmentOutcome.Answered(handle, secondAnswer, second.TranscriptPath, usage)

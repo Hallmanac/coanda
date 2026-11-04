@@ -226,6 +226,6 @@ public sealed class SpawnInputsTests
 
         public ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken) => inner.ListAsync(cancellationToken);
 
-        public ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken) => inner.ReattachAsync(handle, cancellationToken);
+        public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken) => inner.ReattachAsync(handle, cancellationToken);
     }
 }

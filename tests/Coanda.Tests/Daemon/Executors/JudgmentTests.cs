@@ -182,7 +182,7 @@ public sealed class JudgmentTests
         await run.Should().ThrowAsync<OperationCanceledException>();
         executor.Stops.Should().BeEmpty();
         SessionHandle taken = received.Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
-        (await executor.ReattachAsync(taken, CancellationToken.None)).Should().Be(taken);
+        (await executor.ReattachAsync(taken, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(taken));
     }
 
     [Fact]
@@ -249,12 +249,52 @@ public sealed class JudgmentTests
             new ScriptEntry(Valid, "/t/2.jsonl", SecondUsage));
         SessionHandle held = await SpawnAsync(executor);
 
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None);
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None);
 
         outcome.Should().Be(new JudgmentOutcome.Answered(held, Valid, "/t/2.jsonl", Summed));
         executor.Spawns.Should().ContainSingle("the reattach spawns nothing");
         executor.Resumes.Should().ContainSingle().Which.Handle.Should().Be(held);
         executor.Stops.Should().BeEmpty("the caller stops the session once the outcome is recorded");
+    }
+
+    [Fact]
+    public async Task A_session_reattached_during_its_retry_answers_with_the_whole_sessions_usage_and_is_not_retried_again()
+    {
+        ScriptedExecutor executor = Executor(
+            new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
+            new ScriptEntry(Invalid, "/t/2.jsonl", SecondUsage));
+        SessionHandle held = await SpawnAsync(executor);
+        await executor.CollectAsync(held, CancellationToken.None);
+        await executor.ResumeAsync(held, "Answer again.", CancellationToken.None);
+        ReattachedSession retrying = (await executor.ReattachAsync(held, CancellationToken.None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
+        retrying.Should().Be(new ReattachedSession(held, 2, FirstUsage));
+        var spend = new JudgmentSpend();
+
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(executor, retrying, AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None);
+
+        JudgmentOutcome.Paused paused = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
+        paused.Reason.Should().StartWith($"Agent '{Agent}' gave no valid '{AnswerSchemas.Review}' answer after one retry:");
+        paused.Usage.Should().Be(Summed);
+        spend.Reported.Should().Be(Summed);
+        executor.Resumes.Should().ContainSingle("the retry before the restart was the one retry");
+    }
+
+    [Fact]
+    public async Task A_session_reattached_during_its_retry_and_stopped_before_it_answers_reports_its_earlier_usage()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage));
+        SessionHandle held = await SpawnAsync(executor);
+        await executor.CollectAsync(held, CancellationToken.None);
+        await executor.ResumeAsync(held, "Answer again.", CancellationToken.None);
+        using var limit = new CancellationTokenSource();
+        await limit.CancelAsync();
+        var spend = new JudgmentSpend();
+
+        Func<Task> run = () => Judgment.ReattachAsync(executor, new ReattachedSession(held, 2, FirstUsage), AnswerSchemas.Review, spend, CancellationToken.None, limit.Token);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        executor.Stops.Should().Equal(held);
+        spend.Reported.Should().Be(FirstUsage, "nothing recorded the earlier attempt's usage at the daemon stop");
     }
 
     [Fact]
@@ -265,7 +305,7 @@ public sealed class JudgmentTests
         using var limit = new CancellationTokenSource();
         await limit.CancelAsync();
 
-        Func<Task> run = () => Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, CancellationToken.None, limit.Token);
+        Func<Task> run = () => Judgment.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, limit.Token);
 
         await run.Should().ThrowAsync<OperationCanceledException>();
         executor.Stops.Should().Equal(held);
@@ -279,11 +319,11 @@ public sealed class JudgmentTests
         using var stopping = new CancellationTokenSource();
         await stopping.CancelAsync();
 
-        Func<Task> run = () => Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, stopping.Token, CancellationToken.None);
+        Func<Task> run = () => Judgment.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, stopping.Token, CancellationToken.None);
 
         await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
         executor.Stops.Should().BeEmpty("a failure while the daemon stops is a daemon stop, whatever its type");
-        (await executor.ReattachAsync(held, CancellationToken.None)).Should().Be(held);
+        (await executor.ReattachAsync(held, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(held));
     }
 
     [Fact]
@@ -292,7 +332,7 @@ public sealed class JudgmentTests
         ScriptedExecutor executor = Executor();
         SessionHandle held = await SpawnAsync(executor);
 
-        Func<Task> run = () => Judgment.ReattachAsync(executor, held, AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None);
+        Func<Task> run = () => Judgment.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None);
 
         await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
         executor.Stops.Should().Equal(held);
