@@ -17,7 +17,7 @@ public interface IAgentExecutor
         string workingDirectory,
         SpawnCaps caps,
         string answerSchema,
-        string? credentialProfile,
+        CredentialProfile? credentialProfile,
         CancellationToken cancellationToken);
 
     /// <summary>Reads the session's latest answer, its transcript path, and its usage.</summary>

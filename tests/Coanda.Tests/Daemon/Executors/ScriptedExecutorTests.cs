@@ -12,12 +12,14 @@ public sealed class ScriptedExecutorTests
     private static readonly ScriptEntry First = new("""{"verdict":"done"}""", "/transcripts/build-1.jsonl", new Measurement(1200, 0.10m, 3, TimeSpan.FromSeconds(40)));
     private static readonly ScriptEntry Second = new("""{"verdict":"blocked"}""", "/transcripts/build-2.jsonl", new Measurement(900, 0.07m, 2, TimeSpan.FromSeconds(25)));
 
+    private static readonly CredentialProfile Work = new("claude-code", "work-profile", "/home/me/.claude-work", null);
+
     private static ScriptedExecutor Executor() => new(new Dictionary<string, IReadOnlyList<ScriptEntry>>
     {
         [ShippedAgents.Build.Name] = [First, Second],
     });
 
-    private static ValueTask<SessionHandle> Spawn(ScriptedExecutor executor, string context = "Step: build", string? profile = null) =>
+    private static ValueTask<SessionHandle> Spawn(ScriptedExecutor executor, string context = "Step: build", CredentialProfile? profile = null) =>
         executor.SpawnAsync(ShippedAgents.Build, context, "/work/tree", Caps, AnswerSchemas.Build, profile, CancellationToken.None);
 
     [Fact]
@@ -26,7 +28,7 @@ public sealed class ScriptedExecutorTests
         CancellationToken token = CancellationToken.None;
         ScriptedExecutor executor = Executor();
 
-        SessionHandle one = await Spawn(executor, "first context", "work-profile");
+        SessionHandle one = await Spawn(executor, "first context", Work);
         SessionHandle two = await Spawn(executor, "second context");
 
         CollectedAnswer firstAnswer = await executor.CollectAsync(one, token);
@@ -35,7 +37,7 @@ public sealed class ScriptedExecutorTests
         firstAnswer.Should().Be(new CollectedAnswer(First.Answer, First.TranscriptPath, First.Usage));
         secondAnswer.Should().Be(new CollectedAnswer(Second.Answer, Second.TranscriptPath, Second.Usage));
         executor.Spawns.Should().Equal(
-            new ScriptedSpawn(one, "build", "first context", "/work/tree", Caps, "build", "work-profile"),
+            new ScriptedSpawn(one, "build", "first context", "/work/tree", Caps, "build", Work),
             new ScriptedSpawn(two, "build", "second context", "/work/tree", Caps, "build", null));
     }
 
