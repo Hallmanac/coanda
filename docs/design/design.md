@@ -139,10 +139,10 @@ and the generation fence stay local to a node.
 A contour is a sequence of steps, and a flow is one execution of a contour on a parcel: the flow
 follows the contour the way a Coanda flow follows the contour of a surface. A judgment step names an
 agent and an answer schema; the daemon spawns the agent and validates its answer. An action step
-names something only the daemon does: spawn, wait for a human, wait for an external event, timer,
-emit outcome, move a parcel (the core, domain-free set); worktree, gates, open PR, gated merge,
-rebase (the software set). Each step has transitions: a table of answer field equals value, visited
-fewer than N times, go to step, else pause. Caps are mandatory per transition and per contour
+names something only the daemon does: wait for a human, wait for an external event, timer, emit
+outcome, move a parcel, derive parcels (the core, domain-free set); worktree, gates, open PR, gated
+merge, rebase (the software set). Each step has transitions: a table of answer field equals value,
+visited fewer than N times, go to step, else pause. Caps are mandatory per transition and per contour
 (budget, spawns); the daemon refuses to load a contour without them. hall9k's task run is one
 contour: build, three reviews, fix, two reviews, fix, until clean or capped. Its plan run is a
 second. Idea discovery is a third. A contour may be one step. A flow pauses when it waits for a
@@ -172,9 +172,10 @@ model spec. naming.md records the words they replace, and "run" stays retired.
 A parcel is the unit of work a flow acts on and the place its state, record, and board row live; a
 pause and its lever live on the parcel's flow, and the paused state of the lifecycle is a person's
 pause of the parcel itself. A parcel has exactly one type and one state. A parcel type is a
-definition declaring the lifecycle (states, allowed moves, entry states, exactly one terminal state
-with a resolution set), the fields, and the bindings: a gate before a transition and a contour after
-it. Those two extension points are the whole middleware story.
+definition declaring the lifecycle (states, allowed moves, entry states, a paused state reachable
+from any live state, exactly one terminal state with a resolution set), the fields, and the
+bindings: a gate before a transition and a contour after it. Those two extension points are the
+whole middleware story.
 
 The kernel fixes the meta-model and nothing below it: identity and provenance, claim with hash
 arbitration, placement on a node, budget, and generic relations (derived-from, blocked-by,
@@ -253,16 +254,16 @@ spawned process, documented for multiple accounts) or an API key helper. Subscri
 cannot use bare mode; the Agent SDK may not use subscription logins at all, which confirms the CLI
 adapter as primary.
 
-Measurement on every spawn, as events on the parcel: contour hash, agent hash, model spec, tokens,
-cost, turns, duration, answer.
+Measurement on every spawn, recorded on the parcel's flow, in the judgment's answer event and in
+the pause event: contour hash, agent hash, model spec, tokens, cost, turns, duration, answer.
 
 Two adapters in the box: Claude Code headless, and a scripted adapter returning canned answers so
 contours and the interpreter are tested without a vendor or a network.
 
 ## 11. Surfaces
 
-One registry of commands, queries, and actions, each with a schema, allowed principals, and a
-side-effect flag. Every surface is a rendering of it, role-scoped.
+One registry of commands, queries, and actions, each entry carrying a name, a kind, a description,
+and the roles allowed to call it. Every surface is a rendering of it, role-scoped.
 
 The window: an interactive session in the project home holding the owner principal, the operator's
 primary surface. It reads, rules, and starts; it never drives a lifecycle a flow is driving, and it

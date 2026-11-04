@@ -35,7 +35,6 @@ public sealed class FlowActions
         new WaitForHumanAction(),
         new WaitForExternalEventAction(),
         new EmitOutcomeAction(),
-        new PlaceholderAction(CoreActions.Spawn),
         new PlaceholderAction(CoreActions.DeriveParcels),
         .. SoftwareActions.All.Select(name => new PlaceholderAction(name)),
     ]);

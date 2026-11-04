@@ -130,7 +130,6 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(CoreActions.Spawn)]
     [InlineData(CoreActions.DeriveParcels)]
     [InlineData(SoftwareActions.Worktree)]
     [InlineData(SoftwareActions.Gates)]

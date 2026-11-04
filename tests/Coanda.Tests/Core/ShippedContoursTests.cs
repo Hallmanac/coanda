@@ -47,7 +47,7 @@ public sealed class ShippedContoursTests
     {
         ShippedActions.Names.Should().BeEquivalentTo(
         [
-            "spawn", "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
+            "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
             "worktree", "gates", "open-pr", "gated-merge", "rebase",
         ]);
     }
