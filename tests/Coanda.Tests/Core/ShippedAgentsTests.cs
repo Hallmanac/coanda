@@ -68,6 +68,16 @@ public sealed class ShippedAgentsTests
     }
 
     [Fact]
+    public void Every_agent_is_sent_to_the_project_guidance_by_its_rules()
+    {
+        ShippedAgents.ProjectGuidance.Should().Contain("AGENTS.md").And.Contain("CLAUDE.md");
+        foreach (AgentDefinition agent in ShippedAgents.All)
+        {
+            agent.Persona.Rules.Should().Contain(ShippedAgents.ProjectGuidance, agent.Name);
+        }
+    }
+
+    [Fact]
     public void Shipped_definitions_carry_the_agents_hashes()
     {
         ShippedDefinitions.Agents.Select(d => (d.Kind, d.Name, d.ContentHash))
