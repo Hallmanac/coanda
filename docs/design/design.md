@@ -310,9 +310,9 @@ next GitHub release and restarts when no step is in progress, reattaching live s
 checks git, gh, the agent CLI, and the node key. The daemon runs as a user process started on
 demand; service registration is later. Windows through the same process-manager seam. One local-
 time daemon log per node, plus the measurement events, which are what gets queried. The node
-home's token file (daemon.json), its database with the files SQLite keeps beside it, and its log
-are readable and writable by their owner alone from the moment each is created: mode 0600 on macOS
-and Linux, and on Windows the node home carries an owner-only access list, not inherited from its
+home's token file (daemon.json), its database with the files SQLite keeps beside it, its log,
+and the file a detached daemon prints to outside its log (daemon.out) are readable and writable
+by their owner alone from the moment each is created: mode 0600 on macOS and Linux, and on Windows the node home carries an owner-only access list, not inherited from its
 parent, that every file created inside it inherits. A start narrows any of them an earlier run left
 wider before it opens the database.
 
