@@ -589,7 +589,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// the step's answer schema, retried once on the same session if it is invalid, and recorded
     /// with the agent hash and model spec the launch recorded, however the agent was published
     /// since. A session the restart found already on its retry is not retried again, and its answer
-    /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch.
+    /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch, and a
+    /// person's pause or stop saved before the reattach was watched ends it before its first collect.
     /// Nothing is recorded for the reattach itself.
     /// When the visit names no session, or the executor no longer holds it, the flow pauses instead,
     /// and its resume performs the step again with one more spawn counted. Null when it recorded no answer.
@@ -636,6 +637,14 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         Watch(flow.Id, ended);
         try
         {
+            // A launch has a write after the watch that a pause refuses; a reattach has none, so a
+            // pause or stop saved between this advance's read and the watch is read for here.
+            Flow? now = await flows.ShowAsync(principal, project, flow.Id, cancellationToken);
+            if (now is not { Status: FlowStatus.Running, Current: { AwaitsLaunchedSession: true, SessionId: Guid awaited } } || awaited != live.Handle.Id)
+            {
+                await ended.CancelAsync();
+            }
+
             return await RunJudgmentAsync(
                 principal, project, flow.Id, step, launched, judgmentLimit - (clock.GetUtcNow() - spawnedAt),
                 (spend, bounded) => Judgment.ReattachAsync(executor, live, schema, spend, cancellationToken, bounded),

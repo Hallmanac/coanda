@@ -118,6 +118,39 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_pause_saved_before_the_reattach_is_watched_stops_the_reattached_session_before_it_is_collected()
+    {
+        using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Paused in the window");
+
+        // The pause lands after the advance read the flow and before the reattach is watched, so
+        // no judgment is there for it to end; only the reattach reading the flow again sees it.
+        var answering = new GatedExecutor(stalled.Inner)
+        {
+            BeforeReattach = async _ =>
+            {
+                await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+                await new FlowService(store, TimeProvider.System).PauseAsync(
+                    Principal.LocalOwner, Project, flowId, "A person paused it.", FlowLevers.PerformAgain("build"), None);
+            },
+        };
+        answering.Open();
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = answering }, None);
+        await Flowing.UntilAsync(() => answering.Inner.Stops.Contains(issued), "the reattached session is stopped");
+
+        answering.Collecting.IsCompleted.Should().BeFalse("a paused flow's session is not collected");
+        using var again = new DaemonClient(temp.Home);
+        FlowView paused = await Flowing.ShowAsync(again, Project, flowId);
+        paused.Status.Should().Be("paused");
+        paused.PauseReason.Should().Be("A person paused it.");
+        paused.Steps.Single(s => s.Step == "build").RecordedAt.Should().BeNull();
+        answering.Inner.Stops.Should().Equal(issued);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_reattached_judgment_whose_wall_clock_limit_ran_out_since_its_launch_is_stopped_and_pauses_without_a_second_spawn()
     {
         using var temp = new TemporaryHome();
