@@ -20,7 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
-/// A daemon restart that finds a judgment launched, unanswered, and not resumed since: its session
+/// A daemon restart that finds an agent step launched, unanswered, and not resumed since: its session
 /// is reattached and answers, or the flow run pauses when the session was lost; it is never launched again.
 /// </summary>
 public sealed class FlowRunRestartTests
@@ -70,7 +70,7 @@ public sealed class FlowRunRestartTests
         build.AgentHash.Should().Be(ShippedAgents.Build.Hash, "the answer is recorded with the agent the launch recorded");
         build.AgentHash.Should().NotBe(republished.Hash);
         build.Model.Should().Be(ShippedAgents.Build.Model);
-        build.Measurement.Should().Be(Judgment.Sum(Scripts.Usage(4), Scripts.Usage(1)), "both turns of the reattached session are its usage");
+        build.Measurement.Should().Be(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), "both turns of the reattached session are its usage");
         ended.Spawns.Should().Be(3, "the reattach counts no spawn: build and the two reviews");
         held.Inner.Spawns.Where(s => s.Agent == "build").Should().ContainSingle("the executor records no second spawn");
         held.Inner.Resumes.Should().ContainSingle(r => r.Handle == issued, "an invalid answer is retried once on the same session");
@@ -80,8 +80,8 @@ public sealed class FlowRunRestartTests
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             IReadOnlyList<object> events = await EventsOfAsync(store, flowRunId);
-            events.OfType<JudgmentSpawned>().Where(e => e.Step == "build").Should().ContainSingle();
-            events.OfType<JudgmentRespawned>().Should().BeEmpty();
+            events.OfType<AgentStepSpawned>().Where(e => e.Step == "build").Should().ContainSingle();
+            events.OfType<AgentStepRespawned>().Should().BeEmpty();
         }
 
         Definition? resolved = await second.Services.GetRequiredService<DefinitionService>().ResolveAgentAsync(Principal.LocalOwner, Project, "build", None);
@@ -115,7 +115,7 @@ public sealed class FlowRunRestartTests
 
         held.Open();
         await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
-        (await tokens.ResolveAsync(reissued.Token, None)).Should().BeNull("the token is revoked once the reattached judgment ends");
+        (await tokens.ResolveAsync(reissued.Token, None)).Should().BeNull("the token is revoked once the reattached agent step ends");
         (await tokens.ResolveAsync(spawned.Token, None)).Should().BeNull("so is the one the launch was spawned with");
 
         await second.StopAsync(None);
@@ -164,7 +164,7 @@ public sealed class FlowRunRestartTests
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
         paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry:");
-        paused.PauseUsage.Should().Be(Judgment.Sum(Scripts.Usage(4), Scripts.Usage(1)), "the first turn, which nothing recorded at the stop, is counted");
+        paused.PauseUsage.Should().Be(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), "the first turn, which nothing recorded at the stop, is counted");
         answering.Inner.Resumes.Should().ContainSingle("the retry before the restart was the one retry");
         answering.Inner.Spawns.Should().ContainSingle();
         answering.Inner.Stops.Should().Equal(issued);
@@ -213,7 +213,7 @@ public sealed class FlowRunRestartTests
         (Guid flowRunId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Paused in the window");
 
         // The pause lands after the advance read the flow run and before the reattach is watched, so
-        // no judgment is there for it to end; only the reattach reading the flow run again sees it.
+        // no agent step is there for it to end; only the reattach reading the flow run again sees it.
         var answering = new GatedExecutor(stalled.Inner)
         {
             BeforeReattach = async _ =>
@@ -239,7 +239,7 @@ public sealed class FlowRunRestartTests
     }
 
     [Fact]
-    public async Task A_reattached_judgment_whose_wall_clock_limit_ran_out_since_its_launch_is_stopped_and_pauses_without_a_second_spawn()
+    public async Task A_reattached_agent_step_whose_wall_clock_limit_ran_out_since_its_launch_is_stopped_and_pauses_without_a_second_spawn()
     {
         using var temp = new TemporaryHome();
         var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
@@ -250,11 +250,11 @@ public sealed class FlowRunRestartTests
 
         // The gate is open, so a limit measured from the reattach would let the session answer.
         stalled.Open();
-        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled, JudgmentLimit = limit }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled, AgentStepLimit = limit }, None);
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 1 seconds for one judgment, so its session was stopped.");
+        paused.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 1 seconds for one agent step, so its session was stopped.");
         paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
         paused.Spawns.Should().Be(1);
         stalled.Inner.Spawns.Should().ContainSingle();
@@ -276,7 +276,7 @@ public sealed class FlowRunRestartTests
         // The session ended with its answer while no daemon ran; collecting it takes no more time.
         stalled.Inner.Finish(issued);
         stalled.Open();
-        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled, JudgmentLimit = limit }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled, AgentStepLimit = limit }, None);
         using var again = new DaemonClient(temp.Home);
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
 
@@ -366,7 +366,7 @@ public sealed class FlowRunRestartTests
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             await flowRuns.RecordResultAsync(
-                Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareActions.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
+                Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
             await flowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRun.Id, "build", None);
             await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
             flowRunId = flowRun.Id;
@@ -516,7 +516,7 @@ public sealed class FlowRunRestartTests
         await using (IQuerySession session = store.QuerySession(Project))
         {
             IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(flowRunId, token: None);
-            events.Select(e => e.Data).OfType<JudgmentUsageRecorded>().Should().ContainSingle()
+            events.Select(e => e.Data).OfType<AgentStepUsageRecorded>().Should().ContainSingle()
                 .Which.Should().BeEquivalentTo(new { Step = "build", Agent = "build", SessionId = issued.Id, Usage = left });
         }
 
@@ -588,7 +588,7 @@ public sealed class FlowRunRestartTests
     }
 
     /// <summary>
-    /// Starts a daemon on the gated executor, waits until the bound flow run's judgment has recorded its
+    /// Starts a daemon on the gated executor, waits until the bound flow run's agent step has recorded its
     /// session and is held in its collect, and stops the daemon, checking that the session was left
     /// alive and the flow run names it.
     /// </summary>
@@ -611,7 +611,7 @@ public sealed class FlowRunRestartTests
                     sessionId = flowRun?.Current?.SessionId ?? Guid.Empty;
                     return sessionId != Guid.Empty;
                 },
-                "the flow run names its judgment's session");
+                "the flow run names its agent step's session");
             await first.StopAsync(None);
         }
 
@@ -651,7 +651,7 @@ public sealed class FlowRunRestartTests
     private static async Task PublishAgentAsync(TemporaryHome temp, AgentDefinition agent)
     {
         await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
-        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
         Definition draft = await definitions.DraftAsync(
             Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);

@@ -5,7 +5,7 @@ namespace Coanda.Daemon.Executors;
 /// <summary>
 /// A session a reattach found still held, and where it stands: its handle, the place of its latest
 /// attempt in it (one for the spawn, and one more for every resume since), and the usage a collect
-/// returned for every attempt before that one, which a judgment picking the session up again counts
+/// returned for every attempt before that one, which an agent step picking the session up again counts
 /// as its own. The attempts before the latest are none for a session still on its spawn, so its
 /// earlier usage is <see cref="Nothing"/>. <see cref="Finished"/> says whether the latest attempt's
 /// process had already ended, with an answer to collect, when the session was reattached: its collect

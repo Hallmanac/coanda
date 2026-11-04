@@ -139,7 +139,7 @@ public sealed class ParcelFieldApiTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, None);
-        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
         ParcelType before = ShippedTypes.Task with { Fields = [], GateBindings = [] };
         Definition draft = await definitions.DraftParcelTypeAsync(Principal.LocalOwner, DefinitionScope.Project, Project, before, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);

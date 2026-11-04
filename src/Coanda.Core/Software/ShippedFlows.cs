@@ -6,7 +6,7 @@ namespace Coanda.Core.Software;
 /// <summary>
 /// The flows the binary carries: build, merge, discovery, and review on assignment. Each is ordinary
 /// <see cref="Flow"/> data with no privileges a user's flow lacks. Every answer and
-/// every action result routes on a string field named <c>verdict</c>. The worktree and gates actions
+/// every system step result routes on a string field named <c>verdict</c>. The worktree and gates system steps
 /// and move-parcel answer <c>done</c> on success, gates answers <c>failed</c> when the build or tests
 /// fail, and open-pr answers <c>opened</c> once its pull request is open. The build flow ends
 /// there: it opens the pull request, moves the task to review, and ends with the outcome
@@ -16,7 +16,7 @@ namespace Coanda.Core.Software;
 /// answers <c>done</c>, then the same timer) for a head behind the primary branch, and closes its
 /// task as <c>completed</c> when it ends. A flow run's outcome is the one
 /// its flow declares, carried when it reaches end, so no shipped flow holds an emit-outcome step.
-/// The build flow's judgments declare the task's objective, criteria, and non-goals, so each
+/// The build flow's agent steps declare the task's objective, criteria, and non-goals, so each
 /// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
 /// sources, so it is handed the latest result and findings that routed it there.
 /// </summary>
@@ -60,7 +60,7 @@ public static class ShippedFlows
     /// </summary>
     public const int MergedCap = MergePendingCap + MergeResumes;
 
-    /// <summary>The task fields the build flow's judgments carry in their context: what to build, how it is judged, and what is out of scope.</summary>
+    /// <summary>The task fields the build flow's agent steps carry in their context: what to build, how it is judged, and what is out of scope.</summary>
     private static readonly IReadOnlyList<string> Brief = ["objective", "criteria", "non-goals"];
 
     /// <summary>The steps whose latest recordings the fix step's context carries: the gates result and both reviews' findings it acts on.</summary>
@@ -76,22 +76,22 @@ public static class ShippedFlows
         SpawnCap = 12,
         Steps =
         [
-            Action("worktree", SoftwareActions.Worktree, On("done", "build")),
-            Judgment("build", "build", "build", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief },
-            Action("gates", SoftwareActions.Gates, On("done", "adversarial-review"), On("failed", "fix")),
-            Judgment("adversarial-review", "reviewer-adversarial", "review",
+            SystemStep("worktree", SoftwareSystemSteps.Worktree, On("done", "build")),
+            AgentStep("build", "build", "build", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief },
+            SystemStep("gates", SoftwareSystemSteps.Gates, On("done", "adversarial-review"), On("failed", "fix")),
+            AgentStep("adversarial-review", "reviewer-adversarial", "review",
                 On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
-            Judgment("conformance-review", "reviewer-conformance", "review",
+            AgentStep("conformance-review", "reviewer-conformance", "review",
                 On("clean", "open-pr"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
-            Action("open-pr", SoftwareActions.OpenPr, On("opened", "move-to-review")),
+            SystemStep("open-pr", SoftwareSystemSteps.OpenPr, On("opened", "move-to-review")),
             new FlowStep
             {
                 Name = "move-to-review",
-                Action = CoreActions.MoveParcel,
+                SystemStep = CoreSystemSteps.MoveParcel,
                 Arguments = new Dictionary<string, JsonElement> { ["stage"] = FlowValue.Of("review") },
                 Transitions = [On("done", Flow.End)],
             },
-            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief, Sources = FixSources },
+            AgentStep("fix", "fix", "fix", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief, Sources = FixSources },
         ],
     };
 
@@ -106,19 +106,19 @@ public static class ShippedFlows
         Closes = "completed",
         Steps =
         [
-            Action("gated-merge", SoftwareActions.GatedMerge,
+            SystemStep("gated-merge", SoftwareSystemSteps.GatedMerge,
                 On("merged", Flow.End, MergedCap),
                 On("pending", "wait-for-checks", MergePendingCap),
                 On("behind", "worktree", MergePendingCap)),
             new FlowStep
             {
                 Name = "wait-for-checks",
-                Action = CoreActions.Timer,
+                SystemStep = CoreSystemSteps.Timer,
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(MergeWaitSeconds) },
                 Transitions = [On("done", "gated-merge", MergePendingCap)],
             },
-            Action("worktree", SoftwareActions.Worktree, On("done", "rebase", MergeRebaseCap)),
-            Action("rebase", SoftwareActions.Rebase, On("done", "wait-for-checks", MergeRebaseCap)),
+            SystemStep("worktree", SoftwareSystemSteps.Worktree, On("done", "rebase", MergeRebaseCap)),
+            SystemStep("rebase", SoftwareSystemSteps.Rebase, On("done", "wait-for-checks", MergeRebaseCap)),
         ],
     };
 
@@ -131,9 +131,9 @@ public static class ShippedFlows
         SpawnCap = 3,
         Steps =
         [
-            Judgment("discover", "discovery", "discovery",
+            AgentStep("discover", "discovery", "discovery",
                 On("derive", "derive-parcels"), On("carry-forward", Flow.End)),
-            Action("derive-parcels", CoreActions.DeriveParcels, On("done", Flow.End)),
+            SystemStep("derive-parcels", CoreSystemSteps.DeriveParcels, On("done", Flow.End)),
         ],
     };
 
@@ -146,7 +146,7 @@ public static class ShippedFlows
         SpawnCap = 2,
         Steps =
         [
-            Judgment("review", "reviewer-adversarial", "review",
+            AgentStep("review", "reviewer-adversarial", "review",
                 On("clean", Flow.End), On("not-clean", Flow.End)),
         ],
     };
@@ -159,9 +159,9 @@ public static class ShippedFlows
     private static FlowTransition On(string verdict, string target, int visitCap = DefaultCap) =>
         new() { Field = Verdict, Value = FlowValue.Of(verdict), VisitCap = visitCap, Target = target };
 
-    private static FlowStep Judgment(string name, string agent, string answerSchema, params FlowTransition[] transitions) =>
+    private static FlowStep AgentStep(string name, string agent, string answerSchema, params FlowTransition[] transitions) =>
         new() { Name = name, Agent = agent, AnswerSchema = answerSchema, Transitions = transitions };
 
-    private static FlowStep Action(string name, string action, params FlowTransition[] transitions) =>
-        new() { Name = name, Action = action, Transitions = transitions };
+    private static FlowStep SystemStep(string name, string systemStep, params FlowTransition[] transitions) =>
+        new() { Name = name, SystemStep = systemStep, Transitions = transitions };
 }

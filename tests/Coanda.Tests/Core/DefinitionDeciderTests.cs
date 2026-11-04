@@ -224,10 +224,10 @@ public sealed class DefinitionDeciderTests
         CommandRegistry.Require("definition.retire", Principal.LocalOwner).Should().NotBeNull();
     }
 
-    private static DefinitionDrafted DraftFlow(Flow flow, string? name = null, string? hash = null, IReadOnlySet<string>? actions = null) =>
+    private static DefinitionDrafted DraftFlow(Flow flow, string? name = null, string? hash = null, IReadOnlySet<string>? systemSteps = null) =>
         DefinitionDecider.Draft(
             DefinitionKind.Flow, name ?? flow.Name, DefinitionScope.Project, "alpha", 0,
-            Flow.CanonicalJson(flow), hash ?? flow.Hash, null, "brian", Now, knownActions: actions ?? ShippedActions.Names);
+            Flow.CanonicalJson(flow), hash ?? flow.Hash, null, "brian", Now, knownSystemSteps: systemSteps ?? ShippedSystemSteps.Names);
 
     [Fact]
     public void A_valid_flow_is_drafted_with_its_hash_and_content_that_reads_back()
@@ -249,28 +249,28 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
-    public void A_flow_naming_an_action_absent_from_the_names_passed_in_is_refused_even_when_a_catalog_holds_it()
+    public void A_flow_naming_a_system_step_absent_from_the_names_passed_in_is_refused_even_when_a_catalog_holds_it()
     {
-        var withoutGates = new HashSet<string>(ShippedActions.Names.Where(a => a != SoftwareActions.Gates), StringComparer.Ordinal);
-        var withoutMove = new HashSet<string>(ShippedActions.Names.Where(a => a != CoreActions.MoveParcel), StringComparer.Ordinal);
+        var withoutGates = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != SoftwareSystemSteps.Gates), StringComparer.Ordinal);
+        var withoutMove = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != CoreSystemSteps.MoveParcel), StringComparer.Ordinal);
 
-        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build, actions: withoutGates))
-            .Should().Throw<DomainException>().WithMessage("*names the action 'gates', which is not a known action*");
-        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build, actions: withoutMove))
-            .Should().Throw<DomainException>().WithMessage("*names the action 'move-parcel', which is not a known action*");
+        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build, systemSteps: withoutGates))
+            .Should().Throw<DomainException>().WithMessage("*names the system step 'gates', which is not a known system step*");
+        FluentActions.Invoking(() => DraftFlow(ShippedFlows.Build, systemSteps: withoutMove))
+            .Should().Throw<DomainException>().WithMessage("*names the system step 'move-parcel', which is not a known system step*");
     }
 
     [Fact]
-    public void A_flow_naming_an_action_among_the_names_passed_in_is_drafted_even_when_neither_catalog_holds_it()
+    public void A_flow_naming_a_system_step_among_the_names_passed_in_is_drafted_even_when_neither_catalog_holds_it()
     {
-        FlowStep[] steps = [.. ShippedFlows.Build.Steps.Select(s => s.Action == SoftwareActions.Gates ? s with { Action = "teleport" } : s)];
+        FlowStep[] steps = [.. ShippedFlows.Build.Steps.Select(s => s.SystemStep == SoftwareSystemSteps.Gates ? s with { SystemStep = "teleport" } : s)];
         Flow teleporting = ShippedFlows.Build with { Steps = steps };
-        CoreActions.All.Concat(SoftwareActions.All).Should().NotContain("teleport");
+        CoreSystemSteps.All.Concat(SoftwareSystemSteps.All).Should().NotContain("teleport");
 
         FluentActions.Invoking(() => DraftFlow(teleporting))
-            .Should().Throw<DomainException>().WithMessage("*names the action 'teleport', which is not a known action*");
+            .Should().Throw<DomainException>().WithMessage("*names the system step 'teleport', which is not a known system step*");
 
-        DefinitionDrafted drafted = DraftFlow(teleporting, actions: new HashSet<string>([.. ShippedActions.Names, "teleport"], StringComparer.Ordinal));
+        DefinitionDrafted drafted = DraftFlow(teleporting, systemSteps: new HashSet<string>([.. ShippedSystemSteps.Names, "teleport"], StringComparer.Ordinal));
         drafted.ContentHash.Should().Be(teleporting.Hash);
     }
 
@@ -280,8 +280,8 @@ public sealed class DefinitionDeciderTests
         ShippedDefinition build = ShippedDefinition.FromFlow(ShippedFlows.Build);
 
         FluentActions.Invoking(() => DefinitionDecider.Seed(build, 0, "seed", Now))
-            .Should().Throw<DomainException>().WithMessage("*which is not a known action*");
-        DefinitionDecider.Seed(build, 0, "seed", Now, ShippedActions.Names).Drafted.ContentHash.Should().Be(ShippedFlows.Build.Hash);
+            .Should().Throw<DomainException>().WithMessage("*which is not a known system step*");
+        DefinitionDecider.Seed(build, 0, "seed", Now, ShippedSystemSteps.Names).Drafted.ContentHash.Should().Be(ShippedFlows.Build.Hash);
     }
 
     [Fact]
@@ -314,7 +314,7 @@ public sealed class DefinitionDeciderTests
     public void Seeding_a_shipped_flow_produces_a_published_shipped_scope_definition()
     {
         (DefinitionDrafted drafted, DefinitionPublished published) =
-            DefinitionDecider.Seed(ShippedDefinition.FromFlow(ShippedFlows.Discovery), 0, "seed", Now, ShippedActions.Names);
+            DefinitionDecider.Seed(ShippedDefinition.FromFlow(ShippedFlows.Discovery), 0, "seed", Now, ShippedSystemSteps.Names);
 
         drafted.Kind.Should().Be(DefinitionKind.Flow);
         drafted.Scope.Should().Be(DefinitionScope.Shipped);

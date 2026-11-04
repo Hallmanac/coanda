@@ -14,11 +14,11 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Executor.Should().BeOfType<ClaudeCodeExecutor>("a cold install runs its judgments on Claude Code")
+        options.Executor.Should().BeOfType<ClaudeCodeExecutor>("a cold install runs its agent steps on Claude Code")
             .Which.Executable.Should().Be("claude");
         options.Profiles.Should().BeEmpty();
         options.Gates.Should().BeEmpty();
-        options.JudgmentLimit.Should().Be(DaemonOptions.DefaultJudgmentLimit);
+        options.AgentStepLimit.Should().Be(DaemonOptions.DefaultAgentStepLimit);
     }
 
     [Fact]

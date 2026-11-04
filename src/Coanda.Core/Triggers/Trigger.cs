@@ -6,7 +6,7 @@ namespace Coanda.Core.Triggers;
 /// <summary>
 /// An event kind plus equality filters, and nothing more: it matches an event of its kind when
 /// every filter names a field the event carries and that field's value equals the filter's value
-/// exactly. A trigger never computes; a need beyond equality is a judgment step.
+/// exactly. A trigger never computes; a need beyond equality is an agent step.
 /// </summary>
 public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, string> Filters)
 {

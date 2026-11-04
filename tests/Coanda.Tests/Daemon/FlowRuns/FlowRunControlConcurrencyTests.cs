@@ -41,7 +41,7 @@ public sealed class FlowRunControlConcurrencyTests
         stopped.Status.Should().Be(FlowRunStatus.Stopped);
         stopped.StopReason.Should().Be("Not wanted.");
         stopped.Current?.SessionId.Should().Be(session, "the stop read the flow run again, the session record included");
-        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(JudgmentSessionOpened), typeof(FlowRunStopped)]);
+        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(AgentStepSessionOpened), typeof(FlowRunStopped)]);
     }
 
     [Fact]
@@ -61,11 +61,11 @@ public sealed class FlowRunControlConcurrencyTests
         paused.Status.Should().Be(FlowRunStatus.Paused);
         paused.PauseReason.Should().Be("Hold on.");
         paused.Current?.SessionId.Should().Be(session, "the pause read the flow run again, the session record included");
-        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(JudgmentSessionOpened), typeof(FlowRunPaused)]);
+        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(AgentStepSessionOpened), typeof(FlowRunPaused)]);
     }
 
     [Fact]
-    public async Task A_resume_whose_read_a_dropped_judgments_usage_record_overtakes_reads_again_and_resumes_the_flow_run()
+    public async Task A_resume_whose_read_a_dropped_agent_steps_usage_record_overtakes_reads_again_and_resumes_the_flow_run()
     {
         using var temp = new TemporaryHome();
         var interjection = new Interjection();
@@ -82,7 +82,7 @@ public sealed class FlowRunControlConcurrencyTests
         interjection.Fired.Should().Be(1, "the usage record landed inside the resume's save");
         resumed.Status.Should().Be(FlowRunStatus.Running);
         resumed.Cost.Should().Be(Scripts.Usage(1).CostUsd, "the resume read the flow run again, the usage record included");
-        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(JudgmentUsageRecorded), typeof(FlowRunResumed)]);
+        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(AgentStepUsageRecorded), typeof(FlowRunResumed)]);
     }
 
     /// <summary>Opens a seeded store whose every save runs <paramref name="interjection"/> first.</summary>
@@ -93,19 +93,19 @@ public sealed class FlowRunControlConcurrencyTests
             StoreConfiguration.Configure(options, temp.Home.DatabasePath);
             options.Listeners.Add(interjection);
         });
-        await new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names).SeedAsync(ShippedDefinitions.All, None);
+        await new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names).SeedAsync(ShippedDefinitions.All, None);
         await RegisteredProjects.AddAsync(store, Project, None);
         return store;
     }
 
-    /// <summary>A build flow run at its judgment step, with the launch recorded and no session yet, as the runner leaves it just before the spawn returns.</summary>
+    /// <summary>A build flow run at its agent step, with the launch recorded and no session yet, as the runner leaves it just before the spawn returns.</summary>
     private static async Task<FlowRun> LaunchedBuildAsync(IDocumentStore store, FlowRunService flowRuns)
     {
         var parcels = new ParcelService(store, TimeProvider.System);
         var parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Raced", null, None);
         FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
         await flowRuns.RecordResultAsync(
-            Runner, Project, flowRun.Id, "worktree", SoftwareActions.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
+            Runner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
         await flowRuns.StartStepAsync(Runner, Project, flowRun.Id, "build", None);
         return await flowRuns.SpawnedAsync(Runner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
     }

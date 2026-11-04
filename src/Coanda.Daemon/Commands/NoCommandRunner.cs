@@ -2,7 +2,7 @@ namespace Coanda.Daemon.Commands;
 
 /// <summary>
 /// The runner a daemon host uses when its options supply none: it starts nothing and fails every
-/// command as one that cannot be started, so an action that needs a command pauses rather than
+/// command as one that cannot be started, so a system step that needs a command pauses rather than
 /// acting on the host it happens to run on. <c>coa daemon run</c> supplies the real runner.
 /// </summary>
 public sealed class NoCommandRunner : ICommandRunner

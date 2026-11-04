@@ -159,7 +159,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         (string, string)[] enclosing = [.. ClaudeCodeInvocation.EnclosingSessionVariables.Select(name => (name, "from-the-enclosing-session"))];
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment([.. enclosing, ("KEPT", "yes")]));
 
-        await Judgment.RunAsync(executor, Request(), None);
+        await AgentStep.RunAsync(executor, Request(), None);
 
         ClaudeCodeInvocation.EnclosingSessionVariables.Should().Contain(
         [
@@ -271,9 +271,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         var profile = new CredentialProfile("claude-code", "work", "/profiles/work", null);
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment(("ANTHROPIC_API_KEY", "sk-placeholder")));
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(profile), None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(profile), None);
 
-        JudgmentOutcome.Answered answered = outcome.Should().BeOfType<JudgmentOutcome.Answered>().Subject;
+        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
         answered.Answer.Should().Be(ValidBuild, "a document in a code fence that ends the reply counts as trailing");
         answered.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)), "the sum of both attempts, its cost the session's cost after the retry");
 
@@ -303,9 +303,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             coa);
         var access = new SessionAccess("issued-session-token", temp.Home.Path, Project);
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request() with { Access = access }, None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request() with { Access = access }, None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Answered>();
+        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
         fake.Starts.Should().HaveCount(2, "the spawn's process and the retry's process");
         foreach (FakeClaude.Start start in fake.Starts)
         {
@@ -341,9 +341,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             FakeClaude.Answering(ValidBuild, 0.1m, 0.2m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(), None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Answered>();
+        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
         string persona = ClaudeCodeInvocation.Persona(ShippedAgents.Build.Persona);
         fake.Starts.Select(s => s.Persona).Should().Equal(persona, persona);
     }
@@ -369,9 +369,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering("No document here.", cost: 2.5m, totalCost: 2.5m), FakeClaude.Answering(ValidBuild, 0.1m, 2.6m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        var spend = new JudgmentSpend();
+        var spend = new AgentStepSpend();
 
-        await FluentActions.Awaiting(() => Judgment.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
+        await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
             .Should().ThrowAsync<InvalidOperationException>().WithMessage("*has already cost $2.50 of its cost ceiling of $2.50, so no claude process was started to resume it.");
 
         fake.Starts.Should().ContainSingle();
@@ -386,7 +386,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             new { reply = ValidBuild, totalCost = 0.45m, turns = 1, durationMs = 700, usage = new { input = 5, output = 6, cacheCreation = 7, cacheRead = 8 } });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(), None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
         outcome.Usage.Should().Be(new Measurement(100 + 26, 0.45m, 3, TimeSpan.FromMilliseconds(2200)));
     }
@@ -409,21 +409,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(), None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Answered>().Which.Answer.Should().Be(ValidBuild);
+        outcome.Should().BeOfType<AgentStepOutcome.Answered>().Which.Answer.Should().Be(ValidBuild);
         outcome.Usage.Should().Be(new Measurement(110, 0.9m, 7, TimeSpan.FromSeconds(61)), "every model in model_usage_since_last_result is summed");
     }
 
     [Fact]
-    public async Task A_judgment_with_no_valid_answer_after_its_retry_pauses_on_the_transcript_that_holds_both_processes_output()
+    public async Task An_agent_step_with_no_valid_answer_after_its_retry_pauses_on_the_transcript_that_holds_both_processes_output()
     {
         using var fake = new FakeClaude(FakeClaude.Answering("Nope.", 0.1m, 0.1m), FakeClaude.Answering("Still nope.", 0.1m, 0.2m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(), None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        JudgmentOutcome.Paused paused = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
+        AgentStepOutcome.Paused paused = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
         paused.Lever.Should().Be(Path.Combine(TranscriptDirectory, $"{paused.Session.Id}.jsonl"));
         string[] lines = await File.ReadAllLinesAsync(paused.Lever);
         lines.Count(l => l.Contains("\"subtype\":\"init\"", StringComparison.Ordinal)).Should().Be(2, "a resume appends its output to the session's transcript");
@@ -432,8 +432,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         Directory.EnumerateFiles(WorkDirectory, "*", SearchOption.AllDirectories).Should().OnlyContain(f => Path.GetFileName(Path.GetDirectoryName(f)) == ".coanda");
 
         fake.Script(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
-        JudgmentOutcome later = await Judgment.RunAsync(executor, Request(), None);
-        later.Should().BeOfType<JudgmentOutcome.Answered>().Which.TranscriptPath.Should().Be(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl"));
+        AgentStepOutcome later = await AgentStep.RunAsync(executor, Request(), None);
+        later.Should().BeOfType<AgentStepOutcome.Answered>().Which.TranscriptPath.Should().Be(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl"));
         Directory.GetFiles(TranscriptDirectory).Should().HaveCount(2, "a later spawn on the same flow run writes a transcript of its own");
     }
 
@@ -454,9 +454,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             sinceLast = new Dictionary<string, object> { ["claude-sonnet-5-5"] = new { input = 11, output = 22, cacheCreation = 33, cacheRead = 44, cost = 2.6m } },
         });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        var spend = new JudgmentSpend();
+        var spend = new AgentStepSpend();
 
-        await FluentActions.Awaiting(() => Judgment.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
+        await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
             .Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($2.5); second");
 
@@ -484,9 +484,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string last = "fatal: " + new string('e', 600);
         using var fake = new FakeClaude(new { result = "none", stderr = new[] { "first line", last, "" }, exitCode = 2 });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        var spend = new JudgmentSpend();
+        var spend = new AgentStepSpend();
 
-        InvalidOperationException failure = (await FluentActions.Awaiting(() => Judgment.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
+        InvalidOperationException failure = (await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
             .Should().ThrowAsync<InvalidOperationException>()).Which;
 
         failure.Message.Should().Be($"The claude process exited with code 2 without a result; the last line of its error output was: {last[..500]}");
@@ -604,7 +604,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_session_whose_process_answered_while_no_daemon_ran_answers_its_reattached_judgment_though_the_limit_has_passed()
+    public async Task A_session_whose_process_answered_while_no_daemon_ran_answers_its_reattached_agent_step_though_the_limit_has_passed()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
         SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
@@ -615,9 +615,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Subject;
         using var limit = new CancellationTokenSource();
         await limit.CancelAsync();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, limit.Token);
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, limit.Token);
 
-        JudgmentOutcome.Answered answered = outcome.Should().BeOfType<JudgmentOutcome.Answered>().Subject;
+        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
         answered.Answer.Should().Be(ValidBuild);
         answered.Usage.CostUsd.Should().Be(0.3m);
         fake.Starts.Should().ContainSingle();
@@ -637,9 +637,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         reattached.Should().Be(ReattachedSession.OnSpawn(handle));
         fake.Release();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
-        JudgmentOutcome.Answered answered = outcome.Should().BeOfType<JudgmentOutcome.Answered>().Subject;
+        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
         answered.Answer.Should().Be(ValidBuild);
         answered.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)));
         fake.Starts.Should().HaveCount(2);
@@ -663,9 +663,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         var reissued = new SessionAccess("second-daemon-token", temp.Home.Path, Project);
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, reissued, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         fake.Release();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Answered>();
+        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
         fake.Starts.Should().HaveCount(2);
         FakeClaude.Start retry = fake.Starts[1];
         retry.Environment.Should().Contain(SessionAccess.TokenVariable, "second-daemon-token")
@@ -689,7 +689,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home, coaDirectory: coa);
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         fake.Release();
-        await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
+        await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
         fake.Starts.Should().HaveCount(2);
         string path = fake.Starts[1].Environment.Single(v => string.Equals(v.Key, "PATH", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).Value;
@@ -713,10 +713,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         reattached.Should().Be(new ReattachedSession(handle, 2, invalid.Usage), "the record says the session is on its retry and what its first turn returned");
         fake.Release();
-        var spend = new JudgmentSpend();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend, CancellationToken.None, None, None);
+        var spend = new AgentStepSpend();
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend, CancellationToken.None, None, None);
 
-        JudgmentOutcome.Paused paused = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
+        AgentStepOutcome.Paused paused = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
         paused.Reason.Should().Contain("after one retry");
         paused.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)));
         spend.Reported.Should().Be(paused.Usage);
@@ -921,9 +921,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             coaDirectory,
             [work, other, helper]);
 
-        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(work), None);
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(work), None);
 
-        outcome.Should().BeOfType<JudgmentOutcome.Answered>();
+        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
         ClaudeCodeInvocation.HookSkippingVariables.Should().Contain(["CLAUDE_CODE_SAFE_MODE", "CLAUDE_CODE_SIMPLE"]);
         fake.Starts.Should().HaveCount(2, "the spawn's process and the retry's process");
         foreach (FakeClaude.Start start in fake.Starts)
@@ -992,7 +992,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         return ToolGuardRules.Parse(arguments, out _) ?? throw new InvalidOperationException("The hook's arguments do not parse.");
     }
 
-    private JudgmentRequest Request(CredentialProfile? profile = null) =>
+    private AgentStepRequest Request(CredentialProfile? profile = null) =>
         new(ShippedAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, profile);
 
     // A session process holds the transcript open for writing while it runs, and Windows refuses

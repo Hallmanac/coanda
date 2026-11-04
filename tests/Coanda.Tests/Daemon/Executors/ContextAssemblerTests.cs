@@ -139,7 +139,7 @@ public sealed class ContextAssemblerTests
     private static FlowRunStepEntry Visit(string step, string? answer, string? result = null, int minutes = 0) => new()
     {
         Step = step,
-        Kind = answer is null && result is not null ? StepKind.Action : StepKind.Judgment,
+        Kind = answer is null && result is not null ? StepKind.SystemStep : StepKind.AgentStep,
         Performer = step,
         StartedAt = Recorded,
         Answer = answer is null ? null : Json(answer),
@@ -255,10 +255,10 @@ public sealed class ContextAssemblerTests
         {
             [agent.Name] = [new ScriptEntry("""{"verdict":"clean","findings":[]}""", "/t/1.jsonl", new Measurement(1, 0.01m, 1, TimeSpan.FromSeconds(1)))],
         });
-        var request = new JudgmentRequest(
+        var request = new AgentStepRequest(
             agent, ContextAssembler.Assemble(TaskParcel(), Step, []), "/work/tree", new SpawnCaps(1m, TimeSpan.FromMinutes(5)), AnswerSchemas.Review);
 
-        await Judgment.RunAsync(executor, request, CancellationToken.None);
+        await AgentStep.RunAsync(executor, request, CancellationToken.None);
 
         string context = executor.Spawns.Should().ContainSingle().Subject.Context;
         context.Should().Contain("Teach the daemon to reach agents").And.Contain("build").And.Contain("review-adversarial");

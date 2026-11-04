@@ -23,7 +23,7 @@ public sealed class FlowTests
     private static FlowStep Act(string name = "act") => new()
     {
         Name = name,
-        Action = "do-thing",
+        SystemStep = "do-thing",
         Arguments = new Dictionary<string, JsonElement> { ["stage"] = FlowValue.Of("review"), ["count"] = FlowValue.Of(2) },
         Transitions = [On("done", Flow.End), On("failed", "judge")],
     };
@@ -61,11 +61,11 @@ public sealed class FlowTests
         { "two steps with one name", Valid() with { Steps = [Judge(), Act("judge")] }, "has two steps named 'judge'" },
         { "a step named pause", Valid() with { Steps = [Judge("pause"), Act()] }, "has a step named 'pause'" },
         { "a step named end", Valid() with { Steps = [Judge(), Act("end")] }, "has a step named 'end'" },
-        { "an agent and an action", WithFirstStep(s => s with { Action = "do-thing" }), "must name an agent (a judgment) or an action, and exactly one of them" },
-        { "neither agent nor action", WithFirstStep(s => s with { Agent = null }), "must name an agent (a judgment) or an action, and exactly one of them" },
-        { "a judgment without a schema", WithFirstStep(s => s with { AnswerSchema = null }), "needs an agent and an answer schema" },
-        { "a judgment with a blank schema", WithFirstStep(s => s with { AnswerSchema = " " }), "needs an agent and an answer schema" },
-        { "an unknown action", WithActStep(s => s with { Action = "worktree" }), "names the action 'worktree', which is not a known action" },
+        { "an agent and a system step", WithFirstStep(s => s with { SystemStep = "do-thing" }), "must name an agent (an agent step) or a system step, and exactly one of them" },
+        { "neither agent nor system step", WithFirstStep(s => s with { Agent = null }), "must name an agent (an agent step) or a system step, and exactly one of them" },
+        { "an agent step without a schema", WithFirstStep(s => s with { AnswerSchema = null }), "needs an agent and an answer schema" },
+        { "an agent step with a blank schema", WithFirstStep(s => s with { AnswerSchema = " " }), "needs an agent and an answer schema" },
+        { "an unknown system step", WithActStep(s => s with { SystemStep = "worktree" }), "names the system step 'worktree', which is not a known system step" },
         { "an argument with a spaced name", WithActStep(s => s with { Arguments = new Dictionary<string, JsonElement> { ["a name"] = FlowValue.Of("x") } }), "an argument name is plain" },
         { "an argument with a dotted name", WithActStep(s => s with { Arguments = new Dictionary<string, JsonElement> { ["a.b"] = FlowValue.Of("x") } }), "an argument name is plain" },
         { "an object argument", WithActStep(s => s with { Arguments = new Dictionary<string, JsonElement> { ["a"] = Json("""{"x":1}""") } }), "Argument 'a' of step 'act' in flow 'sample' must be a JSON string, number, or boolean." },
@@ -114,10 +114,10 @@ public sealed class FlowTests
     }
 
     [Fact]
-    public void Validation_takes_the_known_actions_as_an_input()
+    public void Validation_takes_the_known_system_steps_as_an_input()
     {
         FluentActions.Invoking(() => Valid().Validate(new HashSet<string> { "other" }))
-            .Should().Throw<DomainException>().WithMessage("*names the action 'do-thing'*");
+            .Should().Throw<DomainException>().WithMessage("*names the system step 'do-thing'*");
     }
 
     [Fact]
@@ -302,15 +302,15 @@ public sealed class FlowTests
             ],
         };
 
-        flow.Hash.Should().Be("91a9dc95e3c8a460");
+        flow.Hash.Should().Be("c7d6781a3fc6c3ff");
     }
 
     [Fact]
-    public void The_flow_shape_and_its_validation_name_no_software_action()
+    public void The_flow_shape_and_its_validation_name_no_software_system_step()
     {
         string source = File.ReadAllText(SourceFile("Flows", "Flow.cs"));
 
-        foreach (string software in new[] { "worktree", "gates", "open-pr", "gated-merge", "rebase", "SoftwareActions" })
+        foreach (string software in new[] { "worktree", "gates", "open-pr", "gated-merge", "rebase", "SoftwareSystemSteps" })
         {
             source.Should().NotContain(software);
         }

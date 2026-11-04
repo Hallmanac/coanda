@@ -30,12 +30,12 @@ public sealed class FlowRunStoreTests
         return document.RootElement.Clone();
     }
 
-    /// <summary>Starts a build flow run and runs it through its worktree action into the build judgment, answered.</summary>
+    /// <summary>Starts a build flow run and runs it through its worktree system step into the build agent step, answered.</summary>
     private static async Task<FlowRun> RunToAnsweredBuildAsync(FlowRunService flowRuns, Guid parcelId)
     {
         CancellationToken none = CancellationToken.None;
         FlowRun flowRun = await flowRuns.StartAsync(Owner, Project, parcelId, "build", none);
-        await flowRuns.RecordResultAsync(Owner, Project, flowRun.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done","path":"/tmp/wt","reused":false}"""), none);
+        await flowRuns.RecordResultAsync(Owner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, Json("""{"verdict":"done","path":"/tmp/wt","reused":false}"""), none);
         await flowRuns.StartStepAsync(Owner, Project, flowRun.Id, "build", none);
         Guid session = Ids.New();
         await flowRuns.SpawnedAsync(Owner, Project, flowRun.Id, "build", "agenthash1", Model, none);
@@ -77,7 +77,7 @@ public sealed class FlowRunStoreTests
         shown.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
 
         FlowRunStepView build = shown.Steps[1];
-        build.Kind.Should().Be("judgment");
+        build.Kind.Should().Be("agent-step");
         build.Performer.Should().Be("build");
         build.AgentHash.Should().Be("agenthash1");
         build.Model.Should().Be(Model);
@@ -196,7 +196,7 @@ public sealed class FlowRunStoreTests
         // A flow binding's start acts in the Agent role, so starting is open to it as well as to people.
         await flowRuns.StartAsync(member, Project, bySomeone.Id, "build", none);
         FlowRun flowRun = await flowRuns.StartAsync(agent, Project, parcel.Id, "build", none);
-        await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done"}"""), none);
+        await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, Json("""{"verdict":"done"}"""), none);
         await flowRuns.StartStepAsync(agent, Project, flowRun.Id, "build", none);
         await flowRuns.PauseAsync(agent, Project, flowRun.Id, "Asked a question.", "Answer it.", none);
         await FluentActions.Awaiting(() => flowRuns.ResumeAsync(agent, Project, flowRun.Id, null, none))
@@ -234,8 +234,8 @@ public sealed class FlowRunStoreTests
         lines.Should().Contain("Lever   Answer it in the journal.");
         int steps = lines.ToList().IndexOf("Steps");
         lines.Skip(steps + 1).Should().Equal(
-            "  worktree  action worktree  verdict=done  path=/tmp/wt  reused=false",
-            "  build  judgment build  verdict=done  files=3  tokens 1200, cost $0.42, 63s");
+            "  worktree  system-step worktree  verdict=done  path=/tmp/wt  reused=false",
+            "  build  agent-step build  verdict=done  files=3  tokens 1200, cost $0.42, 63s");
 
         List<FlowRunView> listed = await client.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}&parcel={parcel.Id}", none);
         FlowRunView row = listed.Should().ContainSingle().Subject;

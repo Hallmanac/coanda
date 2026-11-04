@@ -49,9 +49,9 @@ public sealed class FlowRunAdvancerTests
             .Should().Equal([started.Id, merge.Id], "the binding starts one flow run for the one entry to build, and the merge follows its end");
         flowRun.Steps.Select(s => s.Step).Should().Equal(CleanPath, "each go-to records the step it enters");
         flowRun.Steps.Should().OnlyContain(s => s.RecordedAt != null);
-        ExpectJudgment(flowRun.Steps[1], ShippedAgents.Build, 1);
-        ExpectJudgment(flowRun.Steps[3], ShippedAgents.ReviewerAdversarial, 2);
-        ExpectJudgment(flowRun.Steps[4], ShippedAgents.ReviewerConformance, 3);
+        ExpectAgentStep(flowRun.Steps[1], ShippedAgents.Build, 1);
+        ExpectAgentStep(flowRun.Steps[3], ShippedAgents.ReviewerAdversarial, 2);
+        ExpectAgentStep(flowRun.Steps[4], ShippedAgents.ReviewerConformance, 3);
         flowRun.Steps[0].Result.GetValueOrDefault().GetProperty("branch").GetString().Should().Be($"coanda/{Ids.Short(parcel.Id)}");
         JsonElement gates = flowRun.Steps[2].Result.GetValueOrDefault();
         gates.GetProperty("verdict").GetString().Should().Be("done");
@@ -64,11 +64,11 @@ public sealed class FlowRunAdvancerTests
 
         ScriptedSpawn build = executor.Spawns[0];
         build.WorkingDirectory.Should().Be(temp.Home.FlowRunWorkPath(Project, started.Id));
-        build.Caps.Should().Be(new SpawnCaps(ShippedFlows.Build.Budget, DaemonOptions.DefaultJudgmentLimit));
+        build.Caps.Should().Be(new SpawnCaps(ShippedFlows.Build.Budget, DaemonOptions.DefaultAgentStepLimit));
         build.CredentialProfile.Should().BeNull();
         build.AnswerSchema.Should().Be("build");
         build.Context.Should().Contain("Title: Run the clean path").And.Contain("Step: build");
-        executor.Stops.Should().HaveCount(3, "the runner ends each judgment's session once its answer is in hand");
+        executor.Stops.Should().HaveCount(3, "the runner ends each agent step's session once its answer is in hand");
 
         await daemon.StopAsync(None);
     }
@@ -195,7 +195,7 @@ public sealed class FlowRunAdvancerTests
                 new FlowStep
                 {
                     Name = "approve",
-                    Action = CoreActions.WaitForHuman,
+                    SystemStep = CoreSystemSteps.WaitForHuman,
                     Arguments = new Dictionary<string, JsonElement> { ["lever"] = FlowValue.Of("Read the task and resume to approve it.") },
                     Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                 },
@@ -223,7 +223,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_second_request_while_a_judgment_runs_does_not_perform_the_step_twice()
+    public async Task A_second_request_while_an_agent_step_runs_does_not_perform_the_step_twice()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
@@ -272,11 +272,11 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_judgment_past_the_wall_clock_limit_is_stopped_and_pauses_its_flow_run_with_no_answer()
+    public async Task An_agent_step_past_the_wall_clock_limit_is_stopped_and_pauses_its_flow_run_with_no_answer()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor());
-        var options = new DaemonOptions { Executor = executor, JudgmentLimit = TimeSpan.FromMilliseconds(300) };
+        var options = new DaemonOptions { Executor = executor, AgentStepLimit = TimeSpan.FromMilliseconds(300) };
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
@@ -285,7 +285,7 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        flowRun.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, so its session was stopped.");
+        flowRun.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 0.3 seconds for one agent step, so its session was stopped.");
         flowRun.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
         flowRun.Steps[^1].Step.Should().Be("build");
         flowRun.Steps[^1].Answer.Should().BeNull();
@@ -296,11 +296,11 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_judgment_past_the_wall_clock_limit_whose_session_will_not_stop_still_pauses_naming_the_limit()
+    public async Task An_agent_step_past_the_wall_clock_limit_whose_session_will_not_stop_still_pauses_naming_the_limit()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { FailStops = true };
-        var options = new DaemonOptions { Executor = executor, JudgmentLimit = TimeSpan.FromMilliseconds(300) };
+        var options = new DaemonOptions { Executor = executor, AgentStepLimit = TimeSpan.FromMilliseconds(300) };
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
@@ -309,7 +309,7 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        flowRun.PauseReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one judgment, and stopping its session failed:");
+        flowRun.PauseReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one agent step, and stopping its session failed:");
         flowRun.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
         flowRun.Steps[^1].Answer.Should().BeNull();
 
@@ -317,7 +317,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_judgment_step_naming_its_agent_in_another_case_records_the_answer_under_the_steps_name()
+    public async Task An_agent_step_naming_its_agent_in_another_case_records_the_answer_under_the_steps_name()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("done", 1)] });
@@ -376,7 +376,7 @@ public sealed class FlowRunAdvancerTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowRunView after = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        after.PauseReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing judgment step 'first' again would spawn another agent.");
+        after.PauseReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing agent step 'first' again would spawn another agent.");
         after.Lever.Should().Be(FlowRunLevers.SpawnCapReached(capped.Name));
         executor.Spawns.Should().ContainSingle("a resume never spawns past the flow's cap");
         after.Steps.Should().ContainSingle();
@@ -385,7 +385,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_resume_of_a_judgment_that_paused_without_an_answer_counts_its_spawn_and_pauses_at_the_cap()
+    public async Task A_resume_of_an_agent_step_that_paused_without_an_answer_counts_its_spawn_and_pauses_at_the_cap()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -416,14 +416,14 @@ public sealed class FlowRunAdvancerTests
 
         second.PauseReason.Should().Contain("gave no valid 'build' answer");
         executor.Spawns.Should().HaveCount(2);
-        second.Spawns.Should().Be(2, "the resume spawned the judgment again and counted it");
+        second.Spawns.Should().Be(2, "the resume spawned the agent step again and counted it");
         second.Steps.Should().ContainSingle("the resume performed the same visit again rather than entering the step anew");
         second.Steps[0].Answer.Should().BeNull();
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         FlowRunView capped = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        capped.PauseReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing judgment step 'build' again would spawn another agent.");
+        capped.PauseReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing agent step 'build' again would spawn another agent.");
         capped.Lever.Should().Be(FlowRunLevers.SpawnCapReached(refused.Name));
         executor.Spawns.Should().HaveCount(2, "a resume never spawns past the flow's cap");
         capped.Spawns.Should().Be(2);
@@ -432,7 +432,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_resume_of_a_judgment_that_paused_without_an_answer_routes_its_answer_within_a_visit_cap_of_one()
+    public async Task A_resume_of_an_agent_step_that_paused_without_an_answer_routes_its_answer_within_a_visit_cap_of_one()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -467,7 +467,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_resumed_judgment_that_answers_after_counting_its_spawn_routes_against_that_count_and_pauses_at_the_cap()
+    public async Task A_resumed_agent_step_that_answers_after_counting_its_spawn_routes_against_that_count_and_pauses_at_the_cap()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -479,7 +479,7 @@ public sealed class FlowRunAdvancerTests
         using var client = new DaemonClient(temp.Home);
         Flow chained = await Publishing.FlowAsync(daemon, Project, new Flow
         {
-            Name = "two-judgments",
+            Name = "two-agent-steps",
             Accepts = ["task"],
             Outcome = "built",
             Budget = 10m,
@@ -502,7 +502,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_resume_of_a_judgment_that_paused_before_its_agent_launched_performs_it_without_counting_another_spawn()
+    public async Task A_resume_of_an_agent_step_that_paused_before_its_agent_launched_performs_it_without_counting_another_spawn()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -544,7 +544,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_judgment_that_pauses_after_two_invalid_answers_shows_its_agent_hash_and_model_spec_beside_the_pauses_usage()
+    public async Task An_agent_step_that_pauses_after_two_invalid_answers_shows_its_agent_hash_and_model_spec_beside_the_pauses_usage()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -653,7 +653,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_daemon_stop_cancels_the_judgment_in_progress_recording_nothing_and_the_next_start_carries_the_flow_run_on()
+    public async Task A_daemon_stop_cancels_the_agent_step_in_progress_recording_nothing_and_the_next_start_carries_the_flow_run_on()
     {
         using var temp = new TemporaryHome();
         Guid flowRunId;
@@ -737,7 +737,7 @@ public sealed class FlowRunAdvancerTests
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             await flowRuns.RecordResultAsync(
-                Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareActions.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
+                Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
             await flowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRun.Id, "build", None);
             Guid session = Ids.New();
             await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
@@ -764,7 +764,7 @@ public sealed class FlowRunAdvancerTests
     }
 
     [Fact]
-    public async Task A_flow_run_stopped_while_its_judgment_runs_records_nothing_more_and_other_flow_runs_still_advance()
+    public async Task A_flow_run_stopped_while_its_agent_step_runs_records_nothing_more_and_other_flow_runs_still_advance()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -780,7 +780,7 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView doomed = await FlowRunDriver.BoundAsync(client, Project, first.Id);
 
-        // Collecting, not Spawned: the stop is meant to find the judgment held in its collect, past
+        // Collecting, not Spawned: the stop is meant to find the agent step held in its collect, past
         // the spawn and the session record that follows it.
         await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
         await FlowRunDriver.StopAsync(client, Project, doomed.Id, "Not needed any more.");
@@ -831,9 +831,9 @@ public sealed class FlowRunAdvancerTests
         return flow;
     }
 
-    private static void ExpectJudgment(FlowRunStepView step, AgentDefinition agent, int ordinal)
+    private static void ExpectAgentStep(FlowRunStepView step, AgentDefinition agent, int ordinal)
     {
-        step.Kind.Should().Be("judgment");
+        step.Kind.Should().Be("agent-step");
         step.Performer.Should().Be(agent.Name);
         step.AgentHash.Should().Be(agent.Hash);
         step.Model.Should().Be(agent.Model);

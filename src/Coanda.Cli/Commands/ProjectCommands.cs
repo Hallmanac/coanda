@@ -88,7 +88,7 @@ public sealed class ProjectSetProfileCommand : AsyncCommand<ProjectSetProfileSet
         using var client = new DaemonClient(NodeHome.Resolve());
         ProjectView project = await client.PostAsync<ProjectView>(
             "/projects/profile", new ProjectSetProfileRequest(settings.Name, settings.Profile), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Project {project.Name} spawns its judgments with the credential profile {project.Profile ?? string.Empty} on this node.");
+        AnsiConsole.MarkupLineInterpolated($"Project {project.Name} spawns its agent steps with the credential profile {project.Profile ?? string.Empty} on this node.");
         return 0;
     }
 }

@@ -19,8 +19,8 @@ public static class DefinitionDecider
     /// version already recorded for the same kind, scope, and name (and project, in project
     /// scope), or 0 when there is none. <paramref name="knownGates"/> is every gate name the
     /// daemon runs, which a parcel type's gate bindings are validated against; the shipped gate set's when null.
-    /// <paramref name="knownActions"/> is every action name the daemon registered, which a flow's
-    /// action steps are validated against; none when null. The decider holds no catalog of either.
+    /// <paramref name="knownSystemSteps"/> is every system step name the daemon registered, which a flow's
+    /// system steps are validated against; none when null. The decider holds no catalog of either.
     /// <paramref name="shippedVersions"/> is the name and version of every shipped definition of
     /// <paramref name="kind"/>, which a fork base must name one of; none when null.
     /// </summary>
@@ -36,7 +36,7 @@ public static class DefinitionDecider
         string draftedBy,
         DateTimeOffset now,
         IReadOnlySet<string>? knownGates = null,
-        IReadOnlySet<string>? knownActions = null,
+        IReadOnlySet<string>? knownSystemSteps = null,
         IReadOnlyCollection<ForkBase>? shippedVersions = null)
     {
         if (scope == DefinitionScope.Shipped)
@@ -47,7 +47,7 @@ public static class DefinitionDecider
 
         return Build(
             kind, name, scope, project, latestVersion, content, contentHash, forkBase, shippedVersions ?? [],
-            knownGates ?? GateSet.Shipped.Names, knownActions ?? FrozenSet<string>.Empty, draftedBy, now);
+            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, draftedBy, now);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -82,14 +82,14 @@ public static class DefinitionDecider
     /// Seeds a shipped definition: the drafted and published events together, in shipped scope.
     /// The only road into that scope. A shipped parcel type is validated against the shipped gate
     /// set, the gates every daemon runs, so it binds only those. A shipped flow is validated against
-    /// <paramref name="knownActions"/>, the action names the daemon registered; none when null.
+    /// <paramref name="knownSystemSteps"/>, the system step names the daemon registered; none when null.
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published) Seed(
-        ShippedDefinition shipped, int latestVersion, string seededBy, DateTimeOffset now, IReadOnlySet<string>? knownActions = null)
+        ShippedDefinition shipped, int latestVersion, string seededBy, DateTimeOffset now, IReadOnlySet<string>? knownSystemSteps = null)
     {
         DefinitionDrafted drafted = Build(
             shipped.Kind, shipped.Name, DefinitionScope.Shipped, null, latestVersion,
-            shipped.Content, shipped.ContentHash, null, [], GateSet.Shipped.Names, knownActions ?? FrozenSet<string>.Empty, seededBy, now);
+            shipped.Content, shipped.ContentHash, null, [], GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, seededBy, now);
         return (drafted, new DefinitionPublished(drafted.DefinitionId, seededBy, now));
     }
 
@@ -104,7 +104,7 @@ public static class DefinitionDecider
         ForkBase? forkBase,
         IReadOnlyCollection<ForkBase> shippedVersions,
         IReadOnlySet<string> knownGates,
-        IReadOnlySet<string> knownActions,
+        IReadOnlySet<string> knownSystemSteps,
         string draftedBy,
         DateTimeOffset now)
     {
@@ -147,7 +147,7 @@ public static class DefinitionDecider
                 RequireParcelType(trimmedName, content, contentHash, knownGates);
                 break;
             case DefinitionKind.Flow:
-                RequireFlow(trimmedName, content, contentHash, knownActions);
+                RequireFlow(trimmedName, content, contentHash, knownSystemSteps);
                 break;
             case DefinitionKind.Agent:
                 RequireAgent(trimmedName, content, contentHash);
@@ -175,10 +175,10 @@ public static class DefinitionDecider
         }
     }
 
-    private static void RequireFlow(string name, string content, string contentHash, IReadOnlySet<string> knownActions)
+    private static void RequireFlow(string name, string content, string contentHash, IReadOnlySet<string> knownSystemSteps)
     {
         Flow flow = Flow.FromJson(content);
-        flow.Validate(knownActions);
+        flow.Validate(knownSystemSteps);
 
         if (!string.Equals(flow.Name, name, StringComparison.OrdinalIgnoreCase))
         {

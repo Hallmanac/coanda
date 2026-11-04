@@ -2,7 +2,7 @@ namespace Coanda.Core.FlowRuns.Events;
 
 /// <summary>
 /// A flow run began on a parcel and entered its flow's first step. The step's kind and the agent or
-/// action it names ride on the event, so replay counts the first spawn without the flow.
+/// system step it names ride on the event, so replay counts the first spawn without the flow.
 /// </summary>
 public sealed record FlowRunStarted(
     Guid FlowRunId,

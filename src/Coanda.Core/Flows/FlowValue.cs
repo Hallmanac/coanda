@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace Coanda.Core.Flows;
 
 /// <summary>
-/// The only values a flow holds: a JSON string, number, or boolean. A transition's value and an
-/// action's arguments are these, compared for equality and never evaluated.
+/// The only values a flow holds: a JSON string, number, or boolean. A transition's value and a
+/// system step's arguments are these, compared for equality and never evaluated.
 /// </summary>
 public static class FlowValue
 {

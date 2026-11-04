@@ -4,7 +4,7 @@ using Coanda.Core.Projects.Events;
 namespace Coanda.Core.Projects;
 
 /// <summary>
-/// The credential profile a project's judgments spawn with on this node: a node-local setting, one
+/// The credential profile a project's agent steps spawn with on this node: a node-local setting, one
 /// per project, kept in the node tenant. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="ProjectProfileDecider"/>. The store snapshots this class inline.
 /// </summary>

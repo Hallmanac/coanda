@@ -431,7 +431,7 @@ public sealed class ScriptedCommandRunner : ICommandRunner
     }
 }
 
-/// <summary>Reads the commands the worktree and gates actions build, for matching and asserting.</summary>
+/// <summary>Reads the commands the worktree and gates system steps build, for matching and asserting.</summary>
 public static class CommandLines
 {
     /// <summary>The repository a git command names with <c>--git-dir</c>, or null when it names none.</summary>

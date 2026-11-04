@@ -12,7 +12,7 @@ public sealed class InterpreterTests
 
     private static FlowTransition On(string verdict, string target, int cap = 5) => On("verdict", FlowValue.Of(verdict), target, cap);
 
-    // A made-up flow: an action that starts it and a judgment, with a spawn cap of two.
+    // A made-up flow: a system step that starts it and an agent step, with a spawn cap of two.
     private static readonly Flow Sample = new()
     {
         Name = "sample",
@@ -25,7 +25,7 @@ public sealed class InterpreterTests
             new FlowStep
             {
                 Name = "act",
-                Action = "do-thing",
+                SystemStep = "do-thing",
                 Transitions =
                 [
                     On("done", "judge"),
@@ -58,7 +58,7 @@ public sealed class InterpreterTests
         new(step, ImmutableDictionary<string, int>.Empty.Add(step, visits), spawns);
 
     [Fact]
-    public void Start_and_two_moves_count_one_visit_to_each_step_entered_and_one_spawn_per_judgment()
+    public void Start_and_two_moves_count_one_visit_to_each_step_entered_and_one_spawn_per_agent_step()
     {
         FlowRunPosition start = Interpreter.Start(Sample);
         start.Step.Should().Be("act");
@@ -183,7 +183,7 @@ public sealed class InterpreterTests
     }
 
     [Fact]
-    public void Going_to_a_judgment_at_the_spawn_cap_pauses_naming_the_cap_but_going_to_an_action_does_not()
+    public void Going_to_an_agent_step_at_the_spawn_cap_pauses_naming_the_cap_but_going_to_a_system_step_does_not()
     {
         FlowRunPosition below = At("judge", spawns: Sample.SpawnCap - 1);
         Decide(below, """{"verdict":"more"}""").Should().Be(new FlowRunMove.GoTo("judge"));

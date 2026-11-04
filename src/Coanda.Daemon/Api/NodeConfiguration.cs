@@ -10,7 +10,7 @@ namespace Coanda.Daemon.Api;
 /// Reads the node configuration, <see cref="NodeHome.ConfigurationPath"/>, into the options the
 /// daemon starts with: the executor, named by key, and the credential profiles the node holds per
 /// vendor. It is read once, when <c>coa daemon run</c> starts. A missing file is the Claude Code
-/// executor running <c>claude</c> from the PATH, with no profiles, so a cold install runs judgments.
+/// executor running <c>claude</c> from the PATH, with no profiles, so a cold install runs agent steps.
 /// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
 /// naming the file and the offending entry.
 /// </summary>
@@ -19,14 +19,14 @@ namespace Coanda.Daemon.Api;
 /// its helper command, or checks that either exists. A relative config directory is resolved
 /// against the node home, because a detached start runs in the node home and a foreground one in
 /// the shell's directory, and a profile must mean the same thing under both. A relative claude
-/// executable path is resolved the same way; a bare name is looked up on the PATH when a judgment spawns.
+/// executable path is resolved the same way; a bare name is looked up on the PATH when an agent step spawns.
 /// </remarks>
 public static class NodeConfiguration
 {
     /// <summary>The executor key that runs a scripted executor with no entries.</summary>
     public const string ScriptedExecutor = "scripted";
 
-    /// <summary>The executor key that runs each judgment as a headless Claude Code session.</summary>
+    /// <summary>The executor key that runs each agent step as a headless Claude Code session.</summary>
     public const string ClaudeCodeExecutor = "claude-code";
 
     /// <summary>The one vendor a credential profile may be held under.</summary>
@@ -103,7 +103,7 @@ public static class NodeConfiguration
 
     /// <summary>
     /// The claude executable to run: the default name when none is given, a bare name as given (it is
-    /// looked up on the PATH when a judgment spawns), and a path resolved against the node home.
+    /// looked up on the PATH when an agent step spawns), and a path resolved against the node home.
     /// </summary>
     private static string Executable(NodeHome home, string path, string? configured)
     {

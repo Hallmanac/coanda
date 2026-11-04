@@ -34,8 +34,8 @@ namespace Coanda.Daemon.FlowRuns;
 /// <see cref="ParcelClosed"/> in that same save, running the gates the service is given, so the end,
 /// the release, and the close are recorded together or not at all.
 /// A resume hands the flow run to the <see cref="IFlowRunAdvancer"/>, when the service has one, so a
-/// resumed flow run advances with no further command; a pause tells it to end the judgment the flow run is
-/// running, and a stop to end the judgment or action it is running and remove its worktree, once the
+/// resumed flow run advances with no further command; a pause tells it to end the agent step the flow run is
+/// running, and a stop to end the agent step or system step it is running and remove its worktree, once the
 /// pause or stop is saved. Every write to an existing flow run, its end
 /// and its stop among them, reads the flow run again when another write landed between its read and
 /// its save, and decides again from what it read, so it refuses only with the rule that the flow run
@@ -110,7 +110,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             (flowRun, started) => flowRun.Apply(started),
             cancellationToken);
 
-    /// <summary>Counts one more spawn for the resumed judgment <paramref name="step"/>, on its current visit.</summary>
+    /// <summary>Counts one more spawn for the resumed agent step <paramref name="step"/>, on its current visit.</summary>
     public Task<FlowRun> RespawnAsync(Principal principal, string project, Guid flowRunId, string step, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.respawn", principal, project, flowRunId,
@@ -119,7 +119,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             cancellationToken);
 
     /// <summary>
-    /// Records that the judgment <paramref name="step"/> launched its agent, with the agent's content
+    /// Records that the agent step <paramref name="step"/> launched its agent, with the agent's content
     /// hash and model spec, on the spawn its visit last counted.
     /// </summary>
     public Task<FlowRun> SpawnedAsync(
@@ -130,7 +130,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             (flowRun, spawned) => flowRun.Apply(spawned),
             cancellationToken);
 
-    /// <summary>Records the session the executor returned for the judgment <paramref name="step"/>'s latest launch.</summary>
+    /// <summary>Records the session the executor returned for the agent step <paramref name="step"/>'s latest launch.</summary>
     public Task<FlowRun> SessionOpenedAsync(
         Principal principal, string project, Guid flowRunId, string step, Guid sessionId, CancellationToken cancellationToken) =>
         WriteAsync(
@@ -159,7 +159,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             cancellationToken);
 
     /// <summary>
-    /// Records what the judgment <paramref name="step"/> spent in the session <paramref name="sessionId"/>
+    /// Records what the agent step <paramref name="step"/> spent in the session <paramref name="sessionId"/>
     /// when neither its answer nor its pause was recorded, so the flow run's cost counts it.
     /// </summary>
     public Task<FlowRun> RecordUsageAsync(
@@ -171,24 +171,24 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             cancellationToken);
 
     public Task<FlowRun> RecordResultAsync(
-        Principal principal, string project, Guid flowRunId, string step, string action, JsonElement result, CancellationToken cancellationToken) =>
+        Principal principal, string project, Guid flowRunId, string step, string systemStep, JsonElement result, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.result", principal, project, flowRunId,
-            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, action, result, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, systemStep, result, clock.GetUtcNow()),
             (flowRun, completed) => flowRun.Apply(completed),
             cancellationToken);
 
-    /// <summary>Pauses a running flow run and, once the pause is saved, ends the judgment it was running.</summary>
+    /// <summary>Pauses a running flow run and, once the pause is saved, ends the agent step it was running.</summary>
     public async Task<FlowRun> PauseAsync(Principal principal, string project, Guid flowRunId, string reason, string lever, CancellationToken cancellationToken)
     {
         FlowRun paused = await PauseAsync(principal, project, flowRunId, reason, lever, usage: null, session: null, cancellationToken);
-        advancer?.EndJudgment(paused.Id);
+        advancer?.EndAgentStep(paused.Id);
         return paused;
     }
 
     /// <summary>
-    /// Pauses a flow run, recording the <paramref name="usage"/> a judgment that paused without an
-    /// answer reported. When the judgment's <paramref name="session"/> is given, the visit must
+    /// Pauses a flow run, recording the <paramref name="usage"/> an agent step that paused without an
+    /// answer reported. When the agent step's <paramref name="session"/> is given, the visit must
     /// still expect it.
     /// </summary>
     public Task<FlowRun> PauseAsync(
@@ -263,7 +263,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     }
 
     /// <summary>
-    /// Stops a live flow run and, once the stop is saved, ends the judgment or action it was running and
+    /// Stops a live flow run and, once the stop is saved, ends the agent step or system step it was running and
     /// has its worktree removed. It needs no flow, so a flow run whose flow is no longer held can
     /// still be stopped.
     /// </summary>

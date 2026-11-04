@@ -9,7 +9,7 @@ using JasperFx.Events.Documents;
 namespace Coanda.Daemon.FlowRuns;
 
 /// <summary>
-/// The session tokens the daemon issued to the judgments it launched. A token is 32 bytes from
+/// The session tokens the daemon issued to the agent steps it launched. A token is 32 bytes from
 /// the cryptographic random generator, so it cannot be computed from a flow run, a launch, or another
 /// token. Only its SHA-256 hash is kept, in the store's node tenant (<see cref="SessionTokenRecord"/>),
 /// bound to the project, flow run, and launch it was issued for; its plain value lives only in the

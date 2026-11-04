@@ -171,7 +171,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         return await definitions.ResolveParcelTypesAsync(Tenants.RequireProject(project), cancellationToken);
     }
 
-    /// <summary>A parcel is created only in a registered project, so the software actions have a repository to act on.</summary>
+    /// <summary>A parcel is created only in a registered project, so the software system steps have a repository to act on.</summary>
     private async Task RequireRegisteredAsync(string project, CancellationToken cancellationToken)
     {
         if (await ProjectService.FindAsync(store, project, cancellationToken) is null)

@@ -14,7 +14,7 @@ public sealed class FollowTests
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
 
-    /// <summary>A flow that follows the build flow's outcome and ends on one placeholder action, spawning nothing.</summary>
+    /// <summary>A flow that follows the build flow's outcome and ends on one placeholder system step, spawning nothing.</summary>
     private static readonly Flow AfterBuild = Ending("after-build", new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 });
 
     /// <summary>A second follower of the same end, naming the build flow in another spelling.</summary>
@@ -39,7 +39,7 @@ public sealed class FollowTests
             new FlowStep
             {
                 Name = "look",
-                Action = SoftwareActions.Worktree,
+                SystemStep = SoftwareSystemSteps.Worktree,
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],

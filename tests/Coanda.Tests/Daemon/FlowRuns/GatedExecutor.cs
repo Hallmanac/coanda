@@ -5,7 +5,7 @@ using Coanda.Daemon.Executors;
 namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
-/// A scripted executor whose collects wait until the test opens the gate, so a judgment can be
+/// A scripted executor whose collects wait until the test opens the gate, so an agent step can be
 /// held in progress; one never opened is an executor that never answers. It records whether the
 /// token each stop received was already cancelled, and can fail its first spawns, give up its
 /// collects on its own, let its first collects pass the gate, hold a collect past its token's

@@ -91,11 +91,11 @@ public static class FlowRunDecider
     }
 
     /// <summary>
-    /// Records the answer the session <paramref name="sessionId"/> gave for the current judgment
+    /// Records the answer the session <paramref name="sessionId"/> gave for the current agent step
     /// step. Only the session the visit currently expects may answer it: the one its latest launch
     /// returned, with no resume since that launch.
     /// </summary>
-    public static JudgmentAnswered Answer(
+    public static AgentStepAnswered Answer(
         Flow flow,
         FlowRun flowRun,
         string step,
@@ -111,9 +111,9 @@ public static class FlowRunDecider
         RequireRunning(flowRun, "record an answer");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "an answer");
 
-        if (current.Kind != StepKind.Judgment)
+        if (current.Kind != StepKind.AgentStep)
         {
-            throw new DomainException($"Step '{current.Step}' is an action step; it takes a result, not an answer.");
+            throw new DomainException($"Step '{current.Step}' is a system step; it takes a result, not an answer.");
         }
 
         if (!string.Equals(current.Performer, agent, StringComparison.Ordinal))
@@ -134,23 +134,23 @@ public static class FlowRunDecider
         RequireMeasurement(measurement);
         RequireExpected(current, sessionId, "an answer");
 
-        return new JudgmentAnswered(flowRun.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
+        return new AgentStepAnswered(flowRun.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
     }
 
     /// <summary>
-    /// Counts one more spawn for a resumed judgment step whose visit paused without an answer, which
+    /// Counts one more spawn for a resumed agent step whose visit paused without an answer, which
     /// is performed again on the same visit and adds no visit. It is counted once per resume, and
     /// never past the flow's spawn cap; a visit's first spawn is counted when the step is entered.
     /// </summary>
-    public static JudgmentRespawned Respawn(Flow flow, FlowRun flowRun, string step, DateTimeOffset now)
+    public static AgentStepRespawned Respawn(Flow flow, FlowRun flowRun, string step, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
-        RequireRunning(flowRun, "spawn its judgment again");
+        RequireRunning(flowRun, "spawn its agent step again");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a spawn");
 
-        if (current.Kind != StepKind.Judgment)
+        if (current.Kind != StepKind.AgentStep)
         {
-            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step spawns an agent.");
+            throw new DomainException($"Step '{current.Step}' is a system step; only an agent step spawns an agent.");
         }
 
         if (current.ResumedAt is null)
@@ -162,7 +162,7 @@ public static class FlowRunDecider
         if (current.RespawnedAt is not null)
         {
             throw new DomainException(
-                $"Step '{current.Step}' already counted a spawn for its latest resume; a resume spawns its judgment again once.");
+                $"Step '{current.Step}' already counted a spawn for its latest resume; a resume spawns its agent step again once.");
         }
 
         if (current.SpawnedAt is null)
@@ -174,26 +174,26 @@ public static class FlowRunDecider
         if (flowRun.Spawns >= flow.SpawnCap)
         {
             throw new DomainException(
-                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{current.Step}' again would spawn another agent.");
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing agent step '{current.Step}' again would spawn another agent.");
         }
 
-        return new JudgmentRespawned(flowRun.Id, current.Step, current.Performer, now);
+        return new AgentStepRespawned(flowRun.Id, current.Step, current.Performer, now);
     }
 
     /// <summary>
-    /// Records that the current judgment step launched its agent, the definition whose content hash
+    /// Records that the current agent step launched its agent, the definition whose content hash
     /// is <paramref name="agentHash"/> on the model spec <paramref name="model"/>, on the spawn its
     /// visit last counted. A restart that launches the same visit again records it again, counting nothing.
     /// </summary>
-    public static JudgmentSpawned Spawn(Flow flow, FlowRun flowRun, string step, string agentHash, ModelSpec model, DateTimeOffset now)
+    public static AgentStepSpawned Spawn(Flow flow, FlowRun flowRun, string step, string agentHash, ModelSpec model, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
-        RequireRunning(flowRun, "launch its judgment");
+        RequireRunning(flowRun, "launch its agent step");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a launch");
 
-        if (current.Kind != StepKind.Judgment)
+        if (current.Kind != StepKind.AgentStep)
         {
-            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step spawns an agent.");
+            throw new DomainException($"Step '{current.Step}' is a system step; only an agent step spawns an agent.");
         }
 
         if (string.IsNullOrWhiteSpace(agentHash))
@@ -206,23 +206,23 @@ public static class FlowRunDecider
             throw new DomainException("A launch records the model spec its agent runs on: a vendor, a model, and an effort.");
         }
 
-        return new JudgmentSpawned(flowRun.Id, current.Step, current.Performer, agentHash.Trim(), model, now, Ids.New());
+        return new AgentStepSpawned(flowRun.Id, current.Step, current.Performer, agentHash.Trim(), model, now, Ids.New());
     }
 
     /// <summary>
-    /// Records the session the executor returned for the current judgment step's latest launch,
+    /// Records the session the executor returned for the current agent step's latest launch,
     /// once per launch: a launch must be recorded first, and a later launch or a resume's counted
     /// spawn clears the session it held.
     /// </summary>
-    public static JudgmentSessionOpened OpenSession(Flow flow, FlowRun flowRun, string step, Guid sessionId, DateTimeOffset now)
+    public static AgentStepSessionOpened OpenSession(Flow flow, FlowRun flowRun, string step, Guid sessionId, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
-        RequireRunning(flowRun, "record its judgment's session");
+        RequireRunning(flowRun, "record its agent step's session");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a session");
 
-        if (current.Kind != StepKind.Judgment)
+        if (current.Kind != StepKind.AgentStep)
         {
-            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step runs an agent's session.");
+            throw new DomainException($"Step '{current.Step}' is a system step; only an agent step runs an agent's session.");
         }
 
         if (current.SpawnedAt is null)
@@ -239,35 +239,35 @@ public static class FlowRunDecider
 
         return sessionId == Guid.Empty
             ? throw new DomainException("A session is recorded by its id; none was given.")
-            : new JudgmentSessionOpened(flowRun.Id, current.Step, sessionId, now);
+            : new AgentStepSessionOpened(flowRun.Id, current.Step, sessionId, now);
     }
 
-    public static ActionCompleted Complete(Flow flow, FlowRun flowRun, string step, string action, JsonElement result, DateTimeOffset now)
+    public static SystemStepCompleted Complete(Flow flow, FlowRun flowRun, string step, string systemStep, JsonElement result, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "record a result");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a result");
 
-        if (current.Kind != StepKind.Action)
+        if (current.Kind != StepKind.SystemStep)
         {
-            throw new DomainException($"Step '{current.Step}' is a judgment step; it takes an answer, not a result.");
+            throw new DomainException($"Step '{current.Step}' is an agent step; it takes an answer, not a result.");
         }
 
-        if (!string.Equals(current.Performer, action, StringComparison.Ordinal))
+        if (!string.Equals(current.Performer, systemStep, StringComparison.Ordinal))
         {
-            throw new DomainException($"Step '{current.Step}' names the action '{current.Performer}'; a result from '{action}' is not its result.");
+            throw new DomainException($"Step '{current.Step}' names the system step '{current.Performer}'; a result from '{systemStep}' is not its result.");
         }
 
-        return new ActionCompleted(flowRun.Id, current.Step, action, result.Clone(), now);
+        return new SystemStepCompleted(flowRun.Id, current.Step, systemStep, result.Clone(), now);
     }
 
     /// <summary>
-    /// Records what a judgment on the current step spent when neither its answer nor its pause was
+    /// Records what an agent step on the current step spent when neither its answer nor its pause was
     /// recorded: a person paused or stopped the flow run while it ran, or its visit no longer expects
     /// the session <paramref name="sessionId"/>. A running, paused, or stopped flow run accepts it, and
     /// it changes nothing but the flow run's cost.
     /// </summary>
-    public static JudgmentUsageRecorded RecordUsage(
+    public static AgentStepUsageRecorded RecordUsage(
         Flow flow, FlowRun flowRun, string step, string agent, Guid sessionId, Measurement usage, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
@@ -275,21 +275,21 @@ public static class FlowRunDecider
         if (flowRun.Status is not (FlowRunStatus.Running or FlowRunStatus.Paused or FlowRunStatus.Stopped))
         {
             throw new DomainException(
-                $"Flow run {Ids.Short(flowRun.Id)} {Describe(flowRun.Status)}; a judgment's usage is recorded on a running, paused, or stopped flow run.");
+                $"Flow run {Ids.Short(flowRun.Id)} {Describe(flowRun.Status)}; an agent step's usage is recorded on a running, paused, or stopped flow run.");
         }
 
         FlowRunStepEntry current = flowRun.Current
-            ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} has entered no step, so a judgment's usage has nowhere to go.");
+            ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} has entered no step, so an agent step's usage has nowhere to go.");
 
         if (!string.Equals(current.Step, step, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"Flow run {Ids.Short(flowRun.Id)} is at step '{current.Step}'; a judgment's usage is recorded only for the current step, not '{step}'.");
+                $"Flow run {Ids.Short(flowRun.Id)} is at step '{current.Step}'; an agent step's usage is recorded only for the current step, not '{step}'.");
         }
 
-        if (current.Kind != StepKind.Judgment)
+        if (current.Kind != StepKind.AgentStep)
         {
-            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step reports usage.");
+            throw new DomainException($"Step '{current.Step}' is a system step; only an agent step reports usage.");
         }
 
         if (!string.Equals(current.Performer, agent, StringComparison.Ordinal))
@@ -299,17 +299,17 @@ public static class FlowRunDecider
 
         if (sessionId == Guid.Empty)
         {
-            throw new DomainException("A judgment's usage is recorded with the session that reported it; none was given.");
+            throw new DomainException("An agent step's usage is recorded with the session that reported it; none was given.");
         }
 
         RequireMeasurement(usage);
 
-        return new JudgmentUsageRecorded(flowRun.Id, current.Step, agent, sessionId, usage, now);
+        return new AgentStepUsageRecorded(flowRun.Id, current.Step, agent, sessionId, usage, now);
     }
 
     /// <summary>
-    /// Pauses a running flow run; <paramref name="usage"/> is what a judgment that paused without an
-    /// answer reported. When the judgment's <paramref name="session"/> is given, the current visit
+    /// Pauses a running flow run; <paramref name="usage"/> is what an agent step that paused without an
+    /// answer reported. When the agent step's <paramref name="session"/> is given, the current visit
     /// must still expect that session, as it must for an answer.
     /// </summary>
     public static FlowRunPaused Pause(
@@ -328,7 +328,7 @@ public static class FlowRunDecider
         if (session is Guid sessionId)
         {
             FlowRunStepEntry current = flowRun.Current
-                ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} has entered no step, so no judgment's session can pause it.");
+                ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} has entered no step, so no agent step's session can pause it.");
             RequireExpected(current, sessionId, "a pause");
         }
 
@@ -499,7 +499,7 @@ public static class FlowRunDecider
         _ => $"is {status}",
     };
 
-    private static StepKind KindOf(FlowStep step) => step.IsJudgment ? StepKind.Judgment : StepKind.Action;
+    private static StepKind KindOf(FlowStep step) => step.IsAgentStep ? StepKind.AgentStep : StepKind.SystemStep;
 
-    private static string PerformerOf(FlowStep step) => (step.IsJudgment ? step.Agent : step.Action) ?? string.Empty;
+    private static string PerformerOf(FlowStep step) => (step.IsAgentStep ? step.Agent : step.SystemStep) ?? string.Empty;
 }

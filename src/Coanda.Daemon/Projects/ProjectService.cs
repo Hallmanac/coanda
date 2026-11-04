@@ -97,7 +97,7 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     }
 
     /// <summary>
-    /// Names the credential profile the project's judgments spawn with, replacing any it named.
+    /// Names the credential profile the project's agent steps spawn with, replacing any it named.
     /// The name must be one the running daemon's configuration holds. Recorded in the node tenant.
     /// </summary>
     public async Task<ProjectProfile> SetProfileAsync(Principal principal, string name, string profile, CancellationToken cancellationToken)

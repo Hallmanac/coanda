@@ -5,7 +5,7 @@ namespace Coanda.Daemon.Api.Endpoints;
 /// <summary>Registers a project; a null <see cref="Build"/> or <see cref="Test"/> leaves its gates on the default command.</summary>
 public sealed record ProjectAddRequest(string Name, string Remote, string PrimaryBranch, string? Build = null, string? Test = null);
 
-/// <summary>Names the credential profile of the running daemon's configuration that a project's judgments spawn with.</summary>
+/// <summary>Names the credential profile of the running daemon's configuration that a project's agent steps spawn with.</summary>
 public sealed record ProjectSetProfileRequest(string Project, string Profile);
 
 /// <summary>Replaces the checks a merge of the project's pull requests waits for with <see cref="Checks"/>, each recorded exactly as given.</summary>

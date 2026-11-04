@@ -10,7 +10,7 @@ namespace Coanda.Cli;
 
 /// <summary>
 /// The CLI's only way to the record: the daemon's loopback API. Starts the daemon when it is not
-/// running, so a user never has to. Inside a judgment's session, a client for the node home whose
+/// running, so a user never has to. Inside an agent step's session, a client for the node home whose
 /// daemon issued the session token presents that token instead of the daemon token, and never
 /// starts a daemon that does not answer: the one that started the session is the only one that
 /// resolves it. A client for any other home never sees the token and works as it would outside a

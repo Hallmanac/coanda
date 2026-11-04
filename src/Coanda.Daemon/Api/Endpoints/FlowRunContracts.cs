@@ -58,7 +58,7 @@ public sealed record FlowRunView(
     };
 }
 
-/// <summary>One step a flow run entered, with its answer and measurement (a judgment) or its result (an action) once recorded.</summary>
+/// <summary>One step a flow run entered, with its answer and measurement (an agent step) or its result (a system step) once recorded.</summary>
 public sealed record FlowRunStepView(
     string Step,
     string Kind,
@@ -73,6 +73,6 @@ public sealed record FlowRunStepView(
 {
     public static FlowRunStepView From(FlowRunStepEntry entry) => new(
         entry.Step,
-        entry.Kind == StepKind.Judgment ? "judgment" : "action",
+        entry.Kind == StepKind.AgentStep ? "agent-step" : "system-step",
         entry.Performer, entry.StartedAt, entry.AgentHash, entry.Model, entry.Answer, entry.Measurement, entry.Result, entry.RecordedAt);
 }

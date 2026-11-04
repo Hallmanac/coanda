@@ -14,15 +14,15 @@ namespace Coanda.Daemon.Api;
 /// </summary>
 public sealed record DaemonOptions
 {
-    public static readonly TimeSpan DefaultJudgmentLimit = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan DefaultAgentStepLimit = TimeSpan.FromMinutes(30);
 
     public static readonly TimeSpan DefaultGatesCommandLimit = TimeSpan.FromMinutes(60);
 
-    /// <summary>The executor judgments run through; null runs them through a scripted executor with no entries, so every judgment pauses.</summary>
+    /// <summary>The executor agent steps run through; null runs them through a scripted executor with no entries, so every agent step pauses.</summary>
     public IAgentExecutor? Executor { get; init; }
 
     /// <summary>
-    /// The runner every external command of the worktree, gates, and open-pr actions and a worktree's
+    /// The runner every external command of the worktree, gates, and open-pr system steps and a worktree's
     /// removal goes through; null uses <see cref="NoCommandRunner"/>, which starts nothing and fails
     /// every command, so those steps pause.
     /// </summary>
@@ -37,7 +37,7 @@ public sealed record DaemonOptions
     public Func<HttpMessageHandler>? GitHubHandler { get; init; }
 
     /// <summary>
-    /// The credential profiles the node holds, by vendor and name; a judgment in a project that
+    /// The credential profiles the node holds, by vendor and name; an agent step in a project that
     /// names one spawns with it. None when none is given.
     /// </summary>
     public IReadOnlyList<CredentialProfile> Profiles { get; init; } = [];
@@ -51,8 +51,8 @@ public sealed record DaemonOptions
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }
 
-    /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flow run pauses.</summary>
-    public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;
+    /// <summary>How long one agent step, its retry included, may run before its session is stopped and the flow run pauses.</summary>
+    public TimeSpan AgentStepLimit { get; init; } = DefaultAgentStepLimit;
 
     /// <summary>
     /// How long the gates step's build command, and then its test command, may each run before it is

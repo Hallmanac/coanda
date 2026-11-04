@@ -6,7 +6,7 @@ namespace Coanda.Daemon.Executors;
 
 /// <summary>
 /// An executor that answers from a script of canned entries keyed by agent name, so flow runs and
-/// judgments run without a vendor or a network. The nth answer collected for an agent, counting
+/// agent steps run without a vendor or a network. The nth answer collected for an agent, counting
 /// answers collected after a resume, is that agent's nth entry; collecting a session again before
 /// it is resumed returns the same answer without advancing the count. It records every spawn,
 /// resume, send, and stop for a test to read back, and enforces no caps.
@@ -91,7 +91,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
             Session session = RequireLive(handle);
             if (session.Current is { } answered)
             {
-                session.Earlier = Judgment.Sum(session.Earlier, answered.Usage);
+                session.Earlier = AgentStep.Sum(session.Earlier, answered.Usage);
             }
 
             session.Current = null;

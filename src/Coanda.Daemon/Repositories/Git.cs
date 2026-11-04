@@ -3,7 +3,7 @@ using Coanda.Daemon.Commands;
 namespace Coanda.Daemon.Repositories;
 
 /// <summary>
-/// Builds and runs the git commands the worktree action and a worktree's removal run, through the
+/// Builds and runs the git commands the worktree system step and a worktree's removal run, through the
 /// command runner. Every one runs with <c>GIT_TERMINAL_PROMPT=0</c> and with ssh in batch mode, so
 /// none waits on a prompt for credentials; the runner closes its standard input besides. Every one
 /// is also ended once it has run for <see cref="Limit"/>, so a fetch from a remote that stops

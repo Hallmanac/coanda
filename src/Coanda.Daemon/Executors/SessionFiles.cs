@@ -5,7 +5,7 @@ using Coanda.Core.Types;
 namespace Coanda.Daemon.Executors;
 
 /// <summary>
-/// The files a judgment's session reads, written under <c>.coanda/</c> at the root of the flow run's work
+/// The files an agent step's session reads, written under <c>.coanda/</c> at the root of the flow run's work
 /// directory: <c>task.md</c>, the parcel record, and <c>prompt.md</c>, the context the spawn carries,
 /// which the runner writes before every spawn, and <c>persona.md</c>, which an adapter that hands its
 /// vendor the persona as a file writes at its spawn and again before every resume, since the resumed

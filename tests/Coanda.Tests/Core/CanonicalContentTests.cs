@@ -9,7 +9,7 @@ namespace Coanda.Tests.Core;
 /// <summary>Canonical content carries only what a definition declares, never a property derived from it.</summary>
 public sealed class CanonicalContentTests
 {
-    private static readonly string[] Derived = ["IsJudgment", "IsAction", "Hash", "First"];
+    private static readonly string[] Derived = ["IsAgentStep", "IsSystemStep", "Hash", "First"];
 
     [Fact]
     public void A_shipped_flows_canonical_json_holds_no_derived_property()
@@ -41,18 +41,18 @@ public sealed class CanonicalContentTests
         JsonNode node = JsonNode.Parse(Flow.CanonicalJson(shipped)) ?? throw new InvalidOperationException("The flow wrote no content.");
         foreach (JsonObject step in node["Steps"]?.AsArray().OfType<JsonObject>() ?? [])
         {
-            step["IsJudgment"] = !string.IsNullOrWhiteSpace((string?)step["Agent"]);
-            step["IsAction"] = !string.IsNullOrWhiteSpace((string?)step["Action"]);
+            step["IsAgentStep"] = !string.IsNullOrWhiteSpace((string?)step["Agent"]);
+            step["IsSystemStep"] = !string.IsNullOrWhiteSpace((string?)step["SystemStep"]);
         }
 
         string stored = node.ToJsonString();
-        PropertyNames(stored).Should().Contain(["IsJudgment", "IsAction"]);
+        PropertyNames(stored).Should().Contain(["IsAgentStep", "IsSystemStep"]);
 
         Flow read = Flow.FromJson(stored);
 
         read.Hash.Should().Be(shipped.Hash);
-        read.Steps.Select(s => (s.Name, s.IsJudgment, s.IsAction))
-            .Should().Equal(shipped.Steps.Select(s => (s.Name, s.IsJudgment, s.IsAction)));
+        read.Steps.Select(s => (s.Name, s.IsAgentStep, s.IsSystemStep))
+            .Should().Equal(shipped.Steps.Select(s => (s.Name, s.IsAgentStep, s.IsSystemStep)));
     }
 
     private static List<string> PropertyNames(string content)

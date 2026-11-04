@@ -16,7 +16,7 @@ public sealed class SpawnInputsTests
     private static readonly CancellationToken None = CancellationToken.None;
 
     [Fact]
-    public async Task A_second_judgment_in_a_flow_run_that_recorded_a_cost_carries_the_budget_less_that_cost_as_its_ceiling()
+    public async Task A_second_agent_step_in_a_flow_run_that_recorded_a_cost_carries_the_budget_less_that_cost_as_its_ceiling()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
@@ -37,7 +37,7 @@ public sealed class SpawnInputsTests
     }
 
     [Fact]
-    public async Task A_judgment_in_a_chained_flow_run_carries_the_chains_remainder_when_it_is_the_smaller()
+    public async Task An_agent_step_in_a_chained_flow_run_carries_the_chains_remainder_when_it_is_the_smaller()
     {
         using var temp = new TemporaryHome();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>

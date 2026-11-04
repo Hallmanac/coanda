@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using Coanda.Core.Parcels;
 using Coanda.Core.Software;
-using Coanda.Daemon.Actions;
+using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
 using Coanda.Daemon.Commands;
@@ -47,7 +47,7 @@ public sealed class DaemonHost
     public static async Task<RunningDaemon> StartAsync(NodeHome home, int port, DaemonOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.JudgmentLimit, TimeSpan.Zero, nameof(options));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.AgentStepLimit, TimeSpan.Zero, nameof(options));
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.GatesCommandLimit, TimeSpan.Zero, nameof(options));
         // Narrows what an earlier run left wider and creates the database owner-only, before the
         // check below or the store opens it.
@@ -72,23 +72,23 @@ public sealed class DaemonHost
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.
         builder.Services.AddSingleton(new GateSet([.. GateSet.ShippedGates, .. options.Gates]));
-        // Flows are validated against the actions the daemon registered, not a catalog of their own.
+        // Flows are validated against the system steps the daemon registered, not a catalog of their own.
         builder.Services.AddSingleton(services => new DefinitionService(
             services.GetRequiredService<IDocumentStore>(),
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<GateSet>(),
-            services.GetRequiredService<FlowActions>().Names));
+            services.GetRequiredService<FlowSystemSteps>().Names));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
-        builder.Services.AddSingleton(new FlowRunAdvancerOptions(options.JudgmentLimit));
+        builder.Services.AddSingleton(new FlowRunAdvancerOptions(options.AgentStepLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton<ProjectClones>();
         builder.Services.AddSingleton<FlowRunWorkers>();
         GitHubClient.Register(builder.Services, options.GitHubHandler ?? (() => new NoGitHubHandler()));
-        builder.Services.AddSingleton(services => FlowActions.Shipped(
+        builder.Services.AddSingleton(services => FlowSystemSteps.Shipped(
             services.GetRequiredService<ParcelService>(),
             services.GetRequiredService<ProjectService>(),
             services.GetRequiredService<ProjectClones>(),
@@ -98,7 +98,7 @@ public sealed class DaemonHost
             options.GatesCommandLimit,
             // A typed client is resolved for each use, so it never holds a handler past its rotation.
             () => services.GetRequiredService<GitHubClient>(),
-            // Its own flow run service, which only reads: the registered one depends on the runner, which depends on these actions.
+            // Its own flow run service, which only reads: the registered one depends on the runner, which depends on these system steps.
             new FlowRunService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
             services.GetRequiredService<FlowRunWorkers>()));
         builder.Services.AddSingleton<SessionTokens>();

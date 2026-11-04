@@ -21,10 +21,10 @@ public sealed class CredentialProfileFlowRunTests
     private static readonly CredentialProfile Ci = new(ShippedAgents.Vendor, "ci", null, "op read op://ci/key");
     private static readonly CredentialProfile OtherVendorWork = new("other-vendor", "work", "/home/me/.other", null);
 
-    /// <summary>One judgment by the shipped build agent, which ends the flow run; it may spawn twice.</summary>
-    private static readonly Flow OneJudgment = new()
+    /// <summary>One agent step by the shipped build agent, which ends the flow run; it may spawn twice.</summary>
+    private static readonly Flow OneAgentStep = new()
     {
-        Name = "one-judgment",
+        Name = "one-agent-step",
         Accepts = ["task"],
         Outcome = "built",
         Budget = 10m,
@@ -47,14 +47,14 @@ public sealed class CredentialProfileFlowRunTests
     });
 
     [Fact]
-    public async Task A_judgment_in_a_project_that_names_a_profile_spawns_with_that_profile_under_the_agents_vendor()
+    public async Task An_agent_step_in_a_project_that_names_a_profile_spawns_with_that_profile_under_the_agents_vendor()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Builds(1);
         var options = new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci, Work] };
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
-        await Publishing.FlowAsync(daemon, Project, OneJudgment);
+        await Publishing.FlowAsync(daemon, Project, OneAgentStep);
         using var client = new DaemonClient(temp.Home);
         await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "work"), None);
 
@@ -67,13 +67,13 @@ public sealed class CredentialProfileFlowRunTests
     }
 
     [Fact]
-    public async Task A_judgment_in_a_project_that_names_no_profile_spawns_with_none()
+    public async Task An_agent_step_in_a_project_that_names_no_profile_spawns_with_none()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Builds(1);
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [Work] }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
-        await Publishing.FlowAsync(daemon, Project, OneJudgment);
+        await Publishing.FlowAsync(daemon, Project, OneAgentStep);
         using var client = new DaemonClient(temp.Home);
 
         FlowRunView ended = await RunAsync(client, "No profile", "ended");
@@ -98,7 +98,7 @@ public sealed class CredentialProfileFlowRunTests
         // The node's configuration changed between starts: it holds 'work' only under another vendor now.
         ScriptedExecutor executor = Builds(2);
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci] }, None);
-        await Publishing.FlowAsync(daemon, Project, OneJudgment);
+        await Publishing.FlowAsync(daemon, Project, OneAgentStep);
         using var client = new DaemonClient(temp.Home);
 
         FlowRunView paused = await RunAsync(client, "Missing profile", "paused");
@@ -124,7 +124,7 @@ public sealed class CredentialProfileFlowRunTests
     private static async Task<FlowRunView> RunAsync(DaemonClient client, string title, string status)
     {
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", title, null), None);
-        FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, OneJudgment.Name);
+        FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, OneAgentStep.Name);
         return await FlowRunDriver.UntilAsync(client, Project, started.Id, status);
     }
 }

@@ -90,7 +90,7 @@ public sealed class AgentListTests
         AgentDefinition custom = ShippedAgents.Fix with { Persona = ShippedAgents.Fix.Persona with { Role = "A house-style fixer." } };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+            var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
             Definition draft = await definitions.DraftAsync(
                 Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, "alpha", "fix",
                 AgentDefinition.CanonicalJson(custom), custom.Hash, new ForkBase("fix", 1), CancellationToken.None);

@@ -35,7 +35,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
         await RegisteredProjects.AddAsync(store, Project, None);
         parcels = new ParcelService(store, TimeProvider.System);
         flowRuns = new FlowRunService(store, TimeProvider.System);
-        definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+        definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
     }
 
     public async Task DisposeAsync()
@@ -117,7 +117,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
             new FlowStep
             {
                 Name = "wait",
-                Action = CoreActions.Timer,
+                SystemStep = CoreSystemSteps.Timer,
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
