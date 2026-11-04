@@ -420,7 +420,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             }
 
             return session.Current is { } attempt
-                ? ValueTask.FromResult<Reattachment?>(new ReattachedSession(session.Handle, attempt.Ordinal, session.EarlierUsage))
+                ? ValueTask.FromResult<Reattachment?>(new ReattachedSession(session.Handle, attempt.Ordinal, session.EarlierUsage, attempt.Process.HasExited))
                 : ValueTask.FromResult<Reattachment?>(null);
         }
     }

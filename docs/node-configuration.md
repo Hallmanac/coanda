@@ -71,7 +71,10 @@ daemon starts again, a flow whose judgment was running reattaches its session: t
 the session's answer, retrying it once if it is invalid, and records it with what the whole session
 spent, without launching the agent again. A session the daemon stopped during its retry is not
 retried a second time, and the turn before the retry counts toward what it spent. The judgment's
-wall-clock limit still runs from when its session was launched. A session that finished while the daemon was down is collected the same way.
+wall-clock limit still runs from when its session was launched. A session that finished while the
+daemon was down is collected the same way, even when the limit has passed since: it ran no longer
+than it did, so its answer is recorded. Only a retry it would need is refused once the limit has
+passed, and the flow then pauses on the limit.
 When the session cannot be found again (its process exited without an answer, its record could not
 be read, or the daemon stopped before it recorded the session), the flow pauses saying that the
 session was lost and its usage was not observed, and resuming the flow performs the step again with

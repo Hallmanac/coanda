@@ -79,7 +79,7 @@ public static class Judgment
                 handedOver = true;
             }
 
-            return await AnswerAsync(executor, handle, request.AnswerSchema, spend, cancellationToken);
+            return await AnswerAsync(executor, handle, request.AnswerSchema, spend, cancellationToken, cancellationToken);
         }
         catch (Exception failure) when (!(handedOver && stopping.IsCancellationRequested))
         {
@@ -97,7 +97,12 @@ public static class Judgment
     /// usage its earlier attempts' collects returned, which nothing recorded at the daemon stop, is
     /// counted with its own. A failure while <paramref name="stopping"/> is cancelled leaves the
     /// session held for the next start to reattach again; any other failure stops it, and a token
-    /// cancelled before the first collect (a wall-clock limit already past) is such a failure.
+    /// cancelled before the first collect (a wall-clock limit already past) is such a failure for a
+    /// session still running. A session that had already <see cref="ReattachedSession.Finished"/>
+    /// ran no longer than it did, so its collect, which returns at once, is bounded by
+    /// <paramref name="finishedCollect"/> (the daemon stop and a person's pause or stop, not the
+    /// wall-clock limit): its answer is recorded however late the restart came, and only a retry it
+    /// needs is refused once the limit is past.
     /// </summary>
     public static async Task<JudgmentOutcome> ReattachAsync(
         IAgentExecutor executor,
@@ -105,6 +110,7 @@ public static class Judgment
         string answerSchema,
         JudgmentSpend? spend,
         CancellationToken stopping,
+        CancellationToken finishedCollect,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(executor);
@@ -118,10 +124,11 @@ public static class Judgment
         try
         {
             AnswerSchemas.Require(answerSchema);
-            cancellationToken.ThrowIfCancellationRequested();
+            CancellationToken collecting = session.Finished ? finishedCollect : cancellationToken;
+            collecting.ThrowIfCancellationRequested();
             return retrying
-                ? await RetriedAsync(executor, session.Handle, answerSchema, session.Earlier, spend, cancellationToken)
-                : await AnswerAsync(executor, session.Handle, answerSchema, spend, cancellationToken);
+                ? await RetriedAsync(executor, session.Handle, answerSchema, session.Earlier, spend, collecting)
+                : await AnswerAsync(executor, session.Handle, answerSchema, spend, collecting, cancellationToken);
         }
         catch (Exception failure) when (!stopping.IsCancellationRequested)
         {
@@ -130,14 +137,19 @@ public static class Judgment
         }
     }
 
+    /// <summary>
+    /// Collects the session's first attempt under <paramref name="firstCollect"/>, and answers with
+    /// it or resumes the session for its one retry under <paramref name="cancellationToken"/>.
+    /// </summary>
     private static async Task<JudgmentOutcome> AnswerAsync(
         IAgentExecutor executor,
         SessionHandle handle,
         string answerSchema,
         JudgmentSpend? spend,
+        CancellationToken firstCollect,
         CancellationToken cancellationToken)
     {
-        CollectedAnswer first = await executor.CollectAsync(handle, cancellationToken);
+        CollectedAnswer first = await executor.CollectAsync(handle, firstCollect);
         spend?.Add(first.Usage);
         IReadOnlyList<string> firstFailures = Check(answerSchema, first.Answer);
         if (first.Answer is { } firstAnswer && firstFailures.Count == 0)

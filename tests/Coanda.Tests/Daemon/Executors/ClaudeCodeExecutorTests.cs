@@ -594,12 +594,34 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle));
+        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(
+            ReattachedSession.OnSpawn(handle) with { Finished = true }, "its process already ended with its result");
         CollectedAnswer collected = await restarted.CollectAsync(handle, None);
 
         collected.Answer.Should().Be(ValidBuild);
         collected.Usage.CostUsd.Should().Be(0.3m);
         fake.Starts.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_session_whose_process_answered_while_no_daemon_ran_answers_its_reattached_judgment_though_the_limit_has_passed()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Subject;
+        using var limit = new CancellationTokenSource();
+        await limit.CancelAsync();
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, limit.Token);
+
+        JudgmentOutcome.Answered answered = outcome.Should().BeOfType<JudgmentOutcome.Answered>().Subject;
+        answered.Answer.Should().Be(ValidBuild);
+        answered.Usage.CostUsd.Should().Be(0.3m);
+        fake.Starts.Should().ContainSingle();
+        await restarted.StopAsync(handle, None);
     }
 
     [Fact]
@@ -615,7 +637,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         reattached.Should().Be(ReattachedSession.OnSpawn(handle));
         fake.Release();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None);
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
         JudgmentOutcome.Answered answered = outcome.Should().BeOfType<JudgmentOutcome.Answered>().Subject;
         answered.Answer.Should().Be(ValidBuild);
@@ -641,7 +663,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         var reissued = new SessionAccess("second-daemon-token", temp.Home.Path, Project);
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, reissued, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         fake.Release();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None);
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
         outcome.Should().BeOfType<JudgmentOutcome.Answered>();
         fake.Starts.Should().HaveCount(2);
@@ -667,7 +689,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home, coaDirectory: coa);
         ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         fake.Release();
-        await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None);
+        await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
         fake.Starts.Should().HaveCount(2);
         string path = fake.Starts[1].Environment.Single(v => string.Equals(v.Key, "PATH", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).Value;
@@ -692,7 +714,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         reattached.Should().Be(new ReattachedSession(handle, 2, invalid.Usage), "the record says the session is on its retry and what its first turn returned");
         fake.Release();
         var spend = new JudgmentSpend();
-        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend, CancellationToken.None, None);
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend, CancellationToken.None, None, None);
 
         JudgmentOutcome.Paused paused = outcome.Should().BeOfType<JudgmentOutcome.Paused>().Subject;
         paused.Reason.Should().Contain("after one retry");
