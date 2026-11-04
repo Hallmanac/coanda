@@ -490,18 +490,22 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// session until the new launch is recorded, and the resume means nobody will collect it, so it
     /// is ended here rather than left running. A visit launched since its last resume never reaches
     /// this, since it is reattached instead. A session the executor no longer holds (one a pause or
-    /// an answer already stopped) is passed over. Returns false when the stop failed and the flow
-    /// was paused instead, so no second agent runs beside one that would not stop.
+    /// an answer already stopped) is passed over. What the stop reports the session spent is
+    /// recorded against the step, its agent, and that session, so the budget check before the new
+    /// launch counts it; a record the flow refuses is logged. Returns the flow as that record left
+    /// it, or null when the stop failed and the flow was paused instead, so no second agent runs
+    /// beside one that would not stop.
     /// </summary>
-    private async Task<bool> StopLeftSessionAsync(
+    private async Task<Flow?> StopLeftSessionAsync(
         Principal principal, string project, Flow flow, ContourStep step, CancellationToken cancellationToken)
     {
         if (flow.Current is not { Kind: StepKind.Judgment, SessionId: Guid held } entry
             || !string.Equals(entry.Step, step.Name, StringComparison.Ordinal))
         {
-            return true;
+            return flow;
         }
 
+        var spend = new JudgmentSpend();
         try
         {
             Reattachment? found = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), access: null, cancellationToken);
@@ -509,10 +513,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             {
                 using var grace = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 grace.CancelAfter(Judgment.StopGrace);
-                await executor.StopAsync(live.Handle, grace.Token);
+                spend.Add(await executor.StopAsync(live.Handle, grace.Token));
             }
-
-            return true;
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -525,7 +527,22 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                 $"Step '{step.Name}' could not stop session {Ids.Short(held)} that agent '{entry.Performer}' was left running in, so no other was launched: {failure.Message}",
                 FlowLevers.PerformAgain(step.Name),
                 cancellationToken);
-            return false;
+            return null;
+        }
+
+        if (spend.Reported is not { } usage)
+        {
+            return flow;
+        }
+
+        try
+        {
+            return await flows.RecordUsageAsync(principal, project, flow.Id, entry.Step, entry.Performer, held, usage, cancellationToken);
+        }
+        catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(refused, "Flow {Flow} could not record what the judgment of step '{Step}' spent.", Ids.Short(flow.Id), entry.Step);
+            return flow;
         }
     }
 
@@ -601,10 +618,12 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private async Task<Recording?> JudgeAsync(
         Principal principal, string project, Flow flow, Contour contour, ContourStep step, bool spawnsAgain, CancellationToken cancellationToken)
     {
-        if (!await StopLeftSessionAsync(principal, project, flow, step, cancellationToken))
+        if (await StopLeftSessionAsync(principal, project, flow, step, cancellationToken) is not { } stopped)
         {
             return null;
         }
+
+        flow = stopped;
 
         Budget budget = await BudgetAsync(principal, project, flow, contour, cancellationToken);
         if (budget.Spent is { } spent)
