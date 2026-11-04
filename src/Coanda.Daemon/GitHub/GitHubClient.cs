@@ -118,9 +118,12 @@ public sealed class GitHubClient
         }
 
         string trimmed = body.Trim();
-        return trimmed.Length == 0
-            ? "it gave no message."
-            : trimmed.Length > QuotedCharacters ? trimmed[..QuotedCharacters] : trimmed;
+        return trimmed.Length switch
+        {
+            0 => "it gave no message.",
+            > QuotedCharacters => trimmed[..QuotedCharacters],
+            _ => trimmed,
+        };
     }
 
     private sealed record OpenRequest(

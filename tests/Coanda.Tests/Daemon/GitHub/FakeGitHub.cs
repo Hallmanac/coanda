@@ -131,7 +131,9 @@ public sealed class FakeGitHub
     {
         string? head = System.Web.HttpUtility.ParseQueryString(sent.Uri.Query)["head"];
         int colon = head?.IndexOf(':') ?? -1;
-        return colon < 0 ? null : head?[(colon + 1)..];
+        return colon < 0
+            ? null
+            : head?[(colon + 1)..];
     }
 
     private static JsonObject PullRequest(int number, string url, string head) => new()
@@ -145,7 +147,9 @@ public sealed class FakeGitHub
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            string? body = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
             var sent = new Sent(request.Method, request.RequestUri ?? new Uri("about:blank"), request.Headers.Authorization?.ToString(), body);
             return fake.Answer(sent);
         }

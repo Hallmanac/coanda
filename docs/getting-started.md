@@ -68,7 +68,9 @@ configurations use `.coanda-dev` as their node home, and its checked-in `node.js
 session; change that file to `claude-code` to run real sessions there. The worktree, gates, and
 open-pr steps are real even there: a build flow fetches from the project's remote, runs its build and
 test commands, and pushes and opens its pull request on GitHub, so the prerequisites above apply to
-that home too.
+that home too. A flow run there pushes a real `coanda/<id>` branch and opens a real pull request on
+the project's remote, so register a scratch repository in that home rather than one whose pull
+requests other people watch.
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive

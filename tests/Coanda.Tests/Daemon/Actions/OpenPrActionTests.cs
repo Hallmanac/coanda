@@ -250,7 +250,12 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     public async Task A_request_GitHub_refuses_pauses_quoting_its_status_code_and_message_and_records_no_pull_request(HttpStatusCode status, string message, bool lookup)
     {
         Parcel parcel = await TaskAsync(Project, "Refused");
-        github.Refuse(r => lookup ? r.IsLookup : r.IsOpen, status, message);
+        github.Refuse(
+            r => lookup
+                ? r.IsLookup
+                : r.IsOpen,
+            status,
+            message);
 
         ActionOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
 

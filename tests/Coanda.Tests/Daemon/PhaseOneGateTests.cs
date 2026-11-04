@@ -113,7 +113,15 @@ public sealed class PhaseOneGateTests
             .. build.Steps
                 .Where(s => s.Name != "open-pr")
                 .Select(s => s.Name == "conformance-review"
-                    ? s with { Transitions = [.. s.Transitions.Select(t => t.Target == "open-pr" ? t with { Target = "move-to-review" } : t)] }
+                    ? s with
+                    {
+                        Transitions =
+                        [
+                            .. s.Transitions.Select(t => t.Target == "open-pr"
+                                ? t with { Target = "move-to-review" }
+                                : t),
+                        ],
+                    }
                     : s),
         ],
     };
