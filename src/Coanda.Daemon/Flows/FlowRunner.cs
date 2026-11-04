@@ -421,8 +421,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
         try
         {
-            ReattachedSession? live = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), access: null, cancellationToken);
-            if (live is not null)
+            Reattachment? found = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), access: null, cancellationToken);
+            if (found is ReattachedSession live)
             {
                 using var grace = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 grace.CancelAfter(Judgment.StopGrace);
@@ -596,7 +596,9 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// launch's own principal; the process that ran across the restart keeps the token an earlier
     /// daemon issued, which this one does not resolve.
     /// When the visit names no session, or the executor no longer holds it, the flow pauses instead,
-    /// and its resume performs the step again with one more spawn counted. A session the visit names
+    /// and its resume performs the step again with one more spawn counted. A session lost on its
+    /// retry pauses carrying what its turns before the retry spent, which nothing recorded at the
+    /// daemon stop. A session the visit names
     /// that could not be reattached for another reason (its launch recorded no agent hash and model
     /// spec, or the reattach failed) is stopped before that pause, so it does not run on unobserved.
     /// Null when it recorded no answer.
@@ -611,13 +613,13 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             : null;
         try
         {
-            ReattachedSession? live = null;
+            Reattachment? found = null;
             bool settled = false;
             try
             {
                 if (current is { SessionId: Guid id, AgentHash: not null, Model: not null })
                 {
-                    live = await executor.ReattachAsync(new SessionHandle(id, current.Performer), access, cancellationToken);
+                    found = await executor.ReattachAsync(new SessionHandle(id, current.Performer), access, cancellationToken);
                     settled = true;
                 }
             }
@@ -630,7 +632,20 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                 logger.LogWarning(failure, "Reattaching the session of step '{Step}' on flow {Flow} failed.", step.Name, Ids.Short(flow.Id));
             }
 
-            if (live is null || current is not { SpawnedAt: DateTimeOffset spawnedAt, AgentHash: string agentHash, Model: ModelSpec model })
+            if (found is LostSession lostOnRetry && current is { AgentHash: string lostHash, Model: ModelSpec lostModel })
+            {
+                var lostLaunch = new Launched(step.Name, current.Performer, lostHash, lostModel, ceiling: null) { Session = lostOnRetry.Handle, Recorded = true };
+                await PauseJudgmentAsync(
+                    principal, project, flow.Id, lostLaunch,
+                    $"Step '{step.Name}' lost the session agent '{current.Performer}' was launched in across a daemon restart (session {Ids.Short(lostOnRetry.Handle.Id)}, which ended on its retry without an answer), so the usage of its retry was not observed; the usage of its turns before the retry is recorded.",
+                    FlowLevers.PerformAgain(step.Name),
+                    lostOnRetry.Earlier,
+                    cancellationToken);
+                return null;
+            }
+
+            if (found is not ReattachedSession live
+                || current is not { SpawnedAt: DateTimeOffset spawnedAt, AgentHash: string agentHash, Model: ModelSpec model })
             {
                 // A session the executor did not say it no longer holds may still be running.
                 if (!settled && current.SessionId is Guid left)

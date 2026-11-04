@@ -56,6 +56,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     private readonly Dictionary<Guid, Session> sessions = [];
     private readonly HashSet<Guid> stopped = [];
 
+    // What the attempts before a retry returned, for each session let go on that retry, until a reattach takes it.
+    private readonly Dictionary<Guid, Measurement> lost = [];
+
     /// <param name="executable">The configured path of the claude executable, or a bare name looked up on the PATH.</param>
     /// <param name="home">The node home, which says where each flow's transcripts go and where sessions are recorded.</param>
     /// <param name="environment">The environment a session's processes start from, before the adapter removes and sets what it does.</param>
@@ -391,15 +394,22 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// <summary>
     /// Returns a session this executor holds and has not stopped, with the attempt its latest
     /// process is and the usage its earlier attempts' collects returned, finding it from its record
-    /// when this executor has not met it, as after a daemon restart; null when it is not held.
+    /// when this executor has not met it, as after a daemon restart. A session its record showed on
+    /// a retry, let go because that retry cannot answer, is lost with the usage the record held for
+    /// the attempts before it; null for any other session that is not held.
     /// </summary>
-    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
+    public ValueTask<Reattachment?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
         if (Find(handle.Id) is not { } session)
         {
-            return ValueTask.FromResult<ReattachedSession?>(null);
+            lock (gate)
+            {
+                return lost.Remove(handle.Id, out Measurement? earlier)
+                    ? ValueTask.FromResult<Reattachment?>(new LostSession(handle, earlier))
+                    : ValueTask.FromResult<Reattachment?>(null);
+            }
         }
 
         lock (gate)
@@ -410,8 +420,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             }
 
             return session.Current is { } attempt
-                ? ValueTask.FromResult<ReattachedSession?>(new ReattachedSession(session.Handle, attempt.Ordinal, session.EarlierUsage))
-                : ValueTask.FromResult<ReattachedSession?>(null);
+                ? ValueTask.FromResult<Reattachment?>(new ReattachedSession(session.Handle, attempt.Ordinal, session.EarlierUsage))
+                : ValueTask.FromResult<Reattachment?>(null);
         }
     }
 
@@ -514,6 +524,16 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         if (session.Current is not { } attempt || attempt.Process.HasExited && ReadStream(session, attempt).Result is null)
         {
             session.Current?.Process.Dispose();
+
+            // A retry's earlier attempts were collected, and nothing recorded their usage at the daemon stop.
+            if (recorded.Ordinal > 1)
+            {
+                lock (gate)
+                {
+                    lost[id] = session.EarlierUsage;
+                }
+            }
+
             Forget(id);
             return null;
         }

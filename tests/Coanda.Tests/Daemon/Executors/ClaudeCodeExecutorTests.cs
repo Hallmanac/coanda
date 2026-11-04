@@ -703,6 +703,28 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_session_whose_retry_exited_without_a_result_while_no_daemon_ran_is_lost_once_with_its_first_turns_usage()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000),
+            new { result = "none", waitFor = "release", exitCode = 1 });
+        ClaudeCodeExecutor first = fake.Executor(temp.Home);
+        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        CollectedAnswer invalid = await first.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        await first.ResumeAsync(handle, "Answer in the schema.", None);
+        await Until(() => fake.Starts.Count == 2);
+        fake.Release();
+        await Until(() => FakeClaude.Finished(fake.Starts[1].Pid));
+
+        // The start-up sweep lists the sessions first, which lets the record go; the reattach after it still hears of the first turn.
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ListAsync(None)).Should().BeEmpty();
+        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(new LostSession(handle, invalid.Usage));
+        (await restarted.ReattachAsync(handle, access: null, None)).Should().BeNull("a lost session's usage is handed back once");
+        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_recorded_session_whose_process_exited_without_a_result_is_not_held_by_the_next_executor()
     {
         using var fake = new FakeClaude(new { result = "none", exitCode = 1 });

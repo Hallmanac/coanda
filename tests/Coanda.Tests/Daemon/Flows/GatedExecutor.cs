@@ -168,7 +168,7 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     public ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken) => inner.ListAsync(cancellationToken);
 
-    public async ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
+    public async ValueTask<Reattachment?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
     {
         if (BeforeReattach is { } before)
         {

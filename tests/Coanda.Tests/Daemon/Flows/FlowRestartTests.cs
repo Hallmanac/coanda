@@ -258,6 +258,40 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_restart_that_finds_the_session_lost_on_its_retry_pauses_with_the_usage_of_its_turn_before_the_retry()
+    {
+        using var temp = new TemporaryHome();
+        var script = Scripts.CleanBuild();
+        script["build"] = [new ScriptEntry(null, "/transcripts/0.jsonl", Scripts.Usage(4)), Scripts.Answer("done", 1)];
+
+        // The first collect passes, so the daemon stops while the retry's collect is held; the retry then ends unanswered.
+        var stalled = new GatedExecutor(new ScriptedExecutor(script)) { FreeCollects = 1 };
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Lost in the retry");
+        stalled.Inner.Resumes.Should().ContainSingle(r => r.Handle == issued);
+        stalled.Inner.Lose(issued);
+
+        var restarted = new GatedExecutor(stalled.Inner);
+        restarted.Open();
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = restarted }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
+
+        paused.PauseReason.Should().Be(
+            $"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which ended on its retry without an answer), so the usage of its retry was not observed; the usage of its turns before the retry is recorded.");
+        paused.PauseUsage.Should().Be(Scripts.Usage(4), "the first turn, which nothing recorded at the stop, is counted");
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("build"));
+        paused.Spawns.Should().Be(1);
+        restarted.Inner.Spawns.Should().ContainSingle("a lost session is not launched again");
+
+        await Flowing.ResumeAsync(again, Project, flowId, "Perform it again.");
+        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
+        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
+        ended.Spawns.Should().Be(4, "the resume counts one more spawn for build");
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_restart_that_finds_a_launch_with_no_session_recorded_pauses_and_its_resume_is_held_to_the_spawn_cap()
     {
         using var temp = new TemporaryHome();
