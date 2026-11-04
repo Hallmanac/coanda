@@ -262,6 +262,13 @@ to the console. A detached start writes it to the node home's log, `coanda.log`,
 start`, like any command that starts the daemon on demand, checks the file first and prints the same
 rule.
 
+A detached daemon runs apart from the command that started it: in a process group of its own,
+without that command's console, and holding none of its standard handles, so the command returns
+at once and closing the terminal leaves the daemon running. Whatever it prints outside its log,
+such as a failure before the log is open, goes to `daemon.out` in the node home, which each start
+appends to and keeps. When the daemon exits before it is ready, the command that started it fails
+straight away and prints what the daemon wrote during that start, to its log and to `daemon.out`.
+
 ## Naming a project's profile
 
 ```
