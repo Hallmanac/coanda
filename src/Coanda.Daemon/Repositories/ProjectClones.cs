@@ -103,12 +103,14 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
 
         // -z lists each path verbatim, where the default quotes a path holding anything unusual.
         string tracked = await git.RunAsync(Git.Against(clone, "ls-tree", "-r", "-z", "--name-only", tip, "--", ".coanda"), cancellationToken);
-        string[] underCoanda = [.. tracked.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(p => p.StartsWith(".coanda/", StringComparison.Ordinal))];
+        // A .coanda the commit tracks as a file, a symbolic link or a submodule is listed as .coanda
+        // itself; a directory, as the files under it.
+        string[] underCoanda = [.. tracked.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(p => p is ".coanda" || p.StartsWith(".coanda/", StringComparison.Ordinal))];
         if (underCoanda.Length > 0)
         {
             string from = exists ? $"branch {branch}" : $"primary branch {project.PrimaryBranch}";
             return new Checkout.Refused(
-                $"Commit {tip} of {from} tracks files under .coanda/, the directory the daemon keeps its own files in at a worktree's root, so no worktree is made from it: {string.Join(", ", underCoanda)}.");
+                $"Commit {tip} of {from} tracks .coanda or files under it, where the daemon keeps its own files at a worktree's root, so no worktree is made from it: {string.Join(", ", underCoanda)}.");
         }
 
         foreach (ListedWorktree stale in listed.Where(w => !w.Bare && w.Stale && (w.Branch == reference || RealPath.Same(w.Path, workPath))))
