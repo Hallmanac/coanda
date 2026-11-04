@@ -61,6 +61,12 @@ flow reaches its first judgment; without it, the judgment pauses saying why. To 
 with no sessions and no spend, write a `node.json` naming the `scripted` executor, under which
 every judgment pauses.
 
+A build flow's worktree and gates steps start real processes. The daemon needs git 2.31 or later
+and the project's build and test tools on its PATH, and it has to reach the project's remote with
+no prompt: every git command runs with `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o
+BatchMode=yes`, so an ssh key needs no passphrase or has to be loaded in an agent, and a key named
+only in `core.sshCommand` is not used. [Getting started](getting-started.md) has the details.
+
 A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
 commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that
 older build wrote does not carry over, and the daemon refuses to start on it, naming the file. Move the old node home aside (for example

@@ -19,6 +19,17 @@ named `coanda/<short parcel id>`, and its gates run the project's build and test
 removed when the flow ends or is stopped; the branch stays in the clone. Without `--project`, a command works in the project that
 `COANDA_PROJECT` names, then in the one named after the current directory.
 
+So `coa daemon run` (and the daemon `coa` starts for you) needs a few things before a build flow
+reaches its worktree step. Git 2.31 or later has to be on the daemon's PATH, along with whatever
+the project's build and test commands run (the .NET SDK for the defaults). The daemon also has to
+reach the remote without anyone answering a prompt, because it runs every git command with
+`GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o BatchMode=yes`. For an ssh remote, that means a
+key without a passphrase or one loaded in an ssh agent the daemon can reach. `GIT_SSH_COMMAND` also
+overrides any `core.sshCommand` or `GIT_SSH` you set, so a key named only there is not used; name it
+in `~/.ssh/config` instead, which still applies. For an https remote, a credential helper that already
+holds the credential works. When any of these is missing, the flow pauses at its worktree step and
+the pause quotes git's own error.
+
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
 Judgments run on Claude Code. With no configuration at all, the daemon runs each judgment as a
@@ -32,7 +43,9 @@ principal bound to its own flow; [how a session talks back](node-configuration.m
 names the variables it is given. The repository's Rider run
 configurations use `.coanda-dev` as their node home, and its checked-in `node.json` names the
 `scripted` executor, so a judgment run from them pauses at no cost instead of starting a Claude Code
-session; change that file to `claude-code` to run real sessions there.
+session; change that file to `claude-code` to run real sessions there. The worktree and gates steps
+are real even there: a build flow fetches from the project's remote and runs its build and test
+commands, so the prerequisites above apply to that home too.
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
