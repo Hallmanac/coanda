@@ -7,6 +7,7 @@ using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Flows;
+using Coanda.Tests.Daemon.Flows;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
@@ -105,6 +106,10 @@ public sealed class DaemonApiTests
         FlowView resumed = await client.PostAsync<FlowView>(
             $"/flows/{flow.Id}/resume", new FlowResumeRequest("coanda", "Carry on."), CancellationToken.None);
         resumed.Status.Should().Be("running");
+
+        // The stock executor holds no script, so the resumed flow pauses again at its first judgment;
+        // waiting for that keeps the stop below from racing the runner's own writes.
+        await Flowing.UntilAsync(client, "coanda", flow.Id, "paused");
 
         await FluentActions.Awaiting(() => client.PostAsync<FlowView>(
                 $"/flows/{flow.Id}/stop", new FlowStopRequest("coanda", " "), CancellationToken.None))
