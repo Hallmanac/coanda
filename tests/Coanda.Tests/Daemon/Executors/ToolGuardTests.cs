@@ -320,6 +320,49 @@ public sealed class ToolGuardTests : IDisposable
         RefusedUnknowable(Guard(Call("Bash", new { command })));
 
     [Theory]
+    [InlineData("CDPATH=/nonexistent:../../.. cd alpha && cat daemon.json")]
+    [InlineData("export CDPATH=/nonexistent:../../..; cd alpha; cat daemon.json")]
+    [InlineData("export \"CDPATH=/x:../../..\"; cd alpha; cat daemon.json")]
+    [InlineData("cdpath=(../../..) && cd alpha && cat daemon.json")]
+    [InlineData("typeset -T Cd\\PATH x; cd alpha")]
+    [InlineData("v=CD; export ${v}PATH=../../..; cd alpha; cat daemon.json")]
+    [InlineData("v=CDPATH; : ${(P)v::=../../..}; cd alpha; cat daemon.json")]
+    [InlineData("setopt pushdtohome; pushd; cat .claude/settings.json")]
+    [InlineData("setopt PUSHD_TO_HOME && pushd && cat .claude/settings.json")]
+    [InlineData("set -o pushd_to_home; pushd; cat .claude/settings.json")]
+    [InlineData("set -D; pushd; cat .claude/settings.json")]
+    [InlineData("setopt -D && pushd && cat .claude/settings.json")]
+    [InlineData("setopt cdablevars; h=../../..; cd h; cat daemon.json")]
+    [InlineData("set -T; cd h; cat daemon.json")]
+    [InlineData("setopt auto_cd; ../../..; cat daemon.json")]
+    [InlineData("shopt -s cdable_vars; cd h; cat daemon.json")]
+    public void A_command_that_may_change_where_a_cd_goes_is_refused(string command) =>
+        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Theory]
+    [InlineData("cd alpha && cat daemon.json")]
+    [InlineData("pushd alpha && cat daemon.json")]
+    [InlineData("cd src")]
+    public void With_an_inherited_cdpath_a_cd_the_shell_searches_it_for_is_refused(string command) =>
+        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("CDPATH", Path.Combine(root, "home", "flows")))));
+
+    [Theory]
+    [InlineData("cd ./src && cat a.cs")]
+    [InlineData("cd . && cat src/a.cs")]
+    [InlineData("cd && cat src/a.cs")]
+    [InlineData("cat src/a.cs")]
+    public void With_an_inherited_cdpath_a_cd_the_shell_does_not_search_it_for_is_judged_as_before(string command) =>
+        Allowed(Guard(Call("Bash", new { command }), environment: Environment(("CDPATH", Path.Combine(root, "elsewhere")), ("HOME", work))));
+
+    [Theory]
+    [InlineData("cd src && cat a.cs")]
+    [InlineData("set -euo pipefail; cd src && cat a.cs")]
+    [InlineData("set -x && cd src")]
+    [InlineData("A=1 cd src && cat a.cs")]
+    public void Without_a_cdpath_or_an_option_a_cd_into_the_work_directory_is_allowed(string command) =>
+        Allowed(Guard(Call("Bash", new { command })));
+
+    [Theory]
     [InlineData("cd src >/dev/null && cat a.cs")]
     [InlineData("cd src 2>/dev/null || true")]
     [InlineData("cd src 2>&1 && cat a.cs")]
