@@ -58,6 +58,16 @@ public sealed record NodeHome(string Path)
         System.IO.Path.Combine(Path, "transcripts", RequirePlain(project, "transcript directory"), flowId.ToString());
 
     /// <summary>
+    /// Where an executor keeps what it needs to find its sessions again after a daemon restart:
+    /// <c>sessions/</c> under the home, one record per live session beside the files its processes
+    /// read their input from and write their error output to.
+    /// </summary>
+    public string SessionsPath => System.IO.Path.Combine(Path, "sessions");
+
+    /// <summary>The record of session <paramref name="sessionId"/> in <see cref="SessionsPath"/>.</summary>
+    public string SessionRecordPath(Guid sessionId) => System.IO.Path.Combine(SessionsPath, $"{sessionId}.json");
+
+    /// <summary>
     /// The transcript directory of the flow whose work directory is <paramref name="flowWorkPath"/>,
     /// a path <see cref="FlowWorkPath"/> returned. An executor is handed the work directory alone,
     /// and this is how it finds where the flow's transcripts go.

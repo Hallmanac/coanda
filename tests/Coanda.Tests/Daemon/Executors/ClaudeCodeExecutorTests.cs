@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Flows;
@@ -521,7 +522,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         report?.Usage.CostUsd.Should().Be(0m);
         report?.Usage.Turns.Should().Be(2);
         report?.Usage.Duration.Should().BePositive();
-        await Until(() => !Running(parent) && !Running(child));
+        await Until(() => !FakeClaude.Running(parent) && !FakeClaude.Running(child));
         (await executor.ListAsync(None)).Should().BeEmpty();
         (await executor.StopAsync(handle, None)).Should().BeNull("stopping a session that has already ended succeeds");
     }
@@ -544,21 +545,145 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_spawn_cancelled_while_its_prompt_is_written_ends_the_process_it_started()
+    public async Task A_process_that_never_reads_its_input_does_not_hold_up_the_spawn_since_its_prompt_is_a_file()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment((Coanda.Testing.FakeClaude.Program.IgnoreInputVariable, "1")));
         string stalled = Path.Combine(fake.Control, "stalled.pid");
-        using var cancel = new CancellationTokenSource();
 
-        Task<SessionHandle> spawning = executor.SpawnAsync(ShippedAgents.Build, new string('x', 4_000_000), WorkDirectory, Caps, AnswerSchemas.Build, null, null, cancel.Token).AsTask();
+        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, new string('x', 4_000_000), WorkDirectory, Caps, AnswerSchemas.Build, null, null, None)
+            .AsTask().WaitAsync(TimeSpan.FromSeconds(15));
         await Until(() => File.Exists(stalled) && File.ReadAllText(stalled).Length > 0);
         int pid = int.Parse(File.ReadAllText(stalled), System.Globalization.CultureInfo.InvariantCulture);
-        await cancel.CancelAsync();
 
-        await FluentActions.Awaiting(() => spawning).Should().ThrowAsync<OperationCanceledException>();
-        await Until(() => !Running(pid));
+        await executor.StopAsync(handle, None);
+        await Until(() => !FakeClaude.Running(pid));
         (await executor.ListAsync(None)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_new_executor_on_the_same_home_reattaches_a_running_session_and_collects_its_answer_from_one_process()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.4m, 0.4m, input: 7, output: 8, cacheCreation: 9, cacheRead: 10, turns: 3, durationMs: 2500, waitFor: "release"));
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        int pid = fake.Starts[0].Pid;
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ListAsync(None)).Should().Equal(handle);
+        (await restarted.ReattachAsync(handle, None)).Should().Be(handle);
+        FakeClaude.Running(pid).Should().BeTrue();
+        fake.Release();
+        CollectedAnswer collected = await restarted.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        collected.Answer.Should().Be(ValidBuild);
+        collected.Usage.Should().Be(new Measurement(7 + 8 + 9 + 10, 0.4m, 3, TimeSpan.FromMilliseconds(2500)));
+        collected.TranscriptPath.Should().Be(Path.Combine(TranscriptDirectory, $"{handle.Id}.jsonl"));
+        fake.Starts.Where(s => s.After("--session-id") == handle.Id.ToString() || s.After("--resume") == handle.Id.ToString())
+            .Should().ContainSingle("the reattach starts no process of its own");
+        (await restarted.StopAsync(handle, None)).Should().BeNull();
+        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse("a stopped session's record is removed");
+    }
+
+    [Fact]
+    public async Task A_session_whose_process_answered_while_no_daemon_ran_is_collected_by_the_next_executor()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ReattachAsync(handle, None)).Should().Be(handle);
+        CollectedAnswer collected = await restarted.CollectAsync(handle, None);
+
+        collected.Answer.Should().Be(ValidBuild);
+        collected.Usage.CostUsd.Should().Be(0.3m);
+        fake.Starts.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_reattached_session_whose_first_answer_is_invalid_is_resumed_once_on_its_id_and_answers_with_both_turns_usage()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000, waitFor: "release"),
+            FakeClaude.Answering(ValidBuild, cost: 0.25m, totalCost: 1.00m, input: 1, output: 2, cacheCreation: 3, cacheRead: 4, turns: 1, durationMs: 1000));
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        SessionHandle reattached = (await restarted.ReattachAsync(handle, None)).Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
+        fake.Release();
+        JudgmentOutcome outcome = await Judgment.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None);
+
+        JudgmentOutcome.Answered answered = outcome.Should().BeOfType<JudgmentOutcome.Answered>().Subject;
+        answered.Answer.Should().Be(ValidBuild);
+        answered.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)));
+        fake.Starts.Should().HaveCount(2);
+        fake.Starts[1].After("--resume").Should().Be(handle.Id.ToString());
+        fake.Starts[1].Shared.Should().Equal(fake.Starts[0].Shared);
+        fake.Starts[1].After("--max-budget-usd").Should().Be("1.75", "what the first daemon's session cost is still taken from the ceiling");
+    }
+
+    [Fact]
+    public async Task A_recorded_session_whose_process_exited_without_a_result_is_not_held_by_the_next_executor()
+    {
+        using var fake = new FakeClaude(new { result = "none", exitCode = 1 });
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ListAsync(None)).Should().BeEmpty();
+        (await restarted.ReattachAsync(handle, None)).Should().BeNull();
+        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse("a session that cannot answer is let go");
+    }
+
+    [Fact]
+    public async Task A_running_session_with_no_record_is_not_held_by_the_next_executor()
+    {
+        using var fake = new FakeClaude(new { result = "hang" });
+        ClaudeCodeExecutor first = fake.Executor(temp.Home);
+        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        File.Delete(temp.Home.SessionRecordPath(handle.Id));
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        (await restarted.ListAsync(None)).Should().BeEmpty();
+        (await restarted.ReattachAsync(handle, None)).Should().BeNull();
+
+        await first.StopAsync(handle, None);
+        await Until(() => !FakeClaude.Running(fake.Starts[0].Pid));
+    }
+
+    [Fact]
+    public async Task A_record_whose_process_id_now_names_another_process_is_not_held_and_that_process_is_left_running()
+    {
+        using var fake = new FakeClaude(new { result = "hang" });
+        ClaudeCodeExecutor first = fake.Executor(temp.Home);
+        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        string otherPid = Path.Combine(fake.Control, "other.pid");
+        using Process other = Process.Start(new ProcessStartInfo(FakeClaude.Executable, [Coanda.Testing.FakeClaude.Program.ChildFlag, otherPid]) { UseShellExecute = false })
+            ?? throw new InvalidOperationException("The other process did not start.");
+        try
+        {
+            string path = temp.Home.SessionRecordPath(handle.Id);
+            JsonNode record = JsonNode.Parse(File.ReadAllText(path)) ?? throw new InvalidOperationException("An empty record.");
+            record["attempt"]!["processId"] = other.Id;
+            File.WriteAllText(path, record.ToJsonString());
+
+            ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+            (await restarted.ListAsync(None)).Should().BeEmpty();
+            (await restarted.ReattachAsync(handle, None)).Should().BeNull();
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            FakeClaude.Running(other.Id).Should().BeTrue("a process the executor did not start is never ended");
+        }
+        finally
+        {
+            other.Kill(entireProcessTree: true);
+            await first.StopAsync(handle, None);
+        }
     }
 
     [Fact]
@@ -575,13 +700,13 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await daemon.StopAsync(None);
         await daemon.DisposeAsync();
 
-        Running(parent).Should().BeTrue("the daemon's stop does not end a session's process");
-        Running(child).Should().BeTrue();
+        FakeClaude.Running(parent).Should().BeTrue("the daemon's stop does not end a session's process");
+        FakeClaude.Running(child).Should().BeTrue();
         (await executor.ListAsync(None)).Should().Equal(handle);
         (await executor.ReattachAsync(handle, None)).Should().Be(handle);
 
         await executor.StopAsync(handle, None);
-        await Until(() => !Running(parent) && !Running(child));
+        await Until(() => !FakeClaude.Running(parent) && !FakeClaude.Running(child));
     }
 
     [Fact]
@@ -646,6 +771,12 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         File.GetUnixFileMode(Path.Combine(WorkDirectory, ".coanda", "persona.md")).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
         File.GetUnixFileMode(collected.TranscriptPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        string[] recorded = Directory.GetFiles(temp.Home.SessionsPath);
+        recorded.Should().HaveCount(3, "the session's record, and its process's input and error files");
+        foreach (string file in recorded)
+        {
+            File.GetUnixFileMode(file).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite, file);
+        }
     }
 
     [Fact]
@@ -742,24 +873,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     private JudgmentRequest Request(CredentialProfile? profile = null) =>
         new(ShippedAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, profile);
 
-    private static bool Running(int pid)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(pid);
-            return !process.HasExited;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-    }
-
-    // The adapter holds the transcript open for writing while the session runs, and Windows refuses
+    // A session process holds the transcript open for writing while it runs, and Windows refuses
     // a reader that does not share write access with it, which is all File.ReadAllText offers.
     private static string ReadWhileWritten(string path)
     {
