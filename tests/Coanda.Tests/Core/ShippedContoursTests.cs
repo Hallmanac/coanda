@@ -85,6 +85,7 @@ public sealed class ShippedContoursTests
         List<string> visited = Walk(build, step => step.Name switch
         {
             "adversarial-review" or "conformance-review" => "clean",
+            "open-pr" => "opened",
             _ => "done",
         });
 

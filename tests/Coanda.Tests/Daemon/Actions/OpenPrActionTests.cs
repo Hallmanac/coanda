@@ -214,15 +214,40 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Its_answer_moves_a_flow_on_from_open_pr_under_the_shipped_build_contour_and_under_the_one_before_it()
+    public async Task It_answers_opened_under_the_shipped_build_contour_which_moves_the_flow_to_review()
+    {
+        Parcel parcel = await TaskAsync(Project, "Under the shipped contour");
+
+        ActionOutcome outcome = await PerformUnderAsync(ShippedContours.Build, parcel.Id);
+
+        Decide(ShippedContours.Build, Answered(outcome, OpenPrAction.OpenedVerdict)).Should().Be(new FlowMove.GoTo("move-to-review"));
+    }
+
+    [Fact]
+    public async Task It_answers_done_to_a_flow_pinned_to_the_build_contour_before_it_which_routed_open_pr_only_on_done()
     {
         Parcel parcel = await TaskAsync(Project, "Pinned to an earlier contour");
-        JsonElement result = Opened(await PerformAsync(parcel.Id, Ids.New()));
-        using JsonDocument answer = JsonDocument.Parse(result.GetRawText());
-        var atOpenPr = new FlowPosition("open-pr", ImmutableDictionary<string, int>.Empty.Add("open-pr", 1), Spawns: 0);
 
-        Interpreter.Decide(ShippedContours.Build, atOpenPr, answer).Should().Be(new FlowMove.GoTo("move-to-review"));
-        Interpreter.Decide(PreviousContours.BuildWithGatedMerge, atOpenPr, answer).Should().Be(new FlowMove.GoTo("gated-merge"));
+        ActionOutcome outcome = await PerformUnderAsync(PreviousContours.BuildWithGatedMerge, parcel.Id);
+
+        Decide(PreviousContours.BuildWithGatedMerge, Answered(outcome, ActionOutcome.DoneVerdict)).Should().Be(new FlowMove.GoTo("gated-merge"));
+        (await FieldAsync(parcel.Id)).Should().Be(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url));
+    }
+
+    [Fact]
+    public void A_step_routing_on_both_opened_and_done_is_answered_opened()
+    {
+        ContourStep both = Step with
+        {
+            Transitions =
+            [
+                new ContourTransition { Field = ActionOutcome.Verdict, Value = ContourValue.Of("done"), Target = "a" },
+                new ContourTransition { Field = ActionOutcome.Verdict, Value = ContourValue.Of("opened"), Target = "b" },
+            ],
+        };
+
+        OpenPrAction.VerdictFor(both).Should().Be(OpenPrAction.OpenedVerdict);
+        OpenPrAction.VerdictFor(Step).Should().Be(OpenPrAction.OpenedVerdict);
     }
 
     [Fact]
@@ -413,10 +438,25 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     private ValueTask<ActionOutcome> PerformAsync(Guid parcelId, Guid flowId, string project = Project) =>
         action.PerformAsync(new ActionRequest(FlowPrincipal, project, flowId, parcelId, ShippedContours.Build, Step, Resumed: false), None);
 
-    private static JsonElement Opened(ActionOutcome outcome)
+    private ValueTask<ActionOutcome> PerformUnderAsync(Contour contour, Guid parcelId)
+    {
+        ContourStep openPr = contour.Step("open-pr") ?? throw new InvalidOperationException("The contour has no open-pr step.");
+        return action.PerformAsync(new ActionRequest(FlowPrincipal, Project, Ids.New(), parcelId, contour, openPr, Resumed: false), None);
+    }
+
+    private static FlowMove Decide(Contour contour, JsonElement answer)
+    {
+        using JsonDocument document = JsonDocument.Parse(answer.GetRawText());
+        var atOpenPr = new FlowPosition("open-pr", ImmutableDictionary<string, int>.Empty.Add("open-pr", 1), Spawns: 0);
+        return Interpreter.Decide(contour, atOpenPr, document);
+    }
+
+    private static JsonElement Opened(ActionOutcome outcome) => Answered(outcome, OpenPrAction.OpenedVerdict);
+
+    private static JsonElement Answered(ActionOutcome outcome, string verdict)
     {
         JsonElement result = outcome.Should().BeOfType<ActionOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be(ActionOutcome.DoneVerdict);
+        result.GetProperty("verdict").GetString().Should().Be(verdict);
         result.GetProperty("action").GetString().Should().Be(SoftwareActions.OpenPr);
         return result;
     }
