@@ -24,6 +24,13 @@ public sealed class ProjectAddSettings : ProjectNameSettings
     public required string Branch { get; init; }
 }
 
+public sealed class ProjectSetProfileSettings : ProjectNameSettings
+{
+    [CommandArgument(1, "<PROFILE>")]
+    [Description("The name of a credential profile the running daemon's node configuration holds.")]
+    public required string Profile { get; init; }
+}
+
 public sealed class ProjectAddCommand : AsyncCommand<ProjectAddSettings>
 {
     protected override async Task<int> ExecuteAsync(CommandContext context, ProjectAddSettings settings, CancellationToken cancellationToken)
@@ -32,6 +39,18 @@ public sealed class ProjectAddCommand : AsyncCommand<ProjectAddSettings>
         ProjectView project = await client.PostAsync<ProjectView>(
             "/projects", new ProjectAddRequest(settings.Name, settings.Repo, settings.Branch), cancellationToken);
         AnsiConsole.MarkupLineInterpolated($"Registered project {project.Name}: {project.Remote} on {project.PrimaryBranch}");
+        return 0;
+    }
+}
+
+public sealed class ProjectSetProfileCommand : AsyncCommand<ProjectSetProfileSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSetProfileSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        ProjectView project = await client.PostAsync<ProjectView>(
+            "/projects/profile", new ProjectSetProfileRequest(settings.Name, settings.Profile), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Project {project.Name} spawns its judgments with the credential profile {project.Profile ?? string.Empty} on this node.");
         return 0;
     }
 }
@@ -47,6 +66,9 @@ public sealed class ProjectShowCommand : AsyncCommand<ProjectNameSettings>
         table.AddRow("Name", Markup.Escape(project.Name));
         table.AddRow("Remote", Markup.Escape(project.Remote));
         table.AddRow("Branch", Markup.Escape(project.PrimaryBranch));
+        table.AddRow("Profile", project.Profile is null
+            ? "none set; coa project set-profile names one"
+            : Markup.Escape(project.Profile));
         table.AddRow("Registered", $"{project.RegisteredAt.ToLocalTime():yyyy-MM-dd HH:mm zzz} by {Markup.Escape(project.RegisteredBy)}");
 
         AnsiConsole.Write(table);

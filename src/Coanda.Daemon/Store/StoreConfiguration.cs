@@ -32,6 +32,7 @@ public static class StoreConfiguration
         options.Events.TenancyStyle = TenancyStyle.Conjoined;
         options.Policies.AllDocumentsAreMultiTenanted();
         options.Projections.Snapshot<Project>(SnapshotLifecycle.Inline);
+        options.Projections.Snapshot<ProjectProfile>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Flow>(SnapshotLifecycle.Inline);

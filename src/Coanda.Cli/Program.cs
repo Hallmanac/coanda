@@ -34,6 +34,8 @@ app.Configure(config =>
         project.SetDescription("A project is a record of the one repository its work acts on: a remote and a primary branch.");
         project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its repository's remote and primary branch.")
             .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git", "--branch", "main");
+        project.AddCommand<ProjectSetProfileCommand>("set-profile").WithDescription("Name the credential profile this node spawns the project's judgments with.")
+            .WithExample("project", "set-profile", "coanda", "work");
         project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
         project.AddCommand<ProjectListCommand>("list").WithDescription("List the projects registered on this node.").WithExample("project", "list");
     });

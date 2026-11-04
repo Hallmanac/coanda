@@ -1,4 +1,5 @@
 using Coanda.Core.Projects;
+using Coanda.Core.Registry;
 using Coanda.Daemon.Projects;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -21,18 +22,21 @@ public static class ProjectEndpoints
 
         group.MapGet("", async (HttpContext context, ProjectService projects, CancellationToken cancellationToken) =>
             {
-                IReadOnlyList<Project> list = await projects.ListAsync(RequestPrincipal.PrincipalOf(context), cancellationToken);
-                List<ProjectView> views = [.. list.Select(ProjectView.From)];
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                IReadOnlyList<Project> list = await projects.ListAsync(principal, cancellationToken);
+                IReadOnlyDictionary<string, string> profiles = await projects.ProfilesAsync(principal, cancellationToken);
+                List<ProjectView> views = [.. list.Select(p => ProjectView.From(p, profiles.GetValueOrDefault(p.Name)))];
                 return Results.Ok(views);
             })
             .Produces<List<ProjectView>>();
 
         group.MapGet("/{**name}", async (HttpContext context, ProjectService projects, string name, CancellationToken cancellationToken) =>
             {
-                Project? project = await projects.ShowAsync(RequestPrincipal.PrincipalOf(context), name, cancellationToken);
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Project? project = await projects.ShowAsync(principal, name, cancellationToken);
                 return project is null
                     ? Results.NotFound(new ErrorView(ProjectService.Unregistered(name.Trim())))
-                    : Results.Ok(ProjectView.From(project));
+                    : Results.Ok(ProjectView.From(project, await projects.ProfileOfAsync(principal, name, cancellationToken)));
             })
             .Produces<ProjectView>()
             .Produces<ErrorView>(StatusCodes.Status404NotFound);
@@ -41,9 +45,20 @@ public static class ProjectEndpoints
             {
                 Project project = await projects.AddAsync(
                     RequestPrincipal.PrincipalOf(context), request.Name, request.Remote, request.PrimaryBranch, cancellationToken);
-                return Results.Created(PathOf(project.Name), ProjectView.From(project));
+                return Results.Created(PathOf(project.Name), ProjectView.From(project, null));
             })
             .Produces<ProjectView>(StatusCodes.Status201Created);
+
+        // A fixed path with the project in the body, since the show route already takes the rest of /projects/.
+        group.MapPost("/profile", async (HttpContext context, ProjectService projects, ProjectSetProfileRequest request, CancellationToken cancellationToken) =>
+            {
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                ProjectProfile setting = await projects.SetProfileAsync(principal, request.Project, request.Profile, cancellationToken);
+                Project project = await projects.ShowAsync(principal, setting.Project, cancellationToken)
+                    ?? throw new InvalidOperationException($"Project '{setting.Project}' named a profile but has no record.");
+                return Results.Ok(ProjectView.From(project, setting.Profile));
+            })
+            .Produces<ProjectView>();
 
         return routes;
     }
