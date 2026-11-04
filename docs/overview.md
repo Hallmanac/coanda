@@ -16,8 +16,9 @@ running.
   called closed with a resolution), its fields, and its bindings.
 - contour: the definition of an agentic loop: judgment steps (an agent) and action steps (something
   the daemon does), with transitions and caps.
-- flow: one execution of a contour on a parcel. A flow follows its contour; it can pause (waiting
-  for a person, an external event, or a budget) and is then resumed or stopped.
+- flow: one execution of a contour on a parcel. A flow follows its contour. It pauses when it
+  waits for a person or an external event, or when one of its caps (visits, spawns, depth) or its
+  budget is reached; a paused flow is resumed or stopped.
 - agent: a definition of a persona, a model spec (vendor, model, effort), tools, and answer schema that a judgment step spawns.
 - action: a deterministic step the daemon performs (worktree, gates, open PR, merge, timer, wait).
 - trigger: an event subscription that starts a flow of a contour.
