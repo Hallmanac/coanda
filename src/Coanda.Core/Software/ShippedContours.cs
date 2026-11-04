@@ -9,6 +9,8 @@ namespace Coanda.Core.Software;
 /// every action result routes on a string field named <c>verdict</c>; an action answers
 /// <c>done</c> on success, and gates may also answer <c>failed</c>. A flow's outcome is the one
 /// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
+/// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
+/// agent it spawns is briefed with them.
 /// </summary>
 public static class ShippedContours
 {
@@ -16,6 +18,9 @@ public static class ShippedContours
 
     private const int ReviewToFixCap = 3;
     private const int DefaultCap = 5;
+
+    /// <summary>The task fields the build contour's judgments carry in their context: what to build, how it is judged, and what is out of scope.</summary>
+    private static readonly IReadOnlyList<string> Brief = ["objective", "criteria", "non-goals"];
 
     public static readonly Contour Build = new()
     {
@@ -27,12 +32,12 @@ public static class ShippedContours
         Steps =
         [
             Action("worktree", SoftwareActions.Worktree, On("done", "build")),
-            Judgment("build", "build", "build", On("done", "gates"), On("blocked", Contour.Pause)),
+            Judgment("build", "build", "build", On("done", "gates"), On("blocked", Contour.Pause)) with { Fields = Brief },
             Action("gates", SoftwareActions.Gates, On("done", "adversarial-review"), On("failed", "fix")),
             Judgment("adversarial-review", "reviewer-adversarial", "review",
-                On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)),
+                On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
             Judgment("conformance-review", "reviewer-conformance", "review",
-                On("clean", "open-pr"), On("not-clean", "fix", ReviewToFixCap)),
+                On("clean", "open-pr"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
             Action("open-pr", SoftwareActions.OpenPr, On("done", "gated-merge")),
             Action("gated-merge", SoftwareActions.GatedMerge, On("done", "move-to-review")),
             new ContourStep
@@ -42,7 +47,7 @@ public static class ShippedContours
                 Arguments = new Dictionary<string, JsonElement> { ["state"] = ContourValue.Of("review") },
                 Transitions = [On("done", Contour.End)],
             },
-            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Contour.Pause)),
+            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Contour.Pause)) with { Fields = Brief },
         ],
     };
 

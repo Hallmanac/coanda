@@ -163,4 +163,19 @@ public sealed class DaemonSeedingTests
             CommandRegistry.Require("contour.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
         }
     }
+
+    [Fact]
+    public async Task The_build_contours_new_hash_seeds_as_the_next_version_of_the_one_without_field_declarations()
+    {
+        using var temp = new TemporaryHome();
+        Contour before = ShippedContours.Build with { Steps = [.. ShippedContours.Build.Steps.Select(s => s with { Fields = [] })] };
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(before)]);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+
+        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+
+        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
+        build.VersionNumber.Should().Be(2);
+        build.ContentHash.Should().Be(ShippedContours.Build.Hash);
+    }
 }

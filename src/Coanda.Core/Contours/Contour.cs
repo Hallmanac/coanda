@@ -176,6 +176,8 @@ public sealed record Contour
             throw new DomainException($"Judgment step '{step.Name}' of contour '{Name}' holds no arguments; only an action step does.");
         }
 
+        ValidateFields(step, hasAction);
+
         if (step.Transitions.Count == 0)
         {
             throw new DomainException($"Step '{step.Name}' of contour '{Name}' needs at least one transition.");
@@ -191,6 +193,31 @@ public sealed record Contour
             }
 
             ValidateTransition(step, transition);
+        }
+    }
+
+    private void ValidateFields(ContourStep step, bool isAction)
+    {
+        if (isAction && step.Fields.Count > 0)
+        {
+            throw new DomainException(
+                $"Action step '{step.Name}' of contour '{Name}' declares fields; only a judgment step declares the fields its context carries.");
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string? field in step.Fields)
+        {
+            if (!IsPlainName(field))
+            {
+                throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares the field '{field}'; a field's name is plain: letters, digits, hyphens, and underscores, and not empty.");
+            }
+
+            if (!seen.Add(field))
+            {
+                throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares the field '{field}' twice; a step declares each field once.");
+            }
         }
     }
 
@@ -259,15 +286,7 @@ public sealed record Contour
             outcome = Outcome,
             budget = Budget,
             spawnCap = SpawnCap,
-            steps = Steps.Select(step => new
-            {
-                name = step.Name,
-                agent = step.Agent,
-                answerSchema = step.AnswerSchema,
-                action = step.Action,
-                arguments = step.Arguments.OrderBy(a => a.Key, StringComparer.Ordinal).ToDictionary(a => a.Key, a => a.Value),
-                transitions = step.Transitions.Select(t => new { field = t.Field, value = t.Value, visitCap = t.VisitCap, target = t.Target }),
-            }),
+            steps = Steps.Select(StepNode),
         };
         // A contour without a follow hashes exactly as it did before follows existed.
         JsonNode node = JsonSerializer.SerializeToNode(canonical)
@@ -279,6 +298,26 @@ public sealed record Contour
 
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(node);
         return Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
+    }
+
+    /// <summary>A step's hashed shape; its fields join it only when it declares some, so a step that declares none hashes as before fields existed.</summary>
+    private static JsonNode StepNode(ContourStep step)
+    {
+        JsonNode node = JsonSerializer.SerializeToNode(new
+        {
+            name = step.Name,
+            agent = step.Agent,
+            answerSchema = step.AnswerSchema,
+            action = step.Action,
+            arguments = step.Arguments.OrderBy(a => a.Key, StringComparer.Ordinal).ToDictionary(a => a.Key, a => a.Value),
+            transitions = step.Transitions.Select(t => new { field = t.Field, value = t.Value, visitCap = t.VisitCap, target = t.Target }),
+        }) ?? throw new InvalidOperationException("A step's canonical form serialized to nothing.");
+        if (step.Fields.Count > 0)
+        {
+            node["fields"] = JsonSerializer.SerializeToNode(step.Fields);
+        }
+
+        return node;
     }
 
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };

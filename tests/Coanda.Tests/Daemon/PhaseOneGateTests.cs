@@ -33,16 +33,20 @@ public sealed class PhaseOneGateTests
     private static ScriptedExecutor Executor(params (string Agent, ScriptEntry[] Entries)[] script) =>
         new(script.ToDictionary(s => s.Agent, s => (IReadOnlyList<ScriptEntry>)s.Entries));
 
-    // 1. The clean path, with no contour start.
+    // 1. The clean path, with no contour start, and the stop at review without a pull request.
 
     [Fact]
     public async Task A_task_moved_to_build_runs_the_shipped_build_contour_to_its_end_recording_every_hash_and_measurement()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        ScriptedExecutor executor = Scripts.CleanBuildExecutor();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Through the gate");
+
+        // The objective and criteria the move out of refine needs, and the pull request the move out of build needs.
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Through the gate", pullRequest: true);
+        parcel.Fields.Where(f => f.Name != TaskFields.NonGoals).Should().OnlyContain(f => f.Value != null);
 
         FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
@@ -58,6 +62,33 @@ public sealed class PhaseOneGateTests
             judgment.Model.Should().Be(agent.Model);
             judgment.Measurement.Should().Be(Scripts.Usage(ordinal), "tokens, cost, turns, and duration are recorded as the executor reported them");
         }
+
+        string context = executor.Spawns.First(spawn => spawn.Agent == "build").Context;
+        context.Should().Contain($"Field objective: {TaskFields.ObjectiveValue.Text}");
+        foreach (string criterion in TaskFields.CriteriaValue.Items ?? [])
+        {
+            context.Should().Contain($"- {criterion}");
+        }
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_flow_of_the_shipped_build_contour_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
+
+        FlowView paused = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "paused");
+
+        paused.CurrentStep.Should().Be("move-to-review");
+        paused.PauseReason.Should().Be(
+            $"Step 'move-to-review' could not move parcel {Ids.Short(parcel.Id)} to 'review': The gate 'required-fields' refused the move from 'build' to 'review': a 'task' leaves 'build' only with a value in every field required to leave it, and 'pull-request' has none.");
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("move-to-review"));
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("build");
 
         await daemon.StopAsync(None);
     }
