@@ -5,6 +5,7 @@ using Coanda.Core.Flows.Events;
 using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Types;
 
 namespace Coanda.Core.Flows;
 
@@ -373,6 +374,40 @@ public static class FlowDecider
         }
 
         return (new FlowEnded(flow.Id, outcome, endedBy, now), new ParcelFlowReleased(flow.ParcelId, flow.Id, now));
+    }
+
+    /// <summary>
+    /// The close a flow's end records beside its release when its contour declares a closing
+    /// resolution, or null when it declares none. It is decided against <paramref name="released"/>,
+    /// the parcel as the end's release leaves it, by every rule of <see cref="ParcelDecider.Close"/>,
+    /// the gates the type binds to a close among them; <paramref name="closedBy"/> is the flow's own
+    /// principal, and the reason names the flow and its contour. A refusal quotes the close's rule.
+    /// </summary>
+    public static ParcelClosed? CloseOnEnd(
+        Contour contour, Flow flow, ParcelType type, GateSet gates, Parcel released, string closedBy, DateTimeOffset now)
+    {
+        if (contour.Closes is not { } resolution)
+        {
+            return null;
+        }
+
+        if (released.Id != flow.ParcelId)
+        {
+            throw new DomainException(
+                $"Flow {Ids.Short(flow.Id)} runs on parcel {Ids.Short(flow.ParcelId)}; its end closes that parcel, not {Ids.Short(released.Id)}.");
+        }
+
+        string reason =
+            $"Flow {Ids.Short(flow.Id)} of contour '{contour.Name}' reached its end, and the contour closes its parcel as '{resolution}'.";
+        try
+        {
+            return ParcelDecider.Close(type, gates, released, resolution, reason, closedBy, now);
+        }
+        catch (DomainException refused)
+        {
+            throw new DomainException(
+                $"Flow {Ids.Short(flow.Id)} of contour '{contour.Name}' reached its end, but its parcel could not be closed as '{resolution}', so neither the end nor the close was recorded: {refused.Message}");
+        }
     }
 
     /// <summary>Stops a live flow, running or paused, so that a pause nobody resumes does not hold its parcel forever.</summary>

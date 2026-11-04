@@ -7,7 +7,8 @@ namespace Coanda.Core.Contours;
 
 /// <summary>
 /// A contour as validated data: the parcel types it accepts, the outcome it declares, a budget and a
-/// spawn cap, an optional follow, and an ordered list of named steps, the first of which is where a
+/// spawn cap, an optional follow, an optional resolution that closes its parcel when a flow of it
+/// ends, and an ordered list of named steps, the first of which is where a
 /// flow starts. It routes on an answer field equalling a value and a visit count and never
 /// computes. Validation takes the set of known action names as an input, so this type holds no
 /// action catalog and nothing software-specific.
@@ -37,6 +38,14 @@ public sealed record Contour
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ContourFollow? Follow { get; init; }
+
+    /// <summary>
+    /// The resolution a flow of this contour closes its parcel with when it reaches end, recorded in
+    /// the same save as the end and the release, or null when the end leaves the parcel open. Left
+    /// out of the content when null, so a contour without one reads and hashes as it did before.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Closes { get; init; }
 
     public IReadOnlyList<ContourStep> Steps { get; init; } = [];
 
@@ -88,6 +97,12 @@ public sealed record Contour
         if (Follow is not null)
         {
             ValidateFollow(Follow);
+        }
+
+        if (Closes is not null && !IsPlainName(Closes))
+        {
+            throw new DomainException(
+                $"Contour '{Name}' closes its parcel with the resolution '{Closes}'; a closing resolution is plain: letters, digits, hyphens, and underscores, and not empty.");
         }
 
         if (Steps.Count == 0)
@@ -330,12 +345,17 @@ public sealed record Contour
             spawnCap = SpawnCap,
             steps = Steps.Select(StepNode),
         };
-        // A contour without a follow hashes exactly as it did before follows existed.
+        // A contour without a follow or a closing resolution hashes exactly as it did before either existed.
         JsonNode node = JsonSerializer.SerializeToNode(canonical)
             ?? throw new InvalidOperationException("A contour's canonical form serialized to nothing.");
         if (Follow is not null)
         {
             node["follow"] = JsonSerializer.SerializeToNode(new { outcome = Follow.Outcome, contour = Follow.Contour, depthCap = Follow.DepthCap });
+        }
+
+        if (Closes is not null)
+        {
+            node["closes"] = Closes;
         }
 
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(node);
