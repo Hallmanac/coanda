@@ -830,7 +830,7 @@ public sealed class FlowRunnerTests
     }
 
     [Fact]
-    public async Task A_flow_stopped_while_its_judgment_runs_records_only_what_the_judgment_spent_and_other_flows_still_advance()
+    public async Task A_flow_stopped_while_its_judgment_runs_records_nothing_more_and_other_flows_still_advance()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -861,7 +861,6 @@ public sealed class FlowRunnerTests
         stopped.Status.Should().Be("stopped");
         stopped.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
         stopped.Steps[^1].Answer.Should().BeNull();
-        stopped.Cost.Should().Be(Scripts.Usage(1).CostUsd, "the dropped answer's agent still spent what it reported");
 
         await daemon.StopAsync(None);
     }

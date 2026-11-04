@@ -455,52 +455,6 @@ public sealed class FlowDeciderTests
         flow.Current?.AgentHash.Should().Be("agenthash", "the visit still names the agent it last launched");
     }
 
-    [Theory]
-    [InlineData(FlowStatus.Paused)]
-    [InlineData(FlowStatus.Stopped)]
-    public void A_judgment_whose_flow_was_paused_or_stopped_while_it_ran_keeps_its_usage_in_the_flows_cost(FlowStatus status)
-    {
-        Flow flow = AtJudgment();
-        switch (status)
-        {
-            case FlowStatus.Paused:
-                flow.Apply(FlowDecider.Pause(Build, flow, "waiting", "answer the question", "owner", Now));
-                break;
-            case FlowStatus.Stopped:
-                flow.Apply(FlowDecider.Stop(flow, "no longer wanted", "owner", Now).Stopped);
-                break;
-        }
-
-        JudgmentUsageRecorded recorded = FlowDecider.RecordUsage(Build, flow, "build", "build", Spend, Now.AddMinutes(1));
-        flow.Apply(recorded);
-
-        recorded.Usage.Should().Be(Spend);
-        flow.Cost.Should().Be(Spend.CostUsd);
-        flow.Status.Should().Be(status, "keeping the usage changes nothing else");
-        flow.Current?.Answer.Should().BeNull();
-        flow.Current?.IsRecorded.Should().BeFalse("a resume still performs the step again");
-    }
-
-    [Fact]
-    public void Usage_without_an_answer_is_refused_on_a_running_flow_and_for_a_step_or_agent_the_flow_is_not_at()
-    {
-        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, AtJudgment(), "build", "build", Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*is running; only a judgment whose flow was paused or stopped*");
-
-        Flow paused = AtJudgment();
-        paused.Apply(FlowDecider.Pause(Build, paused, "waiting", "answer the question", "owner", Now));
-        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, paused, "gates", "build", Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*is at step 'build'*");
-        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, paused, "build", "someone-else", Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*names the agent 'build'*");
-        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, paused, "build", "build", Spend with { CostUsd = -1m }, Now))
-            .Should().Throw<DomainException>().WithMessage("*never negative*");
-
-        Flow atAction = InStatus(FlowStatus.Paused);
-        FluentActions.Invoking(() => FlowDecider.RecordUsage(Build, atAction, atAction.CurrentStep, "build", Spend, Now))
-            .Should().Throw<DomainException>().WithMessage("*is an action step*");
-    }
-
     [Fact]
     public void A_launch_with_no_agent_hash_or_model_spec_is_refused()
     {

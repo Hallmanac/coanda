@@ -27,7 +27,6 @@ public static class CommandRegistry
         new("flow.spawn", EntryKind.Command, "Record a judgment launching its agent on the spawn its visit counted.", Everyone),
         new("flow.session", EntryKind.Command, "Record the session an executor returned for a judgment's launch.", Everyone),
         new("flow.answer", EntryKind.Command, "Record a judgment's answer and its measurement.", Everyone),
-        new("flow.usage", EntryKind.Command, "Record what a judgment spent when its flow was paused or stopped before its answer.", Everyone),
         new("flow.result", EntryKind.Command, "Record an action's result.", Everyone),
         new("flow.pause", EntryKind.Command, "Pause a flow with a reason and a lever.", Everyone),
         new("flow.resume", EntryKind.Command, "Resume a paused flow.", People),
