@@ -21,6 +21,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     private readonly List<ScriptedMessage> sends = [];
     private readonly List<SessionHandle> stops = [];
     private readonly List<ScriptedReattach> reattaches = [];
+    private readonly Dictionary<Guid, Measurement> lost = [];
 
     public IReadOnlyList<ScriptedSpawn> Spawns => Snapshot(spawns);
 
@@ -136,12 +137,21 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         }
     }
 
-    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
+    /// <summary>
+    /// The session when it is held and not stopped; a session <see cref="Lose"/> let go on its retry
+    /// is lost once, with what its first attempt's collect returned; null otherwise.
+    /// </summary>
+    public ValueTask<Reattachment?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
+            if (lost.Remove(handle.Id, out Measurement? earlier))
+            {
+                return ValueTask.FromResult<Reattachment?>(new LostSession(handle, earlier));
+            }
+
             ReattachedSession? held = sessions.TryGetValue(handle.Id, out Session? session) && !session.Stopped
                 ? new ReattachedSession(session.Handle, session.Attempt, session.Earlier)
                 : null;
@@ -150,7 +160,24 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
                 reattaches.Add(new ScriptedReattach(held.Handle, access));
             }
 
-            return ValueTask.FromResult(held);
+            return ValueTask.FromResult<Reattachment?>(held);
+        }
+    }
+
+    /// <summary>
+    /// Lets the session go as though its process ended without an answer while no daemon ran; a
+    /// session on its retry is then reattached once as lost, with its earlier attempts' usage.
+    /// </summary>
+    public void Lose(SessionHandle handle)
+    {
+        lock (gate)
+        {
+            Session session = RequireLive(handle);
+            sessions.Remove(session.Handle.Id);
+            if (session.Attempt > 1)
+            {
+                lost[session.Handle.Id] = session.Earlier;
+            }
         }
     }
 

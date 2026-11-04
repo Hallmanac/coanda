@@ -9,7 +9,7 @@ namespace Coanda.Daemon.Executors;
 /// as its own. The attempts before the latest are none for a session still on its spawn, so its
 /// earlier usage is <see cref="Nothing"/>.
 /// </summary>
-public sealed record ReattachedSession(SessionHandle Handle, int Attempt, Measurement Earlier)
+public sealed record ReattachedSession(SessionHandle Handle, int Attempt, Measurement Earlier) : Reattachment(Handle)
 {
     /// <summary>The usage of no attempt at all.</summary>
     public static readonly Measurement Nothing = new(0, 0m, 0, TimeSpan.Zero);

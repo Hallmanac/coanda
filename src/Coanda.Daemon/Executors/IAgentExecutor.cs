@@ -46,10 +46,11 @@ public interface IAgentExecutor
 
     /// <summary>
     /// Takes a handle issued before a daemon restart and returns its session, with the attempt it is
-    /// on and what its earlier attempts' collects returned, when it is still held and not stopped,
-    /// or null when the session is gone. When <paramref name="access"/> is given, every process the
+    /// on and what its earlier attempts' collects returned, when it is still held and not stopped.
+    /// A session gone on a retry is a <see cref="LostSession"/> carrying what its attempts before the
+    /// retry returned, handed back once; any other session that is gone is null. When <paramref name="access"/> is given, every process the
     /// session starts from then on, a resume's included, runs with its variables set in place of
     /// whatever access the session was spawned with; a process already running keeps its own.
     /// </summary>
-    ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken);
+    ValueTask<Reattachment?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken);
 }
