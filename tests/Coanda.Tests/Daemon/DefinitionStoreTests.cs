@@ -283,6 +283,8 @@ public sealed class DefinitionStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
+        await RegisteredProjects.AddAsync(store, "beta", CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
         await PublishedProjectTypeAsync(Definitions(store), "alpha", QaTask with { EntryStates = ["refine", "qa"] });
 
@@ -306,6 +308,7 @@ public sealed class DefinitionStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
 
         IReadOnlyList<ParcelType> types = await parcels.TypesAsync(Principal.LocalOwner, "alpha", CancellationToken.None);
@@ -324,6 +327,7 @@ public sealed class DefinitionStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
         Parcel inReview = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Under way", null, CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
@@ -354,6 +358,7 @@ public sealed class DefinitionStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
         DefinitionService definitions = Definitions(store);
         Parcel original = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Before", null, CancellationToken.None);

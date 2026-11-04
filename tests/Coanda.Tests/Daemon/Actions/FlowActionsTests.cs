@@ -27,6 +27,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         parcels = new ParcelService(store, TimeProvider.System);
         actions = FlowActions.Shipped(parcels, clock);
     }

@@ -16,6 +16,7 @@ public sealed class StoreRoundTripTests
         await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath))
         {
             var service = new ParcelService(store, TimeProvider.System);
+            await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
             Parcel created = await service.AddAsync(Principal.LocalOwner, "alpha", "task", "Survive a restart", null, CancellationToken.None);
             id = created.Id;
             Parcel moved = await service.MoveAsync(Principal.LocalOwner, "alpha", id, "build", CancellationToken.None);

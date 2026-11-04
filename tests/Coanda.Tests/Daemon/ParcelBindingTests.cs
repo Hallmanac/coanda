@@ -51,6 +51,7 @@ public sealed class ParcelBindingTests
         using var temp = new TemporaryHome();
         var gate = new StandInGate();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Gates = [gate] }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelType gated = ShippedTypes.Task with
         {

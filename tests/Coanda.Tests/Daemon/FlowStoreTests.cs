@@ -51,6 +51,7 @@ public sealed class FlowStoreTests
 
         await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
         {
+            await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
             Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Run once", null, CancellationToken.None);
             parcelId = parcel.Id;
             var service = new FlowService(store, TimeProvider.System);
@@ -96,6 +97,7 @@ public sealed class FlowStoreTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, Project, CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
         CancellationToken none = CancellationToken.None;
@@ -133,6 +135,7 @@ public sealed class FlowStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
         var flows = new FlowService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
@@ -152,6 +155,7 @@ public sealed class FlowStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         var flows = new FlowService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
         Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Race", null, none);
@@ -177,6 +181,7 @@ public sealed class FlowStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         var flows = new FlowService(store, TimeProvider.System);
         var parcels = new ParcelService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
@@ -207,6 +212,7 @@ public sealed class FlowStoreTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, Project, CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
         CancellationToken none = CancellationToken.None;

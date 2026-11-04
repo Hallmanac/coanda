@@ -19,6 +19,7 @@ public sealed class DaemonApiTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
 
         DaemonInfo? found = await client.FindRunningAsync(CancellationToken.None);
@@ -66,6 +67,7 @@ public sealed class DaemonApiTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
 
@@ -95,6 +97,7 @@ public sealed class DaemonApiTests
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
 

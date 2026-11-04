@@ -28,6 +28,7 @@ public sealed class OwnerOnlyAccessTests
         NodeHome home = scratch.Home;
 
         await using RunningDaemon daemon = await DaemonHost.StartAsync(home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         await WriteToStoreAsync(home);
 
         AssertWhileRunning(home);
@@ -49,6 +50,7 @@ public sealed class OwnerOnlyAccessTests
         }
 
         await using RunningDaemon daemon = await DaemonHost.StartAsync(home, 0, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         await WriteToStoreAsync(home);
 
         AssertWhileRunning(home);
