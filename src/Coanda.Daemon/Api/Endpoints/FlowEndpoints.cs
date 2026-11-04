@@ -1,5 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Flows;
+using Coanda.Core.Registry;
 using Coanda.Daemon.Flows;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -44,10 +45,14 @@ public static class FlowEndpoints
 
         group.MapPost("/{id:guid}/pause", async (HttpContext context, FlowService flows, Guid id, FlowPauseRequest request, CancellationToken cancellationToken) =>
             {
-                // A resume performs the current step again, so the lever names that step, read in the
-                // pause's own write so it is the step the flow is paused at.
+                // The service computes no lever, and a resume performs the current step again, so the
+                // lever names that step. An id the project does not hold reads as no flow; the pause
+                // itself then refuses it with the service's own rule.
                 string project = request.Project.Trim();
-                Flow flow = await flows.PauseToPerformAgainAsync(RequestPrincipal.PrincipalOf(context), project, id, request.Reason, cancellationToken);
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Flow? current = await flows.ShowAsync(principal, project, id, cancellationToken);
+                string lever = FlowLevers.PerformAgain(current?.CurrentStep ?? string.Empty);
+                Flow flow = await flows.PauseAsync(principal, project, id, request.Reason, lever, cancellationToken);
                 return Results.Ok(FlowView.From(project, flow));
             })
             .Produces<FlowView>();
