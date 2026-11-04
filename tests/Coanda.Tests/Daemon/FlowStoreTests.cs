@@ -37,8 +37,11 @@ public sealed class FlowStoreTests
         Flow flow = await flows.StartAsync(Owner, Project, parcelId, "build", none);
         await flows.RecordResultAsync(Owner, Project, flow.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done","path":"/tmp/wt","reused":false}"""), none);
         await flows.StartStepAsync(Owner, Project, flow.Id, "build", none);
+        Guid session = Ids.New();
+        await flows.SpawnedAsync(Owner, Project, flow.Id, "build", "agenthash1", Model, none);
+        await flows.SessionOpenedAsync(Owner, Project, flow.Id, "build", session, none);
         return await flows.RecordAnswerAsync(
-            Owner, Project, flow.Id, "build", "build", "agenthash1", Model,
+            Owner, Project, flow.Id, "build", "build", session, "agenthash1", Model,
             Json("""{"verdict":"done","files":3,"notes":{"nested":true}}"""), Spend, none);
     }
 

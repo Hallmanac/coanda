@@ -29,10 +29,11 @@ namespace Coanda.Daemon.Flows;
 /// The loser of a race fails the version check, its flow stream is never written, and it is
 /// refused with the rule. Ending and stopping append <see cref="ParcelFlowReleased"/> the same way.
 /// A resume hands the flow to the <see cref="IFlowAdvancer"/>, when the service has one, so a
-/// resumed flow advances with no further command. Every write to an existing flow, its end and its
-/// stop among them, reads the flow again when another write landed between its read and its save,
-/// and decides again from what it read, so it refuses only with the rule that the flow as it now
-/// stands breaks.
+/// resumed flow advances with no further command; a pause or a stop tells it to end the judgment
+/// the flow is running, once the pause or stop is saved. Every write to an existing flow, its end
+/// and its stop among them, reads the flow again when another write landed between its read and
+/// its save, and decides again from what it read, so it refuses only with the rule that the flow
+/// as it now stands breaks.
 /// </remarks>
 public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowAdvancer? advancer = null)
 {
@@ -124,12 +125,14 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             (flow, opened) => flow.Apply(opened),
             cancellationToken);
 
+    /// <summary>Records the answer the session <paramref name="sessionId"/> gave, when the visit still expects that session.</summary>
     public Task<Flow> RecordAnswerAsync(
         Principal principal,
         string project,
         Guid flowId,
         string step,
         string agent,
+        Guid sessionId,
         string agentHash,
         ModelSpec model,
         JsonElement answer,
@@ -137,8 +140,20 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
         CancellationToken cancellationToken) =>
         WriteAsync(
             "flow.answer", principal, project, flowId,
-            (contour, flow) => FlowDecider.Answer(contour, flow, step, agent, agentHash, model, answer, measurement, clock.GetUtcNow()),
+            (contour, flow) => FlowDecider.Answer(contour, flow, step, agent, sessionId, agentHash, model, answer, measurement, clock.GetUtcNow()),
             (flow, answered) => flow.Apply(answered),
+            cancellationToken);
+
+    /// <summary>
+    /// Records what the judgment <paramref name="step"/> spent in the session <paramref name="sessionId"/>
+    /// when neither its answer nor its pause was recorded, so the flow's cost counts it.
+    /// </summary>
+    public Task<Flow> RecordUsageAsync(
+        Principal principal, string project, Guid flowId, string step, string agent, Guid sessionId, Measurement usage, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flow.usage", principal, project, flowId,
+            (contour, flow) => FlowDecider.RecordUsage(contour, flow, step, agent, sessionId, usage, clock.GetUtcNow()),
+            (flow, recorded) => flow.Apply(recorded),
             cancellationToken);
 
     public Task<Flow> RecordResultAsync(
@@ -149,15 +164,31 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             (flow, completed) => flow.Apply(completed),
             cancellationToken);
 
-    public Task<Flow> PauseAsync(Principal principal, string project, Guid flowId, string reason, string lever, CancellationToken cancellationToken) =>
-        PauseAsync(principal, project, flowId, reason, lever, usage: null, cancellationToken);
+    /// <summary>Pauses a running flow and, once the pause is saved, ends the judgment it was running.</summary>
+    public async Task<Flow> PauseAsync(Principal principal, string project, Guid flowId, string reason, string lever, CancellationToken cancellationToken)
+    {
+        Flow paused = await PauseAsync(principal, project, flowId, reason, lever, usage: null, session: null, cancellationToken);
+        advancer?.EndJudgment(paused.Id);
+        return paused;
+    }
 
-    /// <summary>Pauses a flow, recording the <paramref name="usage"/> a judgment that paused without an answer reported.</summary>
+    /// <summary>
+    /// Pauses a flow, recording the <paramref name="usage"/> a judgment that paused without an
+    /// answer reported. When the judgment's <paramref name="session"/> is given, the visit must
+    /// still expect it.
+    /// </summary>
     public Task<Flow> PauseAsync(
-        Principal principal, string project, Guid flowId, string reason, string lever, Measurement? usage, CancellationToken cancellationToken) =>
+        Principal principal,
+        string project,
+        Guid flowId,
+        string reason,
+        string lever,
+        Measurement? usage,
+        Guid? session,
+        CancellationToken cancellationToken) =>
         WriteAsync(
             "flow.pause", principal, project, flowId,
-            (contour, flow) => FlowDecider.Pause(contour, flow, reason, lever, principal.Id, clock.GetUtcNow(), usage),
+            (contour, flow) => FlowDecider.Pause(contour, flow, reason, lever, principal.Id, clock.GetUtcNow(), usage, session),
             (flow, paused) => flow.Apply(paused),
             cancellationToken);
 
@@ -197,13 +228,16 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             cancellationToken);
     }
 
-    /// <summary>Stops a live flow. It needs no contour, so a flow whose contour is no longer held can still be stopped.</summary>
+    /// <summary>
+    /// Stops a live flow and, once the stop is saved, ends the judgment it was running. It needs no
+    /// contour, so a flow whose contour is no longer held can still be stopped.
+    /// </summary>
     public async Task<Flow> StopAsync(Principal principal, string project, Guid flowId, string reason, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow.stop", principal);
         string tenant = Tenants.RequireProject(project);
 
-        return await DecidingAgainAsync(
+        Flow stopped = await DecidingAgainAsync(
             async token =>
             {
                 await using IDocumentSession session = store.LightweightSession(tenant);
@@ -218,6 +252,9 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             },
             FlowOrParcelChanged(flowId),
             cancellationToken);
+
+        advancer?.EndJudgment(stopped.Id);
+        return stopped;
     }
 
     /// <summary>The project's flows, or one parcel's when <paramref name="parcelId"/> is given, oldest first.</summary>

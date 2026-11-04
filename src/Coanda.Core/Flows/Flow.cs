@@ -79,12 +79,20 @@ public sealed class Flow
     public decimal PausedCost { get; private set; }
 
     /// <summary>
-    /// What the flow has recorded spending, in US dollars: the cost of every answered judgment and
-    /// the usage every paused judgment reported. It is read from the recorded visits rather than
-    /// kept as a running total, so a flow recorded before costs were totalled counts its spend too.
+    /// What the judgments whose answer or pause was not recorded reported spending, in US dollars:
+    /// those a person's pause or stop ended, and those whose visit no longer expected their session.
+    /// </summary>
+    [JsonInclude]
+    public decimal UnrecordedCost { get; private set; }
+
+    /// <summary>
+    /// What the flow has recorded spending, in US dollars: the cost of every answered judgment, the
+    /// usage every paused judgment reported, and the usage of every judgment whose answer or pause
+    /// was not recorded. It is read from the recorded visits rather than kept as a running total, so
+    /// a flow recorded before costs were totalled counts its spend too.
     /// </summary>
     [JsonIgnore]
-    public decimal Cost => Steps.Sum(entry => entry.Measurement?.CostUsd ?? 0m) + PausedCost;
+    public decimal Cost => Steps.Sum(entry => entry.Measurement?.CostUsd ?? 0m) + PausedCost + UnrecordedCost;
 
     /// <summary>The usage the judgment that paused the flow reported, or null when the pause was not a judgment's.</summary>
     [JsonInclude]
@@ -189,6 +197,13 @@ public sealed class Flow
         PauseUsage = paused.Usage;
         PausedCost += paused.Usage?.CostUsd ?? 0m;
         UpdatedAt = paused.PausedAt;
+    }
+
+    /// <summary>Only what the judgment spent is kept; the pause, the visit, and the status stay as they are.</summary>
+    public void Apply(JudgmentUsageRecorded recorded)
+    {
+        UnrecordedCost += recorded.Usage.CostUsd;
+        UpdatedAt = recorded.RecordedAt;
     }
 
     public void Apply(FlowResumed resumed)

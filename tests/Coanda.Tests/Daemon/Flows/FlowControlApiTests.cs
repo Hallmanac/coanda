@@ -20,9 +20,10 @@ public sealed class FlowControlApiTests
     public async Task A_pause_while_a_judgment_runs_drops_its_answer_and_a_resume_performs_the_step_again_to_its_answer()
     {
         using var temp = new TemporaryHome();
+        // The pause stops the held session before it collects, so the resume's spawn takes the script's first entry.
         var executor = new GatedExecutor(new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
         {
-            ["build"] = [Scripts.Answer("done", 1), Scripts.Answer("done", 2)],
+            ["build"] = [Scripts.Answer("done", 2)],
         }));
         await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
@@ -50,8 +51,8 @@ public sealed class FlowControlApiTests
 
         FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, single.Name);
 
-        // Collecting, not Spawned: the session is recorded on the flow after the spawn returns, and a
-        // pause that lands before it is refused as a concurrent change.
+        // Collecting, not Spawned: the pause is meant to find the judgment held in its collect, past
+        // the spawn and the session record that follows it.
         await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
 
         await RefusedAsync(http, daemon, $"/flows/{started.Id}/pause", new FlowPauseRequest(Project, " "), "A pause records why the flow stopped; give a reason.");

@@ -73,4 +73,12 @@ public sealed record FlowStepEntry
         && (IsRecorded || SpawnedAt is not null);
 
     public bool IsRecorded => RecordedAt is not null;
+
+    /// <summary>
+    /// Whether this visit expects what <paramref name="sessionId"/> reports: it is the session the
+    /// visit's latest launch returned, and the visit has not been resumed since that launch. A
+    /// resume performs the step again with a new spawn, so the session it found running is no
+    /// longer the visit's even though its id is still held.
+    /// </summary>
+    public bool Expects(Guid sessionId) => SessionId == sessionId && ResumedAt is null;
 }

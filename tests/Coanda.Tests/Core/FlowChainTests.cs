@@ -124,8 +124,11 @@ public sealed class FlowChainTests
     {
         Flow flow = Flow.Create(FlowDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
         flow.Apply(FlowDecider.StartStep(Build, flow, "build", Now));
+        Guid session = Ids.New();
+        flow.Apply(FlowDecider.Spawn(Build, flow, "build", "agenthash", Model, Now));
+        flow.Apply(FlowDecider.OpenSession(Build, flow, "build", session, Now));
         flow.Apply(FlowDecider.Answer(
-            Build, flow, "build", "build", "agenthash", Model, Json("""{"verdict":"done"}"""), new Measurement(10, 1.5m, 1, TimeSpan.FromSeconds(1)), Now));
+            Build, flow, "build", "build", session, "agenthash", Model, Json("""{"verdict":"done"}"""), new Measurement(10, 1.5m, 1, TimeSpan.FromSeconds(1)), Now));
         flow.Apply(FlowDecider.StartStep(Build, flow, "adversarial-review", Now));
         var usage = new Measurement(20, 2.25m, 2, TimeSpan.FromSeconds(2));
 
@@ -157,8 +160,11 @@ public sealed class FlowChainTests
     {
         Flow flow = Flow.Create(FlowDecider.Start(Build, 1, ParcelOf(), "owner", Now).Started);
         flow.Apply(FlowDecider.StartStep(Build, flow, "build", Now));
+        Guid session = Ids.New();
+        flow.Apply(FlowDecider.Spawn(Build, flow, "build", "agenthash", Model, Now));
+        flow.Apply(FlowDecider.OpenSession(Build, flow, "build", session, Now));
         flow.Apply(FlowDecider.Answer(
-            Build, flow, "build", "build", "agenthash", Model, Json("""{"verdict":"done"}"""), new Measurement(10, 1.5m, 1, TimeSpan.FromSeconds(1)), Now));
+            Build, flow, "build", "build", session, "agenthash", Model, Json("""{"verdict":"done"}"""), new Measurement(10, 1.5m, 1, TimeSpan.FromSeconds(1)), Now));
 
         JsonObject document = JsonSerializer.SerializeToNode(flow)?.AsObject()
             ?? throw new InvalidOperationException("A flow serialized to nothing.");

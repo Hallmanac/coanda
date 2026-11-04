@@ -41,7 +41,13 @@ namespace Coanda.Daemon.Flows;
 /// session alive across the stop, for a reattach; one stopped before its session was recorded has
 /// the session stopped. Until a reattach path exists, the next start stops a session left that way
 /// before it launches the judgment again, so no two agents run in one flow's working directory. A step recorded before the stop but not yet routed is routed without
-/// being performed again.
+/// being performed again. A person's pause or stop, once saved, ends the judgment in progress at
+/// once, its session stopped through the executor; an action in progress runs on. Every judgment
+/// that launched a session records what it spent: in its answer, in its pause, or, when neither
+/// was recorded (a person paused or stopped the flow, or its visit no longer expects the session),
+/// in a record of its usage alone. An answer or a pause from a session the visit no longer expects,
+/// because a resume came after its launch, does not pause the flow: the resume's own pass performs
+/// the step again.
 /// </remarks>
 public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 {
@@ -106,6 +112,19 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             workers.Add(flowId, worker);
             worker.Idle = Task.Run(() => WorkAsync(project, flowId, worker, stopping.Token));
             return worker.Idle;
+        }
+    }
+
+    public void EndJudgment(Guid flowId)
+    {
+        lock (gate)
+        {
+            // Only the state changes here; the judgment's own continuations run on the pool, not on
+            // the caller's thread, and the source is disposed only after it is no longer watched.
+            if (workers.TryGetValue(flowId, out Worker? running) && running.Judging is { } judging)
+            {
+                _ = judging.CancelAsync();
+            }
         }
     }
 
@@ -363,10 +382,43 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             step.AnswerSchema ?? string.Empty,
             CredentialProfile: null);
 
-        flow = await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
+        // Watched before the launch is recorded, so a person's pause or stop saved after that record
+        // ends the judgment even before its spawn returns, and one saved before it refuses the record.
+        using var ended = new CancellationTokenSource();
+        Watch(flow.Id, ended);
+        try
+        {
+            await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
+            return await RunJudgmentAsync(principal, project, flow.Id, step, agent, published.ContentHash, request, ended.Token, cancellationToken);
+        }
+        finally
+        {
+            Unwatch(flow.Id, ended);
+        }
+    }
+
+    /// <summary>
+    /// Runs the launched judgment, bounded by the daemon stop, the wall-clock limit, and
+    /// <paramref name="ended"/>, which a person's pause or stop cancels, and records its answer, or
+    /// pauses; null when it recorded no answer. What the judgment spent is recorded however it ends,
+    /// except at a daemon stop.
+    /// </summary>
+    private async Task<Recording?> RunJudgmentAsync(
+        Principal principal,
+        string project,
+        Guid flowId,
+        ContourStep step,
+        AgentDefinition agent,
+        string agentHash,
+        JudgmentRequest request,
+        CancellationToken ended,
+        CancellationToken cancellationToken)
+    {
+        string agentName = step.Agent ?? string.Empty;
         using var limit = new CancellationTokenSource(judgmentLimit, clock);
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token);
-        Guid flowId = flow.Id;
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token, ended);
+        var spend = new JudgmentSpend();
+        var launched = new Launched(step.Name, agentName);
         JudgmentOutcome outcome;
         try
         {
@@ -376,13 +428,29 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             outcome = await Judgment.RunAsync(
                 executor,
                 request,
-                async (session, token) => await flows.SessionOpenedAsync(principal, project, flowId, step.Name, session.Id, token),
+                async (session, token) =>
+                {
+                    launched.Session = session;
+                    await flows.SessionOpenedAsync(principal, project, flowId, step.Name, session.Id, token);
+                    launched.Recorded = true;
+                },
+                spend,
                 cancellationToken,
                 bounded.Token);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (Exception failure) when (ended.IsCancellationRequested)
+        {
+            // A person paused or stopped the flow, so the judgment stopped its session; nothing is
+            // recorded on the visit, but what the session spent is.
+            logger.LogInformation(
+                "The judgment of step '{Step}' on flow {Flow} ended because a person paused or stopped the flow: {Failure}",
+                step.Name, Ids.Short(flowId), failure.Message);
+            await KeepUsageAsync(principal, project, flowId, launched, spend.Reported, cancellationToken);
+            return null;
         }
         catch (Exception failure) when (limit.IsCancellationRequested)
         {
@@ -393,19 +461,21 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                 AggregateException => $"and stopping its session failed: {failure.Message}",
                 _ => $"and it failed as it was cancelled: {failure.Message}",
             };
-            await PauseAsync(
-                principal, project, flow.Id,
+            await PauseJudgmentAsync(
+                principal, project, flowId, launched,
                 $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, {stopped}.",
                 FlowLevers.PerformAgain(step.Name),
+                spend.Reported,
                 cancellationToken);
             return null;
         }
         catch (Exception failure)
         {
-            await PauseAsync(
-                principal, project, flow.Id,
+            await PauseJudgmentAsync(
+                principal, project, flowId, launched,
                 $"Step '{step.Name}' got no judgment from agent '{agent.Name}': {failure.Message}",
                 FlowLevers.PerformAgain(step.Name),
+                spend.Reported,
                 cancellationToken);
             return null;
         }
@@ -416,11 +486,21 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             {
                 case JudgmentOutcome.Answered answered:
                     JsonElement answer = Parse(answered.Answer);
-                    Flow recorded = await flows.RecordAnswerAsync(
-                        principal, project, flow.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
+                    Flow recorded;
+                    try
+                    {
+                        recorded = await flows.RecordAnswerAsync(
+                            principal, project, flowId, step.Name, agentName, answered.Session.Id, agentHash, agent.Model, answer, answered.Usage, cancellationToken);
+                    }
+                    catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        await SettleRefusedAsync(principal, project, flowId, launched, answered.Usage, refused, cancellationToken);
+                        return null;
+                    }
+
                     return new Recording(recorded, answer);
                 case JudgmentOutcome.Paused paused:
-                    await flows.PauseAsync(principal, project, flow.Id, paused.Reason, paused.Lever, paused.Usage, cancellationToken);
+                    await PauseJudgmentAsync(principal, project, flowId, launched, paused.Reason, paused.Lever, paused.Usage, cancellationToken);
                     return null;
                 default:
                     throw new InvalidOperationException($"A judgment ended in an outcome the runner does not know: {outcome.GetType().Name}.");
@@ -429,6 +509,143 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         finally
         {
             await StopSessionAsync(outcome.Session);
+        }
+    }
+
+    /// <summary>
+    /// The judgment a flow's step launched: its step and agent, the session its spawn returned once
+    /// it has, and whether the flow recorded that session, which is when the visit expects it.
+    /// </summary>
+    private sealed class Launched(string step, string agent)
+    {
+        public string Step { get; } = step;
+
+        public string Agent { get; } = agent;
+
+        public SessionHandle? Session { get; set; }
+
+        public bool Recorded { get; set; }
+    }
+
+    /// <summary>
+    /// Pauses the flow for a judgment that gave no answer, recording the <paramref name="usage"/> it
+    /// reported. A judgment whose session the flow recorded pauses only while the visit still expects
+    /// that session; when the pause is refused, what it spent is settled as a refused answer's is.
+    /// </summary>
+    private async Task PauseJudgmentAsync(
+        Principal principal,
+        string project,
+        Guid flowId,
+        Launched launched,
+        string reason,
+        string lever,
+        Measurement? usage,
+        CancellationToken cancellationToken)
+    {
+        Guid? session = launched is { Recorded: true, Session: { } held } ? held.Id : null;
+        try
+        {
+            await flows.PauseAsync(principal, project, flowId, reason, lever, usage, session, cancellationToken);
+        }
+        catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+        {
+            await SettleRefusedAsync(principal, project, flowId, launched, usage, refused, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// A judgment whose answer or pause the flow's rules refused. When the flow is no longer running
+    /// (a person paused or stopped it while the agent worked), or its visit no longer expects the
+    /// session (a resume came after the launch, and its own pass performs the step again), only what
+    /// the judgment spent is recorded. Otherwise the flow pauses quoting the rule, carrying that
+    /// usage, so a running flow is never left with no worker and no pause.
+    /// </summary>
+    private async Task SettleRefusedAsync(
+        Principal principal,
+        string project,
+        Guid flowId,
+        Launched launched,
+        Measurement? usage,
+        DomainException refused,
+        CancellationToken cancellationToken)
+    {
+        Flow? now = await flows.ShowAsync(principal, project, flowId, cancellationToken);
+        if (now is { Status: FlowStatus.Running } && !NoLongerExpected(now, launched))
+        {
+            try
+            {
+                await flows.PauseAsync(
+                    principal, project, flowId,
+                    $"Flow could not go on from step '{now.CurrentStep}': {refused.Message}",
+                    FlowLevers.PerformAgain(now.CurrentStep),
+                    usage,
+                    session: null,
+                    cancellationToken);
+                return;
+            }
+            catch (DomainException pauseRefused)
+            {
+                logger.LogError(pauseRefused, "Flow {Flow} could neither record its judgment nor pause: {Rule}", Ids.Short(flowId), refused.Message);
+            }
+        }
+        else
+        {
+            logger.LogInformation("The judgment of step '{Step}' on flow {Flow} records only what it spent: {Rule}", launched.Step, Ids.Short(flowId), refused.Message);
+        }
+
+        await KeepUsageAsync(principal, project, flowId, launched, usage, cancellationToken);
+    }
+
+    /// <summary>Whether the flow's current visit to the launched step has moved past the launched session.</summary>
+    private static bool NoLongerExpected(Flow flow, Launched launched) =>
+        launched.Session is { } session
+        && flow.Current is { Kind: StepKind.Judgment } current
+        && string.Equals(current.Step, launched.Step, StringComparison.Ordinal)
+        && (current.ResumedAt is not null || current.SessionId is Guid held && held != session.Id);
+
+    /// <summary>
+    /// Records what a judgment spent when neither its answer nor its pause was recorded. There is
+    /// nothing to record when the judgment reported nothing; a refusal is logged, since the flow is
+    /// as it should be and only the usage is lost.
+    /// </summary>
+    private async Task KeepUsageAsync(
+        Principal principal, string project, Guid flowId, Launched launched, Measurement? usage, CancellationToken cancellationToken)
+    {
+        if (usage is null || launched.Session is not { } session)
+        {
+            return;
+        }
+
+        try
+        {
+            await flows.RecordUsageAsync(principal, project, flowId, launched.Step, launched.Agent, session.Id, usage, cancellationToken);
+        }
+        catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(refused, "Flow {Flow} could not record what the judgment of step '{Step}' spent.", Ids.Short(flowId), launched.Step);
+        }
+    }
+
+    /// <summary>Lets a person's pause or stop of the flow end the judgment <paramref name="ended"/> bounds.</summary>
+    private void Watch(Guid flowId, CancellationTokenSource ended)
+    {
+        lock (gate)
+        {
+            if (workers.TryGetValue(flowId, out Worker? worker))
+            {
+                worker.Judging = ended;
+            }
+        }
+    }
+
+    private void Unwatch(Guid flowId, CancellationTokenSource ended)
+    {
+        lock (gate)
+        {
+            if (workers.TryGetValue(flowId, out Worker? worker) && ReferenceEquals(worker.Judging, ended))
+            {
+                worker.Judging = null;
+            }
         }
     }
 
@@ -587,5 +804,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
         /// <summary>Another request arrived while this worker ran, so it reads the flow once more before it finishes.</summary>
         public bool Again { get; set; }
+
+        /// <summary>Cancelled by a person's pause or stop to end the judgment this worker runs; null while it runs none.</summary>
+        public CancellationTokenSource? Judging { get; set; }
     }
 }

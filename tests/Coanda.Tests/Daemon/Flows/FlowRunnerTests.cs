@@ -809,8 +809,11 @@ public sealed class FlowRunnerTests
             await flows.RecordResultAsync(
                 Principal.LocalOwner, Project, flow.Id, "worktree", SoftwareActions.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
             await flows.StartStepAsync(Principal.LocalOwner, Project, flow.Id, "build", None);
+            Guid session = Ids.New();
+            await flows.SpawnedAsync(Principal.LocalOwner, Project, flow.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
+            await flows.SessionOpenedAsync(Principal.LocalOwner, Project, flow.Id, "build", session, None);
             await flows.RecordAnswerAsync(
-                Principal.LocalOwner, Project, flow.Id, "build", "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model,
+                Principal.LocalOwner, Project, flow.Id, "build", "build", session, ShippedAgents.Build.Hash, ShippedAgents.Build.Model,
                 JsonSerializer.SerializeToElement(new { verdict = "done" }), Scripts.Usage(1), None);
             flowId = flow.Id;
         }
@@ -847,8 +850,8 @@ public sealed class FlowRunnerTests
 
         FlowView doomed = await Flowing.BoundAsync(client, Project, first.Id);
 
-        // Collecting, not Spawned: the session id is recorded on the flow after the spawn returns,
-        // and a stop that lands before it is refused as a concurrent change.
+        // Collecting, not Spawned: the stop is meant to find the judgment held in its collect, past
+        // the spawn and the session record that follows it.
         await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
         await Flowing.StopAsync(client, Project, doomed.Id, "Not needed any more.");
         executor.Open();
