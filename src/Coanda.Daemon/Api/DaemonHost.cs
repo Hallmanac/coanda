@@ -74,6 +74,8 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<ContourService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
+        // Registered before the runner, so it stops after it: the sessions the runner's stop leaves alive end here.
+        builder.Services.AddHostedService(services => new ExecutorShutdown(services.GetRequiredService<IAgentExecutor>()));
         builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()));

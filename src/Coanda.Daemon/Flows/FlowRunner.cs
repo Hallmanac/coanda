@@ -41,7 +41,8 @@ namespace Coanda.Daemon.Flows;
 /// and records no answer, result, or pause for it, leaving the flow live and unpaused so the next
 /// start performs the step again. A judgment whose session the flow already names keeps that
 /// session alive across the stop, for a reattach; one stopped before its session was recorded has
-/// the session stopped. Until a reattach path exists, the next start stops a session left that way
+/// the session stopped. An executor that cannot reattach ends the sessions it holds once the runner
+/// has stopped (<see cref="ExecutorShutdown"/>). Until a reattach path exists, the next start stops a session left that way
 /// before it launches the judgment again, so no two agents run in one flow's working directory. A step recorded before the stop but not yet routed is routed without
 /// being performed again. A person's pause or stop, once saved, ends the judgment in progress at
 /// once, its session stopped through the executor; an action in progress runs on. Every judgment

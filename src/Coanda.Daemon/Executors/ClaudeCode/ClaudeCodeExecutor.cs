@@ -22,10 +22,11 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// spawn, and that ceiling less the cost already collected for the session for a resume, because
 /// the CLI does not count an earlier process's spend against a resumed process's cap. The CLI
 /// checks its cap between turns, so a single turn can overshoot it. The adapter sets no time limit;
-/// the daemon's wall-clock limit is authoritative. Stopping a session kills its process tree; the
-/// adapter never kills one when the daemon stops or the executor is dropped, so a session can
-/// outlive the daemon. Its output still passes through the daemon on its way to the transcript, so
-/// a session that outlives the daemon loses its stream from that point.
+/// the daemon's wall-clock limit is authoritative. Stopping a session kills its process tree, and
+/// so does the daemon's stop, through <see cref="StopAllAsync"/>: the adapter cannot reattach to a
+/// session across a restart, so one left running would go on spending, and editing the work
+/// directory, beside the session the next start launches there. A stopped session is let go at once;
+/// only its id is kept, so a second stop of it still succeeds.
 /// </remarks>
 public sealed class ClaudeCodeExecutor : IAgentExecutor
 {
@@ -44,6 +45,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     private readonly IReadOnlyDictionary<string, string> environment;
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, Session> sessions = [];
+    private readonly HashSet<Guid> stopped = [];
+    private bool closed;
 
     /// <param name="executable">The configured path of the claude executable, or a bare name looked up on the PATH.</param>
     /// <param name="home">The node home, which says where each flow's transcripts go.</param>
@@ -97,12 +100,15 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                 $"The spawn's cost ceiling of {Dollars(caps.CostCeilingUsd)} leaves nothing to spend, so no claude process was started.");
         }
 
-        SessionFiles.Write(workingDirectory, SessionFiles.PersonaFile, ClaudeCodeInvocation.Persona(agent.Persona));
+        RefuseOnceClosed();
+        string persona = ClaudeCodeInvocation.Persona(agent.Persona);
+        SessionFiles.Write(workingDirectory, SessionFiles.PersonaFile, persona);
         var handle = new SessionHandle(Ids.New(), agent.Name);
         var session = new Session(
             handle,
             executable,
             workingDirectory,
+            persona,
             ClaudeCodeInvocation.SessionArguments(agent, credentialProfile),
             processEnvironment,
             caps.CostCeilingUsd,
@@ -115,11 +121,17 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             cancellationToken);
         lock (gate)
         {
-            session.Current = first;
-            sessions.Add(handle.Id, session);
+            if (!closed)
+            {
+                session.Current = first;
+                sessions.Add(handle.Id, session);
+                return handle;
+            }
         }
 
-        return handle;
+        // The daemon began stopping while the process started; nothing would hold it after the stop.
+        first.Kill();
+        throw Closed();
     }
 
     public async ValueTask<CollectedAnswer> CollectAsync(SessionHandle handle, CancellationToken cancellationToken)
@@ -178,6 +190,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                 $"Session {handle.Id} has already cost {Dollars(session.CollectedCostUsd)} of its cost ceiling of {Dollars(session.CeilingUsd)}, so no claude process was started to resume it.");
         }
 
+        // The resumed process reads the persona file again, so it is written fresh rather than left
+        // as the session's earlier process may have rewritten it.
+        SessionFiles.Write(session.WorkingDirectory, SessionFiles.PersonaFile, session.Persona);
         Attempt next = await StartAsync(
             session,
             ClaudeCodeInvocation.ResumeArguments(handle.Id, session.Arguments, remaining),
@@ -185,8 +200,16 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             cancellationToken);
         lock (gate)
         {
-            session.Current = next;
+            if (sessions.ContainsKey(handle.Id))
+            {
+                session.Current = next;
+                return;
+            }
         }
+
+        // The session was stopped, by a stop or the daemon's, while this process started.
+        next.Kill();
+        throw new InvalidOperationException($"Session {handle.Id} has been stopped.");
     }
 
     /// <summary>Refuses every call: sending into a live session is not supported by this executor yet.</summary>
@@ -207,17 +230,17 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         Attempt? attempt;
         lock (gate)
         {
-            if (!sessions.TryGetValue(handle.Id, out Session? held))
-            {
-                throw new InvalidOperationException($"The claude-code executor holds no session {handle.Id}.");
-            }
-
-            if (held.Stopped)
+            if (stopped.Contains(handle.Id))
             {
                 return null;
             }
 
-            held.Stopped = true;
+            if (!sessions.Remove(handle.Id, out Session? held))
+            {
+                throw new InvalidOperationException($"The claude-code executor holds no session {handle.Id}.");
+            }
+
+            stopped.Add(handle.Id);
             session = held;
             attempt = held.Current;
         }
@@ -247,23 +270,59 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
-            IReadOnlyList<SessionHandle> live = [.. sessions.Values.Where(s => !s.Stopped).Select(s => s.Handle)];
+            IReadOnlyList<SessionHandle> live = [.. sessions.Values.Select(s => s.Handle)];
             return ValueTask.FromResult(live);
         }
     }
 
-    /// <summary>Returns the handle only for a session this process still holds and has not stopped; reattach across a restart is not implemented yet.</summary>
+    /// <summary>
+    /// Returns the handle only for a session this process still holds and has not stopped. Reattach
+    /// across a restart is not implemented: the daemon's stop kills every session it holds, so a
+    /// handle from before a restart names a session that has already ended.
+    /// </summary>
     public ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
-            SessionHandle? held = sessions.TryGetValue(handle.Id, out Session? session) && !session.Stopped
+            SessionHandle? held = sessions.TryGetValue(handle.Id, out Session? session)
                 ? session.Handle
                 : null;
             return ValueTask.FromResult(held);
         }
+    }
+
+    /// <summary>
+    /// Kills the process of every session the executor holds, together with every process it
+    /// started, and waits for each to end, so no session outlives the daemon's stop. The usage of an
+    /// attempt killed here is not reported: a daemon stop records nothing for the step in progress,
+    /// which the next start performs again. Once this has begun, the executor starts no process.
+    /// </summary>
+    public async ValueTask StopAllAsync(CancellationToken cancellationToken)
+    {
+        List<Attempt> killed = [];
+        lock (gate)
+        {
+            closed = true;
+            foreach ((Guid id, Session session) in sessions)
+            {
+                stopped.Add(id);
+                if (session.Current is { Collected: null } attempt)
+                {
+                    killed.Add(attempt);
+                }
+            }
+
+            sessions.Clear();
+        }
+
+        foreach (Attempt attempt in killed)
+        {
+            attempt.Kill();
+        }
+
+        await Task.WhenAll(killed.Select(a => a.Ended)).WaitAsync(cancellationToken);
     }
 
     /// <summary>
@@ -343,16 +402,30 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         ArgumentNullException.ThrowIfNull(handle);
         lock (gate)
         {
-            if (!sessions.TryGetValue(handle.Id, out Session? session))
+            if (sessions.TryGetValue(handle.Id, out Session? session))
             {
-                throw new InvalidOperationException($"The claude-code executor holds no session {handle.Id}.");
+                return session;
             }
 
-            return session.Stopped
-                ? throw new InvalidOperationException($"Session {handle.Id} has been stopped.")
-                : session;
+            throw stopped.Contains(handle.Id)
+                ? new InvalidOperationException($"Session {handle.Id} has been stopped.")
+                : new InvalidOperationException($"The claude-code executor holds no session {handle.Id}.");
         }
     }
+
+    private void RefuseOnceClosed()
+    {
+        lock (gate)
+        {
+            if (closed)
+            {
+                throw Closed();
+            }
+        }
+    }
+
+    private static InvalidOperationException Closed() =>
+        new("The daemon is stopping, so the claude-code executor starts no claude process.");
 
     private static string NoResult(Attempt attempt)
     {
@@ -371,6 +444,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         SessionHandle handle,
         string executable,
         string workingDirectory,
+        string persona,
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string> environment,
         decimal ceilingUsd,
@@ -381,6 +455,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         public string Executable { get; } = executable;
 
         public string WorkingDirectory { get; } = workingDirectory;
+
+        /// <summary>The persona file's content, written at the spawn and again before every resume.</summary>
+        public string Persona { get; } = persona;
 
         public IReadOnlyList<string> Arguments { get; } = arguments;
 
@@ -398,8 +475,6 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         /// <summary>The latest process, collected or not.</summary>
         public Attempt? Current { get; set; }
-
-        public bool Stopped { get; set; }
     }
 
     /// <summary>One claude process of a session, and what it printed.</summary>

@@ -8,10 +8,10 @@ namespace Coanda.Testing.FakeClaude;
 /// A stand-in for the claude CLI that the adapter tests start in its place. Its control directory
 /// comes from <see cref="ControlVariable"/> in the environment it is started with. Every start
 /// appends one record to <c>records.jsonl</c> there, holding its arguments, environment, working
-/// directory, and standard input, then plays the entry of <c>script.json</c> whose position is the
-/// number of starts before it (the last entry once they run out): a system init event, a rate-limit
-/// event, the entry's assistant events, and its result, printed the way Claude Code 2.1.318 prints
-/// them in print mode with stream-json output.
+/// directory, standard input, and the persona file as it found it, then plays the entry of
+/// <c>script.json</c> whose position is the number of starts before it (the last entry once they
+/// run out): a system init event, a rate-limit event, the entry's assistant events, and its result,
+/// printed the way Claude Code 2.1.318 prints them in print mode with stream-json output.
 /// </summary>
 public static class Program
 {
@@ -61,6 +61,7 @@ public static class Program
             environment[(string)variable.Key] = (string?)variable.Value;
         }
 
+        string persona = Path.Combine(Directory.GetCurrentDirectory(), ".coanda", "persona.md");
         var record = new JsonObject
         {
             ["pid"] = Environment.ProcessId,
@@ -68,6 +69,7 @@ public static class Program
             ["environment"] = environment,
             ["workingDirectory"] = Directory.GetCurrentDirectory(),
             ["input"] = input,
+            ["persona"] = File.Exists(persona) ? File.ReadAllText(persona) : null,
         };
         string path = Path.Combine(control, "records.jsonl");
         for (int attempt = 0; ; attempt++)
