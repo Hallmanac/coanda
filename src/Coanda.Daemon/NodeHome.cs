@@ -66,9 +66,29 @@ public sealed record NodeHome(string Path)
     /// already has the access it should, and on macOS and Linux gives the companion files it
     /// creates the same mode. SQLite reads a zero-length file as an empty database.
     /// </summary>
+    /// <remarks>
+    /// A database that already exists is never opened here: <see cref="EnsureExists"/> has already
+    /// narrowed it by path. Opening it would take .NET's advisory lock on the file, which on macOS
+    /// conflicts with an exclusive lock a SQLite connection may still hold on it, and fails as a
+    /// file in use. A database something else creates between the check and the create is
+    /// narrowed by path the same way.
+    /// </remarks>
     public NodeHome EnsureDatabase()
     {
-        using FileStream database = OwnerOnly.Open(DatabasePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+        if (File.Exists(DatabasePath))
+        {
+            return this;
+        }
+
+        try
+        {
+            using FileStream created = OwnerOnly.Open(DatabasePath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite);
+        }
+        catch (IOException) when (File.Exists(DatabasePath))
+        {
+            OwnerOnly.Narrow(DatabasePath);
+        }
+
         return this;
     }
 }
