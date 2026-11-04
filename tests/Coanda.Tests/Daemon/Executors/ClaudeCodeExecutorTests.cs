@@ -298,7 +298,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string coa = Path.Combine(temp.Home.Path, "coa-bin");
         ClaudeCodeExecutor executor = fake.Executor(
             temp.Home,
-            fake.Environment((SessionAccess.TokenVariable, "inherited-token"), (SessionAccess.ProjectVariable, "inherited-project")),
+            fake.Environment((SessionAccess.TokenVariable, "inherited-token"), (SessionAccess.HomeVariable, "/inherited-home"), (SessionAccess.ProjectVariable, "inherited-project")),
             coa);
         var access = new SessionAccess("issued-session-token", temp.Home.Path, Project);
 
@@ -310,6 +310,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         {
             start.Environment.Should().Contain(SessionAccess.TokenVariable, "issued-session-token")
                 .And.Contain(NodeHome.EnvironmentVariable, temp.Home.Path)
+                .And.Contain(SessionAccess.HomeVariable, temp.Home.Path)
                 .And.Contain(SessionAccess.ProjectVariable, Project);
 
             // Windows names the variable Path, and its environment matches names without regard to case.
