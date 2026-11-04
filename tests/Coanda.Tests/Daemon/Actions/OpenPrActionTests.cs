@@ -110,6 +110,32 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_new_flow_after_someone_updated_the_branch_on_the_remote_builds_on_their_commit_and_its_push_expects_it()
+    {
+        const string Theirs = "aaaabbbbccccddddeeeeffff0000111122223333";
+        const string Built = "1111222233334444555566667777888899990000";
+        var worktree = new WorktreeAction(projects, clones);
+        ContourStep checkoutStep = Step with { Name = "worktree", Action = SoftwareActions.Worktree };
+        Parcel parcel = await TaskAsync(Project, "Build on the reviewer's update");
+        string branch = ProjectClones.BranchOf(parcel.Id);
+        Guid first = Ids.New();
+        await worktree.PerformAsync(new ActionRequest(FlowPrincipal, Project, first, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
+        Opened(await PerformAsync(parcel.Id, first));
+        await clones.RemoveAsync(Project, first, None);
+        runner.SetRemoteBranch(Clone, branch, Theirs);
+        runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Theirs);
+        Guid second = Ids.New();
+
+        ActionOutcome checkedOut = await worktree.PerformAsync(new ActionRequest(FlowPrincipal, Project, second, parcel.Id, ShippedContours.Build, checkoutStep, false), None);
+        runner.AddBranch(Clone, branch, Built);
+        Opened(await PerformAsync(parcel.Id, second));
+
+        checkedOut.Should().BeOfType<ActionOutcome.Done>().Which.Result.GetProperty("head").GetString().Should().Be(Theirs);
+        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{branch}:{Theirs} origin {Built}:refs/heads/{branch}");
+        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Built);
+    }
+
+    [Fact]
     public async Task An_open_pull_request_whose_head_is_the_branch_is_pushed_to_and_reused_and_no_second_one_is_opened()
     {
         Parcel parcel = await TaskAsync(Project, "Reuse it");
@@ -388,7 +414,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         runner.On(c => c.IsGit("fetch"), async (_, _) =>
         {
-            fetching.SetResult();
+            fetching.TrySetResult();
             await release.Task;
             return ScriptedCommandRunner.Ok();
         });

@@ -28,29 +28,36 @@ removed when the flow ends or is stopped; the branch stays in the clone. Without
 `COANDA_PROJECT` names, then in the one named after the current directory.
 
 So `coa daemon run` (and the daemon `coa` starts for you) needs a few things before a build flow
-reaches its worktree step. Git 2.31 or later has to be on the daemon's PATH, along with whatever
-the project's build and test commands run (the .NET SDK for the defaults). The daemon also has to
-reach the remote without anyone answering a prompt, because it runs every git command with
-`GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o BatchMode=yes`. For an ssh remote, that means a
-key without a passphrase or one loaded in an ssh agent the daemon can reach. `GIT_SSH_COMMAND` also
-overrides any `core.sshCommand` or `GIT_SSH` you set, so a key named only there is not used; name it
-in `~/.ssh/config` instead, which still applies. For an https remote, a credential helper that already
-holds the credential works. When any of these is missing, the flow pauses at its worktree step and
-the pause quotes git's own error.
+reaches its worktree step, and a few more, described in the next paragraph, before it can finish: a
+github.com remote and a signed-in GitHub CLI on the daemon's PATH. Git 2.31 or later has to be on
+the daemon's PATH, along with whatever the project's build and test commands run (the .NET SDK for
+the defaults). The daemon also has to reach the remote without anyone answering a prompt, because it
+runs every git command with `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o BatchMode=yes`. For
+an ssh remote, that means a key without a passphrase or one loaded in an ssh agent the daemon can
+reach. `GIT_SSH_COMMAND` also overrides any `core.sshCommand` or `GIT_SSH` you set, so a key named
+only there is not used; name it in `~/.ssh/config` instead, which still applies. For an https
+remote, a credential helper that already holds the credential works. When any of these is missing,
+the flow pauses at its worktree step and the pause quotes git's own error.
 
 A build flow ends once its pull request is open. Its open-pr step pushes the flow's branch to the
 remote with git's own credentials, opens a pull request from it against the primary branch (or
-reuses the open one that already has that branch as its head), records it in the task's
-pull-request field, and moves the task to review; the merge is a contour of its own. So the remote
-has to be a github.com repository, written as `https://github.com/<owner>/<repo>`,
+reuses the open one that already has that branch as its head), records it in the task's pull-request
+field, and moves the task to review; the merge is a contour of its own. So the remote has to be a
+github.com repository, written as `https://github.com/<owner>/<repo>`,
 `git@github.com:<owner>/<repo>`, or `ssh://git@github.com/<owner>/<repo>` (with or without `.git`),
 and the GitHub CLI has to be on the daemon's PATH and signed in, because the daemon calls GitHub's
 API with the token `gh auth token --hostname github.com` prints. Running `gh auth login` and then
-`gh auth setup-git` covers both the token and the push. The push is guarded by a lease on what the
-node last pushed, so a branch someone else updated on the remote is never overwritten: the flow
-pauses instead, and the way out is to stop it. Every other failure (changes left in the worktree,
-a remote in another form, no token, a push or a request GitHub refuses) pauses the flow at its
-open-pr step with the reason, and a resume performs the step again.
+`gh auth setup-git` covers both the token and the push. The worktree step fetches the flow's branch
+from the remote before it checks it out, so a branch someone updated there since the node last
+pushed it (a reviewer's "Update branch" or committed suggestion) is built on, and a branch deleted
+there is pushed again. When the node's branch and the remote's each have commits the other lacks,
+the worktree step pauses and names how to reconcile them by hand in the node's clone. The push is
+guarded by a lease on what the node last fetched or pushed, so a branch someone else updates on the
+remote while a flow builds is never overwritten: the flow pauses instead, and the way out is to stop
+it and start a new flow on the parcel, whose worktree step fetches the remote's commits. Every other
+failure (changes left in the worktree, a remote in another form, no token, a push or a request
+GitHub refuses) pauses the flow at its open-pr step with the reason, and a resume performs the step
+again.
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 

@@ -61,6 +61,8 @@ public sealed class WorktreeActionTests : IAsyncLifetime
             $"remote add origin {RegisteredProjects.Remote}",
             "worktree list --porcelain",
             $"for-each-ref --format=%(objectname) refs/heads/{branch}",
+            $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
+            $"update-ref -d {ProjectClones.TrackingRefOf(branch)}",
             $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}",
             $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}",
             $"ls-tree -z --name-only {ScriptedCommandRunner.PrimaryHead}",
@@ -105,13 +107,15 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_branch_an_earlier_flow_on_the_parcel_created_is_checked_out_as_it_stands_with_nothing_fetched()
+    public async Task A_branch_an_earlier_flow_on_the_parcel_created_is_checked_out_at_its_own_tip_when_the_remote_has_no_branch_of_that_name()
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(parcelId, Ids.New());
-        const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
+        Guid earlier = Ids.New();
+        await PerformAsync(parcelId, earlier);
+        await EndAsync(earlier);
         runner.AddBranch(Clone, branch, Moved);
+        runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Moved);
         int before = runner.Commands.Count;
         Guid later = Ids.New();
 
@@ -123,8 +127,112 @@ public sealed class WorktreeActionTests : IAsyncLifetime
             "worktree list --porcelain",
             $"for-each-ref --format=%(objectname) refs/heads/{branch}",
             $"config --get --default  {ProjectClones.OwnerKeyOf(branch)}",
+            $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}",
+            $"update-ref -d {ProjectClones.TrackingRefOf(branch)}",
             $"ls-tree -z --name-only {Moved}",
             $"worktree add --quiet {temp.Home.FlowWorkPath(Project, later)} {branch}");
+        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().BeNull(
+            "someone deleted the branch on the remote, so the next push's lease expects it absent");
+    }
+
+    [Fact]
+    public async Task A_branch_the_remote_has_moved_ahead_of_moves_forward_to_the_remotes_commit_before_the_worktree_is_added()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        Guid earlier = Ids.New();
+        await PerformAsync(parcelId, earlier);
+        await EndAsync(earlier);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Moved);
+        runner.SetRemoteBranch(Clone, branch, Ahead);
+        runner.AddAncestry(Moved, Ahead);
+        Guid later = Ids.New();
+
+        JsonElement result = Done(await PerformAsync(parcelId, later));
+
+        result.GetProperty("head").GetString().Should().Be(Ahead, "a commit someone added on the remote is built on");
+        runner.Branch(Clone, branch).Should().Be(Ahead);
+        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Ahead, "the next push's lease expects what the remote holds now");
+        runner.GitCalls.Should().ContainInOrder(
+            $"update-ref refs/heads/{branch} {Ahead} {Moved}",
+            $"ls-tree -z --name-only {Ahead}",
+            $"worktree add --quiet {temp.Home.FlowWorkPath(Project, later)} {branch}");
+    }
+
+    [Fact]
+    public async Task A_branch_ahead_of_the_remotes_stays_at_its_own_tip_and_the_lease_expects_the_remotes()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        Guid earlier = Ids.New();
+        await PerformAsync(parcelId, earlier);
+        await EndAsync(earlier);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetRemoteBranch(Clone, branch, ScriptedCommandRunner.PrimaryHead);
+        runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Moved);
+
+        JsonElement result = Done(await PerformAsync(parcelId, Ids.New()));
+
+        result.GetProperty("head").GetString().Should().Be(Moved);
+        runner.Branch(Clone, branch).Should().Be(Moved);
+        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(ScriptedCommandRunner.PrimaryHead);
+        runner.GitCalls.Should().NotContain(c => c.StartsWith($"update-ref refs/heads/{branch}", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_branch_that_has_diverged_from_the_remotes_pauses_naming_how_to_reconcile_them_and_is_neither_moved_nor_checked_out()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        Guid earlier = Ids.New();
+        await PerformAsync(parcelId, earlier);
+        await EndAsync(earlier);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetRemoteBranch(Clone, branch, Ahead);
+        int before = runner.Commands.Count;
+
+        ActionOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+
+        paused.Reason.Should().Contain($"Branch {branch}").And.Contain(Moved).And.Contain(Ahead).And.Contain("Reconcile them by hand").And.Contain(Clone);
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("worktree"));
+        runner.Branch(Clone, branch).Should().Be(Moved);
+        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_branch_the_clone_does_not_hold_but_the_remote_does_is_cut_from_the_remotes_branch_rather_than_the_primary()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        await PerformAsync(Ids.New(), Ids.New());
+        runner.SetRemoteBranch(Clone, branch, Moved);
+        int before = runner.Commands.Count;
+
+        JsonElement result = Done(await PerformAsync(parcelId, Ids.New()));
+
+        result.GetProperty("head").GetString().Should().Be(Moved);
+        runner.Branch(Clone, branch).Should().Be(Moved);
+        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Moved);
+        runner.GitCalls.Skip(before).Should().Contain($"branch --no-track {branch} {Moved}")
+            .And.NotContain(c => c.StartsWith($"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_branch_another_live_worktree_has_checked_out_is_neither_fetched_nor_moved()
+    {
+        Guid parcelId = Ids.New();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        await PerformAsync(parcelId, Ids.New());
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetRemoteBranch(Clone, branch, Ahead);
+        runner.AddAncestry(Moved, Ahead);
+        int before = runner.Commands.Count;
+
+        await PerformAsync(parcelId, Ids.New());
+
+        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("fetch ", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
+        runner.Branch(Clone, branch).Should().Be(Moved);
     }
 
     [Fact]
@@ -362,6 +470,12 @@ public sealed class WorktreeActionTests : IAsyncLifetime
 
         runner.Commands.Should().BeEmpty();
     }
+
+    private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
+    private const string Ahead = "aaaabbbbccccddddeeeeffff0000111122223333";
+
+    private async Task EndAsync(Guid flowId) =>
+        await new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance).RemoveAsync(Project, flowId, None);
 
     private string ExcludePath => Path.Combine(Clone, "info", "exclude");
 
