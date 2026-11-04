@@ -16,8 +16,13 @@ public sealed record FlowStepEntry
     public string Performer { get; init; } = string.Empty;
 
     public DateTimeOffset StartedAt { get; init; }
+
+    /// <summary>The content hash of the agent a judgment visit last launched or recorded its answer from.</summary>
     public string? AgentHash { get; init; }
+
+    /// <summary>The model spec of the agent a judgment visit last launched or recorded its answer from.</summary>
     public ModelSpec? Model { get; init; }
+
     public JsonElement? Answer { get; init; }
     public Measurement? Measurement { get; init; }
     public JsonElement? Result { get; init; }

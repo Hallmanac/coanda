@@ -529,6 +529,41 @@ public sealed class FlowRunnerTests
     }
 
     [Fact]
+    public async Task A_judgment_that_pauses_after_two_invalid_answers_shows_its_agent_hash_and_model_spec_beside_the_pauses_usage()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("maybe", 1), Scripts.Answer("maybe", 2)],
+        });
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        Contour unanswered = await Publishing.ContourAsync(daemon, Project, new Contour
+        {
+            Name = "never-answers",
+            Accepts = ["task"],
+            Outcome = "built",
+            Budget = 10m,
+            SpawnCap = 2,
+            Steps = [Judge("build", "build", Contour.End)],
+        });
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Measured anyway", null), None);
+
+        FlowView started = await Flowing.StartAsync(client, Project, parcel.Id, unanswered.Name);
+        FlowView paused = await Flowing.UntilAsync(client, Project, started.Id, "paused");
+
+        paused.PauseReason.Should().Contain("gave no valid 'build' answer");
+        paused.PauseUsage.Should().Be(Scripts.Usage(3), "the pause reports both attempts' usage");
+        FlowStepView build = paused.Steps.Should().ContainSingle().Subject;
+        build.AgentHash.Should().Be(ShippedAgents.Build.Hash);
+        build.Model.Should().Be(ShippedAgents.Build.Model);
+        build.Answer.Should().BeNull();
+        build.Measurement.Should().BeNull();
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_daemon_stop_cancels_the_judgment_in_progress_recording_nothing_and_the_next_start_carries_the_flow_on()
     {
         using var temp = new TemporaryHome();

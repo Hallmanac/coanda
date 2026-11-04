@@ -151,11 +151,18 @@ public sealed class Flow
 
     /// <summary>
     /// The current visit launched its agent on the spawn it last counted; nothing more is counted.
-    /// The launch performs the resume the visit held, so a restart that launches it again is not a resume.
+    /// The launch performs the resume the visit held, so a restart that launches it again is not a
+    /// resume. The visit holds the launched agent's hash and model spec.
     /// </summary>
     public void Apply(JudgmentSpawned spawned)
     {
-        Record(entry => entry with { SpawnedAt = spawned.SpawnedAt, ResumedAt = null });
+        Record(entry => entry with
+        {
+            SpawnedAt = spawned.SpawnedAt,
+            ResumedAt = null,
+            AgentHash = spawned.AgentHash,
+            Model = spawned.Model,
+        });
         UpdatedAt = spawned.SpawnedAt;
     }
 

@@ -268,9 +268,10 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// Runs the step's judgment and records its answer, or pauses; null when the flow paused. When
     /// <paramref name="spawnsAgain"/>, a resume performs again a visit that launched and paused
     /// without an answer, so one more spawn is counted on that visit once the budget checks have
-    /// passed. The launch itself is recorded just before the agent runs, so a pause after the count
-    /// and before the launch (an agent that does not resolve, a parcel that does not load) leaves
-    /// that spawn unused, and the next resume uses it rather than counting another.
+    /// passed. The launch itself is recorded just before the agent runs, with the agent's hash and
+    /// model spec, so a pause after the count and before the launch (an agent that does not resolve,
+    /// a parcel that does not load) leaves that spawn unused, and the next resume uses it rather than
+    /// counting another.
     /// </summary>
     private async Task<Recording?> JudgeAsync(
         Principal principal, string project, Flow flow, Contour contour, ContourStep step, bool spawnsAgain, CancellationToken cancellationToken)
@@ -310,7 +311,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             step.AnswerSchema ?? string.Empty,
             CredentialProfile: null);
 
-        flow = await flows.SpawnedAsync(principal, project, flow.Id, step.Name, cancellationToken);
+        flow = await flows.SpawnedAsync(principal, project, flow.Id, step.Name, published.ContentHash, agent.Model, cancellationToken);
         using var limit = new CancellationTokenSource(judgmentLimit, clock);
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token);
         JudgmentOutcome outcome;

@@ -97,11 +97,15 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             (flow, respawned) => flow.Apply(respawned),
             cancellationToken);
 
-    /// <summary>Records that the judgment <paramref name="step"/> launched its agent on the spawn its visit last counted.</summary>
-    public Task<Flow> SpawnedAsync(Principal principal, string project, Guid flowId, string step, CancellationToken cancellationToken) =>
+    /// <summary>
+    /// Records that the judgment <paramref name="step"/> launched its agent, with the agent's content
+    /// hash and model spec, on the spawn its visit last counted.
+    /// </summary>
+    public Task<Flow> SpawnedAsync(
+        Principal principal, string project, Guid flowId, string step, string agentHash, ModelSpec model, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow.spawn", principal, project, flowId,
-            (contour, flow) => FlowDecider.Spawn(contour, flow, step, clock.GetUtcNow()),
+            (contour, flow) => FlowDecider.Spawn(contour, flow, step, agentHash, model, clock.GetUtcNow()),
             (flow, spawned) => flow.Apply(spawned),
             cancellationToken);
 

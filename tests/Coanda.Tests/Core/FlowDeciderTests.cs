@@ -353,7 +353,7 @@ public sealed class FlowDeciderTests
         flow.Apply(FlowDecider.StartStep(contour, flow, "build", Now));
         if (launched)
         {
-            flow.Apply(FlowDecider.Spawn(contour, flow, "build", Now));
+            flow.Apply(FlowDecider.Spawn(contour, flow, "build", "agenthash", Model, Now));
         }
 
         flow.Apply(FlowDecider.Pause(contour, flow, "no valid answer", "perform it again", "flow", Now, Spend));
@@ -377,7 +377,7 @@ public sealed class FlowDeciderTests
         FluentActions.Invoking(() => FlowDecider.Respawn(Build, flow, "build", Now.AddMinutes(3)))
             .Should().Throw<DomainException>().WithMessage("*already counted a spawn for its latest resume*");
 
-        flow.Apply(FlowDecider.Spawn(Build, flow, "build", Now.AddMinutes(3)));
+        flow.Apply(FlowDecider.Spawn(Build, flow, "build", "agenthash", Model, Now.AddMinutes(3)));
         flow.Apply(FlowDecider.Pause(Build, flow, "no valid answer", "perform it again", "flow", Now.AddMinutes(4), Spend));
         flow.Apply(FlowDecider.Resume(Build, flow, "once more", "owner", Now.AddMinutes(5)));
         flow.Apply(FlowDecider.Respawn(Build, flow, "build", Now.AddMinutes(6)));
@@ -395,7 +395,7 @@ public sealed class FlowDeciderTests
         FluentActions.Invoking(() => FlowDecider.Respawn(capped, flow, "build", Now.AddMinutes(2)))
             .Should().Throw<DomainException>().WithMessage("*has not launched its agent on the spawn it last counted*");
 
-        flow.Apply(FlowDecider.Spawn(capped, flow, "build", Now.AddMinutes(2)));
+        flow.Apply(FlowDecider.Spawn(capped, flow, "build", "agenthash", Model, Now.AddMinutes(2)));
         flow.Spawns.Should().Be(1, "a launch counts nothing itself");
         flow.Current?.SpawnsAgainOnResume.Should().BeFalse("no resume has followed the launch");
     }
@@ -416,5 +416,42 @@ public sealed class FlowDeciderTests
         atAction.Apply(FlowDecider.Resume(Build, atAction, "go on", "owner", Now));
         FluentActions.Invoking(() => FlowDecider.Respawn(Build, atAction, "worktree", Now))
             .Should().Throw<DomainException>().WithMessage("*only a judgment step spawns an agent*");
+    }
+
+    [Fact]
+    public void A_launch_carries_the_agents_hash_and_model_spec_and_counts_nothing()
+    {
+        Flow flow = AtJudgment();
+
+        flow.Apply(FlowDecider.Spawn(Build, flow, "build", " agenthash ", Model, Now));
+
+        flow.Current?.AgentHash.Should().Be("agenthash");
+        flow.Current?.Model.Should().Be(Model);
+        flow.Current?.Answer.Should().BeNull();
+        flow.Spawns.Should().Be(1);
+    }
+
+    [Fact]
+    public void A_launch_with_no_agent_hash_or_model_spec_is_refused()
+    {
+        FluentActions.Invoking(() => FlowDecider.Spawn(Build, AtJudgment(), "build", " ", Model, Now))
+            .Should().Throw<DomainException>().WithMessage("*content hash of the agent it launches*");
+        FluentActions.Invoking(() => FlowDecider.Spawn(Build, AtJudgment(), "build", "agenthash", Model with { Effort = "" }, Now))
+            .Should().Throw<DomainException>().WithMessage("*model spec its agent runs on*");
+    }
+
+    [Fact]
+    public void A_launch_recorded_before_it_carried_the_agent_replays_with_neither_hash_nor_model_spec()
+    {
+        Flow flow = AtJudgment();
+        JudgmentSpawned old = JsonSerializer.Deserialize<JudgmentSpawned>(
+            $$"""{"FlowId":"{{flow.Id}}","Step":"build","Agent":"build","SpawnedAt":"2026-11-03T12:00:00+00:00"}""")
+            ?? throw new InvalidOperationException("The launch did not read back.");
+
+        flow.Apply(old);
+
+        flow.Current?.SpawnedAt.Should().Be(Now);
+        flow.Current?.AgentHash.Should().BeNull();
+        flow.Current?.Model.Should().BeNull();
     }
 }
