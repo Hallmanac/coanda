@@ -39,6 +39,10 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 - `coa contour list`, `coa contour start <contour> --parcel <id>`
 - `coa flow list --parcel <id>`, `coa flow show <id>`
 
+A parcel with a live flow, whether that flow is running or paused, is closed by nobody and moved
+only by that flow's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow
+that holds it; the flow has to end or be stopped first.
+
 The record lives at `~/.coanda/coanda.db`. Do not edit it by hand.
 
 A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
