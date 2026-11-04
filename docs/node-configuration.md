@@ -62,13 +62,19 @@ when that is smaller. Claude Code checks the cap between turns, so one turn can 
 session that ends with an error (its spend cap reached, or no login) is not retried; the flow pauses
 quoting the error, and what the session spent is still recorded on the flow.
 
-Stopping the daemon does not end a Claude Code session it is running: the session runs on, under
-its spend cap, but its output no longer reaches the transcript. The step that was in progress
-records nothing and is performed again at the next start. The daemon cannot yet reattach to a
-session across a restart, so that next start runs a new session in the same work directory while
-the old one may still be running, and what the old one spends is not recorded. To avoid that, pause
-a flow whose judgment is running before you stop the daemon; a pause ends the session and records
-what it spent.
+Stopping the daemon does not end a Claude Code session it is running. Each session's process is
+started apart from the daemon: it reads its prompt from a file, writes its output straight into
+the transcript, and is in a process group of its own (on Windows, it has a hidden console of its
+own), so neither the daemon's exit nor an interrupt you type in the daemon's terminal reaches it.
+The daemon keeps a record of each running session in `sessions/` under the node home. When the
+daemon starts again, a flow whose judgment was running reattaches its session: the daemon collects
+the session's answer, retrying it once if it is invalid, and records it with what the whole session
+spent, without launching the agent again. The judgment's wall-clock limit still runs from when its
+session was launched. A session that finished while the daemon was down is collected the same way.
+When the session cannot be found again (its process exited without an answer, or the daemon stopped
+before it recorded the session), the flow pauses saying that the session was lost and its usage was
+not observed, and resuming the flow performs the step again with a new session. At start, the
+daemon also stops every recorded session that no running flow is waiting on.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
 for itself, so a daemon started from inside Claude Code runs its sessions as independent ones. It
