@@ -172,10 +172,12 @@ follow:
   `${(P)v::=x}`, either of which may set `CDPATH` without naming it.
 
 Only the shell sets its own variables and options, so a word that merely mentions one of those names
-is allowed when it is the plain name or argument (no `$` or backtick in it) of a program the shell starts:
-`grep -rn CDPATH src` and a `git commit -m` whose message names it both run. The same word is
-refused before a command's name, as an argument of a shell builtin such as `export`, `setopt`, or
-`echo`, behind `eval`, or anywhere on a line that defines a function or an alias. When the daemon
+is allowed when it is the plain name or argument of a program the shell starts, in a command with no
+`$` or backtick in any of its words: `grep -rn CDPATH src` and a `git commit -m` whose message names it
+both run. The same word is refused before a command's name, as an argument of a shell builtin such as
+`export`, `setopt`, or `echo`, behind `eval`, right after a `(` (which may open an arithmetic
+`(( CDPATH = 1 ))` or `$(( … ))` that assigns it), or anywhere on a line that defines a function or
+an alias. When the daemon
 itself runs with a non-empty `CDPATH`, every `cd` or `pushd` to a relative directory the shell would
 look up in it is refused, which is any relative directory not starting with `./` or `../`: write
 `cd ./src` rather than `cd src`, or unset `CDPATH` in the environment the daemon starts from.
