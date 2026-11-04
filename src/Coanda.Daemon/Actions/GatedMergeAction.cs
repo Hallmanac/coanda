@@ -24,7 +24,10 @@ namespace Coanda.Daemon.Actions;
 /// which GitHub reports mergeable, and on which every check the project's record names has succeeded
 /// and no other reported check has failed or is still running. The merge request carries that head as
 /// the expected head and names the method the repository allows, preferring merge, then squash, then
-/// rebase. It answers <see cref="PendingVerdict"/> with a <c>reason</c> while a check or GitHub's
+/// rebase. The primary branch is compared with the head both before the checks are read and right
+/// before the merge; GitHub's merge takes an expected head but no expected base, so a commit that
+/// lands on the primary branch between that last comparison and the merge is still merged onto,
+/// a window of one request. It answers <see cref="PendingVerdict"/> with a <c>reason</c> while a check or GitHub's
 /// mergeability is still to come, and pauses on everything waiting will not change. Nothing here
 /// enables GitHub's auto-merge, and nothing reads the node's clone.
 /// </summary>
@@ -150,13 +153,9 @@ public sealed class GatedMergeAction(
                 step, $"merged nothing: the head of {named} is {pullRequest.HeadSha}, not {head}, the commit open-pr recorded as pushed; a commit nobody reviewed is never merged.");
         }
 
-        int behind = await client.BehindByAsync(repository, project.PrimaryBranch, head, token, cancellationToken);
-        if (behind > 0)
+        if (await BehindAsync() is { } early)
         {
-            string branch = ProjectClones.BranchOf(request.ParcelId);
-            return new ActionOutcome.Paused(
-                $"Step '{step}' merged nothing: the head {head} of {named} is behind the primary branch '{project.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran.",
-                FlowLevers.RebaseThroughBuild(branch, project.PrimaryBranch));
+            return early;
         }
 
         if (pullRequest.Mergeable is false)
@@ -189,6 +188,14 @@ public sealed class GatedMergeAction(
             return PerformAgain(step, $"merged nothing: {repository} allows none of the merge methods merge, squash, and rebase.");
         }
 
+        // The primary branch is compared again right before the merge, because the checks and the
+        // methods took requests of their own while it could move. GitHub's merge takes no expected
+        // base, so a base that moves between this comparison and the merge is still merged onto.
+        if (await BehindAsync() is { } late)
+        {
+            return late;
+        }
+
         try
         {
             return Merged(await client.MergeAsync(repository, number, head, method, token, cancellationToken));
@@ -197,6 +204,16 @@ public sealed class GatedMergeAction(
         {
             return PerformAgain(
                 step, $"merged nothing: GitHub refused the merge because the head of {named} moved after it was inspected: {refused.Message}");
+        }
+
+        async Task<ActionOutcome.Paused?> BehindAsync()
+        {
+            int behind = await client.BehindByAsync(repository, project.PrimaryBranch, head, token, cancellationToken);
+            return behind > 0
+                ? new ActionOutcome.Paused(
+                    $"Step '{step}' merged nothing: the head {head} of {named} is behind the primary branch '{project.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran.",
+                    FlowLevers.BehindThroughBuild(ProjectClones.BranchOf(request.ParcelId), project.PrimaryBranch))
+                : null;
         }
     }
 
