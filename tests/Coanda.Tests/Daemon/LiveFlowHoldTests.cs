@@ -27,7 +27,7 @@ public sealed class LiveFlowHoldTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
+        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
         parcels = new ParcelService(store, TimeProvider.System);
         flows = new FlowService(store, TimeProvider.System);
     }
