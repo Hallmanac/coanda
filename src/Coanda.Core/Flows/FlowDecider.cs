@@ -253,40 +253,6 @@ public static class FlowDecider
         return new ActionCompleted(flow.Id, current.Step, action, result.Clone(), now);
     }
 
-    /// <summary>
-    /// Records what a judgment on the current step spent when its answer arrived after the flow was
-    /// paused or stopped, so the answer is not recorded. A running flow records the answer, or a
-    /// pause carrying the usage, instead; the step must still be the current, unrecorded judgment
-    /// the agent was performing.
-    /// </summary>
-    public static JudgmentUsageRecorded RecordUsage(
-        Contour contour, Flow flow, string step, string agent, Measurement usage, DateTimeOffset now)
-    {
-        RequireContour(contour, flow);
-
-        if (flow.Status is not (FlowStatus.Paused or FlowStatus.Stopped))
-        {
-            throw new DomainException(
-                $"Flow {Ids.Short(flow.Id)} {Describe(flow.Status)}; only a judgment whose flow was paused or stopped while it ran records its usage without an answer.");
-        }
-
-        FlowStepEntry current = RequireCurrent(flow, step, "a judgment's usage");
-
-        if (current.Kind != StepKind.Judgment)
-        {
-            throw new DomainException($"Step '{current.Step}' is an action step; only a judgment step reports usage.");
-        }
-
-        if (!string.Equals(current.Performer, agent, StringComparison.Ordinal))
-        {
-            throw new DomainException($"Step '{current.Step}' names the agent '{current.Performer}'; usage from '{agent}' is not its usage.");
-        }
-
-        RequireMeasurement(usage);
-
-        return new JudgmentUsageRecorded(flow.Id, current.Step, agent, usage, now);
-    }
-
     /// <summary>Pauses a running flow; <paramref name="usage"/> is what a judgment that paused without an answer reported.</summary>
     public static FlowPaused Pause(
         Contour contour, Flow flow, string reason, string lever, string pausedBy, DateTimeOffset now, Measurement? usage = null)

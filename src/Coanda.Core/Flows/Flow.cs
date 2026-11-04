@@ -74,16 +74,13 @@ public sealed class Flow
     [JsonInclude]
     public int Depth { get; private set; }
 
-    /// <summary>
-    /// What the judgments that recorded no answer reported spending, in US dollars: the ones that
-    /// paused the flow, and the ones whose flow was paused or stopped while they ran.
-    /// </summary>
+    /// <summary>What the judgments that paused the flow without an answer reported spending, in US dollars.</summary>
     [JsonInclude]
     public decimal PausedCost { get; private set; }
 
     /// <summary>
     /// What the flow has recorded spending, in US dollars: the cost of every answered judgment and
-    /// the usage every judgment that recorded no answer reported. It is read from the recorded visits rather than
+    /// the usage every paused judgment reported. It is read from the recorded visits rather than
     /// kept as a running total, so a flow recorded before costs were totalled counts its spend too.
     /// </summary>
     [JsonIgnore]
@@ -192,13 +189,6 @@ public sealed class Flow
         PauseUsage = paused.Usage;
         PausedCost += paused.Usage?.CostUsd ?? 0m;
         UpdatedAt = paused.PausedAt;
-    }
-
-    /// <summary>A judgment's answer arrived after the flow stopped running; only what it spent is kept.</summary>
-    public void Apply(JudgmentUsageRecorded recorded)
-    {
-        PausedCost += recorded.Usage.CostUsd;
-        UpdatedAt = recorded.RecordedAt;
     }
 
     public void Apply(FlowResumed resumed)
