@@ -146,8 +146,7 @@ public sealed class FakeClaude : IDisposable
 
         if (OperatingSystem.IsLinux())
         {
-            string stat = $"/proc/{pid}/stat";
-            return !File.Exists(stat) || File.ReadAllText(stat).Split(')')[^1].TrimStart().StartsWith('Z');
+            return LinuxZombie(pid);
         }
 
         using Process ps = Process.Start(new ProcessStartInfo("ps", ["-o", "stat=", "-p", pid.ToString(System.Globalization.CultureInfo.InvariantCulture)]) { RedirectStandardOutput = true })
@@ -155,6 +154,27 @@ public sealed class FakeClaude : IDisposable
         string state = ps.StandardOutput.ReadToEnd().Trim();
         ps.WaitForExit();
         return state.Length == 0 || state.StartsWith('Z');
+    }
+
+    /// <summary>
+    /// Whether the process is gone or a zombie its parent could wait on. The state in
+    /// <c>/proc/&lt;pid&gt;/stat</c> is its main thread's, which turns zombie while the process's other
+    /// threads are still exiting; until they are gone, waiting on it finds a running child. So the
+    /// process counts as finished only when its main thread is the one thread left.
+    /// </summary>
+    private static bool LinuxZombie(int pid)
+    {
+        try
+        {
+            return Directory.GetDirectories($"/proc/{pid}/task") is [{ } only]
+                && Path.GetFileName(only) == pid.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                && File.ReadAllText($"/proc/{pid}/stat").Split(')')[^1].TrimStart() is ['Z' or 'X', ..];
+        }
+        catch (IOException)
+        {
+            // The process was reaped while it was read.
+            return true;
+        }
     }
 
     public void Dispose()
