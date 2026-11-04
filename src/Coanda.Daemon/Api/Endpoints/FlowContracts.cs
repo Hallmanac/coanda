@@ -6,6 +6,8 @@ namespace Coanda.Daemon.Api.Endpoints;
 
 public sealed record FlowStartRequest(string Project, Guid ParcelId, string Contour);
 
+public sealed record FlowPauseRequest(string Project, string Reason);
+
 public sealed record FlowStopRequest(string Project, string Reason);
 
 public sealed record FlowResumeRequest(string Project, string? Note);
