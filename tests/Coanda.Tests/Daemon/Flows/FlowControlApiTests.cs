@@ -62,8 +62,10 @@ public sealed class FlowControlApiTests
         FlowView paused = await Flowing.PauseAsync(client, Project, started.Id, "Waiting on the API owner.");
         paused.Status.Should().Be("paused");
 
-        executor.Open();
+        // The pause cancels the held collect on the pool, so the gate opens only once the held
+        // session is stopped; opened sooner, the held collect could pass it and take the entry.
         await Flowing.UntilAsync(() => executor.Inner.Stops.Count == 1, "the held session is stopped");
+        executor.Open();
 
         FlowView held = await Flowing.ShowAsync(client, Project, started.Id);
         held.Status.Should().Be("paused");
