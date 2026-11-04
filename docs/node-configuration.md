@@ -73,6 +73,34 @@ what it spent.
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
 for itself, so a daemon started from inside Claude Code runs its sessions as independent ones.
 
+### How a session talks back
+
+A session reaches the daemon that spawned it through `coa`, as a principal of its own. Every process
+of a session, the retry's included, starts with these variables set:
+
+| Variable | Holds |
+| --- | --- |
+| `COANDA_SESSION_TOKEN` | A session token issued for this flow and this launch of the judgment |
+| `COANDA_HOME` | The node home of the daemon that spawned the session |
+| `COANDA_PROJECT` | The flow's project, which `coa` uses when no `--project` is given |
+
+The directory that holds the `coa` executable running the daemon goes first on the session's
+`PATH`, so the session runs `coa` by name. When `COANDA_SESSION_TOKEN` is set, `coa` presents that
+token instead of the daemon token, and it never starts a daemon: if none answers, it says that the
+daemon which started the session is not running.
+
+The token makes the call an Agent-role principal bound to its flow and its launch. Queries, parcel
+moves, and drafting a definition are open to it in any project, as they are to any agent. The flow
+recording entries (a step, a launch, an answer, a result, a pause, an end) are open to it only on its
+own flow, and only while its launch is the one the flow expects; it can never start a flow. The
+token resolves until the launch's answer is recorded, its flow pauses, stops, or ends, or the
+judgment launches again; after that it is refused like any token the daemon did not issue, even
+once the flow is resumed. The daemon keeps only a hash of each token, in memory, so a token does not
+survive a daemon restart.
+
+The token governs what a session's calls may record. It does not confine the session's process,
+which runs as your user and can read whatever you can.
+
 ## Credential profiles
 
 `profiles` is optional. It holds named credential profiles per vendor, and the only vendor a profile
