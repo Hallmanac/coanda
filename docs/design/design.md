@@ -8,13 +8,13 @@ Working name: Coanda (from the Coanda effect). Path command: `coa`.
 ## 1. The answer in one paragraph
 
 Coanda is a local-first work system whose product is flows: agentic loops a user composes from
-agents and actions, each followed by flow runs that triggers start and a daemon runs, acting on units of
+agents and system steps, each followed by flow runs that triggers start and a daemon runs, acting on units of
 work called parcels that move through user-definable lifecycles. It ships with a software
 engineering lifecycle (ideas through discovery, tasks through refine, build, review, closed) that a
 new project gets with nothing configured. It replaces hall9k at parity and then goes past it,
 because hall9k's engines become data, its store becomes one SQLite file per node, its transport
-becomes one signed event stream per node, and its vocabulary is reduced to parcel, type, flow,
-flow run, agent, action, trigger.
+becomes one signed event stream per node, and its core vocabulary is parcel, type, flow, flow run,
+agent, system step, and trigger; naming.md is where the full vocabulary is settled.
 
 ## 2. What it is, and what it refuses
 
@@ -23,10 +23,10 @@ record of work and is the source of truth; Jira, Linear, and GitHub issues are o
 adapters fed from it and feeding into it.
 
 It refuses to be a programming language. Definitions route; they do not compute. If a decision
-needs reasoning, it is an agent (a judgment). If it needs a deterministic effect, it is an action in
+needs reasoning, it is an agent (an agent step). If it needs a deterministic effect, it is a system step in
 C#. Nothing else exists. Customization lives at exactly three seams, parcel types, flows, and
 agents, each a validated table the daemon loads, never code the daemon runs. A need beyond those
-three is a new core action, not a fourth seam.
+three is a new core system step, not a fourth seam.
 
 It refuses to make a new user configure anything. The shipped lifecycle is the product, not a
 template; customization is a deliberate separate act, absent from the board, the default CLI
@@ -57,7 +57,7 @@ original ids and dates.
 
 1. The store: one SQLite database per node, Marten's API through Fisher, the daemon as sole writer.
 2. The kernel: the meta-model for parcels, relations, claims, placement, budget, identity, and the
-   core actions.
+   core system steps.
 3. Definitions: parcel types, flows, agents, as aggregates in the store, with scopes and forks.
 4. The interpreter: a pure function from a flow, the current position, and the last
    answer to the next move.
@@ -137,8 +137,8 @@ and the generation fence stay local to a node.
 ## 7. Flows, flow runs, triggers, and the interpreter
 
 A flow is a sequence of steps, and a flow run is one execution of a flow on a parcel: the flow run
-follows the flow the way a Coanda flow follows the curve of a surface. A judgment step names an
-agent and an answer schema; the daemon spawns the agent and validates its answer. An action step
+follows the flow the way a Coanda flow follows the curve of a surface. An agent step names an
+agent and an answer schema; the daemon spawns the agent and validates its answer. A system step
 names something only the daemon does: wait for a human, wait for an external event, timer, emit
 outcome, move a parcel, derive parcels (the core, domain-free set); worktree, gates, open PR, gated
 merge, rebase (the software set). Each step has transitions: a table of answer field equals value,
@@ -150,10 +150,10 @@ person or an external event, or when a cap or its budget is reached; a paused fl
 resumed or stopped, and a stopped flow run is final.
 
 A trigger is an event subscription: an event kind plus equality filters, nothing more. A parcel
-entering a state on this node, a PR opened by a flow run, a PR assigned to a person, a schedule tick, a
+entering a stage on this node, a PR opened by a flow run, a PR assigned to a person, a schedule tick, a
 manual start, another flow run's typed outcome. A trigger starts a flow run of the flow it names. A
 person may own a trigger (a subscription), which is what hall9k's personas become. If matching
-needs judgment, the flow starts with a judgment step that may answer "not for me".
+needs judgment, the flow starts with an agent step that may answer "not for me".
 
 Flows compose: a flow declares a typed outcome (PR opened, report produced, parcels
 derived), and the next flow follows it, so a flow run ending with that outcome starts a flow run of the
@@ -170,11 +170,11 @@ replaced, and a bare "run" stays retired.
 
 ## 8. Parcels and types
 
-A parcel is the unit of work a flow run acts on and the place its state, record, and board row live; a
-pause and its lever live on the parcel's flow run, and the paused state of the lifecycle is a person's
-pause of the parcel itself. A parcel has exactly one type and one state. A parcel type is a
-definition declaring the lifecycle (states, allowed moves, entry states, a paused state reachable
-from any live state, exactly one terminal state with a resolution set), the fields, and the
+A parcel is the unit of work a flow run acts on and the place its stage, record, and board row live; a
+pause and its lever live on the parcel's flow run, and the paused stage of the lifecycle is a person's
+pause of the parcel itself. A parcel has exactly one type and one stage. A parcel type is a
+definition declaring the lifecycle (stages, allowed moves, entry stages, a paused stage reachable
+from any live stage, exactly one terminal stage with a resolution set), the fields, and the
 bindings: a gate before a transition and a flow after it. Those two extension points are the
 whole middleware story.
 
@@ -201,7 +201,7 @@ saved for later. A parcel with a live flow run, running or paused, is closed by 
 by that flow run's own steps; a person stops the flow run (`coa flow-run stop`) before moving or closing the
 parcel. The words idea and task survive as type names; nobody relearns hall9k's vocabulary.
 Nothing software-specific (branch, worktree, gate, PR) leaks into the meta-model or the interpreter;
-those are fields of the software types and the software actions.
+those are fields of the software types and the software system steps.
 
 hall9k's task types map by one rule: a new parcel type when the lifecycle or the ending differs
 (review, spike), a new flow when only the work differs (content), a field when only the prompt
@@ -209,7 +209,7 @@ varies.
 
 Type versioning: a parcel records the content hash of its type at creation; a new type version
 applies to new parcels; an explicit migrate command moves an existing parcel only when its current
-state exists by name in the new version.
+stage exists by name in the new version.
 
 ## 9. Definitions, scopes, and forks
 
@@ -242,9 +242,9 @@ One interface: spawn, collect, resume, send into a live session, stop, list, rea
 restart. An adapter per vendor renders an agent definition into the vendor's invocation: persona to
 system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config, skills to
 tier paths, model spec to flags; caps passed natively where the vendor has them, with the daemon's
-timer authoritative. Every judgment ends in one JSON document validated against the step's schema;
+timer authoritative. Every agent step ends in one JSON document validated against the step's schema;
 invalid or missing is retried once by resuming the same session, then the flow run pauses with the
-transcript as the lever. The parcel keeps its state; its live flow run is where the pause and the lever
+transcript as the lever. The parcel keeps its stage; its live flow run is where the pause and the lever
 are found, and a resume performs the step again with a new spawn. hall9k's fifteen marker-line
 grammars do not exist.
 
@@ -255,9 +255,9 @@ spawned process, documented for multiple accounts) or an API key helper. Subscri
 cannot use bare mode; the Agent SDK may not use subscription logins at all, which confirms the CLI
 adapter as primary.
 
-Measurement on every spawn, recorded on the parcel's flow run, in the judgment's answer event and in
+Measurement on every spawn, recorded on the parcel's flow run, in the agent step's answer event and in
 the pause event: flow hash, agent hash, model spec, tokens, cost, turns, duration, answer. A
-judgment whose answer or pause is not recorded still records what it spent, in a usage record that
+agent step whose answer or pause is not recorded still records what it spent, in a usage record that
 counts toward the flow run's cost and changes nothing else: one a person's pause or stop ended, which
 stops its session at once, and one whose answer came from a session its visit no longer expects,
 because a resume came after its launch. Its usage is every attempt the executor returned plus what
@@ -275,7 +275,7 @@ The window: an interactive session in the project home holding the owner princip
 primary surface. It reads, rules, and starts; it never drives a lifecycle a flow run is driving, and it
 spawns nothing itself (discovery, challenge, walks are flows whose flow runs the daemon runs). Its
 recipe is a stored agent definition: a hand edit is a draft and a publish, a regeneration is a draft
-to diff. The courier is a trigger on feed events bound to a deliver-to-window action, pushing into
+to diff. The courier is a trigger on feed events bound to a deliver-to-window system step, pushing into
 the window's live session through the vendor's inbound channel, with the batching wait and the
 bypass list as binding parameters.
 
@@ -321,8 +321,8 @@ wider before it opens the database.
 Not built now, designed for: a business defines a parcel type and a lifecycle for its own work and
 its agents reach its systems through MCP servers named on the agent definition. What that costs
 today is only the no-leakage rule (section 8), MCP servers on agent definitions, and keeping the
-core actions domain-free. Data from an external MCP server is untrusted text, read only in a
-judgment step with a narrow tool set, never allowed to steer a step with write power.
+core system steps domain-free. Data from an external MCP server is untrusted text, read only in a
+agent step with a narrow tool set, never allowed to steer a step with write power.
 
 ## 15. Priorities
 

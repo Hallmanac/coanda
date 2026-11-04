@@ -108,17 +108,17 @@ someone else updated the branch on the remote.
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
-Judgments run on Claude Code. With no configuration at all, the daemon runs each judgment as a
+Agent steps run on Claude Code. With no configuration at all, the daemon runs each agent step as a
 headless session of the `claude` executable it finds on the PATH, under whatever login that
 executable already has, so install Claude Code and sign in to it before a flow run reaches its first
-judgment. What a node runs its judgments with is configured once per node, in `node.json` in the
+agent step. What a node runs its agent steps with is configured once per node, in `node.json` in the
 node home: the executor (`claude-code`, with an optional path to the `claude` executable), and the
 credential profiles a project can name with `coa project set-profile`.
-[Node configuration](node-configuration.md) describes the file. A judgment's session can run `coa` itself, as a
+[Node configuration](node-configuration.md) describes the file. An agent step's session can run `coa` itself, as a
 principal bound to its own flow run; [how a session talks back](node-configuration.md#how-a-session-talks-back)
 names the variables it is given. The repository's Rider run
 configurations use `.coanda-dev` as their node home, and its checked-in `node.json` names the
-`scripted` executor, so a judgment run from them pauses at no cost instead of starting a Claude Code
+`scripted` executor, so an agent step run from them pauses at no cost instead of starting a Claude Code
 session; change that file to `claude-code` to run real sessions there. The worktree, gates, and
 open-pr steps are real even there: a build flow run fetches from the project's remote, runs its build and
 test commands, and pushes and opens its pull request on GitHub, so the prerequisites above apply to
@@ -126,12 +126,13 @@ that home too. A flow run there pushes a real `coanda/<short id>` branch and ope
 the project's remote, and once the checks the project names pass, the merge that follows merges it,
 so register a scratch repository in that home rather than one whose pull requests other people watch.
 
-If you ran any build from before the flow name, its record does not carry over, and the daemon
-refuses to start on it, naming the file. Move the home aside (for example
-`mv ~/.coanda ~/.coanda.pre-flow`) and run the commands above again; a fresh home is created on
+If you ran any build from before the stage and step names, its record does not carry over, and the
+daemon refuses to start on it, naming the file. Move the home aside (for example
+`mv ~/.coanda ~/.coanda.pre-stage`) and run the commands above again; a fresh home is created on
 the first start. The commands changed with the names: `coa flow list` lists the flows,
-`coa flow start <flow> --parcel <id>` starts a flow run, and `coa flow-run list` and
-`coa flow-run show` read flow runs. The API serves flows under `/flows` and flow runs under
+`coa flow start <flow> --parcel <id>` starts a flow run, `coa flow-run list` and
+`coa flow-run show` read flow runs, and `coa parcel add --stage <stage>` and
+`coa parcel move <id> <stage>` name a stage. The API serves flows under `/flows` and flow runs under
 `/flow-runs`, so a script written against the earlier names needs the new ones;
-[the naming notes](design/naming.md#added-2026-11-04-flow) map the old names to these, and
+[the naming notes](design/naming.md#commands-and-the-api) map the old names to these, and
 [the overview](overview.md#operating) has the full list of commands.

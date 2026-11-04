@@ -188,7 +188,7 @@ public sealed class ParcelTypeFieldTests
     {
         ParcelType forked = ShippedTypes.Task with
         {
-            Stages = ["refine", "spike", "build", "review", "parked", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "spike", "build", "review", "shelved", ShippedTypes.Paused, ShippedTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -201,30 +201,30 @@ public sealed class ParcelTypeFieldTests
 
         forked.RequiredToEnter("build").Should().BeEmpty("a route from the spike entry stage reaches build without leaving refine");
         forked.RequiredToEnter("review").Should().Equal("pull-request");
-        forked.RequiredToEnter("parked").Should().BeEmpty("no route reaches it");
+        forked.RequiredToEnter("shelved").Should().BeEmpty("no route reaches it");
     }
 
     [Fact]
     public void A_move_out_of_a_stage_no_route_reaches_into_a_stage_some_field_is_required_to_enter_is_refused_naming_both()
     {
-        ParcelType parked = ShippedTypes.Task with
+        ParcelType shelved = ShippedTypes.Task with
         {
-            Stages = ["refine", "build", "review", "parked", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "build", "review", "shelved", ShippedTypes.Paused, ShippedTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
                 ["build"] = ["review"],
                 ["review"] = ["build"],
-                ["parked"] = ["review"],
+                ["shelved"] = ["review"],
             },
         };
 
-        FluentActions.Invoking(() => parked.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "Stage 'review' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and the move the table holds into it from 'parked', a stage no route from an entry stage reaches, would carry a parcel resumed into 'parked' there without them; a move out of a stage no route reaches goes only into a stage that requires nothing to enter.");
+        FluentActions.Invoking(() => shelved.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
+            "Stage 'review' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and the move the table holds into it from 'shelved', a stage no route from an entry stage reaches, would carry a parcel resumed into 'shelved' there without them; a move out of a stage no route reaches goes only into a stage that requires nothing to enter.");
 
-        ParcelType intoRefine = parked with
+        ParcelType intoRefine = shelved with
         {
-            Moves = new Dictionary<string, IReadOnlyList<string>>(parked.Moves) { ["parked"] = ["refine"] },
+            Moves = new Dictionary<string, IReadOnlyList<string>>(shelved.Moves) { ["shelved"] = ["refine"] },
         };
         FluentActions.Invoking(() => intoRefine.Validate(Gates)).Should().NotThrow("refine requires nothing to enter");
     }
