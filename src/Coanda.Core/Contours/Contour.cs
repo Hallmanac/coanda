@@ -177,6 +177,7 @@ public sealed record Contour
         }
 
         ValidateFields(step, hasAction);
+        ValidateSources(step, hasAction);
 
         if (step.Transitions.Count == 0)
         {
@@ -217,6 +218,47 @@ public sealed record Contour
             {
                 throw new DomainException(
                     $"Judgment step '{step.Name}' of contour '{Name}' declares the field '{field}' twice; a step declares each field once.");
+            }
+        }
+    }
+
+    private void ValidateSources(ContourStep step, bool isAction)
+    {
+        if (isAction && step.Sources.Count > 0)
+        {
+            throw new DomainException(
+                $"Action step '{step.Name}' of contour '{Name}' declares sources; only a judgment step declares the sources its context carries.");
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach ((ContourSource? source, int position) in step.Sources.Select((source, index) => ((ContourSource?)source, index + 1)))
+        {
+            // Read content can carry a null element, whatever the annotations say.
+            string named = source switch
+            {
+                null => throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares source {position} as null; each source is an object naming the step it reads."),
+                { Step: { } name } when !string.IsNullOrWhiteSpace(name) => name,
+                _ => throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares source {position}, which names no step; a source names the step of the contour whose latest recording its context carries."),
+            };
+
+            if (Step(named) is null)
+            {
+                throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares the source step '{named}', which is not a step of the contour.");
+            }
+
+            if (string.Equals(named, step.Name, StringComparison.Ordinal))
+            {
+                throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares itself as a source; a step's own earlier visits are not a source.");
+            }
+
+            if (!seen.Add(named))
+            {
+                throw new DomainException(
+                    $"Judgment step '{step.Name}' of contour '{Name}' declares the source step '{named}' twice; a step declares each source once.");
             }
         }
     }
@@ -300,7 +342,10 @@ public sealed record Contour
         return Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
     }
 
-    /// <summary>A step's hashed shape; its fields join it only when it declares some, so a step that declares none hashes as before fields existed.</summary>
+    /// <summary>
+    /// A step's hashed shape; its fields and its sources each join it only when it declares some, so a
+    /// step that declares neither hashes as before fields existed.
+    /// </summary>
     private static JsonNode StepNode(ContourStep step)
     {
         JsonNode node = JsonSerializer.SerializeToNode(new
@@ -315,6 +360,11 @@ public sealed record Contour
         if (step.Fields.Count > 0)
         {
             node["fields"] = JsonSerializer.SerializeToNode(step.Fields);
+        }
+
+        if (step.Sources.Count > 0)
+        {
+            node["sources"] = JsonSerializer.SerializeToNode(step.Sources.Select(source => source is null ? null : new { step = source.Step }));
         }
 
         return node;

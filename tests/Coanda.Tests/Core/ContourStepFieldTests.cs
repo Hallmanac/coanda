@@ -95,7 +95,7 @@ public sealed class ContourStepFieldTests
     [Fact]
     public void The_shipped_build_contour_without_its_declarations_hashes_as_it_did_before_fields_existed()
     {
-        Contour undeclared = ShippedContours.Build with { Steps = [.. ShippedContours.Build.Steps.Select(s => s with { Fields = [] })] };
+        Contour undeclared = ShippedContours.Build with { Steps = [.. ShippedContours.Build.Steps.Select(s => s with { Fields = [], Sources = [] })] };
 
         undeclared.Hash.Should().Be("dc6aa9adf2fb3c4f", "a contour none of whose steps declares fields hashes as before");
         ShippedContours.Build.Hash.Should().NotBe(undeclared.Hash);
