@@ -10,6 +10,7 @@ using Coanda.Daemon.Contours;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
@@ -85,6 +86,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton<ProjectClones>();
+        GitHubClient.Register(builder.Services, options.GitHubHandler ?? (() => new NoGitHubHandler()));
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(),
             services.GetRequiredService<ProjectService>(),

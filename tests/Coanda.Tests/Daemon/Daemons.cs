@@ -1,13 +1,15 @@
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Tests.Daemon.Commands;
+using Coanda.Tests.Daemon.GitHub;
 
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
 /// The one way a test starts the daemon host: on a free port, with a scripted command runner
-/// unless the options already carry one, so no test starts a process through the worktree or gates
-/// actions or a worktree's removal.
+/// unless the options already carry one, so no test starts a process through the worktree, gates,
+/// or open-pr actions or a worktree's removal, and with a <see cref="FakeGitHub"/> unless the options
+/// already carry a GitHub handler, so no test reaches GitHub.
 /// </summary>
 public static class Daemons
 {
@@ -18,6 +20,10 @@ public static class Daemons
         DaemonHost.StartAsync(
             home,
             0,
-            options.CommandRunner is null ? options with { CommandRunner = new ScriptedCommandRunner() } : options,
+            options with
+            {
+                CommandRunner = options.CommandRunner ?? new ScriptedCommandRunner(),
+                GitHubHandler = options.GitHubHandler ?? new FakeGitHub().Handler,
+            },
             cancellationToken);
 }

@@ -1,0 +1,7 @@
+using System.Net;
+
+namespace Coanda.Daemon.GitHub;
+
+/// <summary>GitHub answered a request with a status other than success; the message quotes the status code and GitHub's own message.</summary>
+public sealed class GitHubRefusedException(HttpMethod method, string path, HttpStatusCode status, string message)
+    : Exception($"GitHub answered {method} {path} with status {(int)status} ({status}): {message}");
