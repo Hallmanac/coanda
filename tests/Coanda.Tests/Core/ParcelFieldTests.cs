@@ -176,27 +176,135 @@ public sealed class ParcelFieldTests
     }
 
     [Fact]
-    public void A_move_from_paused_into_build_is_checked_as_the_move_from_refine()
+    public void The_shipped_task_requires_nothing_to_enter_refine_the_brief_to_enter_build_and_the_brief_and_pull_request_to_enter_review()
     {
-        Parcel parcel = Moved(NewTask(), "paused");
+        Task.RequiredToEnter("refine").Should().BeEmpty();
+        Task.RequiredToEnter("build").Should().Equal("objective", "criteria");
+        Task.RequiredToEnter("review").Should().Equal("objective", "criteria", "pull-request");
+        Task.RequiredToEnter("paused").Should().BeEmpty();
+        Task.RequiredToEnter("closed").Should().BeEmpty();
+    }
 
-        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>()
-            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' leaves 'refine' only with a value*'objective', 'criteria' have none.");
+    /// <summary>
+    /// A task standing paused after <paramref name="pausedFrom"/>, reached by recording the moves
+    /// directly, the way a stored parcel's events replay, so the gates the decider runs on the way do
+    /// not decide which fields it holds.
+    /// </summary>
+    private static Parcel PausedFrom(string pausedFrom, params string[] fields)
+    {
+        Parcel parcel = NewTask();
+        foreach (string field in fields)
+        {
+            Set(parcel, field, field switch
+            {
+                TaskFields.Objective => TaskFields.ObjectiveValue,
+                TaskFields.Criteria => TaskFields.CriteriaValue,
+                _ => TaskFields.PullRequestValue,
+            });
+        }
 
-        parcel.Briefed(Task, pullRequest: false);
+        if (pausedFrom == "build")
+        {
+            parcel.Apply(new ParcelMoved(parcel.Id, "refine", "build", "brian", Now));
+        }
+
+        parcel.Apply(new ParcelMoved(parcel.Id, pausedFrom, "paused", "brian", Now));
+        return parcel;
+    }
+
+    [Fact]
+    public void A_task_paused_from_refine_with_only_a_pull_request_is_refused_on_resuming_to_review_naming_the_objective_and_criteria()
+    {
+        Parcel parcel = PausedFrom("refine", TaskFields.PullRequest);
+
+        FluentActions.Invoking(() => Moved(parcel, "review")).Should().Throw<DomainException>().WithMessage(
+            "The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only with a value in every field required to enter it, which every route into it would have required, and in every field required to leave 'build', and 'objective', 'criteria' have none.");
+        parcel.State.Should().Be("paused");
+    }
+
+    [Fact]
+    public void A_task_paused_from_refine_with_the_objective_and_criteria_and_no_pull_request_resumes_to_build()
+    {
+        Parcel parcel = PausedFrom("refine", TaskFields.Objective, TaskFields.Criteria);
+
         Moved(parcel, "build").State.Should().Be("build");
     }
 
     [Fact]
-    public void A_move_from_paused_into_review_is_checked_as_the_move_from_build_even_from_a_parcel_that_paused_in_refine()
+    public void A_task_paused_from_build_with_nothing_set_resumes_to_refine()
+    {
+        Parcel parcel = PausedFrom("build");
+
+        Moved(parcel, "refine").State.Should().Be("refine");
+    }
+
+    [Fact]
+    public void A_task_paused_from_build_with_all_three_fields_set_resumes_to_review()
+    {
+        Parcel parcel = PausedFrom("build", TaskFields.Objective, TaskFields.Criteria, TaskFields.PullRequest);
+
+        Moved(parcel, "review").State.Should().Be("review");
+    }
+
+    [Fact]
+    public void A_resume_into_build_names_every_field_required_to_enter_it_that_has_no_value()
+    {
+        Parcel parcel = Moved(NewTask(), "paused");
+
+        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>()
+            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build' only*'objective', 'criteria' have none.");
+
+        Set(parcel, "objective", TaskFields.ObjectiveValue);
+        FluentActions.Invoking(() => Moved(parcel, "build")).Should().Throw<DomainException>()
+            .WithMessage("*resumes into 'build'*and 'criteria' has none.");
+
+        Set(parcel, "criteria", TaskFields.CriteriaValue);
+        Moved(parcel, "build").State.Should().Be("build");
+    }
+
+    [Fact]
+    public void A_resume_into_review_still_checks_what_the_bound_move_from_build_checks()
     {
         Parcel parcel = Moved(NewTask().Briefed(Task, pullRequest: false), "paused");
 
         FluentActions.Invoking(() => Moved(parcel, "review")).Should().Throw<DomainException>()
-            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' leaves 'build' only*'pull-request' has none.");
+            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'review': a 'task' resumes into 'review' only*'pull-request' has none.");
 
         Set(parcel, "pull-request", TaskFields.PullRequestValue);
         Moved(parcel, "review").State.Should().Be("review");
+    }
+
+    [Fact]
+    public void A_resume_into_a_state_with_two_bound_entry_predecessors_still_checks_what_each_bound_move_checks()
+    {
+        ParcelType forked = Task with
+        {
+            States = ["refine", "spike", "build", "review", ShippedTypes.Paused, ShippedTypes.Closed],
+            Moves = new Dictionary<string, IReadOnlyList<string>>
+            {
+                ["refine"] = ["build"],
+                ["spike"] = ["build"],
+                ["build"] = ["review"],
+            },
+            EntryStates = ["refine", "spike"],
+            Fields = [.. Task.Fields, new FieldDeclaration { Name = "hypothesis", Kind = FieldKinds.Text, RequiredToLeave = ["spike"] }],
+            GateBindings = [.. Task.GateBindings, new GateBinding("spike", "build", RequiredFieldsGate.GateName)],
+        };
+        forked.Validate(Gates.Names);
+        Parcel parcel = Parcel.Create(ParcelDecider.Create(forked, Gates, "coanda", "Forked", "refine", "brian", Now));
+        parcel.Apply(ParcelDecider.Move(forked, Gates, parcel, "paused", "brian", Now));
+
+        forked.RequiredToEnter("build").Should().BeEmpty("a route from either entry state reaches build without leaving the other");
+        FluentActions.Invoking(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now)).Should().Throw<DomainException>()
+            .WithMessage("The gate 'required-fields' refused the move from 'paused' to 'build': a 'task' resumes into 'build'*required to leave 'refine', and 'objective', 'criteria' have none.");
+
+        parcel.Apply(ParcelDecider.SetField(forked, parcel, TaskFields.Objective, TaskFields.ObjectiveValue, "brian", Now));
+        parcel.Apply(ParcelDecider.SetField(forked, parcel, TaskFields.Criteria, TaskFields.CriteriaValue, "brian", Now));
+        FluentActions.Invoking(() => ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now)).Should().Throw<DomainException>()
+            .WithMessage("*resumes into 'build'*required to leave 'spike', and 'hypothesis' has none.");
+
+        parcel.Apply(ParcelDecider.SetField(forked, parcel, "hypothesis", FieldValue.OfText("It holds."), "brian", Now));
+        ParcelDecider.Move(forked, Gates, parcel, "build", "brian", Now).ToState.Should().Be("build");
     }
 
     [Fact]

@@ -60,6 +60,83 @@ public sealed record ParcelType
             && (IsPaused(from) || string.Equals(b.From, from, StringComparison.Ordinal))),
     ];
 
+    /// <summary>
+    /// The fields, in declaration order, a parcel must hold values in to enter the live state
+    /// <paramref name="state"/>: those that every route the move table holds from an entry state to it
+    /// requires, before reaching it, to leave some state on the way. An entry state requires nothing to
+    /// enter, and neither does a state no route reaches, nor the paused or terminal state. A move the
+    /// table holds keeps this by itself, since it checks what its from state requires to leave and a set
+    /// field cannot be cleared; a resume out of paused is the one way around that, so it checks this in
+    /// addition to what each bound move into the state checks.
+    /// </summary>
+    public IReadOnlyList<string> RequiredToEnter(string state) => RequiredToEnter(RequiredToEnterByState(), state);
+
+    private IReadOnlyList<string> RequiredToEnter(Dictionary<string, HashSet<string>> byState, string state) =>
+        byState.TryGetValue(state, out HashSet<string>? required)
+            ? [.. Fields.Select(f => f.Name).Where(required.Contains)]
+            : [];
+
+    /// <summary>
+    /// A must-hold dataflow over the move table. An entry state starts and stays empty; every other
+    /// state a route reaches starts at every declared field and is narrowed, until nothing changes, to
+    /// the intersection over its reached predecessors of what each requires to enter plus what it
+    /// requires to leave. Intersecting over routes rather than taking a union over predecessors keeps
+    /// a move back (review to build, say) from demanding what only the later state needs.
+    /// </summary>
+    private Dictionary<string, HashSet<string>> RequiredToEnterByState()
+    {
+        List<(string From, string To)> moves =
+        [
+            .. Moves.Where(m => IsLive(m.Key))
+                .SelectMany(m => m.Value.Where(IsLive).Select(to => (From: m.Key, To: to))),
+        ];
+
+        var reached = new HashSet<string>(EntryStates.Where(IsLive), StringComparer.Ordinal);
+        var frontier = new Queue<string>(reached);
+        while (frontier.TryDequeue(out string? from))
+        {
+            foreach ((_, string to) in moves.Where(m => string.Equals(m.From, from, StringComparison.Ordinal)))
+            {
+                if (reached.Add(to))
+                {
+                    frontier.Enqueue(to);
+                }
+            }
+        }
+
+        HashSet<string> all = [.. Fields.Select(f => f.Name)];
+        Dictionary<string, HashSet<string>> required = reached.ToDictionary(
+            s => s,
+            s => IsEntry(s)
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(all, StringComparer.Ordinal),
+            StringComparer.Ordinal);
+
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (string state in reached.Where(s => !IsEntry(s)))
+            {
+                HashSet<string> narrowed = new(all, StringComparer.Ordinal);
+                foreach ((string from, _) in moves.Where(m => string.Equals(m.To, state, StringComparison.Ordinal) && reached.Contains(m.From)))
+                {
+                    narrowed.IntersectWith(required[from].Concat(Fields.Where(f => f.IsRequiredToLeave(from)).Select(f => f.Name)));
+                }
+
+                if (!narrowed.SetEquals(required[state]))
+                {
+                    required[state] = narrowed;
+                    changed = true;
+                }
+            }
+        }
+
+        return required;
+    }
+
+    private bool IsLive(string state) => IsState(state) && !IsTerminal(state) && !IsPaused(state);
+
     /// <summary>Whether the move table itself holds a move, as opposed to the pause, resume, and close every type allows.</summary>
     public bool HoldsMove(string from, string to) =>
         Moves.TryGetValue(from, out IReadOnlyList<string>? targets) && targets.Contains(to, StringComparer.Ordinal);

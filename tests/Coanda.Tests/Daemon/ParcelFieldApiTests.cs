@@ -128,7 +128,7 @@ public sealed class ParcelFieldApiTests
         ParcelView paused = await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "paused"), None);
         paused.State.Should().Be("paused", "pausing from refine is never refused for an empty field");
         await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*from 'paused' to 'build'*'refine'*'objective', 'criteria' have none.");
+            .Should().ThrowAsync<DomainException>().WithMessage("*from 'paused' to 'build'*resumes into 'build'*'refine'*'objective', 'criteria' have none.");
 
         await daemon.StopAsync(None);
     }
