@@ -29,9 +29,23 @@ public sealed class DaemonRunCommand : AsyncCommand<DaemonRunSettings>
             StreamWriter log = OpenLog(home);
             Console.SetOut(log);
             Console.SetError(log);
+
+            // The exception handler prints a refusal through AnsiConsole, which keeps the console
+            // it was created on, so it is pointed at the log too or a refusal would miss it. A log
+            // line is not wrapped at a terminal's width.
+            IAnsiConsole console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(log),
+                Ansi = AnsiSupport.No,
+                ColorSystem = ColorSystemSupport.NoColors,
+            });
+            console.Profile.Width = 4096;
+            AnsiConsole.Console = console;
         }
 
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(home, settings.Port, cancellationToken);
+        // Read after the redirect, so a refusal lands in the log, and before anything binds a port.
+        DaemonOptions options = NodeConfiguration.Load(home);
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(home, settings.Port, options, cancellationToken);
         Console.WriteLine($"coanda daemon {daemon.Info.Version} listening on {daemon.Info.BaseAddress} (pid {daemon.Info.Pid}), home {home.Path}");
         await daemon.WaitForShutdownAsync(cancellationToken);
         return 0;
