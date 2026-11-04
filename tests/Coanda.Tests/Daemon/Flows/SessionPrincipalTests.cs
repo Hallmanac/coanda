@@ -102,6 +102,11 @@ public sealed class SessionPrincipalTests
         SessionAccess access = AccessOf(executor, own.Id);
         using var session = new DaemonClient(temp.Home, access.Token);
         string rule = $"A session's principal records only on flow {Ids.Short(own.Id)} in project '{Project}'*";
+
+        // A spawn returning is not the end of a launch's writes: the runner records the session after
+        // it, then holds at the closed gate. Count each other flow's events only once it has settled.
+        await SettledAsync(daemon, Project, sibling.Id);
+        await SettledAsync(daemon, Other, elsewhere.Id);
         int siblingEvents = (await EventsAsync(daemon, Project, sibling.Id)).Count;
         int elsewhereEvents = (await EventsAsync(daemon, Other, elsewhere.Id)).Count;
 
@@ -323,6 +328,15 @@ public sealed class SessionPrincipalTests
         var events = await session.Events.FetchStreamAsync(flowId, token: None);
         return [.. events.Select(e => e.Data)];
     }
+
+    /// <summary>
+    /// Waits until the flow has recorded its session, after which its runner appends nothing more
+    /// while the gate stays closed.
+    /// </summary>
+    private static Task SettledAsync(RunningDaemon daemon, string project, Guid flowId) =>
+        Flowing.UntilAsync(
+            async () => (await EventsAsync(daemon, project, flowId)).OfType<JudgmentSessionOpened>().Any(),
+            $"flow {Ids.Short(flowId)} in project '{project}' has recorded its session");
 
     private static HttpClient Http(RunningDaemon daemon) => new() { BaseAddress = new Uri(daemon.Info.BaseAddress) };
 
