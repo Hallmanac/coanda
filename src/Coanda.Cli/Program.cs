@@ -1,7 +1,17 @@
+using Coanda.Cli;
 using Coanda.Cli.Commands;
 using Coanda.Core;
+using Coanda.Daemon.Executors.ClaudeCode;
 using Spectre.Console;
 using Spectre.Console.Cli;
+
+if (args is [ToolGuardRules.Command, ..])
+{
+    // The pre-tool-use hook of a judgment's session. It is answered before the command app is
+    // built, so neither Spectre's parse errors nor its exception handler decide the exit code, and
+    // it starts no daemon.
+    return ToolGuardHost.Run(args);
+}
 
 var app = new CommandApp();
 app.Configure(config =>
