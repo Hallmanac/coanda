@@ -84,7 +84,8 @@ fails outright, or its launch did not record the agent and model to record its a
 daemon stops the session before the flow pauses, so it does not go on running unobserved. A session
 whose record could not be read cannot be stopped this way, because nothing says which process is
 its own. At start, the
-daemon also stops every recorded session that no running flow is waiting on.
+daemon also stops every recorded session that no running flow is waiting on, and a session a
+flow was waiting on when you paused or stopped that flow before the daemon reattached it.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
 for itself, so a daemon started from inside Claude Code runs its sessions as independent ones. It

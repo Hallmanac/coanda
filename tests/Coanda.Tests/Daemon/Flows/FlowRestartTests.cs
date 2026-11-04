@@ -172,6 +172,39 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_pause_saved_after_the_start_up_sweep_and_before_the_flows_first_read_stops_the_session_it_left_running()
+    {
+        using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Paused at the start");
+
+        // The sweep has read the flow as running when it lists the sessions, so it leaves this one
+        // for the flow's advance; the pause lands before that advance reads the flow.
+        var answering = new GatedExecutor(stalled.Inner)
+        {
+            BeforeList = async () =>
+            {
+                await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+                await new FlowService(store, TimeProvider.System).PauseAsync(
+                    Principal.LocalOwner, Project, flowId, "A person paused it.", FlowLevers.PerformAgain("build"), None);
+            },
+        };
+        answering.Open();
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = answering }, None);
+        await Flowing.UntilAsync(() => answering.Inner.Stops.Contains(issued), "the session the sweep left is stopped");
+
+        answering.Inner.Stops.Should().Equal(issued);
+        answering.Collecting.IsCompleted.Should().BeFalse("a paused flow's session is not collected");
+        answering.Inner.Spawns.Should().ContainSingle();
+        using var again = new DaemonClient(temp.Home);
+        FlowView paused = await Flowing.ShowAsync(again, Project, flowId);
+        paused.Status.Should().Be("paused");
+        paused.PauseReason.Should().Be("A person paused it.");
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_pause_saved_before_the_reattach_is_watched_stops_the_reattached_session_before_it_is_collected()
     {
         using var temp = new TemporaryHome();
