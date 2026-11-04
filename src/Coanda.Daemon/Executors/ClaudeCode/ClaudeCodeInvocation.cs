@@ -19,6 +19,10 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// settings (and with them no hooks and no CLAUDE.md), <c>--strict-mcp-config</c> with no
 /// <c>--mcp-config</c> loads no MCP server, and the CLI still turns on its automatic memory under
 /// the operator's config directory unless the settings document says <c>autoMemoryEnabled</c> is false.
+/// The settings document also carries the session's tool guard (<see cref="ToolGuard"/>) as an
+/// exec-form pre-tool-use hook that blocks the call when it cannot run, and sets
+/// <c>disableAllHooks</c> to false, which outranks a user, project, or local settings file that
+/// would switch hooks off; only managed settings rank above it.
 /// </remarks>
 public static partial class ClaudeCodeInvocation
 {
@@ -36,6 +40,12 @@ public static partial class ClaudeCodeInvocation
     public const string AutoMemorySetting = "autoMemoryEnabled";
 
     public const string ApiKeyHelperSetting = "apiKeyHelper";
+
+    /// <summary>The setting that switches every hook off when true; the settings document sets it to false.</summary>
+    public const string DisableAllHooksSetting = "disableAllHooks";
+
+    /// <summary>The CLI's own config directory under the user's home when <see cref="ConfigDirectoryVariable"/> is unset.</summary>
+    public const string DefaultConfigDirectoryName = ".claude";
 
     /// <summary>The one mapping from the vendor-neutral tool catalog to Claude Code's own tools.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> Tools { get; } = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
@@ -81,6 +91,18 @@ public static partial class ClaudeCodeInvocation
         "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
     ];
 
+    /// <summary>
+    /// The variables that make Claude Code 2.1.318 skip hooks when its environment holds them:
+    /// <c>CLAUDE_CODE_SAFE_MODE</c> (what <c>--safe-mode</c> sets) and <c>CLAUDE_CODE_SIMPLE</c> (what
+    /// <c>--bare</c> sets). None of them reaches a session, whatever the daemon inherited, so the
+    /// session's tool guard always runs.
+    /// </summary>
+    public static IReadOnlyList<string> HookSkippingVariables { get; } =
+    [
+        "CLAUDE_CODE_SAFE_MODE",
+        "CLAUDE_CODE_SIMPLE",
+    ];
+
     /// <summary>The Claude Code tools an agent's catalog names map to, in catalog order, each once.</summary>
     public static IReadOnlyList<string> ToolsOf(AgentDefinition agent)
     {
@@ -105,24 +127,94 @@ public static partial class ClaudeCodeInvocation
         RequirePlain(agent, "effort", agent.Model.Effort);
     }
 
-    /// <summary>The settings document every process of a session receives through <c>--settings</c>.</summary>
-    public static string Settings(CredentialProfile? profile)
+    /// <summary>
+    /// The settings document every process of a session receives through <c>--settings</c>: automatic
+    /// memory off, a helper profile's API key helper, hooks left on, and the tool guard registered
+    /// before every call to the six tools it judges, run as <paramref name="coaExecutable"/> with the
+    /// <paramref name="guard"/>'s arguments and no shell, blocking the call when it cannot run.
+    /// </summary>
+    public static string Settings(CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
     {
+        ArgumentNullException.ThrowIfNull(guard);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coaExecutable);
         var settings = new JsonObject { [AutoMemorySetting] = false };
         if (profile?.ApiKeyHelper is { } helper)
         {
             settings[ApiKeyHelperSetting] = helper;
         }
 
+        settings[DisableAllHooksSetting] = false;
+        settings["hooks"] = new JsonObject
+        {
+            ["PreToolUse"] = new JsonArray(new JsonObject
+            {
+                ["matcher"] = string.Join('|', ToolGuard.GuardedTools),
+                ["hooks"] = new JsonArray(new JsonObject
+                {
+                    ["type"] = "command",
+                    ["command"] = coaExecutable,
+                    ["args"] = new JsonArray([.. guard.Arguments.Select(a => (JsonNode?)JsonValue.Create(a))]),
+                    ["onFailure"] = "block",
+                }),
+            }),
+        };
         return settings.ToJsonString();
+    }
+
+    /// <summary>
+    /// The config directory a session's CLI uses when its spawn sets none: the
+    /// <see cref="ConfigDirectoryVariable"/> the daemon inherited, resolved against the work directory
+    /// the CLI starts in, or, when that is unset, <see cref="DefaultConfigDirectoryName"/> under the
+    /// inherited home directory.
+    /// </summary>
+    public static string DefaultConfigDirectory(IReadOnlyDictionary<string, string> inherited, string workingDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(inherited);
+        if (inherited.TryGetValue(ConfigDirectoryVariable, out string? configured) && !string.IsNullOrWhiteSpace(configured))
+        {
+            return Path.GetFullPath(configured, Path.GetFullPath(workingDirectory));
+        }
+
+        string home = inherited.TryGetValue(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME", out string? given) && !string.IsNullOrWhiteSpace(given)
+            ? given
+            : System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        return Path.GetFullPath(Path.Combine(home, DefaultConfigDirectoryName));
+    }
+
+    /// <summary>
+    /// The rules of a session's tool guard: the node home, the session's work directory, the config
+    /// directory it runs under (its profile's, or the default one), and every other config directory
+    /// it may not reach: the default one, whatever profile the spawn carries, and each of
+    /// <paramref name="profileDirectories"/>, the config directories of the node's profiles.
+    /// </summary>
+    public static ToolGuardRules Guard(
+        NodeHome home,
+        string workingDirectory,
+        CredentialProfile? profile,
+        IReadOnlyDictionary<string, string> inherited,
+        IEnumerable<string> profileDirectories)
+    {
+        ArgumentNullException.ThrowIfNull(home);
+        ArgumentNullException.ThrowIfNull(profileDirectories);
+        string work = Path.GetFullPath(workingDirectory);
+        string defaultDirectory = DefaultConfigDirectory(inherited, work);
+        string session = profile?.ConfigDirectory is { } own
+            ? Path.GetFullPath(own)
+            : defaultDirectory;
+        IReadOnlyList<string> others = [.. new[] { defaultDirectory }
+            .Concat(profileDirectories.Select(d => Path.GetFullPath(d)))
+            .Where(d => !string.Equals(d, session, StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)];
+        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others);
     }
 
     /// <summary>
     /// The arguments every process of a session carries, spawn and resume alike, since the CLI keeps
     /// none of them with the session: the persona file, the model and effort, the tools and their
-    /// pre-approval, the permission mode, no MCP servers, no setting sources, and the settings document.
+    /// pre-approval, the permission mode, no MCP servers, no setting sources, and the settings
+    /// document, which carries the session's tool guard.
     /// </summary>
-    public static IReadOnlyList<string> SessionArguments(AgentDefinition agent, CredentialProfile? profile)
+    public static IReadOnlyList<string> SessionArguments(AgentDefinition agent, CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
     {
         IReadOnlyList<string> tools = ToolsOf(agent);
         string joined = string.Join(',', tools);
@@ -144,7 +236,7 @@ public static partial class ClaudeCodeInvocation
             "--permission-prompts", PermissionPrompts,
             "--strict-mcp-config",
             "--setting-sources", string.Empty,
-            "--settings", Settings(profile),
+            "--settings", Settings(profile, guard, coaExecutable),
         ]);
         return arguments;
     }
@@ -162,7 +254,8 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>
     /// The environment of every process of a session: the inherited one less every variable an
-    /// enclosing Claude Code session set for itself, and, when the spawn carries a profile, less the
+    /// enclosing Claude Code session set for itself and every variable that would make the CLI skip
+    /// hooks, and, when the spawn carries a profile, less the
     /// credential variables too, with the profile's config directory set. With no profile nothing
     /// credential-related is set or removed. An inherited session token, or the home it belongs to, never reaches the session;
     /// the <paramref name="access"/> the spawn carries sets its own token, the node home, and the
@@ -177,7 +270,7 @@ public static partial class ClaudeCodeInvocation
     {
         ArgumentNullException.ThrowIfNull(inherited);
         StringComparer names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-        var removed = new HashSet<string>([.. EnclosingSessionVariables, SessionAccess.TokenVariable, SessionAccess.HomeVariable], names);
+        var removed = new HashSet<string>([.. EnclosingSessionVariables, .. HookSkippingVariables, SessionAccess.TokenVariable, SessionAccess.HomeVariable], names);
         if (profile is not null)
         {
             removed.UnionWith(CredentialVariables);

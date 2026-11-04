@@ -15,7 +15,9 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// nothing after it. A resume starts another process on the same session id with the same
 /// arguments, working directory, and environment. Every process's stream output is appended, as it
 /// is printed, to the session's transcript in the flow's transcript directory. Collecting waits for
-/// the process to end and reads its result.
+/// the process to end and reads its result. Every process carries the session's tool guard in its
+/// settings document, so its tools cannot reach the node home or a Claude Code config directory
+/// outside the session's own work and conversation directories.
 /// </summary>
 /// <remarks>
 /// Each process carries a spend cap, <c>--max-budget-usd</c>: the spawn's cost ceiling for the
@@ -45,6 +47,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     private readonly NodeHome home;
     private readonly IReadOnlyDictionary<string, string> environment;
     private readonly string? coaDirectory;
+    private readonly string coaExecutable;
+    private readonly IReadOnlyList<string> profileDirectories;
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, Session> sessions = [];
     private readonly HashSet<Guid> stopped = [];
@@ -54,9 +58,20 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// <param name="environment">The environment a session's processes start from, before the adapter removes and sets what it does.</param>
     /// <param name="coaDirectory">
     /// The directory that holds the <c>coa</c> executable, placed first on every session process's
-    /// PATH so a session can run <c>coa</c> by name; null leaves the PATH as inherited.
+    /// PATH so a session can run <c>coa</c> by name; null leaves the PATH as inherited. The <c>coa</c>
+    /// executable in it is also the session's tool guard; when it is null, the guard is the <c>coa</c>
+    /// beside this assembly.
     /// </param>
-    public ClaudeCodeExecutor(string executable, NodeHome home, IReadOnlyDictionary<string, string> environment, string? coaDirectory = null)
+    /// <param name="profiles">
+    /// The credential profiles the node's configuration holds, whose config directories every
+    /// session's tool guard protects, whichever profile the session itself runs under.
+    /// </param>
+    public ClaudeCodeExecutor(
+        string executable,
+        NodeHome home,
+        IReadOnlyDictionary<string, string> environment,
+        string? coaDirectory = null,
+        IReadOnlyList<CredentialProfile>? profiles = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentNullException.ThrowIfNull(home);
@@ -65,9 +80,15 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         this.home = home;
         this.environment = environment;
         this.coaDirectory = string.IsNullOrWhiteSpace(coaDirectory) ? null : coaDirectory;
+        coaExecutable = CoaExecutable(this.coaDirectory ?? AppContext.BaseDirectory);
+        profileDirectories = [.. (profiles ?? []).Select(p => p.ConfigDirectory).OfType<string>()];
     }
 
     public string Executable { get; }
+
+    /// <summary>The absolute path of the <c>coa</c> executable in <paramref name="directory"/>, which runs the tool guard.</summary>
+    public static string CoaExecutable(string directory) =>
+        Path.Combine(Path.GetFullPath(directory), OperatingSystem.IsWindows() ? "coa.exe" : "coa");
 
     /// <summary>The environment of the daemon's own process, read once, as the base a session's processes start from.</summary>
     public static IReadOnlyDictionary<string, string> CurrentEnvironment()
@@ -115,7 +136,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             executable,
             workingDirectory,
             persona,
-            ClaudeCodeInvocation.SessionArguments(agent, credentialProfile),
+            ClaudeCodeInvocation.SessionArguments(
+                agent,
+                credentialProfile,
+                ClaudeCodeInvocation.Guard(home, workingDirectory, credentialProfile, environment, profileDirectories),
+                coaExecutable),
             processEnvironment,
             caps.CostCeilingUsd,
             Path.Combine(home.TranscriptDirectoryOf(workingDirectory), $"{handle.Id}.jsonl"));

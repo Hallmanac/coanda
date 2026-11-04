@@ -1,0 +1,401 @@
+using System.Text.Json;
+using Coanda.Core;
+using Coanda.Daemon;
+using Coanda.Daemon.Executors;
+using Coanda.Daemon.Executors.ClaudeCode;
+
+namespace Coanda.Tests.Daemon.Executors;
+
+/// <summary>
+/// Drives the tool guard's entry point as <c>coa tool-guard</c> runs it: the raw argument list the
+/// adapter renders, and the JSON a pre-tool-use call delivers on standard input.
+/// </summary>
+public sealed class ToolGuardTests : IDisposable
+{
+    private const string Project = "alpha";
+    private const string SessionId = "3f6c1b2a-0000-4000-8000-000000000001";
+
+    private readonly string root = Path.Combine(Path.GetTempPath(), "coanda-guard-tests", Guid.NewGuid().ToString("N"));
+    private readonly NodeHome home;
+    private readonly string work;
+    private readonly string defaultConfig;
+    private readonly CredentialProfile directoryProfile;
+    private readonly CredentialProfile otherProfile;
+    private readonly CredentialProfile helperProfile;
+
+    public ToolGuardTests()
+    {
+        home = new NodeHome(Path.Combine(root, "home"));
+        work = home.FlowWorkPath(Project, Ids.New());
+        defaultConfig = Path.Combine(root, "user", ".claude");
+        directoryProfile = new CredentialProfile("claude-code", "work", Path.Combine(root, "profiles", "work"), null);
+        otherProfile = new CredentialProfile("claude-code", "other", Path.Combine(home.Path, "profiles", "other"), null);
+        helperProfile = new CredentialProfile("claude-code", "ci", null, "print-key");
+        foreach (string directory in new[] { work, defaultConfig, directoryProfile.ConfigDirectory!, otherProfile.ConfigDirectory!, Path.Combine(work, "src") })
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(home.DaemonInfoPath, """{"port":1}""");
+        File.WriteAllText(Path.Combine(work, "src", "a.cs"), "class A;");
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            Directory.Delete(root, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    // Refused.
+
+    [Fact]
+    public void A_read_of_daemon_json_by_its_absolute_path_is_refused_as_in_the_node_home()
+    {
+        ToolGuardOutcome outcome = Guard(Call("Read", new { file_path = home.DaemonInfoPath }));
+
+        RefusedInNodeHome(outcome);
+        outcome.Reason.Should().NotContain("port", "the reason never holds a file's contents");
+    }
+
+    [Fact]
+    public void On_windows_and_macos_the_same_read_with_its_letters_in_another_case_is_refused()
+    {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        RefusedInNodeHome(Guard(Call("Read", new { file_path = home.DaemonInfoPath.ToUpperInvariant() })));
+        RefusedInNodeHome(Guard(Call("Read", new { file_path = home.DaemonInfoPath.ToLowerInvariant() })));
+    }
+
+    [Theory]
+    [InlineData("cat $COANDA_HOME/daemon.json")]
+    [InlineData("cat \"$COANDA_HOME/daemon.json\"")]
+    [InlineData("cat '${COANDA_HOME}'/daemon.json")]
+    [InlineData("cat \"${COANDA_HOME}/daemon.json\" | head -c 10")]
+    public void A_shell_command_printing_daemon_json_through_the_node_home_variable_is_refused(string command) =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command }), environment: Environment()));
+
+    [Fact]
+    public void A_shell_command_printing_daemon_json_through_a_path_climbing_out_of_the_working_directory_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cat ../../../daemon.json" }, cwd: work)));
+
+    [Fact]
+    public void A_shell_command_printing_a_file_in_a_profiles_config_directory_through_its_variable_is_refused()
+    {
+        IReadOnlyDictionary<string, string> environment = Environment(("CLAUDE_CONFIG_DIR", directoryProfile.ConfigDirectory!));
+
+        RefusedInConfig(Guard(Call("Bash", new { command = "cat $CLAUDE_CONFIG_DIR/.credentials.json" }), directoryProfile, environment));
+    }
+
+    [Fact]
+    public void A_grep_whose_path_is_the_node_home_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Grep", new { pattern = "token", path = home.Path })));
+
+    [Fact]
+    public void A_grep_whose_path_contains_the_node_home_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Grep", new { pattern = "token", path = root })));
+
+    [Fact]
+    public void A_glob_whose_pattern_is_an_absolute_path_under_the_node_home_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Glob", new { pattern = Path.Combine(home.Path, "**", "*.json") })));
+
+    [Fact]
+    public void A_glob_whose_pattern_holds_a_wildcard_above_the_node_home_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Glob", new { pattern = Path.Combine(root, "*", "daemon.json") })));
+
+    [Fact]
+    public void A_write_into_another_flows_work_directory_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Write", new { file_path = Path.Combine(home.FlowWorkPath(Project, Ids.New()), "notes.md"), content = "x" })));
+
+    [Fact]
+    public void A_write_into_a_profiles_config_directory_is_refused() =>
+        RefusedInConfig(Guard(Call("Write", new { file_path = Path.Combine(directoryProfile.ConfigDirectory!, "settings.json"), content = "{}" })));
+
+    [Fact]
+    public void A_write_into_a_profiles_config_directory_kept_in_the_node_home_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Write", new { file_path = Path.Combine(otherProfile.ConfigDirectory!, "settings.json"), content = "{}" })));
+
+    [Fact]
+    public void A_read_in_the_default_config_directory_is_refused_when_the_spawn_carries_no_profile() =>
+        RefusedInConfig(Guard(Call("Read", new { file_path = Path.Combine(defaultConfig, "settings.json") }), profile: null));
+
+    [Fact]
+    public void A_read_in_the_default_config_directory_is_refused_when_the_spawn_carries_an_api_key_helper_profile() =>
+        RefusedInConfig(Guard(Call("Read", new { file_path = Path.Combine(defaultConfig, "settings.json") }), helperProfile));
+
+    [Fact]
+    public void A_read_in_the_default_config_directory_is_refused_when_the_spawn_carries_a_profile_with_its_own_config_directory() =>
+        RefusedInConfig(Guard(Call("Read", new { file_path = Path.Combine(defaultConfig, "settings.json") }), directoryProfile));
+
+    [Fact]
+    public void A_read_in_the_config_directory_the_session_runs_under_outside_its_conversation_is_refused() =>
+        RefusedInConfig(Guard(Call("Read", new { file_path = Path.Combine(directoryProfile.ConfigDirectory!, ".credentials.json") }), directoryProfile));
+
+    [Fact]
+    public void A_read_in_another_sessions_conversation_directory_is_refused()
+    {
+        string encoded = Path.Combine(defaultConfig, "projects", "-encoded-work");
+        string other = Path.Combine(encoded, "another-session", "tool-results", "x.txt");
+
+        RefusedInConfig(Guard(Call("Read", new { file_path = other }, transcript: Path.Combine(encoded, SessionId + ".jsonl"))));
+    }
+
+    [Fact]
+    public void A_transcript_path_outside_the_config_directory_the_session_runs_under_opens_no_conversation_directory()
+    {
+        string encoded = Path.Combine(directoryProfile.ConfigDirectory!, "projects", "-encoded-work");
+        string file = Path.Combine(encoded, SessionId, "tool-results", "x.txt");
+
+        RefusedInConfig(Guard(Call("Read", new { file_path = file }, transcript: Path.Combine(encoded, SessionId + ".jsonl")), profile: null));
+    }
+
+    [Fact]
+    public void A_shell_word_naming_the_parent_of_the_work_directory_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "ls .." })));
+
+    [Fact]
+    public void A_shell_word_whose_part_after_an_equals_sign_reaches_the_node_home_is_refused() =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"tool --input={home.DaemonInfoPath}" })));
+
+    [Fact]
+    public void A_shell_word_beginning_with_a_tilde_is_judged_under_the_home_directory_the_shell_expands_it_to()
+    {
+        // HOME first, as Git Bash expands ~ on Windows too; USERPROFILE only when HOME is unset.
+        RefusedInConfig(Guard(Call("Bash", new { command = "cat ~/.claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")), ("USERPROFILE", Path.Combine(root, "elsewhere")))));
+        if (OperatingSystem.IsWindows())
+        {
+            RefusedInConfig(Guard(Call("Bash", new { command = "cat ~/.claude/settings.json" }), environment: Environment(("USERPROFILE", Path.Combine(root, "user")))));
+        }
+    }
+
+    [Fact]
+    public void A_path_reached_through_a_symbolic_link_in_the_work_directory_is_judged_where_it_leads()
+    {
+        string link = Path.Combine(work, "escape");
+        try
+        {
+            Directory.CreateSymbolicLink(link, home.Path);
+        }
+        catch (Exception unsupported) when (unsupported is IOException or UnauthorizedAccessException)
+        {
+            // Windows without the privilege to create links.
+            return;
+        }
+
+        RefusedInNodeHome(Guard(Call("Read", new { file_path = Path.Combine(link, "daemon.json") })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cat escape/daemon.json" })));
+    }
+
+    [Fact]
+    public void An_input_that_is_not_json_is_refused() =>
+        RefusedUnreadable(Run(Arguments(), "this is not json"));
+
+    [Theory]
+    [InlineData("""{"hook_event_name":"PreToolUse","tool_input":{"file_path":"x"}}""")]
+    [InlineData("""{"hook_event_name":"PreToolUse","tool_name":"","tool_input":{}}""")]
+    [InlineData("""{"hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"x"}}""")]
+    [InlineData("""{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{}}""")]
+    [InlineData("""{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":7}}""")]
+    [InlineData("""{"hook_event_name":"PreToolUse","tool_name":"NotebookEdit","tool_input":{"notebook_path":"x"}}""")]
+    [InlineData("""["PreToolUse"]""")]
+    public void A_json_input_that_is_not_a_pre_tool_use_call_the_guard_can_read_is_refused(string input) =>
+        RefusedUnreadable(Run(Arguments(), input));
+
+    [Fact]
+    public void A_json_input_that_names_no_tool_is_refused() =>
+        RefusedUnreadable(Run(Arguments(), """{"hook_event_name":"PreToolUse","tool_input":{"file_path":"x"}}"""));
+
+    [Theory]
+    [InlineData]
+    [InlineData("tool-guard")]
+    [InlineData("tool-guard", "--node-home")]
+    [InlineData("tool-guard", "--work", "/w", "--session-config", "/c")]
+    [InlineData("tool-guard", "--node-home", "relative", "--work", "/w", "--session-config", "/c")]
+    [InlineData("tool-guard", "--node-home", "/h", "--node-home", "/h", "--work", "/w", "--session-config", "/c")]
+    [InlineData("tool-guard", "--node-home", "/h", "--work", "/w", "--session-config", "/c", "--unknown", "/x")]
+    [InlineData("guard", "--node-home", "/h", "--work", "/w", "--session-config", "/c")]
+    public void A_malformed_argument_list_is_refused(params string[] arguments)
+    {
+        ToolGuardOutcome outcome = Run(arguments, Call("Read", new { file_path = Path.Combine(work, "src", "a.cs") }));
+
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().StartWith("coa refused this call because the tool guard's arguments are malformed");
+    }
+
+    [Fact]
+    public void An_exception_while_the_guard_decides_is_a_refusal()
+    {
+        ToolGuardOutcome outcome = Guard(Call("Read", new { file_path = "bad\0path" }));
+
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().StartWith("coa refused this call because the tool guard failed while deciding it");
+    }
+
+    [Fact]
+    public void An_input_that_cannot_be_read_is_a_refusal() =>
+        Run(Arguments(), new FailingReader()).ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+
+    // Allowed.
+
+    [Fact]
+    public void A_read_an_edit_and_a_grep_inside_the_work_directory_are_allowed()
+    {
+        string file = Path.Combine(work, "src", "a.cs");
+
+        Allowed(Guard(Call("Read", new { file_path = file })));
+        Allowed(Guard(Call("Read", new { file_path = "src/a.cs" })));
+        Allowed(Guard(Call("Edit", new { file_path = file, old_string = "A", new_string = "B" })));
+        Allowed(Guard(Call("Write", new { file_path = Path.Combine(work, ".gitignore"), content = "bin/" })));
+        Allowed(Guard(Call("Grep", new { pattern = "class", path = Path.Combine(work, "src") })));
+        Allowed(Guard(Call("Grep", new { pattern = "class" })));
+        Allowed(Guard(Call("Glob", new { pattern = "**/*.cs" })));
+        Allowed(Guard(Call("Glob", new { pattern = "*.cs", path = Path.Combine(work, "src") })));
+    }
+
+    [Fact]
+    public void A_grep_whose_regular_expression_holds_a_path_separator_is_allowed() =>
+        Allowed(Guard(Call("Grep", new { pattern = "../../daemon.json|/Users/.*/.coanda", path = "src" })));
+
+    [Fact]
+    public void A_grep_whose_path_is_dot_and_a_shell_word_dot_name_the_work_directory_itself_and_are_allowed()
+    {
+        Allowed(Guard(Call("Grep", new { pattern = "class", path = "." })));
+        Allowed(Guard(Call("Bash", new { command = "ls -la ." })));
+        Allowed(Guard(Call("Bash", new { command = "find ./ -name '*.cs'" })));
+    }
+
+    [Fact]
+    public void A_read_in_the_sessions_own_conversation_directory_under_the_config_directory_it_runs_under_is_allowed()
+    {
+        string encoded = Path.Combine(directoryProfile.ConfigDirectory!, "projects", "-encoded-work");
+        string file = Path.Combine(encoded, SessionId, "tool-results", "x.txt");
+
+        Allowed(Guard(Call("Read", new { file_path = file }, transcript: Path.Combine(encoded, SessionId + ".jsonl")), directoryProfile));
+    }
+
+    [Fact]
+    public void A_read_in_the_conversation_directory_under_the_default_config_directory_is_allowed_when_the_session_runs_under_it()
+    {
+        string encoded = Path.Combine(defaultConfig, "projects", "-encoded-work");
+        string file = Path.Combine(encoded, SessionId, "tool-results", "x.txt");
+
+        Allowed(Guard(Call("Read", new { file_path = file }, transcript: Path.Combine(encoded, SessionId + ".jsonl")), helperProfile));
+    }
+
+    [Fact]
+    public void The_build_and_test_commands_are_allowed() =>
+        Allowed(Guard(Call("Bash", new { command = "dotnet build --configuration Release && dotnet test --configuration Release --no-build" }), environment: Environment()));
+
+    [Fact]
+    public void A_git_commit_whose_message_comes_through_a_heredoc_holding_an_apostrophe_is_allowed() =>
+        Allowed(Guard(Call("Bash", new
+        {
+            command = """
+                git add -A && git commit -m "$(cat <<'EOF'
+                Teach the guard the session's own directory
+
+                It reads src/a.cs, and the work's done.
+                EOF
+                )"
+                """,
+        }), environment: Environment()));
+
+    [Fact]
+    public void Coa_with_no_path_argument_is_allowed_from_a_working_directory_under_the_node_home() =>
+        Allowed(Guard(Call("Bash", new { command = "coa flow show 0192a3b4 && coa parcel list --project alpha" }, cwd: work), environment: Environment()));
+
+    [Fact]
+    public void Paths_outside_every_protected_directory_are_allowed() =>
+        Allowed(Guard(Call("Bash", new { command = "ls /usr/bin > /dev/null 2>&1; git log origin/main" })));
+
+    [Fact]
+    public void The_rendered_rules_round_trip_through_their_argument_list()
+    {
+        ToolGuardRules rules = Rules(directoryProfile, Environment());
+
+        ToolGuardRules.Parse(rules.Arguments, out string? problem).Should().BeEquivalentTo(rules, problem);
+        rules.ProtectedConfigDirectories.Should().BeEquivalentTo([directoryProfile.ConfigDirectory, otherProfile.ConfigDirectory, defaultConfig]);
+    }
+
+    private static void RefusedInNodeHome(ToolGuardOutcome outcome)
+    {
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().Contain("is in the node home");
+    }
+
+    private static void RefusedInConfig(ToolGuardOutcome outcome)
+    {
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().Contain("is in a Claude Code config directory");
+    }
+
+    private static void RefusedUnreadable(ToolGuardOutcome outcome)
+    {
+        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+        outcome.Reason.Should().StartWith("coa refused this call because the tool guard could not read it");
+    }
+
+    private static void Allowed(ToolGuardOutcome outcome) =>
+        outcome.Should().Be(ToolGuardOutcome.Allowed, outcome.Reason);
+
+    private IReadOnlyDictionary<string, string> Environment(params (string Name, string Value)[] more)
+    {
+        var environment = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+        {
+            [NodeHome.EnvironmentVariable] = home.Path,
+            ["CLAUDE_CONFIG_DIR"] = defaultConfig,
+        };
+        foreach ((string name, string value) in more)
+        {
+            environment[name] = value;
+        }
+
+        return environment;
+    }
+
+    /// <summary>The rules the adapter renders for this session, the daemon having inherited <c>CLAUDE_CONFIG_DIR</c> as the default config directory.</summary>
+    private ToolGuardRules Rules(CredentialProfile? profile, IReadOnlyDictionary<string, string> inherited) =>
+        ClaudeCodeInvocation.Guard(
+            home,
+            work,
+            profile,
+            new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = inherited.TryGetValue("CLAUDE_CONFIG_DIR", out string? configured) ? configured : defaultConfig },
+            [directoryProfile.ConfigDirectory!, otherProfile.ConfigDirectory!]);
+
+    private IReadOnlyList<string> Arguments(CredentialProfile? profile = null) => Rules(profile, Environment()).Arguments;
+
+    private ToolGuardOutcome Guard(string input, CredentialProfile? profile = null, IReadOnlyDictionary<string, string>? environment = null) =>
+        ToolGuard.Run(Arguments(profile), new StringReader(input), environment ?? Environment());
+
+    private ToolGuardOutcome Run(IReadOnlyList<string> arguments, string input) =>
+        ToolGuard.Run(arguments, new StringReader(input), Environment());
+
+    private ToolGuardOutcome Run(IReadOnlyList<string> arguments, TextReader input) =>
+        ToolGuard.Run(arguments, input, Environment());
+
+    /// <summary>The JSON Claude Code delivers to a pre-tool-use hook for a call to <paramref name="tool"/>.</summary>
+    private string Call(string tool, object input, string? cwd = null, string? transcript = null) =>
+        JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["session_id"] = SessionId,
+            ["transcript_path"] = transcript ?? Path.Combine(defaultConfig, "projects", "-encoded-work", SessionId + ".jsonl"),
+            ["cwd"] = cwd ?? work,
+            ["permission_mode"] = "dontAsk",
+            ["hook_event_name"] = "PreToolUse",
+            ["tool_name"] = tool,
+            ["tool_input"] = input,
+            ["tool_use_id"] = "toolu_01",
+        });
+
+    private sealed class FailingReader : TextReader
+    {
+        public override string ReadToEnd() => throw new IOException("The input closed.");
+    }
+}
