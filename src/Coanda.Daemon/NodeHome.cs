@@ -29,14 +29,40 @@ public sealed record NodeHome(string Path)
     /// Where a flow's judgments work: <c>work/&lt;project&gt;/&lt;flow id&gt;</c> under the home.
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
     /// </summary>
-    public string FlowWorkPath(string project, Guid flowId)
+    public string FlowWorkPath(string project, Guid flowId) =>
+        System.IO.Path.Combine(Path, "work", RequirePlain(project, "working directory"), flowId.ToString());
+
+    /// <summary>
+    /// Where the transcripts of a flow's sessions are kept: <c>transcripts/&lt;project&gt;/&lt;flow id&gt;</c>
+    /// under the home, outside the flow's work directory, so a session never finds them among its
+    /// files. The project must be a plain directory name, as for <see cref="FlowWorkPath"/>.
+    /// </summary>
+    public string FlowTranscriptPath(string project, Guid flowId) =>
+        System.IO.Path.Combine(Path, "transcripts", RequirePlain(project, "transcript directory"), flowId.ToString());
+
+    /// <summary>
+    /// The transcript directory of the flow whose work directory is <paramref name="flowWorkPath"/>,
+    /// a path <see cref="FlowWorkPath"/> returned. An executor is handed the work directory alone,
+    /// and this is how it finds where the flow's transcripts go.
+    /// </summary>
+    public string TranscriptDirectoryOf(string flowWorkPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(flowWorkPath);
+        string relative = System.IO.Path.GetRelativePath(System.IO.Path.Combine(Path, "work"), System.IO.Path.GetFullPath(flowWorkPath));
+        string[] parts = relative.Split([System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar]);
+        return parts is [string project, string flow] && Guid.TryParse(flow, out Guid flowId)
+            ? FlowTranscriptPath(project, flowId)
+            : throw new DomainException($"{flowWorkPath} is not a flow's working directory under the node home {Path}, so it has no transcript directory.");
+    }
+
+    private static string RequirePlain(string project, string what)
     {
         bool plain = project is not ("" or "." or "..")
             && project.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0
             && project.IndexOfAny(['/', '\\']) < 0;
         return plain
-            ? System.IO.Path.Combine(Path, "work", project, flowId.ToString())
-            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flows have no working directory under the node home.");
+            ? project
+            : throw new DomainException($"Project '{project}' is not a plain directory name, so its flows have no {what} under the node home.");
     }
 
     public static NodeHome Resolve()
