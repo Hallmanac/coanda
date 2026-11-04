@@ -35,7 +35,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         string workingDirectory,
         SpawnCaps caps,
         string answerSchema,
-        string? credentialProfile,
+        CredentialProfile? credentialProfile,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);

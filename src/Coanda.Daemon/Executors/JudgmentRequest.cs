@@ -9,4 +9,4 @@ public sealed record JudgmentRequest(
     string WorkingDirectory,
     SpawnCaps Caps,
     string AnswerSchema,
-    string? CredentialProfile = null);
+    CredentialProfile? CredentialProfile = null);

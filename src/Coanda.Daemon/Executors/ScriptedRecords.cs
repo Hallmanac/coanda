@@ -8,7 +8,7 @@ public sealed record ScriptedSpawn(
     string WorkingDirectory,
     SpawnCaps Caps,
     string AnswerSchema,
-    string? CredentialProfile);
+    CredentialProfile? CredentialProfile);
 
 /// <summary>A resume or send message the <see cref="ScriptedExecutor"/> received.</summary>
 public sealed record ScriptedMessage(SessionHandle Handle, string Message);
