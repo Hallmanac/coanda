@@ -3,6 +3,7 @@ using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Commands;
+using Coanda.Daemon.GitHub;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -45,8 +46,13 @@ public sealed class DaemonRunCommand : AsyncCommand<DaemonRunSettings>
         }
 
         // Read after the redirect, so a refusal lands in the log, and before anything binds a port.
-        // The daemon a person runs starts real processes for its worktree and gates steps.
-        DaemonOptions options = NodeConfiguration.Load(home) with { CommandRunner = new ProcessCommandRunner() };
+        // The daemon a person runs starts real processes for its worktree, gates, and open-pr steps,
+        // and its open-pr step reaches GitHub over the network.
+        DaemonOptions options = NodeConfiguration.Load(home) with
+        {
+            CommandRunner = new ProcessCommandRunner(),
+            GitHubHandler = GitHubClient.NetworkHandler,
+        };
         await using RunningDaemon daemon = await DaemonHost.StartAsync(home, settings.Port, options, cancellationToken);
         Console.WriteLine($"coanda daemon {daemon.Info.Version} listening on {daemon.Info.BaseAddress} (pid {daemon.Info.Pid}), home {home.Path}");
         await daemon.WaitForShutdownAsync(cancellationToken);
