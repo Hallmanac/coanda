@@ -118,7 +118,7 @@ recording entries (a step, a launch, the session a launch returned, an answer, t
 reported, a result, a pause, an end) are open to it only on its own flow run, and only while its launch
 is the one the flow run expects. It can never start or follow a flow run directly. A parcel move it makes
 can still start one, as any parcel move can: moving a parcel into a state its type binds to a
-contour starts that contour's flow run under the binding's principal, not the session's. The
+flow starts that flow's flow run under the binding's principal, not the session's. The
 token resolves until the launch's answer is recorded, its flow run pauses, stops, or ends, or the
 judgment launches again; after that it is refused like any token the daemon did not issue, even
 once the flow run is resumed. The daemon keeps only the SHA-256 hash of each token, in its store, bound

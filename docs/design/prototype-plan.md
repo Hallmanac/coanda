@@ -11,14 +11,14 @@ weeks, hard stop at four, that prove the store, the definitions-as-data loop lay
 and the second node. Everything after it is parity work in the order of section 8.
 
 Exit scenario. On the Mac, from a cold install of one binary, a project is registered on the coanda
-repository with nothing configured. An idea parcel goes through a flow run of the discovery contour and
-derives a task parcel at refine with criteria. The build contour is read from the stored shipped
+repository with nothing configured. An idea parcel goes through a flow run of the discovery flow and
+derives a task parcel at refine with criteria. The build flow is read from the stored shipped
 definition, and a flow run of it runs the task: worktree, build judgment, gates action, two review
 judgments, and a fix lap; it opens the pull request, moves the task to review, and ends with the
-outcome pr-opened. The merge contour follows that outcome: its flow run performs the gated merge with
+outcome pr-opened. The merge flow follows that outcome: its flow run performs the gated merge with
 the head-commit guard, and the parcel closes with resolution completed. A second node joins by
 cloning the repository, verifies the hash chain, claims a parcel through hash arbitration, and runs
-the same contours. The window, launched from its stored recipe, rules on one pause. Every spawn has
+the same flows. The window, launched from its stored recipe, rules on one pause. Every spawn has
 its measurement events. No file in a project home is edited by hand.
 
 ## 2. Repository and stack
@@ -42,10 +42,10 @@ then the coanda repository carries `decisions.md` rendered from the list in desi
 | Phase | Builds | Gate | Built by |
 |---|---|---|---|
 | 0 Skeleton | Repository, solution, build and test gate, CI on Mac and Windows runners, the binary, the Fisher store with tenancy, the registry with principals, the thin CLI that starts the daemon, a parcel aggregate with the two shipped types as data | A parcel is created and shown through `coa` and survives a daemon restart | One session from the hall9k project window, by hand |
-| 1 Definitions and interpreter | Parcel types, contours, agents as aggregates with draft and published and scopes and the fork-base field; the routing-only interpreter; triggers; typed outcomes with depth and budget caps; the scripted adapter; core actions | A flow run of the shipped build contour runs end to end on canned answers with every cap enforced and refused at load without them | hall9k tasks dispatched on the Mac node |
-| 2 Real sessions | Claude Code adapter with profiles, resume, reattach, rendered files, the software actions (worktree, gates, open PR, gated merge, rebase), measurement events | The build and merge contours land a merged PR on the coanda repository | hall9k tasks |
+| 1 Definitions and interpreter | Parcel types, flows, agents as aggregates with draft and published and scopes and the fork-base field; the routing-only interpreter; triggers; typed outcomes with depth and budget caps; the scripted adapter; core actions | A flow run of the shipped build flow runs end to end on canned answers with every cap enforced and refused at load without them | hall9k tasks dispatched on the Mac node |
+| 2 Real sessions | Claude Code adapter with profiles, resume, reattach, rendered files, the software actions (worktree, gates, open PR, gated merge, rebase), measurement events | The build and merge flows land a merged PR on the coanda repository | hall9k tasks |
 | 3 Replication | Signed JSONL export and import by scope, the hash chain, verification on import, members and vouches and succession event shapes, arbitration, join, ledger home setting | The second node (the Windows machine, Brian's call on 2026-11-03 11:26 EST) clones, verifies, claims by arbitration, and builds | hall9k tasks; from this gate Coanda builds itself |
-| 4 Judgment | Discovery contour, review-on-assignment contour (one step), window recipe as a stored agent definition, courier push, measurement queries, migration of decisions and lessons | The exit scenario minus Windows | Coanda |
+| 4 Judgment | Discovery flow, review-on-assignment flow (one step), window recipe as a stored agent definition, courier push, measurement queries, migration of decisions and lessons | The exit scenario minus Windows | Coanda |
 | 5 Platform | Windows through the process seam, update, doctor, release pipeline with all assets | The exit scenario on Windows | Coanda |
 
 Estimated size: phase 0 about 4,000 lines; phases 1 to 5 about 20,000 more; the box about 25,000
@@ -60,7 +60,7 @@ phase is a set of hall9k tasks whose criteria come from this plan; hall9k's daem
 reviews, fixes, opens the PR, and merges under Brian's existing pre-approval rules. A hall9k
 project orchestrator window for coanda walks and challenges drafts under the standing
 go-with-recommendations rule, publishes, and surfaces only pauses. From phase 3's gate, Coanda's
-own build contour takes its own tasks, and hall9k's role shrinks to the window until sunset. There is
+own build flow takes its own tasks, and hall9k's role shrinks to the window until sunset. There is
 no separate loop; the daemon is the loop.
 
 ## 5. What Brian does
@@ -73,7 +73,7 @@ no separate loop; the daemon is the loop.
 ## 6. Measures
 
 Recorded from phase 2 on: cold install to first merged PR (minutes, Brian's clock); tokens and
-cost per merged PR; judgment steps per merged PR; pauses per merged PR and who resolved them; contour
+cost per merged PR; judgment steps per merged PR; pauses per merged PR and who resolved them; flow
 hash and agent hash on every instance; rediscovered hall9k decisions per day (anything re-ruled
 that the migrated record already held).
 
@@ -82,20 +82,20 @@ that the migrated record already held).
 Stop and write up if any holds: day 28 arrives without phase 3's gate; after day 14 more than one
 hall9k decision per day is being rediscovered rather than carried; replication on the git path
 turns out to need a catch-up protocol; the interpreter needs an expression beyond equality and a
-visit count to express a shipped contour.
+visit count to express a shipped flow.
 
 ## 8. After the box, in order
 
 Jira and Linear adapters; succession commands; portal; ledger move and forwarding ref; credential
 profile commands; fork notices and three-way diff; courier binding parameters; challenge and walk
-contours; export and import of definitions; type migrate command; service registration; MCP last.
+flows; export and import of definitions; type migrate command; service registration; MCP last.
 
 ## 9. Replacement set (phase 6)
 
 Before sunset the repository carries what hall9k's does: README, LICENSE and NOTICE, CONTRIBUTING,
 CODE_OF_CONDUCT, SECURITY, SUPPORT, AGENTS.md, the window recipe, and a docs folder with getting
 started, install, concepts, CLI map, operations, and scope, plus Mac and Windows setup guides.
-Written by Coanda's own content contour where it can. README rule (Brian, 2026-11-03 11:26 EST): the README stays
+Written by Coanda's own content flow where it can. README rule (Brian, 2026-11-03 11:26 EST): the README stays
 short and for humans; all documentation lives in the docs folder; the README carries one "agents
 start here" line pointing at an in-depth overview written for an agent that installs and operates
 Coanda.

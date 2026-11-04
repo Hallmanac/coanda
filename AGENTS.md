@@ -39,7 +39,7 @@ code, and `decisions.md` in its worktree carries the binding rules.
 
 ## Layout
 
-- `src/Coanda.Core`: the meta-model (parcels, types, relations), definitions (types, contours,
+- `src/Coanda.Core`: the meta-model (parcels, types, relations), definitions (types, flows,
   agents), the interpreter, the registry. No store dependency.
 - `src/Coanda.Daemon`: the store (Fisher on SQLite), loops, adapters, transport, the loopback API.
 - `src/Coanda.Cli`: the `coa` executable, thin; also hosts the daemon under `coa daemon`.
