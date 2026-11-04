@@ -589,7 +589,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// the step's answer schema, retried once on the same session if it is invalid, and recorded
     /// with the agent hash and model spec the launch recorded, however the agent was published
     /// since. A session the restart found already on its retry is not retried again, and its answer
-    /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch, and a
+    /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch, though a
+    /// session that finished while no daemon ran is still collected once the limit is past, and a
     /// person's pause or stop saved before the reattach was watched ends it before its first collect.
     /// Nothing is recorded for the reattach itself. The reattach hands the session a session token
     /// this daemon issues for the recorded launch, so a retry's process reaches this daemon as the
@@ -673,6 +674,10 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             string schema = step.AnswerSchema ?? string.Empty;
             using var ended = new CancellationTokenSource();
             Watch(flow.Id, ended);
+
+            // A session that finished while no daemon ran is collected however long ago it launched;
+            // only the wall-clock limit is left out of what bounds that collect.
+            using var finishedCollect = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ended.Token);
             try
             {
                 // A launch has a write after the watch that a pause refuses; a reattach has none, so a
@@ -685,7 +690,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
                 return await RunJudgmentAsync(
                     principal, project, flow.Id, step, launched, judgmentLimit - (clock.GetUtcNow() - spawnedAt),
-                    (spend, bounded) => Judgment.ReattachAsync(executor, live, schema, spend, cancellationToken, bounded),
+                    (spend, bounded) => Judgment.ReattachAsync(executor, live, schema, spend, cancellationToken, finishedCollect.Token, bounded),
                     ended.Token,
                     cancellationToken);
             }

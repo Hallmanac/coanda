@@ -96,6 +96,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
 
             session.Current = null;
             session.Attempt++;
+            session.Finished = false;
             resumes.Add(new ScriptedMessage(session.Handle, message));
         }
 
@@ -153,7 +154,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
             }
 
             ReattachedSession? held = sessions.TryGetValue(handle.Id, out Session? session) && !session.Stopped
-                ? new ReattachedSession(session.Handle, session.Attempt, session.Earlier)
+                ? new ReattachedSession(session.Handle, session.Attempt, session.Earlier, session.Finished)
                 : null;
             if (held is not null)
             {
@@ -161,6 +162,18 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
             }
 
             return ValueTask.FromResult<Reattachment?>(held);
+        }
+    }
+
+    /// <summary>
+    /// Marks the session's latest attempt as having ended with its answer while no daemon ran, so a
+    /// reattach reports it finished; a resume starts an attempt that has not.
+    /// </summary>
+    public void Finish(SessionHandle handle)
+    {
+        lock (gate)
+        {
+            RequireLive(handle).Finished = true;
         }
     }
 
@@ -214,6 +227,9 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
 
         /// <summary>The usage of every answer collected before the latest attempt.</summary>
         public Measurement Earlier { get; set; } = ReattachedSession.Nothing;
+
+        /// <summary>Whether the latest attempt ended with its answer while no daemon ran, as <see cref="Finish"/> says.</summary>
+        public bool Finished { get; set; }
 
         public bool Stopped { get; set; }
     }

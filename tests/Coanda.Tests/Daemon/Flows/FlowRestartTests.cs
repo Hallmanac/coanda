@@ -230,6 +230,32 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_reattached_session_that_finished_while_no_daemon_ran_records_its_answer_though_its_limit_has_passed_since()
+    {
+        using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Finished late");
+        TimeSpan limit = TimeSpan.FromSeconds(1);
+        DateTimeOffset launched = await LaunchedAtAsync(temp, flowId);
+        await Flowing.UntilAsync(() => DateTimeOffset.UtcNow - launched > limit + TimeSpan.FromMilliseconds(100), "the limit has passed since the launch");
+
+        // The session ended with its answer while no daemon ran; collecting it takes no more time.
+        stalled.Inner.Finish(issued);
+        stalled.Open();
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled, JudgmentLimit = limit }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
+
+        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
+        ended.Steps.Single(s => s.Step == "build").RecordedAt.Should().NotBeNull("the answer the session left is recorded");
+        ended.Spawns.Should().Be(3, "the reattach counts no spawn: build and the two reviews");
+        stalled.Inner.Spawns.Where(s => s.Agent == "build").Should().ContainSingle();
+        stalled.Inner.Stops.Should().Contain(issued, "the session is stopped once its answer is recorded");
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_restart_whose_executor_no_longer_holds_the_session_pauses_and_its_resume_counts_one_more_spawn()
     {
         using var temp = new TemporaryHome();
