@@ -16,8 +16,12 @@ stored as given; nothing contacts it. Without `--project`, a command works in th
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
-What a node runs its judgments with is configured once per node, in `node.json` in the node home:
-the executor, and the credential profiles a project can name with `coa project set-profile`.
+Judgments run on Claude Code. With no configuration at all, the daemon runs each judgment as a
+headless session of the `claude` executable it finds on the PATH, under whatever login that
+executable already has, so install Claude Code and sign in to it before a flow reaches its first
+judgment. What a node runs its judgments with is configured once per node, in `node.json` in the
+node home: the executor (`claude-code`, with an optional path to the `claude` executable), and the
+credential profiles a project can name with `coa project set-profile`.
 [Node configuration](node-configuration.md) describes the file.
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
