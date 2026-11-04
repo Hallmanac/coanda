@@ -1,6 +1,5 @@
 using Coanda.Core;
 using Coanda.Core.Contours;
-using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
