@@ -30,9 +30,13 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// The paths a call names are the file path of a Read, Edit, or Write; the path of a Glob or a Grep
 /// and the pattern of a Glob; and every word of a Bash command that, once expanded, is absolute,
 /// begins with <c>~</c> or <c>.</c>, or holds a path separator, together with the part after the
-/// first <c>=</c> of a word that holds one. Files a process the command starts reads on its own are
-/// not paths a call names, and stay allowed. The reason never quotes a file's contents: it names
-/// the path, the directory it reaches, and nothing else.
+/// first <c>=</c> of a word that holds one. A relative word is judged against the directory a
+/// <c>cd</c> or <c>pushd</c> earlier in the command moved to, or the one the call starts in, and a
+/// <c>cd</c>'s destination is itself a path the call names. <c>$PWD</c> is the directory the
+/// shell is in at that point; a call that depends on <c>$OLDPWD</c> or <c>cd -</c>, which nothing the guard
+/// receives names, is refused, as is a path that may climb with <c>..</c> after a wildcard. Files a
+/// process the command starts reads on its own are not paths a call names, and stay allowed. The
+/// reason never quotes a file's contents: it names the path, the directory it reaches, and nothing else.
 /// </remarks>
 public static class ToolGuard
 {
@@ -95,18 +99,21 @@ public static class ToolGuard
             ? GuardPath.Resolve(reported, work)
             : work;
         string home = HomeDirectory(environment);
+        IReadOnlyList<string> atCwd = [cwd];
+        string pwd = cwd;
+        string? unknowable = null;
 
-        IReadOnlyList<string>? named = tool switch
+        IReadOnlyList<Named>? named = tool switch
         {
             "Read" or "Edit" or "Write" => Text(toolInput, "file_path") is { } file
-                ? [Expanded(file)]
+                ? [new(Expanded(file), atCwd)]
                 : null,
             "Glob" => Text(toolInput, "pattern") is { } pattern
                 ? Glob(pattern, Text(toolInput, "path"))
                 : null,
             "Grep" => Text(toolInput, "path") is { } path
-                ? [Expanded(path)]
-                : [string.Empty],
+                ? [new(Expanded(path), atCwd)]
+                : [new(string.Empty, atCwd)],
             "Bash" => Text(toolInput, "command") is { } command
                 ? Bash(command)
                 : null,
@@ -117,11 +124,15 @@ public static class ToolGuard
             return Unreadable($"it names the tool '{tool}' without the input the guard judges");
         }
 
-        Judge judge = new(rules, work, ConversationDirectory(rules, call, cwd));
-        foreach (string path in named)
+        if (unknowable is not null)
         {
-            string resolved = GuardPath.Resolve(ShellWords.BeforeWildcard(path), cwd);
-            if (judge.Refusal(resolved) is { } reason)
+            return ToolGuardOutcome.Denied($"coa refused this call: it depends on {unknowable}, which the tool guard cannot know, so it cannot judge where the call reaches.");
+        }
+
+        Judge judge = new(rules, work, ConversationDirectory(rules, call, cwd));
+        foreach (Named path in named)
+        {
+            if (judge.Refusal(path) is { } reason)
             {
                 return ToolGuardOutcome.Denied(reason);
             }
@@ -129,37 +140,91 @@ public static class ToolGuard
 
         return ToolGuardOutcome.Allowed;
 
-        string Expanded(string text) => ShellWords.Expand(text, environment, home);
+        string Expanded(string text) => ShellWords.Expand(text, Value, home);
 
-        List<string> Glob(string pattern, string? path)
+        // The shell sets PWD to the directory it is in, whatever the hook inherited, and its OLDPWD is
+        // the directory it was in before, which nothing the hook receives names.
+        string Value(string name)
         {
-            List<string> paths = [Expanded(pattern)];
+            switch (name)
+            {
+                case "PWD":
+                    return pwd;
+                case "OLDPWD":
+                    unknowable ??= "$OLDPWD, the shell's previous directory";
+                    return string.Empty;
+                default:
+                    return environment.TryGetValue(name, out string? value)
+                        ? value
+                        : string.Empty;
+            }
+        }
+
+        List<Named> Glob(string pattern, string? path)
+        {
+            List<Named> paths = [new(Expanded(pattern), atCwd)];
             if (path is not null)
             {
                 // A relative pattern is matched under the Glob's own path, so it is judged there too.
                 string under = Expanded(path);
-                paths.Add(under);
-                paths.Add(Path.Combine(GuardPath.Resolve(ShellWords.BeforeWildcard(under), cwd), Expanded(pattern)));
+                paths.Add(new(under, atCwd));
+                paths.Add(new(Expanded(pattern), [.. GuardPath.Readings(ShellWords.BeforeWildcard(under)).Select(reading => GuardPath.Resolve(reading, cwd))]));
             }
 
             return paths;
         }
 
-        List<string> Bash(string command)
+        // A relative word is judged against the directory a cd or pushd earlier in the command moved
+        // the shell to, or the one the call starts in when there is none. A directory change inside a
+        // subshell lasts until the subshell ends.
+        List<Named> Bash(string command)
         {
-            List<string> paths = [];
-            foreach (string word in ShellWords.Split(command))
+            List<Named> paths = [];
+            List<IReadOnlyList<string>> levels = [atCwd];
+            foreach (ShellCommand next in ShellWords.Commands(command))
             {
-                string expanded = Expanded(word);
-                if (ShellWords.IsPathLike(expanded))
+                while (levels.Count > next.Depth + 1)
                 {
-                    paths.Add(expanded);
+                    levels.RemoveAt(levels.Count - 1);
                 }
 
-                int equals = word.IndexOf('=', StringComparison.Ordinal);
-                if (equals >= 0 && Expanded(word[(equals + 1)..]) is { } value && ShellWords.IsPathLike(value))
+                while (levels.Count < next.Depth + 1)
                 {
-                    paths.Add(value);
+                    levels.Add(levels[^1]);
+                }
+
+                IReadOnlyList<string> at = levels[^1];
+                pwd = at[0];
+                foreach (string word in next.Words)
+                {
+                    string expanded = Expanded(word);
+                    if (ShellWords.IsPathLike(expanded))
+                    {
+                        paths.Add(new(expanded, at));
+                    }
+
+                    int equals = word.IndexOf('=', StringComparison.Ordinal);
+                    if (equals >= 0 && Expanded(word[(equals + 1)..]) is { } value && ShellWords.IsPathLike(value))
+                    {
+                        paths.Add(new(value, at));
+                    }
+                }
+
+                switch (ShellWords.DirectoryChange(next.Words))
+                {
+                    case null:
+                        break;
+                    case "-":
+                        unknowable ??= "cd -, which returns to the shell's previous directory";
+                        break;
+                    case { } destination:
+                        string expanded = Expanded(destination);
+                        paths.Add(new(expanded, at));
+                        levels[^1] = [.. (
+                            from reading in GuardPath.Readings(ShellWords.BeforeWildcard(expanded))
+                            from directory in at
+                            select GuardPath.Resolve(reading, directory)).Distinct(GuardPath.Comparer)];
+                        break;
                 }
             }
 
@@ -218,13 +283,40 @@ public static class ToolGuard
     private static ToolGuardOutcome Unreadable(string why) =>
         ToolGuardOutcome.Denied($"coa refused this call because the tool guard could not read it: {why}.");
 
+    /// <summary>
+    /// A path a call names, expanded but not yet resolved, with the directories it is resolved against
+    /// when it is relative. It is judged against each of them.
+    /// </summary>
+    private sealed record Named(string Text, IReadOnlyList<string> Bases);
+
     /// <summary>The protected and allowed directories, resolved once per call.</summary>
     private sealed class Judge(ToolGuardRules rules, string work, string? conversation)
     {
         private readonly string home = GuardPath.Resolve(string.Empty, rules.NodeHome);
         private readonly IReadOnlyList<string> configs = [.. rules.ProtectedConfigDirectories.Select(d => GuardPath.Resolve(string.Empty, d))];
 
-        public string? Refusal(string path)
+        public string? Refusal(Named named)
+        {
+            if (ShellWords.MayClimbAfterWildcard(named.Text))
+            {
+                return $"coa refused this call: the path '{named.Text}' may climb to a parent directory after a wildcard, where the tool guard cannot judge where it leads.";
+            }
+
+            foreach (string reading in GuardPath.Readings(ShellWords.BeforeWildcard(named.Text)))
+            {
+                foreach (string directory in named.Bases)
+                {
+                    if (Refusal(GuardPath.Resolve(reading, directory)) is { } reason)
+                    {
+                        return reason;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private string? Refusal(string path)
         {
             if (GuardPath.IsWithin(path, work) || (conversation is not null && GuardPath.IsWithin(path, conversation)))
             {

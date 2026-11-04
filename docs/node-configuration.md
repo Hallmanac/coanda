@@ -126,10 +126,16 @@ Two directories inside those stay open: the session's own work directory, and th
 Code keeps for the session's own conversation (`projects/<encoded work directory>/<session id>` in
 the config directory the session runs under, beside its transcript). The guard reads the file path of
 a Read, Edit, or Write; the path of a Glob or Grep and the pattern of a Glob; and every word of a
-Bash command that looks like a path, after expanding `~` and the variables the session's environment
-defines. It resolves symbolic links before it compares, and on macOS and Windows it ignores case. A
-refused call reaches the session as an error saying the path is in the node home or in a Claude Code
-config directory.
+Bash command that looks like a path, after expanding `~` and the session's variables as its shell
+would (`$PWD` is the directory the shell is in at that point, and a variable the session does not define is
+empty). A relative word in a command is judged against the directory a `cd` or `pushd` earlier in
+the command moved to, or the directory the call runs in when there is none, and the destination of a
+`cd` is judged too; a bare `cd` goes to your home directory, which holds the node home. The guard
+refuses a call that depends on `$OLDPWD` or `cd -`, since it cannot know the shell's previous
+directory, and a path that may climb with `..` after a wildcard (`*/../..`, `{..,src}`, or `.*`,
+which some shells match to `..`). On Windows it also reads a Git Bash drive path such as
+`/c/Users/me` as `C:\Users\me`. It resolves symbolic links before it compares, and on macOS and
+Windows it ignores case. A refused call reaches the session as an error saying why.
 
 The guard keeps an agent's ordinary tool calls away from those files. It is not a sandbox. A program
 a command starts reads what it likes (`git` reads the clone, and `coa` reads `daemon.json` for the

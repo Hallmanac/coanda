@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Coanda.Daemon.Executors.ClaudeCode;
 
 /// <summary>
@@ -10,7 +12,7 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// Windows collapses <c>..</c> by name before it follows any link, so there the path is made full
 /// first, which also turns either separator into the one Windows uses.
 /// </remarks>
-public static class GuardPath
+public static partial class GuardPath
 {
     /// <summary>How many links one resolution follows before it gives up, as a loop of links would never end.</summary>
     private const int MostLinks = 40;
@@ -18,6 +20,9 @@ public static class GuardPath
     public static StringComparison Comparison { get; } = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
+
+    /// <summary>The comparer that matches <see cref="Comparison"/>.</summary>
+    public static StringComparer Comparer { get; } = StringComparer.FromComparison(Comparison);
 
     /// <summary>
     /// <paramref name="path"/> resolved against <paramref name="baseDirectory"/> when it is relative,
@@ -30,6 +35,29 @@ public static class GuardPath
             : Path.Combine(baseDirectory, path);
         int links = 0;
         return Real(rooted, ref links);
+    }
+
+    /// <summary>
+    /// The paths a text may name. On Windows that is the text as Windows reads it and, when it is in
+    /// the form Git Bash gives a drive (<c>/c/Users/me</c> or <c>/cygdrive/c/Users/me</c>), the drive
+    /// path the shell reads it as; elsewhere it is the text alone.
+    /// </summary>
+    public static IReadOnlyList<string> Readings(string text) =>
+        OperatingSystem.IsWindows() && ShellDrivePath(text) is { } drive
+            ? [text, drive]
+            : [text];
+
+    /// <summary>
+    /// The Windows path a Git Bash drive path names, such as <c>C:\Users\me</c> for <c>/c/Users/me</c>
+    /// or <c>/cygdrive/c/Users/me</c>; null for any other text.
+    /// </summary>
+    public static string? ShellDrivePath(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        Match match = ShellDrive().Match(text);
+        return match.Success
+            ? $"{char.ToUpperInvariant(match.Groups["drive"].Value[0])}:\\{match.Groups["rest"].Value.TrimStart('/', '\\').Replace('/', '\\')}"
+            : null;
     }
 
     /// <summary>Whether <paramref name="path"/> is <paramref name="directory"/> or inside it; both already resolved.</summary>
@@ -98,4 +126,7 @@ public static class GuardPath
         // A root keeps its separator.
         return Path.TrimEndingDirectorySeparator(current);
     }
+
+    [GeneratedRegex(@"^[/\\](?:cygdrive[/\\])?(?<drive>[A-Za-z])(?<rest>(?:[/\\].*)?)$", RegexOptions.Singleline)]
+    private static partial Regex ShellDrive();
 }
