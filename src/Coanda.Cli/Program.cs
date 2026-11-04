@@ -72,6 +72,7 @@ app.Configure(config =>
         flow.SetDescription("A flow is one execution of a contour on a parcel; a parcel has at most one live flow.");
         flow.AddCommand<FlowListCommand>("list").WithDescription("List a parcel's flows, oldest first.").WithExample("flow", "list", "--parcel", "0192a3b4");
         flow.AddCommand<FlowShowCommand>("show").WithDescription("Show one flow and the steps it entered.").WithExample("flow", "show", "0192a3b4");
+        flow.AddCommand<FlowPauseCommand>("pause").WithDescription("Pause a running flow; a resume performs its current step again.").WithExample("flow", "pause", "0192a3b4", "--reason", "\"Waiting on the API owner\"");
         flow.AddCommand<FlowStopCommand>("stop").WithDescription("Stop a live flow, releasing its parcel.").WithExample("flow", "stop", "0192a3b4", "--reason", "\"Taking this by hand\"");
         flow.AddCommand<FlowResumeCommand>("resume").WithDescription("Resume a paused flow; the daemon advances it from there.").WithExample("flow", "resume", "0192a3b4");
     });

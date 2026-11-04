@@ -69,11 +69,34 @@ public sealed class FlowShowCommand : AsyncCommand<FlowIdSettings>
     }
 }
 
+public sealed class FlowPauseSettings : FlowIdSettings
+{
+    [CommandOption("--reason <REASON>")]
+    [Description("Why the flow pauses, in a sentence.")]
+    public string? Reason { get; init; }
+}
+
+public sealed class FlowPauseCommand : AsyncCommand<FlowPauseSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, FlowPauseSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        FlowView found = await FlowLookup.FindAsync(client, project, settings.Id, cancellationToken);
+
+        // A missing reason goes to the daemon as an empty one, so the service decides whether the flow can pause before asking for it.
+        FlowView flow = await client.PostAsync<FlowView>(
+            $"/flows/{found.Id}/pause", new FlowPauseRequest(project, settings.Reason ?? string.Empty), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Flow {Ids.Short(flow.Id)} is {flow.Status} at {flow.CurrentStep}; resume it to perform that step again.");
+        return 0;
+    }
+}
+
 public sealed class FlowStopSettings : FlowIdSettings
 {
     [CommandOption("--reason <REASON>")]
     [Description("Why the flow stops, in a sentence.")]
-    public required string Reason { get; init; }
+    public string? Reason { get; init; }
 }
 
 public sealed class FlowStopCommand : AsyncCommand<FlowStopSettings>
@@ -84,8 +107,8 @@ public sealed class FlowStopCommand : AsyncCommand<FlowStopSettings>
         string project = settings.ResolveProject();
         FlowView found = await FlowLookup.FindAsync(client, project, settings.Id, cancellationToken);
         FlowView flow = await client.PostAsync<FlowView>(
-            $"/flows/{found.Id}/stop", new FlowStopRequest(project, settings.Reason), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Stopped flow {Ids.Short(flow.Id)}; parcel {Ids.Short(flow.ParcelId)} is free to move or close.");
+            $"/flows/{found.Id}/stop", new FlowStopRequest(project, settings.Reason ?? string.Empty), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Flow {Ids.Short(flow.Id)} is {flow.Status}; parcel {Ids.Short(flow.ParcelId)} is free to move or close.");
         return 0;
     }
 }
@@ -106,7 +129,7 @@ public sealed class FlowResumeCommand : AsyncCommand<FlowResumeSettings>
         FlowView found = await FlowLookup.FindAsync(client, project, settings.Id, cancellationToken);
         FlowView flow = await client.PostAsync<FlowView>(
             $"/flows/{found.Id}/resume", new FlowResumeRequest(project, settings.Note), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Resumed flow {Ids.Short(flow.Id)} at {flow.CurrentStep}; the daemon advances it from there.");
+        AnsiConsole.MarkupLineInterpolated($"Flow {Ids.Short(flow.Id)} is {flow.Status} at {flow.CurrentStep}; the daemon advances it from there.");
         return 0;
     }
 }
