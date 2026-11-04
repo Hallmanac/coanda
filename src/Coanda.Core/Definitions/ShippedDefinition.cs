@@ -1,6 +1,5 @@
 using Coanda.Core.Agents;
 using Coanda.Core.Contours;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Definitions;
@@ -19,16 +18,4 @@ public sealed record ShippedDefinition(DefinitionKind Kind, string Name, string 
 
     public static ShippedDefinition FromAgent(AgentDefinition agent) =>
         new(DefinitionKind.Agent, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash);
-
-    /// <summary>The parcel types the binary carries, as definitions.</summary>
-    public static IReadOnlyList<ShippedDefinition> ShippedParcelTypes { get; } = [.. ShippedTypes.All.Select(FromParcelType)];
-
-    /// <summary>The contours the binary carries, as definitions.</summary>
-    public static IReadOnlyList<ShippedDefinition> ShippedContourDefinitions { get; } = [.. ShippedContours.All.Select(FromContour)];
-
-    /// <summary>The agents the binary carries, as definitions.</summary>
-    public static IReadOnlyList<ShippedDefinition> ShippedAgentDefinitions { get; } = [.. ShippedAgents.All.Select(FromAgent)];
-
-    /// <summary>Every definition the binary carries, in the order the daemon seeds it.</summary>
-    public static IReadOnlyList<ShippedDefinition> All { get; } = [.. ShippedParcelTypes, .. ShippedContourDefinitions, .. ShippedAgentDefinitions];
 }

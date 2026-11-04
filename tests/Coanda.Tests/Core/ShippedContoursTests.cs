@@ -1,7 +1,6 @@
 using Coanda.Core.Definitions;
 using Coanda.Core.Contours;
 using Coanda.Core.Software;
-using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
 
@@ -175,13 +174,13 @@ public sealed class ShippedContoursTests
     {
         ShippedContours.All.Should().OnlyContain(f => f.Budget > 0 && f.SpawnCap > 0);
         ShippedContours.All.Select(f => f.Hash).Distinct().Should().HaveCount(3);
-        ShippedDefinition.ShippedContourDefinitions.Select(d => d.ContentHash).Should().Equal(ShippedContours.All.Select(f => f.Hash));
+        ShippedDefinitions.Contours.Select(d => d.ContentHash).Should().Equal(ShippedContours.All.Select(f => f.Hash));
     }
 
     [Fact]
     public void The_shipped_content_reads_back_to_the_same_contour()
     {
-        foreach (ShippedDefinition shipped in ShippedDefinition.ShippedContourDefinitions)
+        foreach (ShippedDefinition shipped in ShippedDefinitions.Contours)
         {
             shipped.Kind.Should().Be(DefinitionKind.Contour);
             Contour.FromJson(shipped.Content).Hash.Should().Be(shipped.ContentHash);

@@ -1,4 +1,5 @@
 using Coanda.Core.Definitions;
+using Coanda.Core.Software;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
 using Fisher;
@@ -12,9 +13,9 @@ namespace Coanda.Tests.Daemon;
 public static class SeededStore
 {
     public static Task<IDocumentStore> OpenAsync(string databasePath) =>
-        OpenAsync(databasePath, ShippedDefinition.ShippedParcelTypes);
+        OpenAsync(databasePath, ShippedDefinitions.ParcelTypes);
 
-    /// <summary>Opens a store seeded with <paramref name="shipped"/>; a flow test passes <see cref="ShippedDefinition.All"/> so the contours resolve.</summary>
+    /// <summary>Opens a store seeded with <paramref name="shipped"/>; a flow test passes <see cref="ShippedDefinitions.All"/> so the contours resolve.</summary>
     public static async Task<IDocumentStore> OpenAsync(string databasePath, IReadOnlyCollection<ShippedDefinition> shipped)
     {
         IDocumentStore store = StoreConfiguration.Open(databasePath);

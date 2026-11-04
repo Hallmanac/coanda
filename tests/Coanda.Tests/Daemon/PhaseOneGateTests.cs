@@ -259,7 +259,7 @@ public sealed class PhaseOneGateTests
     {
         missing.Should().NotBeNullOrEmpty();
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
         var definitions = new DefinitionService(store, TimeProvider.System);
         Contour read = Contour.FromJson(content);
         long before = await store.Database.FetchHighestEventSequenceNumber(None);

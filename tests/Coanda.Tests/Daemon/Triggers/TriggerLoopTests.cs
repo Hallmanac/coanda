@@ -3,6 +3,7 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
+using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -107,7 +108,7 @@ public sealed class TriggerLoopTests
     {
         using var temp = new TemporaryHome();
         Guid parcelId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
         {
             var parcels = new ParcelService(store, TimeProvider.System);
             Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Already building", null, None);

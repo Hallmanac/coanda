@@ -1,4 +1,6 @@
-namespace Coanda.Core.Types;
+using Coanda.Core.Types;
+
+namespace Coanda.Core.Software;
 
 /// <summary>
 /// The software engineering lifecycle, installed by default: an idea goes through discovery and

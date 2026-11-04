@@ -3,7 +3,6 @@ using Coanda.Cli;
 using Coanda.Cli.Commands;
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
@@ -50,7 +49,7 @@ public sealed class FlowStoreTests
         Guid parcelId;
         Guid flowId;
 
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
         {
             Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Run once", null, CancellationToken.None);
             parcelId = parcel.Id;
@@ -133,7 +132,7 @@ public sealed class FlowStoreTests
     public async Task An_ended_flow_releases_its_parcel()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
         var parcels = new ParcelService(store, TimeProvider.System);
         var flows = new FlowService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
@@ -152,7 +151,7 @@ public sealed class FlowStoreTests
     public async Task A_start_that_read_the_parcel_before_another_start_committed_fails_the_parcel_streams_version_check()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
         var flows = new FlowService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
         Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Race", null, none);
@@ -177,7 +176,7 @@ public sealed class FlowStoreTests
     public async Task Resuming_and_stopping_a_flow_are_open_to_people_starting_it_and_recording_its_steps_to_every_role()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
         var flows = new FlowService(store, TimeProvider.System);
         var parcels = new ParcelService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;

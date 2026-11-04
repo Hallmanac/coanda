@@ -1,6 +1,6 @@
 using Coanda.Core.Contours;
+using Coanda.Core.Software;
 using Coanda.Core.Triggers;
-using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
 

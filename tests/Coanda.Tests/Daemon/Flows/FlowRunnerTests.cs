@@ -565,7 +565,7 @@ public sealed class FlowRunnerTests
     {
         using var temp = new TemporaryHome();
         Guid flowId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinition.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
         {
             var parcels = new Coanda.Daemon.Parcels.ParcelService(store, TimeProvider.System);
             var flows = new FlowService(store, TimeProvider.System);

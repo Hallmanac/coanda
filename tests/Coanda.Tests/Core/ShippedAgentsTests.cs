@@ -1,7 +1,6 @@
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Software;
-using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
 
@@ -71,8 +70,8 @@ public sealed class ShippedAgentsTests
     [Fact]
     public void Shipped_definitions_carry_the_agents_hashes()
     {
-        ShippedDefinition.ShippedAgentDefinitions.Select(d => (d.Kind, d.Name, d.ContentHash))
+        ShippedDefinitions.Agents.Select(d => (d.Kind, d.Name, d.ContentHash))
             .Should().Equal(ShippedAgents.All.Select(a => (DefinitionKind.Agent, a.Name, a.Hash)));
-        ShippedDefinition.All.Should().HaveCount(ShippedTypes.All.Count + ShippedContours.All.Count + ShippedAgents.All.Count);
+        ShippedDefinitions.All.Should().HaveCount(ShippedTypes.All.Count + ShippedContours.All.Count + ShippedAgents.All.Count);
     }
 }
