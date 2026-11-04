@@ -178,4 +178,20 @@ public sealed class DaemonSeedingTests
         build.VersionNumber.Should().Be(2);
         build.ContentHash.Should().Be(ShippedContours.Build.Hash);
     }
+
+    [Fact]
+    public async Task The_build_contours_new_hash_seeds_as_the_next_version_of_the_one_without_source_declarations()
+    {
+        using var temp = new TemporaryHome();
+        Contour before = ShippedContours.Build with { Steps = [.. ShippedContours.Build.Steps.Select(s => s with { Sources = [] })] };
+        before.Hash.Should().NotBe(ShippedContours.Build.Hash);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(before)]);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+
+        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+
+        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
+        build.VersionNumber.Should().Be(2);
+        build.ContentHash.Should().Be(ShippedContours.Build.Hash);
+    }
 }
