@@ -11,7 +11,12 @@ coa parcel list --project try-coanda
 
 A project records the one repository its work acts on, its remote and its primary branch, so a
 parcel can be created only in a project that `coa project add` has registered. The remote is
-stored as given; nothing contacts it. Without `--project`, a command works in the project that
+stored as given, and nothing contacts it until a build flow needs a worktree. Each build flow then
+works in a git worktree of the node's own clone of that remote, under the node home, on a branch
+named `coanda/<short parcel id>`, and its gates run the project's build and test commands there:
+`dotnet build` and `dotnet test` unless `coa project add` was given `--build <command>` or
+`--test <command>`, and `coa project show` prints the two the gates will run. The worktree is
+removed when the flow ends or is stopped; the branch stays in the clone. Without `--project`, a command works in the project that
 `COANDA_PROJECT` names, then in the one named after the current directory.
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.

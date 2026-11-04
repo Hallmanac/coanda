@@ -12,6 +12,7 @@ using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
+using Coanda.Daemon.Repositories;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
 using Fisher;
@@ -77,8 +78,14 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
         builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
+        builder.Services.AddSingleton<ProjectClones>();
         builder.Services.AddSingleton(services => FlowActions.Shipped(
-            services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()));
+            services.GetRequiredService<ParcelService>(),
+            services.GetRequiredService<ProjectService>(),
+            services.GetRequiredService<ProjectClones>(),
+            services.GetRequiredService<ICommandRunner>(),
+            services.GetRequiredService<NodeHome>(),
+            services.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunner>();
         builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());

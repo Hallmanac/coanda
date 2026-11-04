@@ -8,8 +8,12 @@ using Coanda.Core.Software;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Projects;
+using Coanda.Daemon.Repositories;
+using Coanda.Tests.Daemon.Commands;
 using Fisher;
 using JasperFx.Events;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Coanda.Tests.Daemon.Actions;
 
@@ -22,6 +26,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     private readonly RecordingClock clock = new();
     private IDocumentStore store = null!;
     private ParcelService parcels = null!;
+    private readonly ScriptedCommandRunner runner = new();
     private FlowActions actions = null!;
 
     public async Task InitializeAsync()
@@ -29,7 +34,9 @@ public sealed class FlowActionsTests : IAsyncLifetime
         store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         parcels = new ParcelService(store, TimeProvider.System);
-        actions = FlowActions.Shipped(parcels, clock);
+        var projects = new ProjectService(store, TimeProvider.System);
+        var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
+        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock);
     }
 
     public async Task DisposeAsync()
@@ -130,10 +137,31 @@ public sealed class FlowActionsTests : IAsyncLifetime
         DoneResult(outcome).GetProperty("outcome").GetString().Should().Be(ShippedContours.Build.Outcome);
     }
 
+    [Fact]
+    public async Task Worktree_answers_done_with_the_parcels_branch_and_the_head_it_checked_out()
+    {
+        Guid parcelId = Ids.New();
+
+        JsonElement result = DoneResult(await PerformAsync(Step(SoftwareActions.Worktree), parcelId));
+
+        result.GetProperty("action").GetString().Should().Be(SoftwareActions.Worktree);
+        result.GetProperty("branch").GetString().Should().Be($"coanda/{Ids.Short(parcelId)}");
+        result.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
+        result.TryGetProperty("placeholder", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Gates_answers_done_once_the_build_and_test_commands_pass()
+    {
+        JsonElement result = DoneResult(await PerformAsync(Step(SoftwareActions.Gates), Ids.New()));
+
+        result.GetProperty("action").GetString().Should().Be(SoftwareActions.Gates);
+        result.TryGetProperty("placeholder", out _).Should().BeFalse();
+        runner.ShellLines.Should().Equal(Coanda.Core.Projects.Project.DefaultBuild, Coanda.Core.Projects.Project.DefaultTest);
+    }
+
     [Theory]
     [InlineData(CoreActions.DeriveParcels)]
-    [InlineData(SoftwareActions.Worktree)]
-    [InlineData(SoftwareActions.Gates)]
     [InlineData(SoftwareActions.OpenPr)]
     [InlineData(SoftwareActions.GatedMerge)]
     [InlineData(SoftwareActions.Rebase)]
