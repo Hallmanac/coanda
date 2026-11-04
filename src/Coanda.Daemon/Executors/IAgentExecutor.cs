@@ -1,4 +1,5 @@
 using Coanda.Core.Agents;
+using Coanda.Core.Flows;
 
 namespace Coanda.Daemon.Executors;
 
@@ -28,8 +29,13 @@ public interface IAgentExecutor
     /// <summary>Delivers a message into a live session without expecting an answer.</summary>
     ValueTask SendAsync(SessionHandle handle, string message, CancellationToken cancellationToken);
 
-    /// <summary>Ends the session.</summary>
-    ValueTask StopAsync(SessionHandle handle, CancellationToken cancellationToken);
+    /// <summary>
+    /// Ends the session, and reports the usage of its attempt in progress, the one no collect has
+    /// returned since the last spawn or resume, or null when the executor reports none. A stop after
+    /// a collect returned has no attempt in progress. What the report says is the only way the usage
+    /// of a judgment ended before it answered reaches its flow.
+    /// </summary>
+    ValueTask<Measurement?> StopAsync(SessionHandle handle, CancellationToken cancellationToken);
 
     /// <summary>The handles of the sessions this executor holds that have not been stopped.</summary>
     ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken);
