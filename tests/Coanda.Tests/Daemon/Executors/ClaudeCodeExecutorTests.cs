@@ -41,7 +41,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         // directory is matched by its flow-specific tail and by holding the persona file the spawn wrote.
         start.WorkingDirectory.Should().EndWith(Path.Combine("work", Project, flowId.ToString()));
         File.Exists(Path.Combine(start.WorkingDirectory, ".coanda", "persona.md")).Should().BeTrue();
-        start.Arguments.Should().Equal(
+        WithoutGuard(start.Arguments).Should().Equal(
             "--print",
             "--output-format", "stream-json",
             "--verbose",
@@ -117,7 +117,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         start.Environment.Should().Contain("CLAUDE_CONFIG_DIR", "/profiles/work");
         start.Environment.Keys.Should().NotContain(ClaudeCodeInvocation.CredentialVariables);
         ClaudeCodeInvocation.CredentialVariables.Should().Contain(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
-        start.After("--settings").Should().Be("""{"autoMemoryEnabled":false}""");
+        WithoutGuard(start.Arguments).Should().ContainInConsecutiveOrder("--settings", """{"autoMemoryEnabled":false}""");
     }
 
     [Fact]
@@ -646,6 +646,96 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         File.GetUnixFileMode(Path.Combine(WorkDirectory, ".coanda", "persona.md")).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
         File.GetUnixFileMode(collected.TranscriptPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    [Fact]
+    public async Task The_spawn_and_its_retry_carry_the_tool_guard_inline_with_hooks_on_and_no_variable_that_would_skip_it()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.5m, totalCost: 0.5m),
+            FakeClaude.Answering(ValidBuild, cost: 0.25m, totalCost: 0.75m));
+        string scratch = Path.Combine(fake.Control, "configs");
+        string inheritedConfig = Path.Combine(scratch, "inherited");
+        var work = new CredentialProfile("claude-code", "work", Path.Combine(scratch, "work"), null);
+        var other = new CredentialProfile("claude-code", "other", Path.Combine(scratch, "other"), null);
+        var helper = new CredentialProfile("claude-code", "ci", null, "print-key");
+        string coaDirectory = Path.Combine(temp.Home.Path, "coa-bin");
+        (string, string)[] skipping = [.. ClaudeCodeInvocation.HookSkippingVariables.Select(name => (name, "1"))];
+        var executor = new ClaudeCodeExecutor(
+            FakeClaude.Executable,
+            temp.Home,
+            fake.Environment([.. skipping, ("CLAUDE_CONFIG_DIR", inheritedConfig)]),
+            coaDirectory,
+            [work, other, helper]);
+
+        JudgmentOutcome outcome = await Judgment.RunAsync(executor, Request(work), None);
+
+        outcome.Should().BeOfType<JudgmentOutcome.Answered>();
+        ClaudeCodeInvocation.HookSkippingVariables.Should().Contain(["CLAUDE_CODE_SAFE_MODE", "CLAUDE_CODE_SIMPLE"]);
+        fake.Starts.Should().HaveCount(2, "the spawn's process and the retry's process");
+        foreach (FakeClaude.Start start in fake.Starts)
+        {
+            start.Environment.Keys.Should().NotContain(ClaudeCodeInvocation.HookSkippingVariables);
+            start.Arguments.Should().NotContain(["--bare", "--safe-mode"]);
+            start.Arguments.Count(a => a == "--settings").Should().Be(1, "the guard reaches the session in the one settings document");
+
+            JsonElement settings = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement;
+            settings.GetProperty("disableAllHooks").GetBoolean().Should().BeFalse();
+            JsonElement entry = settings.GetProperty("hooks").GetProperty("PreToolUse").EnumerateArray().Should().ContainSingle().Subject;
+            entry.GetProperty("matcher").GetString().Should().Be("Read|Edit|Write|Glob|Grep|Bash");
+            JsonElement hook = entry.GetProperty("hooks").EnumerateArray().Should().ContainSingle().Subject;
+            hook.GetProperty("type").GetString().Should().Be("command");
+            hook.GetProperty("command").GetString().Should().Be(ClaudeCodeExecutor.CoaExecutable(coaDirectory));
+            Path.IsPathFullyQualified(hook.GetProperty("command").GetString() ?? string.Empty).Should().BeTrue();
+            hook.GetProperty("onFailure").GetString().Should().Be("block");
+
+            List<string> arguments = [.. hook.GetProperty("args").EnumerateArray().Select(a => a.GetString() ?? string.Empty)];
+            ToolGuardRules rules = ToolGuardRules.Parse(arguments, out string? problem).Should().NotBeNull(problem).And.Subject.As<ToolGuardRules>();
+            rules.NodeHome.Should().Be(temp.Home.Path);
+            rules.WorkDirectory.Should().Be(WorkDirectory);
+            rules.SessionConfigDirectory.Should().Be(work.ConfigDirectory);
+            rules.ProtectedConfigDirectories.Should().BeEquivalentTo([work.ConfigDirectory, other.ConfigDirectory, inheritedConfig]);
+        }
+
+        fake.Starts[1].After("--settings").Should().Be(fake.Starts[0].After("--settings"), "a retry resumes with the same settings document");
+    }
+
+    [Fact]
+    public async Task With_no_inherited_config_directory_the_guard_protects_the_one_under_the_home_directory()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
+        string userHome = Path.Combine(fake.Control, "user");
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment((OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME", userHome)));
+
+        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await executor.CollectAsync(handle, None);
+
+        ToolGuardRules rules = GuardOf(fake.Starts.Should().ContainSingle().Subject);
+        rules.SessionConfigDirectory.Should().Be(Path.Combine(userHome, ".claude"));
+    }
+
+    /// <summary>The arguments with the tool guard and the setting that keeps hooks on taken out of the settings document.</summary>
+    private static List<string> WithoutGuard(IReadOnlyList<string> arguments)
+    {
+        List<string> stripped = [.. arguments];
+        int index = stripped.IndexOf("--settings");
+        if (index >= 0 && index + 1 < stripped.Count)
+        {
+            var settings = (System.Text.Json.Nodes.JsonObject?)System.Text.Json.Nodes.JsonNode.Parse(stripped[index + 1]) ?? [];
+            settings.Remove("hooks");
+            settings.Remove("disableAllHooks");
+            stripped[index + 1] = settings.ToJsonString();
+        }
+
+        return stripped;
+    }
+
+    private static ToolGuardRules GuardOf(FakeClaude.Start start)
+    {
+        JsonElement hook = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement
+            .GetProperty("hooks").GetProperty("PreToolUse")[0].GetProperty("hooks")[0];
+        List<string> arguments = [.. hook.GetProperty("args").EnumerateArray().Select(a => a.GetString() ?? string.Empty)];
+        return ToolGuardRules.Parse(arguments, out _) ?? throw new InvalidOperationException("The hook's arguments do not parse.");
     }
 
     private JudgmentRequest Request(CredentialProfile? profile = null) =>

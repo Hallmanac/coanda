@@ -50,7 +50,7 @@ public static class NodeConfiguration
 
         if (!File.Exists(path))
         {
-            return new DaemonOptions { Executor = ClaudeCodeOf(home, Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable) };
+            return new DaemonOptions { Executor = ClaudeCodeOf(home, Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable, []) };
         }
 
         string text;
@@ -79,15 +79,16 @@ public static class NodeConfiguration
         }
 
         string? claudeExecutable = Given(file.ClaudeExecutable);
+        List<CredentialProfile> profiles = Profiles(home, path, file.Profiles);
         IAgentExecutor executor = (file.Executor, claudeExecutable) switch
         {
-            (ClaudeCodeExecutor, _) => ClaudeCodeOf(home, Executable(home, path, claudeExecutable)),
+            (ClaudeCodeExecutor, _) => ClaudeCodeOf(home, Executable(home, path, claudeExecutable), profiles),
             (ScriptedExecutor, null) => new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()),
             (ScriptedExecutor, { }) => throw Refused(path, $"gives a \"claudeExecutable\" while the executor is \"{ScriptedExecutor}\"; the path is read only under \"{ClaudeCodeExecutor}\"."),
             _ => throw Refused(path, $"names the executor '{file.Executor}', which is not a key this daemon knows; the keys are \"{ClaudeCodeExecutor}\" and \"{ScriptedExecutor}\"."),
         };
 
-        return new DaemonOptions { Executor = executor, Profiles = Profiles(home, path, file.Profiles) };
+        return new DaemonOptions { Executor = executor, Profiles = profiles };
     }
 
     /// <summary>
@@ -97,8 +98,8 @@ public static class NodeConfiguration
     /// </summary>
     public static string CoaDirectory => Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
 
-    private static ClaudeCodeExecutor ClaudeCodeOf(NodeHome home, string executable) =>
-        new(executable, home, Executors.ClaudeCode.ClaudeCodeExecutor.CurrentEnvironment(), CoaDirectory);
+    private static ClaudeCodeExecutor ClaudeCodeOf(NodeHome home, string executable, IReadOnlyList<CredentialProfile> profiles) =>
+        new(executable, home, Executors.ClaudeCode.ClaudeCodeExecutor.CurrentEnvironment(), CoaDirectory, profiles);
 
     /// <summary>
     /// The claude executable to run: the default name when none is given, a bare name as given (it is
