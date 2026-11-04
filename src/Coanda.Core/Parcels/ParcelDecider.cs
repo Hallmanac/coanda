@@ -7,6 +7,7 @@ namespace Coanda.Core.Parcels;
 /// The rules of a parcel's lifecycle, as pure decisions: given the type, the current parcel, and
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
 /// The decider is given the gates the daemon runs; a move or a close runs every gate its type binds to it.
+/// A field is set only to a non-empty value of the kind the type declares it.
 /// A parcel a live flow holds (running or paused) is closed by nobody and moved only by that flow.
 /// </summary>
 public static class ParcelDecider
@@ -65,7 +66,7 @@ public static class ParcelDecider
 
         foreach (GateBinding binding in type.GatesOn(parcel.State, toState))
         {
-            RequirePasses(binding, gates, parcel, toState);
+            RequirePasses(binding, gates, type, parcel, toState);
         }
 
         return new ParcelMoved(parcel.Id, parcel.State, toState, movedBy, now);
@@ -96,19 +97,81 @@ public static class ParcelDecider
 
         foreach (GateBinding binding in type.GatesOn(parcel.State, type.TerminalState))
         {
-            RequirePasses(binding, gates, parcel, type.TerminalState);
+            RequirePasses(binding, gates, type, parcel, type.TerminalState);
         }
 
         return new ParcelClosed(parcel.Id, parcel.State, type.TerminalState, resolution, reason.Trim(), closedBy, now);
     }
 
-    private static void RequirePasses(GateBinding binding, GateSet gates, Parcel parcel, string toState)
+    /// <summary>
+    /// Records a value in one of the parcel's fields, replacing the value it held. The field must be
+    /// one the parcel's type version declares, the value must be of the field's kind, and it must not
+    /// be empty, so a field that has been set always holds a value. A closed parcel is set by nobody.
+    /// </summary>
+    public static ParcelFieldSet SetField(
+        ParcelType type, Parcel parcel, string field, FieldValue value, string setBy, DateTimeOffset now)
+    {
+        if (parcel.IsClosed)
+        {
+            throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is closed ({parcel.Resolution}); a closed parcel's fields are set by nobody.");
+        }
+
+        RequireType(type, parcel);
+
+        FieldDeclaration declared = type.Field(field)
+            ?? throw new DomainException(
+                $"Parcel type '{type.Name}' declares no field '{field}'; a parcel holds values only in the fields its type declares"
+                + (type.Fields.Count == 0 ? ", and it declares none." : $": {string.Join(", ", type.Fields.Select(f => f.Name))}."));
+
+        // A request read from the wire can carry no value at all, whatever the annotations say.
+        if (value is null)
+        {
+            throw new DomainException($"No value was given for field '{declared.Name}'; a field is set to a value of its own kind.");
+        }
+
+        if (!string.Equals(value.Kind, declared.Kind, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"Field '{declared.Name}' of a '{type.Name}' holds a {Describe(declared.Kind)}, and the value given is {(value.Kind is null ? "not one kind of value" : $"a {Describe(value.Kind)}")}; a field takes only a value of its own kind.");
+        }
+
+        if (IsEmpty(value))
+        {
+            throw new DomainException(
+                $"The value given for field '{declared.Name}' is empty; a field takes no empty value: no text that is empty or only white space, no list without items or with an empty item, and no reference without an identifier.");
+        }
+
+        FieldValue recorded = value.Reference is { } reference && string.IsNullOrWhiteSpace(reference.Url)
+            ? value with { Reference = reference with { Url = null } }
+            : value;
+        return new ParcelFieldSet(parcel.Id, declared.Name, recorded, setBy, now);
+    }
+
+    private static bool IsEmpty(FieldValue value) => value switch
+    {
+        { Text: { } text } => string.IsNullOrWhiteSpace(text),
+        { Items: { } items } => items.Count == 0 || items.Any(string.IsNullOrWhiteSpace),
+        { Reference: { } reference } => string.IsNullOrWhiteSpace(reference.Id),
+        _ => true,
+    };
+
+    private static string Describe(string kind) => kind switch
+    {
+        FieldKinds.TextList => "list of text",
+        _ => kind,
+    };
+
+    /// <summary>
+    /// Runs the gate the binding names on the move the binding stands for, which is the move being
+    /// made except out of the paused state, where it is the bound move into the same target.
+    /// </summary>
+    private static void RequirePasses(GateBinding binding, GateSet gates, ParcelType type, Parcel parcel, string toState)
     {
         IGate gate = gates.Find(binding.Gate)
             ?? throw new DomainException(
                 $"The gate '{binding.Gate}' bound to the move to '{toState}' is not a gate this daemon runs, so the move is refused.");
 
-        if (gate.Check(parcel, parcel.State, toState) is GateVerdict.Failed failed)
+        if (gate.Check(parcel, type, binding.From, binding.To) is GateVerdict.Failed failed)
         {
             throw new DomainException($"The gate '{binding.Gate}' refused the move from '{parcel.State}' to '{toState}': {failed.Reason}");
         }

@@ -15,6 +15,7 @@ public static class CommandRegistry
         new("parcel.show", EntryKind.Query, "Show one parcel.", Everyone),
         new("parcel.add", EntryKind.Command, "Create a parcel of a type at an entry state.", People),
         new("parcel.move", EntryKind.Command, "Move a parcel to a state its type allows.", Everyone),
+        new("parcel.set-field", EntryKind.Command, "Record a value in one of a parcel's fields, replacing the value it held.", Everyone),
         new("parcel.close", EntryKind.Command, "Close a parcel with a resolution and a reason.", People),
         new("type.list", EntryKind.Query, "List the installed parcel types.", Everyone),
         new("contour.list", EntryKind.Query, "List the contours that govern a project.", Everyone),

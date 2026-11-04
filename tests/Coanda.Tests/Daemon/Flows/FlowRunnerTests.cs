@@ -803,6 +803,7 @@ public sealed class FlowRunnerTests
             var parcels = new Coanda.Daemon.Parcels.ParcelService(store, TimeProvider.System);
             var flows = new FlowService(store, TimeProvider.System);
             var parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Half done", null, None);
+            await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, cancellationToken: None);
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             Flow flow = await flows.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             await flows.RecordResultAsync(

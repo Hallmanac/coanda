@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Coanda.Core;
+using Coanda.Core.Parcels;
 using Coanda.Daemon;
 using Coanda.Daemon.Api.Endpoints;
 using Spectre.Console;
@@ -102,6 +103,10 @@ public sealed class ParcelShowCommand : AsyncCommand<ParcelIdSettings>
         }
 
         table.AddRow("Flow", parcel.LiveFlowId is Guid flow ? flow.ToString() : "none");
+        foreach (string[] row in ParcelRendering.FieldRows(parcel))
+        {
+            table.AddRow(row);
+        }
 
         AnsiConsole.Write(table);
         return 0;
@@ -124,6 +129,54 @@ public sealed class ParcelMoveCommand : AsyncCommand<ParcelMoveSettings>
         ParcelView found = await ParcelLookup.FindAsync(client, project, settings.Id, cancellationToken);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(project, found.Id, settings.To), cancellationToken);
         AnsiConsole.MarkupLineInterpolated($"Moved {Ids.Short(parcel.Id)} from {found.State} to {parcel.State}.");
+        return 0;
+    }
+}
+
+public sealed class ParcelSetSettings : ParcelIdSettings
+{
+    [CommandArgument(1, "<FIELD>")]
+    [Description("The field to set, one the parcel's type declares; `coa parcel show` lists them.")]
+    public required string Field { get; init; }
+
+    [CommandOption("--text <TEXT>")]
+    [Description("The value of a text field.")]
+    public string? Text { get; init; }
+
+    [CommandOption("--item <ITEM>")]
+    [Description("One item of a list field's value; repeat it for each item, in order.")]
+    public string[]? Items { get; init; }
+
+    [CommandOption("--ref <ID>")]
+    [Description("The identifier of a reference field's value.")]
+    public string? Reference { get; init; }
+
+    [CommandOption("--url <URL>")]
+    [Description("The URL of a reference field's value, alongside --ref; optional.")]
+    public string? Url { get; init; }
+
+    /// <summary>
+    /// The value as given, in whichever shapes the options name. Whether it is the field's kind, and
+    /// not empty, is the daemon's to decide, so a value giving no shape or two is sent as it is.
+    /// </summary>
+    public FieldValue ToValue() => new()
+    {
+        Text = Text,
+        Items = Items is { Length: > 0 } ? Items : null,
+        Reference = Reference is null && Url is null ? null : new FieldReference(Reference ?? string.Empty, Url),
+    };
+}
+
+public sealed class ParcelSetCommand : AsyncCommand<ParcelSetSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, ParcelSetSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        ParcelView found = await ParcelLookup.FindAsync(client, project, settings.Id, cancellationToken);
+        ParcelView parcel = await client.PostAsync<ParcelView>(
+            "/parcels/set-field", new ParcelSetFieldRequest(project, found.Id, settings.Field, settings.ToValue()), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Set {settings.Field} on {Ids.Short(parcel.Id)}.");
         return 0;
     }
 }

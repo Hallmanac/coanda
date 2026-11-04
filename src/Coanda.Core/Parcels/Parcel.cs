@@ -40,7 +40,17 @@ public sealed class Parcel
     [JsonInclude]
     public Guid? LiveFlowId { get; private set; }
 
+    /// <summary>
+    /// The value of each field that has been set, by field name. A field that was never set has no
+    /// entry, and a parcel recorded before fields existed reads with none.
+    /// </summary>
+    [JsonInclude]
+    public IReadOnlyDictionary<string, FieldValue> Fields { get; private set; } = new Dictionary<string, FieldValue>(StringComparer.Ordinal);
+
     public bool IsClosed => Resolution is not null;
+
+    /// <summary>The value the field holds, or null when it has never been set.</summary>
+    public FieldValue? ValueOf(string field) => Fields.GetValueOrDefault(field);
 
     public static Parcel Create(ParcelCreated created)
     {
@@ -67,6 +77,12 @@ public sealed class Parcel
     {
         State = moved.ToState;
         UpdatedAt = moved.MovedAt;
+    }
+
+    public void Apply(ParcelFieldSet set)
+    {
+        Fields = new Dictionary<string, FieldValue>(Fields, StringComparer.Ordinal) { [set.Field] = set.Value };
+        UpdatedAt = set.SetAt;
     }
 
     public void Apply(ParcelClosed closed)

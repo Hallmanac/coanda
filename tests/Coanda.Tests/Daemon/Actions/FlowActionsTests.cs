@@ -171,6 +171,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     private async Task<Parcel> TaskAtAsync(string state)
     {
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Act on me", null, CancellationToken.None);
+        await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, cancellationToken: CancellationToken.None);
         return state == parcel.State
             ? parcel
             : await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, state, CancellationToken.None);

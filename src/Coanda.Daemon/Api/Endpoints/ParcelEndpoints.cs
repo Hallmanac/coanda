@@ -1,5 +1,7 @@
 using Coanda.Core;
 using Coanda.Core.Parcels;
+using Coanda.Core.Registry;
+using Coanda.Core.Types;
 using Coanda.Daemon.Parcels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -15,43 +17,73 @@ public static class ParcelEndpoints
 
         group.MapGet("", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
             {
-                IReadOnlyList<Parcel> list = await parcels.ListAsync(RequestPrincipal.PrincipalOf(context), project, cancellationToken);
-                List<ParcelView> views = [.. list.Select(ParcelView.From)];
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                IReadOnlyList<Parcel> list = await parcels.ListAsync(principal, project, cancellationToken);
+                var types = new Dictionary<string, ParcelType?>(StringComparer.Ordinal);
+                List<ParcelView> views = [];
+                foreach (Parcel parcel in list)
+                {
+                    if (!types.TryGetValue(parcel.TypeHash, out ParcelType? type))
+                    {
+                        type = await parcels.TypeVersionAsync(principal, project, parcel.TypeHash, cancellationToken);
+                        types[parcel.TypeHash] = type;
+                    }
+
+                    views.Add(ParcelView.From(parcel, type));
+                }
+
                 return Results.Ok(views);
             })
             .Produces<List<ParcelView>>();
 
         group.MapGet("/{id:guid}", async (HttpContext context, ParcelService parcels, Guid id, string project, CancellationToken cancellationToken) =>
             {
-                Parcel? parcel = await parcels.ShowAsync(RequestPrincipal.PrincipalOf(context), project, id, cancellationToken);
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Parcel? parcel = await parcels.ShowAsync(principal, project, id, cancellationToken);
                 return parcel is null
                     ? Results.NotFound(new ErrorView($"No parcel {Ids.Short(id)} in project '{project}'."))
-                    : Results.Ok(ParcelView.From(parcel));
+                    : Results.Ok(await ViewAsync(parcels, principal, project, parcel, cancellationToken));
             })
             .Produces<ParcelView>()
             .Produces<ErrorView>(StatusCodes.Status404NotFound);
 
         group.MapPost("", async (HttpContext context, ParcelService parcels, ParcelAddRequest request, CancellationToken cancellationToken) =>
             {
-                Parcel parcel = await parcels.AddAsync(RequestPrincipal.PrincipalOf(context), request.Project, request.Type, request.Title, request.State, cancellationToken);
-                return Results.Created($"/parcels/{parcel.Id}", ParcelView.From(parcel));
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Parcel parcel = await parcels.AddAsync(principal, request.Project, request.Type, request.Title, request.State, cancellationToken);
+                return Results.Created($"/parcels/{parcel.Id}", await ViewAsync(parcels, principal, request.Project, parcel, cancellationToken));
             })
             .Produces<ParcelView>(StatusCodes.Status201Created);
 
         group.MapPost("/move", async (HttpContext context, ParcelService parcels, ParcelMoveRequest request, CancellationToken cancellationToken) =>
             {
-                Parcel parcel = await parcels.MoveAsync(RequestPrincipal.PrincipalOf(context), request.Project, request.ParcelId, request.To, cancellationToken);
-                return Results.Ok(ParcelView.From(parcel));
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Parcel parcel = await parcels.MoveAsync(principal, request.Project, request.ParcelId, request.To, cancellationToken);
+                return Results.Ok(await ViewAsync(parcels, principal, request.Project, parcel, cancellationToken));
             })
             .Produces<ParcelView>();
 
         group.MapPost("/close", async (HttpContext context, ParcelService parcels, ParcelCloseRequest request, CancellationToken cancellationToken) =>
             {
-                Parcel parcel = await parcels.CloseAsync(RequestPrincipal.PrincipalOf(context), request.Project, request.ParcelId, request.Resolution, request.Reason, cancellationToken);
-                return Results.Ok(ParcelView.From(parcel));
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Parcel parcel = await parcels.CloseAsync(principal, request.Project, request.ParcelId, request.Resolution, request.Reason, cancellationToken);
+                return Results.Ok(await ViewAsync(parcels, principal, request.Project, parcel, cancellationToken));
+            })
+            .Produces<ParcelView>();
+
+        group.MapPost("/set-field", async (HttpContext context, ParcelService parcels, ParcelSetFieldRequest request, CancellationToken cancellationToken) =>
+            {
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Parcel parcel = await parcels.SetFieldAsync(principal, request.Project, request.ParcelId, request.Field, request.Value, cancellationToken);
+                return Results.Ok(await ViewAsync(parcels, principal, request.Project, parcel, cancellationToken));
             })
             .Produces<ParcelView>();
 
         return routes;
     }
+
+    /// <summary>The parcel with the fields of the type version it was created under.</summary>
+    private static async Task<ParcelView> ViewAsync(
+        ParcelService parcels, Principal principal, string project, Parcel parcel, CancellationToken cancellationToken) =>
+        ParcelView.From(parcel, await parcels.TypeVersionAsync(principal, project, parcel.TypeHash, cancellationToken));
 }

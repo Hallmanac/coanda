@@ -12,7 +12,7 @@ public sealed class ParcelTypeTests
     {
         foreach (ParcelType type in ShippedTypes.All)
         {
-            type.Validate(GateSet.None.Names);
+            type.Validate(GateSet.Shipped.Names);
             type.Hash.Should().HaveLength(16);
         }
 
@@ -39,7 +39,7 @@ public sealed class ParcelTypeTests
     public void A_type_without_a_terminal_state_is_refused()
     {
         ParcelType broken = ShippedTypes.Task with { TerminalState = "finished" };
-        FluentActions.Invoking(() => broken.Validate(GateSet.None.Names)).Should().Throw<DomainException>().WithMessage("*terminal state*");
+        FluentActions.Invoking(() => broken.Validate(GateSet.Shipped.Names)).Should().Throw<DomainException>().WithMessage("*terminal state*");
     }
 
     [Fact]
@@ -49,6 +49,6 @@ public sealed class ParcelTypeTests
         {
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["shipping"] },
         };
-        FluentActions.Invoking(() => broken.Validate(GateSet.None.Names)).Should().Throw<DomainException>().WithMessage("*does not have*");
+        FluentActions.Invoking(() => broken.Validate(GateSet.Shipped.Names)).Should().Throw<DomainException>().WithMessage("*does not have*");
     }
 }

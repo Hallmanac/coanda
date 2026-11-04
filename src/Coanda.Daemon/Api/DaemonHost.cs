@@ -61,7 +61,8 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
-        builder.Services.AddSingleton(new GateSet(options.Gates));
+        // The shipped gates run whatever the options name; the options add gates, never remove one.
+        builder.Services.AddSingleton(new GateSet([.. GateSet.ShippedGates, .. options.Gates]));
         // Contours are validated against the actions the daemon registered, not a catalog of their own.
         builder.Services.AddSingleton(services => new DefinitionService(
             services.GetRequiredService<IDocumentStore>(),

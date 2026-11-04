@@ -15,8 +15,8 @@ public sealed record DaemonOptions
     public IAgentExecutor? Executor { get; init; }
 
     /// <summary>
-    /// The gates the daemon runs, which moves pass through and drafted parcel types are validated
-    /// against; none when none is given, which is the shipped gate set.
+    /// The gates the daemon runs beside the shipped gate set, which it always runs; moves pass
+    /// through them and drafted parcel types are validated against them. None by default.
     /// </summary>
     public IReadOnlyList<IGate> Gates { get; init; } = [];
 
