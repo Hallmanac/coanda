@@ -13,3 +13,6 @@ public sealed record ScriptedSpawn(
 
 /// <summary>A resume or send message the <see cref="ScriptedExecutor"/> received.</summary>
 public sealed record ScriptedMessage(SessionHandle Handle, string Message);
+
+/// <summary>A reattach the <see cref="ScriptedExecutor"/> answered with a session it held, and the access it was given.</summary>
+public sealed record ScriptedReattach(SessionHandle Handle, SessionAccess? Access);

@@ -20,6 +20,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     private readonly List<ScriptedMessage> resumes = [];
     private readonly List<ScriptedMessage> sends = [];
     private readonly List<SessionHandle> stops = [];
+    private readonly List<ScriptedReattach> reattaches = [];
 
     public IReadOnlyList<ScriptedSpawn> Spawns => Snapshot(spawns);
 
@@ -28,6 +29,9 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     public IReadOnlyList<ScriptedMessage> Sends => Snapshot(sends);
 
     public IReadOnlyList<SessionHandle> Stops => Snapshot(stops);
+
+    /// <summary>Every reattach of a session the executor held, with the access it was given.</summary>
+    public IReadOnlyList<ScriptedReattach> Reattaches => Snapshot(reattaches);
 
     public ValueTask<SessionHandle> SpawnAsync(
         AgentDefinition agent,
@@ -132,7 +136,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         }
     }
 
-    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
+    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
@@ -141,6 +145,11 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
             ReattachedSession? held = sessions.TryGetValue(handle.Id, out Session? session) && !session.Stopped
                 ? new ReattachedSession(session.Handle, session.Attempt, session.Earlier)
                 : null;
+            if (held is not null)
+            {
+                reattaches.Add(new ScriptedReattach(held.Handle, access));
+            }
+
             return ValueTask.FromResult(held);
         }
     }

@@ -125,9 +125,9 @@ public sealed class ScriptedExecutorTests
         SessionHandle stopped = await Spawn(executor);
         await executor.StopAsync(stopped, token);
 
-        (await executor.ReattachAsync(issued with { }, token)).Should().Be(ReattachedSession.OnSpawn(issued));
-        (await executor.ReattachAsync(new SessionHandle(Ids.New(), "build"), token)).Should().BeNull();
-        (await executor.ReattachAsync(stopped, token)).Should().BeNull();
+        (await executor.ReattachAsync(issued with { }, access: null, token)).Should().Be(ReattachedSession.OnSpawn(issued));
+        (await executor.ReattachAsync(new SessionHandle(Ids.New(), "build"), access: null, token)).Should().BeNull();
+        (await executor.ReattachAsync(stopped, access: null, token)).Should().BeNull();
     }
 
     [Fact]

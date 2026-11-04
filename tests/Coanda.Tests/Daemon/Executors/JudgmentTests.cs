@@ -182,7 +182,7 @@ public sealed class JudgmentTests
         await run.Should().ThrowAsync<OperationCanceledException>();
         executor.Stops.Should().BeEmpty();
         SessionHandle taken = received.Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
-        (await executor.ReattachAsync(taken, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(taken));
+        (await executor.ReattachAsync(taken, access: null, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(taken));
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public sealed class JudgmentTests
         SessionHandle held = await SpawnAsync(executor);
         await executor.CollectAsync(held, CancellationToken.None);
         await executor.ResumeAsync(held, "Answer again.", CancellationToken.None);
-        ReattachedSession retrying = (await executor.ReattachAsync(held, CancellationToken.None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
+        ReattachedSession retrying = (await executor.ReattachAsync(held, access: null, CancellationToken.None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
         retrying.Should().Be(new ReattachedSession(held, 2, FirstUsage));
         var spend = new JudgmentSpend();
 
@@ -323,7 +323,7 @@ public sealed class JudgmentTests
 
         await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no entry 1*");
         executor.Stops.Should().BeEmpty("a failure while the daemon stops is a daemon stop, whatever its type");
-        (await executor.ReattachAsync(held, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(held));
+        (await executor.ReattachAsync(held, access: null, CancellationToken.None)).Should().Be(ReattachedSession.OnSpawn(held));
     }
 
     [Fact]

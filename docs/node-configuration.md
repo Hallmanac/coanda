@@ -74,7 +74,9 @@ retried a second time, and the turn before the retry counts toward what it spent
 wall-clock limit still runs from when its session was launched. A session that finished while the daemon was down is collected the same way.
 When the session cannot be found again (its process exited without an answer, or the daemon stopped
 before it recorded the session), the flow pauses saying that the session was lost and its usage was
-not observed, and resuming the flow performs the step again with a new session. At start, the
+not observed, and resuming the flow performs the step again with a new session. A session whose
+record the daemon could not read back is stopped before the flow pauses, so it does not go on
+running unobserved. At start, the
 daemon also stops every recorded session that no running flow is waiting on.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
@@ -113,6 +115,12 @@ token resolves until the launch's answer is recorded, its flow pauses, stops, or
 judgment launches again; after that it is refused like any token the daemon did not issue, even
 once the flow is resumed. The daemon keeps only a hash of each token, in memory, so a token does not
 survive a daemon restart.
+
+When a restarted daemon reattaches a session, it issues that session a new token for the same
+launch, and the session's retry, if it needs one, starts with the new token and the other variables
+above. The process that was already running across the restart keeps the token the earlier daemon
+issued, which the new daemon refuses, so that process's `coa` calls back to the daemon fail until
+it exits. Its answer is still collected from the transcript.
 
 The token governs what a session's calls may record. It does not confine the session's process,
 which runs as your user and can read whatever you can; the tool guard below keeps the session's own

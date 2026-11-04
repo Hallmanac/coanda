@@ -393,7 +393,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// process is and the usage its earlier attempts' collects returned, finding it from its record
     /// when this executor has not met it, as after a daemon restart; null when it is not held.
     /// </summary>
-    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
+    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, SessionAccess? access, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
@@ -404,6 +404,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         lock (gate)
         {
+            if (access is not null)
+            {
+                session.Environment = ClaudeCodeInvocation.Environment(environment, session.Profile, access, coaDirectory);
+            }
+
             return session.Current is { } attempt
                 ? ValueTask.FromResult<ReattachedSession?>(new ReattachedSession(session.Handle, attempt.Ordinal, session.EarlierUsage))
                 : ValueTask.FromResult<ReattachedSession?>(null);
@@ -488,7 +493,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             record.Persona,
             record.Arguments,
             record.Profile,
-            ClaudeCodeInvocation.Environment(environment, record.Profile),
+            ClaudeCodeInvocation.Environment(environment, record.Profile, access: null, coaDirectory),
             record.CeilingUsd,
             record.TranscriptPath)
         {
@@ -677,7 +682,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         /// <summary>The credential profile of the spawn, which a later daemon rebuilds the environment from.</summary>
         public CredentialProfile? Profile { get; } = profile;
 
-        public IReadOnlyDictionary<string, string> Environment { get; } = environment;
+        /// <summary>
+        /// The environment the session's next process starts with. A session found from its record
+        /// has none of the access its spawn carried until a reattach hands it fresh access.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> Environment { get; set; } = environment;
 
         public decimal CeilingUsd { get; } = ceilingUsd;
 

@@ -91,6 +91,60 @@ public sealed class FlowRestartTests
     }
 
     [Fact]
+    public async Task A_reattached_session_is_handed_a_token_the_new_daemon_issued_for_the_recorded_launch_which_resolves_until_its_answer_is_recorded()
+    {
+        using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Reissued");
+        SessionAccess spawned = stalled.Inner.Spawns.Single().Access ?? throw new InvalidOperationException("The spawn carried no session access.");
+        Guid launch = await LaunchIdAsync(temp, flowId);
+
+        var held = new GatedExecutor(stalled.Inner);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = held }, None);
+        using var again = new DaemonClient(temp.Home);
+        await held.Holding.WaitAsync(TimeSpan.FromSeconds(30));
+
+        SessionAccess reissued = held.Inner.Reattaches.Where(r => r.Handle == issued).Select(r => r.Access).OfType<SessionAccess>().Should().ContainSingle().Subject;
+        reissued.NodeHome.Should().Be(temp.Home.Path);
+        reissued.Project.Should().Be(Project);
+        reissued.Token.Should().NotBe(spawned.Token);
+        SessionTokens tokens = second.Services.GetRequiredService<SessionTokens>();
+        Principal? principal = await tokens.ResolveAsync(reissued.Token, None);
+        principal?.Session.Should().Be(new SessionBinding(Project, flowId, launch), "the token is bound to the launch the restart found");
+        (await tokens.ResolveAsync(spawned.Token, None)).Should().BeNull("a token the earlier daemon issued is not kept across the restart");
+
+        held.Open();
+        await Flowing.UntilAsync(again, Project, flowId, "ended");
+        (await tokens.ResolveAsync(reissued.Token, None)).Should().BeNull("the token is revoked once the reattached judgment ends");
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_reattach_that_fails_stops_the_session_before_the_flow_pauses_as_lost()
+    {
+        using var temp = new TemporaryHome();
+        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
+        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Unreachable");
+
+        var failing = new GatedExecutor(stalled.Inner)
+        {
+            BeforeReattach = handle => throw new IOException($"The record of session {handle.Id} could not be read."),
+        };
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = failing }, None);
+        using var again = new DaemonClient(temp.Home);
+        FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
+
+        paused.PauseReason.Should().Be(
+            $"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which could not be reattached), so its usage was not observed.");
+        paused.Lever.Should().Be(FlowLevers.PerformAgain("build"));
+        failing.Inner.Stops.Should().Equal(issued);
+        failing.Inner.Spawns.Should().ContainSingle();
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_restart_during_the_retry_collects_the_retry_without_another_and_pauses_with_the_whole_sessions_usage()
     {
         using var temp = new TemporaryHome();
@@ -399,6 +453,13 @@ public sealed class FlowRestartTests
         }
 
         return (flowId, issued);
+    }
+
+    private static async Task<Guid> LaunchIdAsync(TemporaryHome temp, Guid flowId)
+    {
+        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        Flow? flow = await new FlowService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowId, None);
+        return flow?.Current?.LaunchId ?? throw new InvalidOperationException("The flow's visit recorded no launch id.");
     }
 
     private static async Task<DateTimeOffset> LaunchedAtAsync(TemporaryHome temp, Guid flowId)
