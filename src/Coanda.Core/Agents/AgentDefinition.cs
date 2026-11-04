@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace Coanda.Core.Agents;
 
 /// <summary>
-/// The definition of an agent: a persona in five parts, a model triple, a tool set, skills and MCP
+/// The definition of an agent: a persona in five parts, a model spec, a tool set, skills and MCP
 /// servers by name, and the name of the one answer schema its judgments end in. An agent is data
 /// the daemon validates at load; the five shipped ones are built in <see cref="ShippedAgents"/>
 /// and a user's agent is the same shape.
@@ -14,7 +14,7 @@ public sealed record AgentDefinition
 {
     public required string Name { get; init; }
     public required AgentPersona Persona { get; init; }
-    public required ModelTriple Model { get; init; }
+    public required ModelSpec Model { get; init; }
     /// <summary>Names from <see cref="ToolCatalog"/>.</summary>
     public required IReadOnlyList<string> Tools { get; init; }
     /// <summary>Vendor-native skills, referenced by name.</summary>
@@ -46,9 +46,9 @@ public sealed record AgentDefinition
         RequirePart(Persona?.Rules, "rules", "persona");
         RequirePart(Persona?.Prohibitions, "prohibitions", "persona");
 
-        RequirePart(Model?.Vendor, "a vendor", "model triple");
-        RequirePart(Model?.Model, "a model", "model triple");
-        RequirePart(Model?.Effort, "an effort", "model triple");
+        RequirePart(Model?.Vendor, "a vendor", "model spec");
+        RequirePart(Model?.Model, "a model", "model spec");
+        RequirePart(Model?.Effort, "an effort", "model spec");
 
         if (string.IsNullOrWhiteSpace(AnswerSchema))
         {

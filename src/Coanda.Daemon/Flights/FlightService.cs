@@ -112,7 +112,7 @@ public sealed class FlightService(IDocumentStore store, TimeProvider clock, IFli
         string step,
         string agent,
         string agentHash,
-        ModelTriple model,
+        ModelSpec model,
         JsonElement answer,
         Measurement measurement,
         CancellationToken cancellationToken) =>

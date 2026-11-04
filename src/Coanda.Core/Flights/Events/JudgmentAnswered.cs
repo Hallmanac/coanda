@@ -9,7 +9,7 @@ public sealed record JudgmentAnswered(
     string Step,
     string Agent,
     string AgentHash,
-    ModelTriple Model,
+    ModelSpec Model,
     JsonElement Answer,
     Measurement Measurement,
     DateTimeOffset AnsweredAt);

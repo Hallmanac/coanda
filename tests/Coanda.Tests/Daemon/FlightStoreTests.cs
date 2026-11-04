@@ -21,7 +21,7 @@ public sealed class FlightStoreTests
 {
     private const string Project = "alpha";
     private static readonly Principal Owner = Principal.LocalOwner;
-    private static readonly ModelTriple Model = new("anthropic", "claude-opus-5-5", "high");
+    private static readonly ModelSpec Model = new("anthropic", "claude-opus-5-5", "high");
     private static readonly Measurement Spend = new(1200, 0.42m, 3, TimeSpan.FromSeconds(63));
 
     private static JsonElement Json(string json)

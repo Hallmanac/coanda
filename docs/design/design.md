@@ -211,7 +211,7 @@ silently replaced. A shareable template is an export of a set of definitions; im
 them.
 
 An agent definition holds a persona prompt (role, purpose, output, rules, prohibitions), a model
-triple (vendor, model, effort), a tool set, skills by name, MCP servers, and the answer schema.
+spec (vendor, model, effort), a tool set, skills by name, MCP servers, and the answer schema.
 Per-parcel context (criteria, journal, notes, code) is assembled by the daemon per step from
 declared sources and never folded into the agent. Skills stay vendor-native repo files referenced
 by name. Credentials are per node, never in the store.
@@ -221,7 +221,7 @@ by name. Credentials are per node, never in the store.
 One interface: spawn, collect, resume, send into a live session, stop, list, reattach after a
 daemon restart. An adapter per vendor renders an agent definition into the vendor's invocation:
 persona to system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config,
-skills to tier paths, model triple to flags; caps passed natively where the vendor has them, with
+skills to tier paths, model spec to flags; caps passed natively where the vendor has them, with
 the daemon's timer authoritative. Every judgment ends in one JSON document validated against the
 step's schema; invalid or missing is retried once, then the parcel parks with the transcript as the
 lever. hall9k's fifteen marker-line grammars do not exist.
@@ -233,7 +233,7 @@ spawned process, documented for multiple accounts) or an API key helper. Subscri
 cannot use bare mode; the Agent SDK may not use subscription logins at all, which confirms the CLI
 adapter as primary.
 
-Measurement on every spawn, as events on the parcel: flow hash, agent hash, model triple, tokens,
+Measurement on every spawn, as events on the parcel: flow hash, agent hash, model spec, tokens,
 cost, turns, duration, answer.
 
 Two adapters in the box: Claude Code headless, and a scripted adapter returning canned answers so
