@@ -39,7 +39,8 @@ namespace Coanda.Daemon.Flows;
 /// and records no answer, result, or pause for it, leaving the flow live and unpaused so the next
 /// start performs the step again. A judgment whose session the flow already names keeps that
 /// session alive across the stop, for a reattach; one stopped before its session was recorded has
-/// the session stopped. A step recorded before the stop but not yet routed is routed without
+/// the session stopped. Until a reattach path exists, the next start stops a session left that way
+/// before it launches the judgment again, so no two agents run in one flow's working directory. A step recorded before the stop but not yet routed is routed without
 /// being performed again.
 /// </remarks>
 public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
@@ -263,6 +264,50 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             && await RouteAsync(principal, project, recording.Flow, contour, step, recording.Value, cancellationToken);
     }
 
+    /// <summary>
+    /// Stops the session a daemon stop left alive on the visit about to be performed, before the
+    /// judgment launches another in the same working directory. The flow names that session until
+    /// the new launch is recorded, and nothing reattaches to it yet, so it is ended here rather than
+    /// left running with nobody holding it. A session the executor no longer holds (one a pause or
+    /// an answer already stopped) is passed over. Returns false when the stop failed and the flow
+    /// was paused instead, so no second agent runs beside one that would not stop.
+    /// </summary>
+    private async Task<bool> StopLeftSessionAsync(
+        Principal principal, string project, Flow flow, ContourStep step, CancellationToken cancellationToken)
+    {
+        if (flow.Current is not { Kind: StepKind.Judgment, SessionId: Guid held } entry
+            || !string.Equals(entry.Step, step.Name, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        try
+        {
+            SessionHandle? live = await executor.ReattachAsync(new SessionHandle(held, entry.Performer), cancellationToken);
+            if (live is not null)
+            {
+                using var grace = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                grace.CancelAfter(Judgment.StopGrace);
+                await executor.StopAsync(live, grace.Token);
+            }
+
+            return true;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception failure)
+        {
+            await PauseAsync(
+                principal, project, flow.Id,
+                $"Step '{step.Name}' could not stop session {Ids.Short(held)} that agent '{entry.Performer}' was left running in, so no other was launched: {failure.Message}",
+                FlowLevers.PerformAgain(step.Name),
+                cancellationToken);
+            return false;
+        }
+    }
+
     /// <summary>What a step recorded, with the flow as that recording left it.</summary>
     private readonly record struct Recording(Flow Flow, JsonElement Value);
 
@@ -278,6 +323,11 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private async Task<Recording?> JudgeAsync(
         Principal principal, string project, Flow flow, Contour contour, ContourStep step, bool spawnsAgain, CancellationToken cancellationToken)
     {
+        if (!await StopLeftSessionAsync(principal, project, flow, step, cancellationToken))
+        {
+            return null;
+        }
+
         string? spent = await BudgetSpentAsync(principal, project, flow, contour, cancellationToken);
         if (spent is not null)
         {
@@ -321,7 +371,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         try
         {
             // The session's id is recorded before its first collect, so a daemon stop after that
-            // leaves the session alive (the judgment does not stop it) and the flow names it.
+            // leaves the session alive (the judgment does not stop it) and the flow names it; the
+            // next start stops it in StopLeftSessionAsync before launching again.
             outcome = await Judgment.RunAsync(
                 executor,
                 request,
