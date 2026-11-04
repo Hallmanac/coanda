@@ -46,6 +46,12 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 ## Operating
 
 - `coa daemon start` / `coa daemon stop` / `coa daemon status`
+
+  `coa` sends nothing to a running daemon from a different build. Every other command refuses,
+  naming both versions; run `coa daemon stop` and then the command again. `coa daemon status` and
+  `coa daemon stop` work against a daemon of any version, and `coa daemon start` refuses to start
+  beside one from another build.
+
 - `coa project add <name> --repo <url> --branch <name> [--build <command>] [--test <command>]`,
   `coa project show <name>`,
   `coa project list`, `coa project set-profile <name> <profile>`,
