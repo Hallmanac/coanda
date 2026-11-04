@@ -246,10 +246,12 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// evidence. An init event without it, or a process that ended printing neither, is a failure
     /// that collects no answer, and a process still running then is stopped before it is thrown; the
     /// attempt stays in progress, so the stop the agent step makes after the failure reports its usage.
+    /// A session whose arguments register no evidence hook, which a daemon before the check spawned
+    /// and this one reattached, is not checked: its process could never print the evidence.
     /// </summary>
-    private static async Task RequireSettingsAppliedAsync(Session session, Attempt attempt, CancellationToken cancellationToken)
+    private static async ValueTask RequireSettingsAppliedAsync(Session session, Attempt attempt, CancellationToken cancellationToken)
     {
-        if (attempt.SettingsApplied)
+        if (attempt.SettingsApplied || !session.RegistersSettingsEvidence)
         {
             return;
         }
@@ -738,7 +740,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     {
         string cli = version is null ? "the claude CLI, whose init event names no version," : $"claude CLI {version}";
         string outcome = running ? "so its process was stopped and no answer was collected from it" : "so no answer was collected from its process";
-        return $"The session's settings document, and with it its tool guard, was not applied by {cli}: its init event came without the evidence the document's {SettingsEvidence.HookEvent} hook prints, {outcome}.";
+        return $"The session's settings document, and with it its tool guard, was not applied by {cli}: its init event came without the evidence the document's {SettingsEvidence.HookEvent} hook prints, {outcome}. A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.";
     }
 
     private static string NoInit(Attempt attempt)
@@ -776,6 +778,13 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         public string Persona { get; } = persona;
 
         public IReadOnlyList<string> Arguments { get; } = arguments;
+
+        /// <summary>
+        /// Whether the settings document in <see cref="Arguments"/> registers the
+        /// <see cref="SettingsEvidence"/> hook. Every session this daemon spawns does; one a daemon
+        /// before the check spawned, reattached from its record, does not.
+        /// </summary>
+        public bool RegistersSettingsEvidence { get; } = SettingsEvidence.RegisteredIn(arguments);
 
         /// <summary>The credential profile of the spawn, which a later daemon rebuilds the environment from.</summary>
         public CredentialProfile? Profile { get; } = profile;

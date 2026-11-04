@@ -67,7 +67,11 @@ once if it is still running, collects no answer from it, and the agent step paus
 session's settings document, and with it its tool guard, was not applied. The reason names the
 Claude Code version the init event reports, or, when the process printed no init event, says so and
 quotes the last line of its error output. A session the daemon reattaches after a restart is checked
-the same way, from its transcript, before any answer is collected from it.
+the same way, from its transcript, before any answer is collected from it. The one exception is a
+session that a daemon from before this check started: its settings document never registered the
+hook, so the daemon that reattaches it after an upgrade does not look for the marker. A managed
+settings policy that turns hooks off also stops the hook, so under such a policy every session is
+stopped and paused this way even though Claude Code applied the document.
 
 A session adds no attribution to the commits or pull requests it makes: no `Co-Authored-By`
 trailer on a commit and no generated-with line in a pull request's description. The daemon's
@@ -240,8 +244,9 @@ daemon's port), and a command written to evade the guard can. The hook is passed
 Code's command line with hooks explicitly left on, so your own settings files cannot switch it off,
 and a guard that cannot run blocks the call rather than letting it through. A session whose Claude
 Code skipped the document that carries the hook is stopped as soon as its stream shows it, as
-described under how a Claude Code session runs. Managed settings that
-disable hooks still do, since they outrank everything else.
+described under how a Claude Code session runs. Managed settings that disable hooks outrank
+everything else, so they switch off the guard and the session-start hook alike; the daemon then
+sees no marker and stops every session rather than letting one run unguarded.
 
 ## Credential profiles
 
