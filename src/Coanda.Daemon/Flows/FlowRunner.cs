@@ -416,11 +416,27 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             {
                 case JudgmentOutcome.Answered answered:
                     JsonElement answer = Parse(answered.Answer);
-                    Flow recorded = await flows.RecordAnswerAsync(
-                        principal, project, flow.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
-                    return new Recording(recorded, answer);
+                    try
+                    {
+                        Flow recorded = await flows.RecordAnswerAsync(
+                            principal, project, flow.Id, step.Name, agentName, published.ContentHash, agent.Model, answer, answered.Usage, cancellationToken);
+                        return new Recording(recorded, answer);
+                    }
+                    catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        await PauseOnRefusalAsync(principal, project, flow, refused, new Unrecorded(step.Name, agentName, answered.Usage), cancellationToken);
+                        return null;
+                    }
                 case JudgmentOutcome.Paused paused:
-                    await flows.PauseAsync(principal, project, flow.Id, paused.Reason, paused.Lever, paused.Usage, cancellationToken);
+                    try
+                    {
+                        await flows.PauseAsync(principal, project, flow.Id, paused.Reason, paused.Lever, paused.Usage, cancellationToken);
+                    }
+                    catch (DomainException refused) when (paused.Usage is not null && !cancellationToken.IsCancellationRequested)
+                    {
+                        await PauseOnRefusalAsync(principal, project, flow, refused, new Unrecorded(step.Name, agentName, paused.Usage), cancellationToken);
+                    }
+
                     return null;
                 default:
                     throw new InvalidOperationException($"A judgment ended in an outcome the runner does not know: {outcome.GetType().Name}.");
@@ -523,31 +539,45 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private Task PauseAsync(Principal principal, string project, Guid flowId, string reason, string lever, CancellationToken cancellationToken) =>
         flows.PauseAsync(principal, project, flowId, reason, lever, cancellationToken);
 
+    /// <summary>What a judgment spent when the flow's rules refused to record its outcome.</summary>
+    private sealed record Unrecorded(string Step, string Agent, Measurement Usage);
+
+    private Task PauseOnRefusalAsync(Principal principal, string project, Flow flow, DomainException refused, CancellationToken cancellationToken) =>
+        PauseOnRefusalAsync(principal, project, flow, refused, unrecorded: null, cancellationToken);
+
     /// <summary>
-    /// A recording the flow's rules refused. When the flow is no longer running (stopped while
-    /// its step was performed, say) nothing more is recorded; otherwise it pauses quoting the rule,
-    /// so a running flow is never left with no worker and no pause.
+    /// A recording the flow's rules refused. When the flow is no longer running (paused or stopped
+    /// while its step was performed, say) nothing more is recorded but the <paramref name="unrecorded"/>
+    /// usage of a judgment, which is spent whether its answer is kept or not; otherwise it pauses
+    /// quoting the rule, carrying that usage, so a running flow is never left with no worker and no pause.
     /// </summary>
-    private async Task PauseOnRefusalAsync(Principal principal, string project, Flow flow, DomainException refused, CancellationToken cancellationToken)
+    private async Task PauseOnRefusalAsync(
+        Principal principal, string project, Flow flow, DomainException refused, Unrecorded? unrecorded, CancellationToken cancellationToken)
     {
         Flow? now = await flows.ShowAsync(principal, project, flow.Id, cancellationToken);
-        if (now is not { Status: FlowStatus.Running })
-        {
-            logger.LogInformation("Flow {Flow} is no longer running, so its step records nothing: {Rule}", Ids.Short(flow.Id), refused.Message);
-            return;
-        }
-
         try
         {
-            await PauseAsync(
+            if (now is not { Status: FlowStatus.Running })
+            {
+                logger.LogInformation("Flow {Flow} is no longer running, so its step records nothing: {Rule}", Ids.Short(flow.Id), refused.Message);
+                if (now is not null && unrecorded is not null)
+                {
+                    await flows.RecordUsageAsync(principal, project, flow.Id, unrecorded.Step, unrecorded.Agent, unrecorded.Usage, cancellationToken);
+                }
+
+                return;
+            }
+
+            await flows.PauseAsync(
                 principal, project, flow.Id,
                 $"Flow could not go on from step '{now.CurrentStep}': {refused.Message}",
                 FlowLevers.PerformAgain(now.CurrentStep),
+                unrecorded?.Usage,
                 cancellationToken);
         }
-        catch (DomainException pauseRefused)
+        catch (DomainException keepRefused)
         {
-            logger.LogError(pauseRefused, "Flow {Flow} could neither record its step nor pause: {Rule}", Ids.Short(flow.Id), refused.Message);
+            logger.LogError(keepRefused, "Flow {Flow} could neither record its step nor pause or keep what it spent: {Rule}", Ids.Short(flow.Id), refused.Message);
         }
     }
 
