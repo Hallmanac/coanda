@@ -16,18 +16,19 @@ public sealed class OpenApiTests
 
         using (HttpResponseMessage refused = await http.GetAsync(address, CancellationToken.None))
         {
-            refused.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+            Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, address);
         request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
         using HttpResponseMessage response = await http.SendAsync(request, CancellationToken.None);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         await using Stream body = await response.Content.ReadAsStreamAsync(CancellationToken.None);
         using JsonDocument document = await JsonDocument.ParseAsync(body, cancellationToken: CancellationToken.None);
         List<string> paths = [.. document.RootElement.GetProperty("paths").EnumerateObject().Select(p => p.Name)];
-        paths.Should().Contain(["/parcels", "/flow-runs", "/flows", "/agents", "/types", "/status"]);
+        string[] expected = ["/parcels", "/flow-runs", "/flows", "/agents", "/types", "/status"];
+        Assert.All(expected, path => Assert.Contains(path, paths));
 
         await daemon.StopAsync(CancellationToken.None);
     }

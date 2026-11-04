@@ -24,22 +24,24 @@ public sealed class ProjectServiceTests
         await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath))
         {
             Project added = await new ProjectService(store, TimeProvider.System).AddAsync(Owner, " coanda ", Remote, "main", None);
-            added.Name.Should().Be("coanda");
-            added.RegisteredBy.Should().Be(Owner.Id);
+            Assert.Equal("coanda", added.Name);
+            Assert.Equal(Owner.Id, added.RegisteredBy);
         }
 
         await using IDocumentStore reopened = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(reopened, TimeProvider.System);
 
         Project? shown = await projects.ShowAsync(Owner, "coanda", None);
-        shown.Should().NotBeNull();
-        shown.Name.Should().Be("coanda");
-        shown.Remote.Should().Be(Remote);
-        shown.PrimaryBranch.Should().Be("main");
+        Assert.NotNull(shown);
+        Assert.Equal("coanda", shown.Name);
+        Assert.Equal(Remote, shown.Remote);
+        Assert.Equal("main", shown.PrimaryBranch);
 
-        (await projects.ShowAsync(Owner, "  coanda", None)).Should().NotBeNull("names are compared after trimming");
-        (await projects.ShowAsync(Owner, "Coanda", None)).Should().BeNull("no case folding is applied");
-        (await projects.ShowAsync(Owner, "other", None)).Should().BeNull();
+        // names are compared after trimming
+        Assert.NotNull(await projects.ShowAsync(Owner, "  coanda", None));
+        // no case folding is applied
+        Assert.Null(await projects.ShowAsync(Owner, "Coanda", None));
+        Assert.Null(await projects.ShowAsync(Owner, "other", None));
     }
 
     [Fact]
@@ -50,10 +52,10 @@ public sealed class ProjectServiceTests
         var projects = new ProjectService(store, TimeProvider.System);
         await projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", "main", None);
 
-        await FluentActions.Awaiting(() => projects.AddAsync(Owner, "Coanda", "https://example.invalid/b.git", "main", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'Coanda' differs from the registered project 'coanda' only in letter case*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "Coanda", "https://example.invalid/b.git", "main", None));
+        Assert.StartsWith("Project 'Coanda' differs from the registered project 'coanda' only in letter case", exception.Message, StringComparison.Ordinal);
 
-        (await projects.ListAsync(Owner, None)).Select(p => p.Name).Should().Equal("coanda");
+        Assert.Equal(["coanda"], (await projects.ListAsync(Owner, None)).Select(p => p.Name));
     }
 
     [Fact]
@@ -68,8 +70,8 @@ public sealed class ProjectServiceTests
 
         IReadOnlyList<Project> listed = await projects.ListAsync(Owner, None);
 
-        listed.Select(p => p.Name).Should().Equal("Gamma", "alpha", "beta");
-        listed.Should().ContainSingle(p => p.Name == "beta" && p.Remote == "https://example.invalid/beta.git" && p.PrimaryBranch == "trunk");
+        Assert.Equal(["Gamma", "alpha", "beta"], listed.Select(p => p.Name));
+        Assert.Single(listed, p => p.Name == "beta" && p.Remote == "https://example.invalid/beta.git" && p.PrimaryBranch == "trunk");
     }
 
     [Fact]
@@ -80,10 +82,10 @@ public sealed class ProjectServiceTests
         var projects = new ProjectService(store, TimeProvider.System);
         await projects.AddAsync(Owner, "coanda", Remote, "main", None);
 
-        await FluentActions.Awaiting(() => projects.AddAsync(Owner, " coanda ", "https://example.invalid/other.git", "trunk", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'coanda' is already registered*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, " coanda ", "https://example.invalid/other.git", "trunk", None));
+        Assert.StartsWith("Project 'coanda' is already registered", exception.Message, StringComparison.Ordinal);
 
-        (await projects.ListAsync(Owner, None)).Should().ContainSingle().Which.Remote.Should().Be(Remote);
+        Assert.Equal(Remote, Assert.Single(await projects.ListAsync(Owner, None)).Remote);
     }
 
     [Fact]
@@ -98,10 +100,11 @@ public sealed class ProjectServiceTests
             projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", "main", None),
             projects.AddAsync(Owner, "coanda", "https://example.invalid/b.git", "main", None),
         ];
-        await FluentActions.Awaiting(() => Task.WhenAll(adds)).Should().ThrowAsync<DomainException>().WithMessage("*already registered*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => Task.WhenAll(adds));
+        Assert.Contains("already registered", exception.Message, StringComparison.Ordinal);
 
-        adds.Count(a => a.IsCompletedSuccessfully).Should().Be(1);
-        (await projects.ListAsync(Owner, None)).Should().ContainSingle();
+        Assert.Equal(1, adds.Count(a => a.IsCompletedSuccessfully));
+        Assert.Single(await projects.ListAsync(Owner, None));
     }
 
     [Theory]
@@ -116,9 +119,9 @@ public sealed class ProjectServiceTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System);
 
-        await FluentActions.Awaiting(() => projects.AddAsync(Owner, name, remote, branch, None))
-            .Should().ThrowAsync<DomainException>().WithMessage(rule);
-        (await projects.ListAsync(Owner, None)).Should().BeEmpty();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, name, remote, branch, None));
+        Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
+        Assert.Empty(await projects.ListAsync(Owner, None));
     }
 
     [Fact]
@@ -130,14 +133,14 @@ public sealed class ProjectServiceTests
         var agent = new Principal("build-session", Role.Agent);
         var member = new Principal("teammate", Role.Member);
 
-        await FluentActions.Awaiting(() => projects.AddAsync(agent, "coanda", Remote, "main", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'project.add' is not open to the Agent role.");
-        await FluentActions.Awaiting(() => projects.AddAsync(member, "coanda", Remote, "main", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'project.add' is not open to the Member role.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(agent, "coanda", Remote, "main", None));
+        Assert.Equal("'project.add' is not open to the Agent role.", exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(member, "coanda", Remote, "main", None));
+        Assert.Equal("'project.add' is not open to the Member role.", exception2.Message);
 
         await projects.AddAsync(Owner, "coanda", Remote, "main", None);
-        (await projects.ShowAsync(agent, "coanda", None)).Should().NotBeNull();
-        (await projects.ListAsync(agent, None)).Should().ContainSingle();
+        Assert.NotNull(await projects.ShowAsync(agent, "coanda", None));
+        Assert.Single(await projects.ListAsync(agent, None));
     }
 
     [Theory]
@@ -150,11 +153,11 @@ public sealed class ProjectServiceTests
         var parcels = new ParcelService(store, TimeProvider.System);
         await RegisteredProjects.AddAsync(store, "alpha", None);
 
-        await FluentActions.Awaiting(() => parcels.AddAsync(Owner, " beta ", type, "Nowhere to go", null, None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'beta' is not registered; register it with coa project add beta*");
-        (await parcels.ListAsync(Owner, "beta", None)).Should().BeEmpty();
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.AddAsync(Owner, " beta ", type, "Nowhere to go", null, None));
+        Assert.StartsWith("Project 'beta' is not registered; register it with coa project add beta", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(await parcels.ListAsync(Owner, "beta", None));
 
-        (await parcels.AddAsync(Owner, "alpha", "task", "Somewhere to go", null, None)).Project.Should().Be("alpha");
+        Assert.Equal("alpha", (await parcels.AddAsync(Owner, "alpha", "task", "Somewhere to go", null, None)).Project);
     }
 
     [Fact]
@@ -164,10 +167,10 @@ public sealed class ProjectServiceTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var parcels = new ParcelService(store, TimeProvider.System);
 
-        await FluentActions.Awaiting(() => parcels.AddAsync(Owner, " ", "task", "x", null, None))
-            .Should().ThrowAsync<DomainException>().WithMessage("A project name is required*");
-        await FluentActions.Awaiting(() => parcels.AddAsync(Owner, Tenants.Node, "task", "x", null, None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.AddAsync(Owner, " ", "task", "x", null, None));
+        Assert.StartsWith("A project name is required", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => parcels.AddAsync(Owner, Tenants.Node, "task", "x", null, None));
+        Assert.Contains("reserved for node-level records", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -186,7 +189,7 @@ public sealed class ProjectServiceTests
         }
 
         await parcels.BriefAsync(Owner, "legacy", created.ParcelId, cancellationToken: None);
-        (await parcels.MoveAsync(Owner, "legacy", created.ParcelId, "build", None)).Stage.Should().Be("build");
-        (await parcels.CloseAsync(Owner, "legacy", created.ParcelId, "abandoned", "Never registered.", None)).Resolution.Should().Be("abandoned");
+        Assert.Equal("build", (await parcels.MoveAsync(Owner, "legacy", created.ParcelId, "build", None)).Stage);
+        Assert.Equal("abandoned", (await parcels.CloseAsync(Owner, "legacy", created.ParcelId, "abandoned", "Never registered.", None)).Resolution);
     }
 }

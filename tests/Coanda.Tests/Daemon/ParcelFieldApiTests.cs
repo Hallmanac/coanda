@@ -32,8 +32,8 @@ public sealed class ParcelFieldApiTests
         RegistryEntry setField = CommandRegistry.Entries.Single(e => e.Name == "parcel.set-field");
         RegistryEntry move = CommandRegistry.Entries.Single(e => e.Name == "parcel.move");
 
-        setField.Kind.Should().Be(EntryKind.Command);
-        setField.AllowedRoles.Should().BeEquivalentTo(move.AllowedRoles);
+        Assert.Equal(EntryKind.Command, setField.Kind);
+        Assert.Equivalent(move.AllowedRoles, setField.AllowedRoles, strict: true);
     }
 
     [Fact]
@@ -45,11 +45,7 @@ public sealed class ParcelFieldApiTests
         using var client = new DaemonClient(temp.Home);
         ParcelView added = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Fielded", null), None);
 
-        added.Fields.Select(f => (f.Name, f.Kind, f.Value)).Should().Equal(
-            ("objective", FieldKinds.Text, null),
-            ("criteria", FieldKinds.TextList, null),
-            ("non-goals", FieldKinds.TextList, null),
-            ("pull-request", FieldKinds.Reference, null));
+        Assert.Equal([("objective", FieldKinds.Text, null), ("criteria", FieldKinds.TextList, null), ("non-goals", FieldKinds.TextList, null), ("pull-request", FieldKinds.Reference, null)], added.Fields.Select(f => (f.Name, f.Kind, f.Value)));
 
         await SetAsync(client, added.Id, "objective", new ParcelSetSettings { Id = "x", Field = "objective", Text = "Ship fields." }.ToValue());
         await SetAsync(client, added.Id, "criteria", new ParcelSetSettings { Id = "x", Field = "criteria", Items = ["It builds.", "It tests."] }.ToValue());
@@ -57,29 +53,28 @@ public sealed class ParcelFieldApiTests
             client, added.Id, "pull-request", new ParcelSetSettings { Id = "x", Field = "pull-request", Reference = "42", Url = "https://example.com/pull/42" }.ToValue());
 
         ParcelView shown = await client.GetAsync<ParcelView>($"/parcels/{added.Id}?project={Project}", None);
-        shown.Should().BeEquivalentTo(set);
-        shown.Fields.Single(f => f.Name == "objective").Value.Should().BeEquivalentTo(FieldValue.OfText("Ship fields."));
-        shown.Fields.Single(f => f.Name == "criteria").Value.Should().BeEquivalentTo(FieldValue.OfItems("It builds.", "It tests."));
-        shown.Fields.Single(f => f.Name == "non-goals").Value.Should().BeNull();
-        shown.Fields.Single(f => f.Name == "pull-request").Value.Should().BeEquivalentTo(FieldValue.OfReference("42", "https://example.com/pull/42"));
-        (await client.GetAsync<List<ParcelView>>($"/parcels?project={Project}", None)).Single().Should().BeEquivalentTo(shown);
+        Assert.Equivalent(set, shown, strict: true);
+        Assert.Equivalent(FieldValue.OfText("Ship fields."), shown.Fields.Single(f => f.Name == "objective").Value, strict: true);
+        Assert.Equivalent(FieldValue.OfItems("It builds.", "It tests."), shown.Fields.Single(f => f.Name == "criteria").Value, strict: true);
+        Assert.Null(shown.Fields.Single(f => f.Name == "non-goals").Value);
+        Assert.Equivalent(FieldValue.OfReference("42", "https://example.com/pull/42"), shown.Fields.Single(f => f.Name == "pull-request").Value, strict: true);
+        Assert.Equivalent(shown, (await client.GetAsync<List<ParcelView>>($"/parcels?project={Project}", None)).Single(), strict: true);
 
-        ParcelRendering.FieldRows(shown).Should().BeEquivalentTo(
-            new[]
-            {
-                new[] { "objective", "Ship fields." },
-                new[] { "criteria", "- It builds.\n- It tests." },
-                new[] { "non-goals", "not set" },
-                new[] { "pull-request", "42 (https://example.com/pull/42)" },
-            },
-            o => o.WithStrictOrdering());
+        Assert.Equal(
+            [
+                ["objective", "Ship fields."],
+                ["criteria", "- It builds.\n- It tests."],
+                ["non-goals", "not set"],
+                ["pull-request", "42 (https://example.com/pull/42)"],
+            ],
+            ParcelRendering.FieldRows(shown));
 
         await daemon.StopAsync(None);
 
         await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
         await using IQuerySession session = store.QuerySession(Project);
         IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(added.Id, token: None);
-        events.Select(e => e.Data).OfType<ParcelFieldSet>().Select(e => e.Field).Should().Equal("objective", "criteria", "pull-request");
+        Assert.Equal(["objective", "criteria", "pull-request"], events.Select(e => e.Data).OfType<ParcelFieldSet>().Select(e => e.Field));
     }
 
     [Fact]
@@ -91,23 +86,23 @@ public sealed class ParcelFieldApiTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Refusals", null), None);
 
-        await FluentActions.Awaiting(() => SetAsync(client, parcel.Id, "branch", FieldValue.OfText("main")))
-            .Should().ThrowAsync<DomainException>().WithMessage("Parcel type 'task' declares no field 'branch';*");
-        await FluentActions.Awaiting(() => SetAsync(client, parcel.Id, "criteria", FieldValue.OfText("one line")))
-            .Should().ThrowAsync<DomainException>().WithMessage("Field 'criteria' of a 'task' holds a list of text, and the value given is a text;*");
-        await FluentActions.Awaiting(() => SetAsync(client, parcel.Id, "objective", FieldValue.OfText("  ")))
-            .Should().ThrowAsync<DomainException>().WithMessage("The value given for field 'objective' is empty;*");
-        await FluentActions.Awaiting(() => SetAsync(client, parcel.Id, "pull-request", new ParcelSetSettings { Id = "x", Field = "pull-request", Url = "https://example.com" }.ToValue()))
-            .Should().ThrowAsync<DomainException>().WithMessage("The value given for field 'pull-request' is empty;*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => SetAsync(client, parcel.Id, "branch", FieldValue.OfText("main")));
+        Assert.StartsWith("Parcel type 'task' declares no field 'branch';", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => SetAsync(client, parcel.Id, "criteria", FieldValue.OfText("one line")));
+        Assert.StartsWith("Field 'criteria' of a 'task' holds a list of text, and the value given is a text;", exception2.Message, StringComparison.Ordinal);
+        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => SetAsync(client, parcel.Id, "objective", FieldValue.OfText("  ")));
+        Assert.StartsWith("The value given for field 'objective' is empty;", exception3.Message, StringComparison.Ordinal);
+        DomainException exception4 = await Assert.ThrowsAsync<DomainException>(() => SetAsync(client, parcel.Id, "pull-request", new ParcelSetSettings { Id = "x", Field = "pull-request", Url = "https://example.com" }.ToValue()));
+        Assert.StartsWith("The value given for field 'pull-request' is empty;", exception4.Message, StringComparison.Ordinal);
 
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/set-field", new { Project, ParcelId = parcel.Id, Field = "objective" }, None))
-            .Should().ThrowAsync<DomainException>().WithMessage("No value was given for field 'objective'; a field is set to a value of its own kind.");
+        DomainException exception5 = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels/set-field", new { Project, ParcelId = parcel.Id, Field = "objective" }, None));
+        Assert.Equal("No value was given for field 'objective'; a field is set to a value of its own kind.", exception5.Message);
 
         await client.PostAsync<ParcelView>("/parcels/close", new ParcelCloseRequest(Project, parcel.Id, "abandoned", "Not wanted."), None);
-        await FluentActions.Awaiting(() => SetAsync(client, parcel.Id, "objective", FieldValue.OfText("Too late.")))
-            .Should().ThrowAsync<DomainException>().WithMessage("*is closed (abandoned); a closed parcel's fields are set by nobody.");
+        DomainException exception6 = await Assert.ThrowsAsync<DomainException>(() => SetAsync(client, parcel.Id, "objective", FieldValue.OfText("Too late.")));
+        Assert.EndsWith("is closed (abandoned); a closed parcel's fields are set by nobody.", exception6.Message, StringComparison.Ordinal);
 
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Fields.Should().OnlyContain(f => f.Value == null);
+        Assert.All((await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Fields, f => Assert.True(f.Value == null));
 
         await daemon.StopAsync(None);
     }
@@ -121,14 +116,14 @@ public sealed class ParcelFieldApiTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Unbriefed", null), None);
 
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage("The gate 'required-fields' refused the move from 'refine' to 'build': *'objective', 'criteria' have none.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None));
+        Assert.Matches(@"(?s)^The gate 'required-fields' refused the move from 'refine' to 'build': .*'objective', 'criteria' have none\.$", exception.Message);
 
         ParcelView paused = await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "paused"), None);
-        paused.Stage.Should().Be("paused", "pausing from refine is never refused for an empty field");
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*from 'paused' to 'build'*resumes into 'build'*'refine'*'objective', 'criteria' have none.");
+        // pausing from refine is never refused for an empty field
+        Assert.Equal("paused", paused.Stage);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, parcel.Id, "build"), None));
+        Assert.Matches(@"(?s)^.*from 'paused' to 'build'.*resumes into 'build'.*'refine'.*'objective', 'criteria' have none\.$", exception2.Message);
 
         await daemon.StopAsync(None);
     }
@@ -147,10 +142,11 @@ public sealed class ParcelFieldApiTests
 
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "From before fields", null, None);
 
-        parcel.Fields.Should().BeEmpty();
-        ParcelView.From(parcel, await parcels.TypeVersionAsync(Principal.LocalOwner, Project, parcel.TypeHash, None)).Fields.Should().BeEmpty();
-        await FluentActions.Awaiting(() => parcels.SetFieldAsync(Principal.LocalOwner, Project, parcel.Id, "objective", FieldValue.OfText("x"), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*declares no field 'objective'*and it declares none.");
-        (await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None)).Stage.Should().Be("build", "that version binds no gate");
+        Assert.Empty(parcel.Fields);
+        Assert.Empty(ParcelView.From(parcel, await parcels.TypeVersionAsync(Principal.LocalOwner, Project, parcel.TypeHash, None)).Fields);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.SetFieldAsync(Principal.LocalOwner, Project, parcel.Id, "objective", FieldValue.OfText("x"), None));
+        Assert.Matches(@"(?s)^.*declares no field 'objective'.*and it declares none\.$", exception.Message);
+        // that version binds no gate
+        Assert.Equal("build", (await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None)).Stage);
     }
 }

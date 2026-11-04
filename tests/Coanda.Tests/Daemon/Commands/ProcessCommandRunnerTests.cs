@@ -48,10 +48,12 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     {
         CommandResult result = await runner.RunAsync(Fake("exit", "3", "to stdout\n", "to stderr\n"), CancellationToken.None).WaitAsync(Patience);
 
-        result.ExitCode.Should().Be(3);
-        result.StandardOutput.Should().Be("to stdout\n");
-        result.StandardError.Should().Be("to stderr\n");
-        result.Combined.Should().Contain("to stdout\n").And.Contain("to stderr\n").And.HaveLength("to stdout\nto stderr\n".Length);
+        Assert.Equal(3, result.ExitCode);
+        Assert.Equal("to stdout\n", result.StandardOutput);
+        Assert.Equal("to stderr\n", result.StandardError);
+        Assert.Contains("to stdout\n", result.Combined, StringComparison.Ordinal);
+        Assert.Contains("to stderr\n", result.Combined, StringComparison.Ordinal);
+        Assert.Equal("to stdout\nto stderr\n".Length, result.Combined.Length);
     }
 
     [Fact]
@@ -59,8 +61,8 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     {
         var missing = new CommandLine(Path.Combine(scratch, "no-such-program"), [], scratch, CommandLine.NoVariables);
 
-        await FluentActions.Awaiting(() => runner.RunAsync(missing, CancellationToken.None))
-            .Should().ThrowAsync<CommandNotStartedException>().WithMessage("*no-such-program could not be started*");
+        CommandNotStartedException exception = await Assert.ThrowsAsync<CommandNotStartedException>(() => runner.RunAsync(missing, CancellationToken.None));
+        Assert.Contains("no-such-program could not be started", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -68,8 +70,8 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     {
         CommandResult result = await runner.RunAsync(Fake("stdin"), CancellationToken.None).WaitAsync(Patience);
 
-        result.ExitCode.Should().Be(0);
-        result.StandardOutput.Trim().Should().Be("stdin:0");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("stdin:0", result.StandardOutput.Trim());
     }
 
     [Fact]
@@ -81,9 +83,9 @@ public sealed class ProcessCommandRunnerTests : IDisposable
         int child = Pid(pidFile);
         started.Add(child);
 
-        result.ExitCode.Should().Be(0);
-        result.StandardOutput.Should().Contain("parent exits");
-        Running(child).Should().BeTrue("the child sleeps on with the output still open, and the runner did not wait for it");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("parent exits", result.StandardOutput, StringComparison.Ordinal);
+        Assert.True(Running(child), "the child sleeps on with the output still open, and the runner did not wait for it");
     }
 
     [Fact]
@@ -101,8 +103,8 @@ public sealed class ProcessCommandRunnerTests : IDisposable
         int child = Pid(pidFile);
         started.Add(child);
 
-        result.ExitCode.Should().Be(0);
-        result.StandardOutput.Should().Contain("parent exits");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("parent exits", result.StandardOutput, StringComparison.Ordinal);
         await UntilAsync(() => !Running(child));
     }
 
@@ -119,7 +121,7 @@ public sealed class ProcessCommandRunnerTests : IDisposable
         started.AddRange([fake, child]);
         await cancel.CancelAsync();
 
-        await FluentActions.Awaiting(() => running.WaitAsync(Patience)).Should().ThrowAsync<OperationCanceledException>();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.WaitAsync(Patience));
         await UntilAsync(() => !Running(fake) && !Running(child));
     }
 
@@ -133,10 +135,10 @@ public sealed class ProcessCommandRunnerTests : IDisposable
         int child = Pid(pidFile);
         started.AddRange([fake, child]);
 
-        result.TimedOut.Should().BeTrue();
-        result.Succeeded.Should().BeFalse();
-        result.ExitCode.Should().Be(CommandResult.TimedOutExitCode);
-        result.StandardOutput.Should().Contain("holding");
+        Assert.True(result.TimedOut);
+        Assert.False(result.Succeeded);
+        Assert.Equal(CommandResult.TimedOutExitCode, result.ExitCode);
+        Assert.Contains("holding", result.StandardOutput, StringComparison.Ordinal);
         await UntilAsync(() => !Running(fake) && !Running(child));
     }
 
@@ -145,8 +147,8 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     {
         CommandResult result = await runner.RunAsync(Fake("exit", "0", "done\n", "") with { Limit = TimeSpan.FromMinutes(1) }, CancellationToken.None).WaitAsync(Patience);
 
-        result.TimedOut.Should().BeFalse();
-        result.Succeeded.Should().BeTrue();
+        Assert.False(result.TimedOut);
+        Assert.True(result.Succeeded);
     }
 
     [Fact]
@@ -156,11 +158,11 @@ public sealed class ProcessCommandRunnerTests : IDisposable
 
         CommandResult result = await runner.RunAsync(Fake("flood", Lines.ToString(CultureInfo.InvariantCulture)), CancellationToken.None).WaitAsync(Patience);
 
-        result.ExitCode.Should().Be(0);
-        result.Truncated.Should().BeTrue();
-        result.StandardOutput.Should().HaveLength(ProcessCommandRunner.KeptCharacters);
-        result.Combined.Should().HaveLength(ProcessCommandRunner.KeptCharacters);
-        result.StandardOutput.ReplaceLineEndings("\n").Should().EndWith($"line {Lines}\n");
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.Truncated);
+        Assert.Equal(ProcessCommandRunner.KeptCharacters, result.StandardOutput.Length);
+        Assert.Equal(ProcessCommandRunner.KeptCharacters, result.Combined.Length);
+        Assert.EndsWith($"line {Lines}\n", result.StandardOutput.ReplaceLineEndings("\n"), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -168,8 +170,10 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     {
         CommandResult result = await runner.RunAsync(Fake("flood", "10"), CancellationToken.None).WaitAsync(Patience);
 
-        result.Truncated.Should().BeFalse();
-        result.StandardOutput.ReplaceLineEndings("\n").Should().StartWith("line 1\n").And.EndWith("line 10\n");
+        Assert.False(result.Truncated);
+        string actual = result.StandardOutput.ReplaceLineEndings("\n");
+        Assert.StartsWith("line 1\n", actual, StringComparison.Ordinal);
+        Assert.EndsWith("line 10\n", actual, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -182,8 +186,8 @@ public sealed class ProcessCommandRunnerTests : IDisposable
 
         CommandResult result = await runner.RunAsync(CommandLine.Shell(line, scratch), CancellationToken.None).WaitAsync(Patience);
 
-        result.ExitCode.Should().Be(0, result.Combined);
-        result.StandardOutput.ReplaceLineEndings("\n").Should().Be($"[{Awkward}]\n");
+        Assert.True(result.ExitCode == 0, result.Combined);
+        Assert.Equal($"[{Awkward}]\n", result.StandardOutput.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -191,8 +195,8 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     {
         CommandResult result = await runner.RunAsync(CommandLine.Shell("coanda-no-such-command-anywhere", scratch), CancellationToken.None).WaitAsync(Patience);
 
-        result.ExitCode.Should().NotBe(0);
-        result.Combined.Should().Contain("coanda-no-such-command-anywhere");
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("coanda-no-such-command-anywhere", result.Combined, StringComparison.Ordinal);
     }
 
     private CommandLine Fake(params string[] arguments) =>

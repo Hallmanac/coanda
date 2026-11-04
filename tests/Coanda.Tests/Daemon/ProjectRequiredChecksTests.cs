@@ -25,15 +25,17 @@ public sealed class ProjectRequiredChecksTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System);
-        (await projects.AddAsync(Owner, "coanda", Remote, "main", None)).RequiredChecks.Should().BeEmpty();
+        Assert.Empty((await projects.AddAsync(Owner, "coanda", Remote, "main", None)).RequiredChecks);
 
         Project set = await projects.SetRequiredChecksAsync(Owner, "coanda", [Ubuntu, Windows], None);
-        set.RequiredChecks.Should().Equal(Ubuntu, Windows);
-        (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks.Should().Equal(Ubuntu, Windows);
+        Assert.Equal([Ubuntu, Windows], set.RequiredChecks);
+        Assert.Equal([Ubuntu, Windows], (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks);
 
         await projects.SetRequiredChecksAsync(Owner, "coanda", [" lint "], None);
-        (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks.Should().Equal([" lint "], "names are stored exactly as given and the list is replaced");
-        (await projects.ShowAsync(Owner, "coanda", None))?.Remote.Should().Be(Remote, "setting checks changes nothing else on the record");
+        // names are stored exactly as given and the list is replaced
+        Assert.Equal([" lint "], (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks);
+        // setting checks changes nothing else on the record
+        Assert.Equal(Remote, (await projects.ShowAsync(Owner, "coanda", None))?.Remote);
     }
 
     [Theory]
@@ -47,12 +49,12 @@ public sealed class ProjectRequiredChecksTests
         await projects.AddAsync(Owner, "coanda", Remote, "main", None);
         await projects.SetRequiredChecksAsync(Owner, "coanda", [Ubuntu], None);
 
-        await FluentActions.Awaiting(() => projects.SetRequiredChecksAsync(Owner, "coanda", [Windows, blank], None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'coanda' was given a blank check name*");
-        await FluentActions.Awaiting(() => projects.SetRequiredChecksAsync(Owner, "coanda", [], None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'coanda' needs at least one check*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.SetRequiredChecksAsync(Owner, "coanda", [Windows, blank], None));
+        Assert.StartsWith("Project 'coanda' was given a blank check name", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => projects.SetRequiredChecksAsync(Owner, "coanda", [], None));
+        Assert.StartsWith("Project 'coanda' needs at least one check", exception2.Message, StringComparison.Ordinal);
 
-        (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks.Should().Equal(Ubuntu);
+        Assert.Equal([Ubuntu], (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks);
     }
 
     [Fact]
@@ -61,8 +63,8 @@ public sealed class ProjectRequiredChecksTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
 
-        await FluentActions.Awaiting(() => new ProjectService(store, TimeProvider.System).SetRequiredChecksAsync(Owner, "nowhere", [Ubuntu], None))
-            .Should().ThrowAsync<DomainException>().WithMessage(ProjectDecider.Unregistered("nowhere"));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => new ProjectService(store, TimeProvider.System).SetRequiredChecksAsync(Owner, "nowhere", [Ubuntu], None));
+        Assert.Equal(ProjectDecider.Unregistered("nowhere"), exception.Message);
     }
 
     [Theory]
@@ -75,11 +77,13 @@ public sealed class ProjectRequiredChecksTests
         var projects = new ProjectService(store, TimeProvider.System);
         await projects.AddAsync(Owner, "coanda", Remote, "main", None);
 
-        await FluentActions.Awaiting(() => projects.SetRequiredChecksAsync(new Principal("someone", role), "coanda", [Ubuntu], None))
-            .Should().ThrowAsync<DomainException>().WithMessage($"'project.set' is not open to the {role} role.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.SetRequiredChecksAsync(new Principal("someone", role), "coanda", [Ubuntu], None));
+        Assert.Equal($"'project.set' is not open to the {role} role.", exception.Message);
 
-        (await projects.ShowAsync(Owner, "coanda", None))?.RequiredChecks.Should().BeEmpty();
-        CommandRegistry.Entries.Single(e => e.Name == "project.set").AllowedRoles.Should().BeEquivalentTo([Role.Owner]);
+        Project? shown = await projects.ShowAsync(Owner, "coanda", None);
+        Assert.NotNull(shown);
+        Assert.Empty(shown.RequiredChecks);
+        Assert.Equivalent(new[] { Role.Owner }, CommandRegistry.Entries.Single(e => e.Name == "project.set").AllowedRoles, strict: true);
     }
 
     [Fact]
@@ -90,20 +94,21 @@ public sealed class ProjectRequiredChecksTests
         using var client = new DaemonClient(temp.Home);
         await client.PostAsync<ProjectView>("/projects", new ProjectAddRequest("team/coanda", Remote, "main"), None);
         ProjectView added = await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf("team/coanda"), None);
-        ProjectShowCommand.ShowRows(added).Should().Contain(row => row.Key == "Required checks" && row.Value.StartsWith("none set", StringComparison.Ordinal));
+        Assert.Contains(ProjectShowCommand.ShowRows(added), row => row.Key == "Required checks" && row.Value.StartsWith("none set", StringComparison.Ordinal));
 
         var settings = new ProjectSetSettings { Name = "team/coanda", RequiredChecks = [Ubuntu, "lint [fast]"] };
         ProjectView set = await client.PutAsync<ProjectView>(ProjectEndpoints.RequiredChecksPathOf(settings.Name), settings.ToRequest(), None);
 
-        ProjectEndpoints.RequiredChecksPathOf("team/coanda").Should().Be("/projects/team/coanda/required-checks");
-        set.RequiredChecks.Should().Equal(Ubuntu, "lint [fast]");
+        Assert.Equal("/projects/team/coanda/required-checks", ProjectEndpoints.RequiredChecksPathOf("team/coanda"));
+        Assert.Equal([Ubuntu, "lint [fast]"], set.RequiredChecks);
         ProjectView shown = await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf("team/coanda"), None);
-        ProjectShowCommand.ShowRows(shown).Should().Contain(("Required checks", $"{Ubuntu}, lint [[fast]]"), "the checks are printed as text, not markup");
+        // the checks are printed as text, not markup
+        Assert.Contains(("Required checks", $"{Ubuntu}, lint [[fast]]"), ProjectShowCommand.ShowRows(shown));
 
-        await FluentActions.Awaiting(() => client.PutAsync<ProjectView>(ProjectEndpoints.RequiredChecksPathOf("nowhere"), settings.ToRequest(), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'nowhere' is not registered*");
-        await FluentActions.Awaiting(() => client.PutAsync<ProjectView>(ProjectEndpoints.RequiredChecksPathOf("team/coanda"), new ProjectRequiredChecksRequest([" "]), None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*blank check name*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PutAsync<ProjectView>(ProjectEndpoints.RequiredChecksPathOf("nowhere"), settings.ToRequest(), None));
+        Assert.StartsWith("Project 'nowhere' is not registered", exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => client.PutAsync<ProjectView>(ProjectEndpoints.RequiredChecksPathOf("team/coanda"), new ProjectRequiredChecksRequest([" "]), None));
+        Assert.Contains("blank check name", exception2.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }
@@ -111,7 +116,7 @@ public sealed class ProjectRequiredChecksTests
     [Fact]
     public void The_command_needs_at_least_one_required_check()
     {
-        new ProjectSetSettings { Name = "coanda" }.Validate().Successful.Should().BeFalse();
-        new ProjectSetSettings { Name = "coanda", RequiredChecks = [Ubuntu] }.Validate().Successful.Should().BeTrue();
+        Assert.False(new ProjectSetSettings { Name = "coanda" }.Validate().Successful);
+        Assert.True(new ProjectSetSettings { Name = "coanda", RequiredChecks = [Ubuntu] }.Validate().Successful);
     }
 }

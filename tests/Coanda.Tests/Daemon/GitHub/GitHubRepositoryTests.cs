@@ -19,9 +19,9 @@ public sealed class GitHubRepositoryTests
     {
         GitHubRepository? parsed = GitHubRepository.Parse(remote);
 
-        parsed.Should().NotBeNull();
-        parsed?.Owner.Should().Be(owner);
-        parsed?.Name.Should().Be(name);
+        Assert.NotNull(parsed);
+        Assert.Equal(owner, parsed?.Owner);
+        Assert.Equal(name, parsed?.Name);
     }
 
     [Theory]
@@ -58,7 +58,7 @@ public sealed class GitHubRepositoryTests
     [InlineData("")]
     public void A_remote_in_no_github_form_does_not_parse(string remote)
     {
-        GitHubRepository.Parse(remote).Should().BeNull();
+        Assert.Null(GitHubRepository.Parse(remote));
     }
 
     [Theory]
@@ -75,6 +75,6 @@ public sealed class GitHubRepositoryTests
     [InlineData("gitlab.example.com:group/repo@v2.git", "gitlab.example.com:group/repo@v2.git")]
     public void Redacting_a_remote_removes_whatever_precedes_the_at_before_its_host(string remote, string redacted)
     {
-        GitHubRepository.Redact(remote).Should().Be(redacted);
+        Assert.Equal(redacted, GitHubRepository.Redact(remote));
     }
 }

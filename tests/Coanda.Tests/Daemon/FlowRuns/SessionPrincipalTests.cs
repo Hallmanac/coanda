@@ -48,40 +48,38 @@ public sealed class SessionPrincipalTests
         await executor.Collecting.WaitAsync(Patience);
 
         SessionAccess access = AccessOf(executor, flowRun.Id);
-        access.NodeHome.Should().Be(temp.Home.Path);
-        access.Project.Should().Be(Project);
+        Assert.Equal(temp.Home.Path, access.NodeHome);
+        Assert.Equal(Project, access.Project);
         Guid launch = await LaunchOfAsync(daemon, Project, flowRun.Id);
         Principal? resolved = await daemon.Services.GetRequiredService<SessionTokens>().ResolveAsync(access.Token, None);
-        resolved.Should().Be(new Principal($"session:{launch}", Role.Agent, new SessionBinding(Project, flowRun.Id, launch)));
+        Assert.Equal(new Principal($"session:{launch}", Role.Agent, new SessionBinding(Project, flowRun.Id, launch)), resolved);
 
         // A query is open to the session; its pause of its own running flow run passes and is recorded as
         // the session's, whatever principal header the client sent.
         using var session = new DaemonClient(temp.Home, access.Token);
-        (await FlowRunDriver.ShowAsync(session, Project, flowRun.Id)).Status.Should().Be("running");
+        Assert.Equal("running", (await FlowRunDriver.ShowAsync(session, Project, flowRun.Id)).Status);
         FlowRunView paused = await FlowRunDriver.PauseAsync(session, Project, flowRun.Id, "The session asks for a person.");
-        paused.Status.Should().Be("paused");
-        (await EventsAsync(daemon, Project, flowRun.Id)).OfType<FlowRunPaused>().Should().ContainSingle()
-            .Which.PausedBy.Should().Be($"session:{launch}");
+        Assert.Equal("paused", paused.Status);
+        Assert.Equal($"session:{launch}", Assert.Single((await EventsAsync(daemon, Project, flowRun.Id)).OfType<FlowRunPaused>()).PausedBy);
 
-        (await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
-        await FluentActions.Awaiting(() => FlowRunDriver.ShowAsync(session, Project, flowRun.Id))
-            .Should().ThrowAsync<DomainException>().WithMessage(NoValidToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.ShowAsync(session, Project, flowRun.Id));
+        Assert.Equal(NoValidToken, exception.Message);
 
         // The daemon token still acts as the owner: stop is closed to the Agent role.
         await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the paused agent step's session is stopped");
         await FlowRunDriver.StopAsync(owner, Project, flowRun.Id, "Taking it by hand.");
-        (await EventsAsync(daemon, Project, flowRun.Id)).OfType<FlowRunStopped>().Should().ContainSingle()
-            .Which.StoppedBy.Should().Be(Environment.UserName);
+        Assert.Equal(Environment.UserName, Assert.Single((await EventsAsync(daemon, Project, flowRun.Id)).OfType<FlowRunStopped>()).StoppedBy);
 
         // The token is in neither the flow run's view nor any event recorded on the flow run.
         using HttpClient http = Http(daemon);
         using var show = new HttpRequestMessage(HttpMethod.Get, $"/flow-runs/{flowRun.Id}?project={Project}");
         show.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
         using HttpResponseMessage shown = await http.SendAsync(show, None);
-        (await shown.Content.ReadAsStringAsync(None)).Should().NotContain(access.Token);
+        Assert.DoesNotContain(access.Token, await shown.Content.ReadAsStringAsync(None), StringComparison.Ordinal);
         foreach (object recorded in await EventsAsync(daemon, Project, flowRun.Id))
         {
-            JsonSerializer.Serialize(recorded, recorded.GetType()).Should().NotContain(access.Token);
+            Assert.DoesNotContain(access.Token, JsonSerializer.Serialize(recorded, recorded.GetType()), StringComparison.Ordinal);
         }
 
         await daemon.StopAsync(None);
@@ -105,7 +103,7 @@ public sealed class SessionPrincipalTests
 
         SessionAccess access = AccessOf(executor, own.Id);
         using var session = new DaemonClient(temp.Home, access.Token);
-        string rule = $"A session's principal records only on flow run {Ids.Short(own.Id)} in project '{Project}'*";
+        string rule = $"A session's principal records only on flow run {Ids.Short(own.Id)} in project '{Project}'";
 
         // A spawn returning is not the end of a launch's writes: the runner records the session after
         // it, then holds at the closed gate. Count each other flow run's events only once it has settled.
@@ -114,15 +112,14 @@ public sealed class SessionPrincipalTests
         int siblingEvents = (await EventsAsync(daemon, Project, sibling.Id)).Count;
         int elsewhereEvents = (await EventsAsync(daemon, Other, elsewhere.Id)).Count;
 
-        await FluentActions.Awaiting(() => FlowRunDriver.PauseAsync(session, Project, sibling.Id, "Not mine."))
-            .Should().ThrowAsync<DomainException>().WithMessage(rule);
-        await FluentActions.Awaiting(() => FlowRunDriver.PauseAsync(session, Other, elsewhere.Id, "Not mine either."))
-            .Should().ThrowAsync<DomainException>().WithMessage(rule);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.PauseAsync(session, Project, sibling.Id, "Not mine."));
+        Assert.StartsWith(rule, exception.Message, StringComparison.Ordinal);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.PauseAsync(session, Other, elsewhere.Id, "Not mine either."));
+        Assert.StartsWith(rule, exception2.Message, StringComparison.Ordinal);
         ParcelView spare = await owner.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Never started", null), None);
-        await FluentActions.Awaiting(() => FlowRunDriver.StartAsync(session, Project, spare.Id, Single))
-            .Should().ThrowAsync<DomainException>().WithMessage(rule + "a flow run it starts is never its own*");
-        (await StatusAsync(daemon, access.Token, HttpMethod.Post, $"/flow-runs/{sibling.Id}/pause", new FlowRunPauseRequest(Project, "Not mine.")))
-            .Should().Be(HttpStatusCode.UnprocessableEntity);
+        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.StartAsync(session, Project, spare.Id, Single));
+        Assert.Matches(WildcardPattern.ToRegex(rule + "*a flow run it starts is never its own*"), exception3.Message);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, await StatusAsync(daemon, access.Token, HttpMethod.Post, $"/flow-runs/{sibling.Id}/pause", new FlowRunPauseRequest(Project, "Not mine.")));
 
         // Every flow run recording entry refuses another flow run in the service, beside the registry check.
         FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
@@ -143,16 +140,20 @@ public sealed class SessionPrincipalTests
         ];
         foreach (Func<Task> write in writes)
         {
-            await write.Should().ThrowAsync<DomainException>().WithMessage(rule);
+            DomainException refused = await Assert.ThrowsAsync<DomainException>(write);
+            Assert.StartsWith(rule, refused.Message, StringComparison.Ordinal);
         }
 
-        (await EventsAsync(daemon, Project, sibling.Id)).Should().HaveCount(siblingEvents, "a refused write appends nothing");
-        (await EventsAsync(daemon, Other, elsewhere.Id)).Should().HaveCount(elsewhereEvents, "a refused write appends nothing");
-        (await FlowRunDriver.OfParcelAsync(owner, Project, spare.Id)).Should().BeEmpty("a refused start starts nothing");
+        // a refused write appends nothing
+        Assert.Equal(siblingEvents, (await EventsAsync(daemon, Project, sibling.Id)).Count);
+        // a refused write appends nothing
+        Assert.Equal(elsewhereEvents, (await EventsAsync(daemon, Other, elsewhere.Id)).Count);
+        // a refused start starts nothing
+        Assert.Empty(await FlowRunDriver.OfParcelAsync(owner, Project, spare.Id));
 
         // Queries stay open to the session in any project, and the refusals leave its token resolving.
-        (await session.GetAsync<List<FlowRunView>>($"/flow-runs?project={Other}", None)).Should().ContainSingle();
-        (await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.OK);
+        Assert.Single(await session.GetAsync<List<FlowRunView>>($"/flow-runs?project={Other}", None));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         await daemon.StopAsync(None);
     }
@@ -171,15 +172,16 @@ public sealed class SessionPrincipalTests
 
         // The first collect passes and is invalid, so the session is resumed and its second collect held.
         await executor.Holding.WaitAsync(Patience);
-        executor.Inner.Resumes.Should().ContainSingle();
+        Assert.Single(executor.Inner.Resumes);
         SessionAccess access = AccessOf(executor, flowRun.Id);
-        (await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         executor.Open();
         await FlowRunDriver.UntilAsync(owner, Project, flowRun.Id, "ended");
 
-        (await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
-        executor.Inner.Spawns.Should().ContainSingle("the retry resumes the session; it is not a launch");
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
+        // the retry resumes the session; it is not a launch
+        Assert.Single(executor.Inner.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -202,15 +204,16 @@ public sealed class SessionPrincipalTests
             ?? throw new InvalidOperationException("The first launch's token did not resolve while it ran.");
 
         await FlowRunDriver.PauseAsync(owner, Project, flowRun.Id, "A person pauses it.");
-        (await StatusAsync(daemon, first, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, first, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         // A write whose token resolved before the launch ended is refused on the flow run as it now stands.
         FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
         int recorded = (await EventsAsync(daemon, Project, flowRun.Id)).Count;
-        await FluentActions.Awaiting(() => flowRuns.StartStepAsync(early, Project, flowRun.Id, "build", None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage($"A session's principal records only on flow run {Ids.Short(flowRun.Id)} in project '{Project}'*; that launch has ended, so it records nothing more.");
-        (await EventsAsync(daemon, Project, flowRun.Id)).Should().HaveCount(recorded);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.StartStepAsync(early, Project, flowRun.Id, "build", None));
+        Assert.Matches(
+            WildcardPattern.ToRegex($"A session's principal records only on flow run {Ids.Short(flowRun.Id)} in project '{Project}'*; that launch has ended, so it records nothing more."),
+            exception.Message);
+        Assert.Equal(recorded, (await EventsAsync(daemon, Project, flowRun.Id)).Count);
 
         // The gate stays shut, so the relaunch's collect is held as the first one was.
         await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the paused agent step's session is stopped");
@@ -221,14 +224,15 @@ public sealed class SessionPrincipalTests
             "the relaunch is recorded");
 
         string second = executor.Inner.Spawns[1].Access?.Token ?? throw new InvalidOperationException("The relaunch carried no session access.");
-        second.Should().NotBe(first);
+        Assert.NotEqual(first, second);
         await FlowRunDriver.UntilAsync(
             async () => await StatusAsync(daemon, second, HttpMethod.Get, $"/flow-runs?project={Project}", null) == HttpStatusCode.OK,
             "the relaunch's token resolves");
-        (await StatusAsync(daemon, first, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized, "a token that stopped resolving never resolves again");
+        // a token that stopped resolving never resolves again
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, first, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         await FlowRunDriver.StopAsync(owner, Project, flowRun.Id, "Not needed any more.");
-        (await StatusAsync(daemon, second, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, second, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         await daemon.StopAsync(None);
     }
@@ -239,9 +243,9 @@ public sealed class SessionPrincipalTests
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
 
-        (await StatusAsync(daemon, "not-a-token-this-daemon-issued", HttpMethod.Get, "/projects", null)).Should().Be(HttpStatusCode.Unauthorized);
-        (await StatusAsync(daemon, null, HttpMethod.Get, "/projects", null)).Should().Be(HttpStatusCode.Unauthorized);
-        (await StatusAsync(daemon, daemon.Info.Token, HttpMethod.Get, "/projects", null)).Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, "not-a-token-this-daemon-issued", HttpMethod.Get, "/projects", null));
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(daemon, null, HttpMethod.Get, "/projects", null));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(daemon, daemon.Info.Token, HttpMethod.Get, "/projects", null));
 
         await daemon.StopAsync(None);
     }
@@ -252,11 +256,11 @@ public sealed class SessionPrincipalTests
         using var temp = new TemporaryHome();
         using var session = new DaemonClient(temp.Home, "a-session-token");
 
-        await FluentActions.Awaiting(() => session.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("The daemon that started this session is not running*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => session.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}", None));
+        Assert.StartsWith("The daemon that started this session is not running", exception.Message, StringComparison.Ordinal);
 
-        File.Exists(temp.Home.DaemonInfoPath).Should().BeFalse();
-        File.Exists(temp.Home.LogPath).Should().BeFalse("no detached daemon was started to write its log");
+        Assert.False(File.Exists(temp.Home.DaemonInfoPath));
+        Assert.False(File.Exists(temp.Home.LogPath), "no detached daemon was started to write its log");
     }
 
     [Fact]
@@ -265,11 +269,13 @@ public sealed class SessionPrincipalTests
         using var temp = new TemporaryHome();
         string other = Path.Combine(temp.Home.Path, "elsewhere");
 
-        DaemonClient.SessionTokenFor(temp.Home, "a-session-token", temp.Home.Path).Should().Be("a-session-token");
-        DaemonClient.SessionTokenFor(temp.Home, "a-session-token", temp.Home.Path + Path.DirectorySeparatorChar).Should().Be("a-session-token");
-        DaemonClient.SessionTokenFor(temp.Home with { Path = other }, "a-session-token", temp.Home.Path).Should().BeNull("another home's daemon did not issue the token");
-        DaemonClient.SessionTokenFor(temp.Home, "a-session-token", null).Should().BeNull("a token that names no home is sent nowhere");
-        DaemonClient.SessionTokenFor(temp.Home, null, temp.Home.Path).Should().BeNull();
+        Assert.Equal("a-session-token", DaemonClient.SessionTokenFor(temp.Home, "a-session-token", temp.Home.Path));
+        Assert.Equal("a-session-token", DaemonClient.SessionTokenFor(temp.Home, "a-session-token", temp.Home.Path + Path.DirectorySeparatorChar));
+        // another home's daemon did not issue the token
+        Assert.Null(DaemonClient.SessionTokenFor(temp.Home with { Path = other }, "a-session-token", temp.Home.Path));
+        // a token that names no home is sent nowhere
+        Assert.Null(DaemonClient.SessionTokenFor(temp.Home, "a-session-token", null));
+        Assert.Null(DaemonClient.SessionTokenFor(temp.Home, null, temp.Home.Path));
     }
 
     [Fact]
@@ -282,7 +288,8 @@ public sealed class SessionPrincipalTests
 
         List<ProjectView> projects = await client.GetAsync<List<ProjectView>>("/projects", None);
 
-        projects.Should().NotBeNull("the call carried the daemon token, not a token this daemon never issued");
+        // the call carried the daemon token, not a token this daemon never issued
+        Assert.NotNull(projects);
         await daemon.StopAsync(None);
     }
 
@@ -313,10 +320,11 @@ public sealed class SessionPrincipalTests
 
         SessionAccess access = AccessOf(executor, flowRun.Id);
         Guid launch = await LaunchOfAsync(daemon, Project, flowRun.Id);
-        storedAtSpawn.Should().NotBeNull("the binding is saved before the session's process starts");
-        storedAtSpawn?.Project.Should().Be(Project);
-        storedAtSpawn?.FlowRunId.Should().Be(flowRun.Id);
-        storedAtSpawn?.LaunchId.Should().Be(launch);
+        // the binding is saved before the session's process starts
+        Assert.NotNull(storedAtSpawn);
+        Assert.Equal(Project, storedAtSpawn?.Project);
+        Assert.Equal(flowRun.Id, storedAtSpawn?.FlowRunId);
+        Assert.Equal(launch, storedAtSpawn?.LaunchId);
 
         // Read once the daemon has stopped, so no write holds a lock on the files; a daemon stop keeps
         // the binding. The hash is on disk, which shows these are the files the store writes; the
@@ -325,10 +333,11 @@ public sealed class SessionPrincipalTests
         byte[] plain = Encoding.UTF8.GetBytes(access.Token);
         byte[] hash = Encoding.UTF8.GetBytes(HashOf(access.Token));
         byte[][] files = [.. new[] { temp.Home.DatabasePath }.Concat(temp.Home.DatabaseCompanionPaths).Where(File.Exists).Select(ReadShared)];
-        files.Any(bytes => bytes.AsSpan().IndexOf(hash) >= 0).Should().BeTrue("the binding is stored by the token's hash");
+        Assert.True(files.Any(bytes => bytes.AsSpan().IndexOf(hash) >= 0), "the binding is stored by the token's hash");
         foreach (byte[] bytes in files)
         {
-            bytes.AsSpan().IndexOf(plain).Should().Be(-1, "the token's plain value is never written to the store");
+            // the token's plain value is never written to the store
+            Assert.Equal(-1, bytes.AsSpan().IndexOf(plain));
         }
     }
 
@@ -361,9 +370,10 @@ public sealed class SessionPrincipalTests
             await first.StopAsync(None);
         }
 
-        stalled.Inner.Stops.Should().BeEmpty("a daemon stop leaves every session for a reattach");
+        // a daemon stop leaves every session for a reattach
+        Assert.Empty(stalled.Inner.Stops);
         var binding = new SessionBinding(Project, own.Id, launch);
-        string rule = $"A session's principal records only on flow run {Ids.Short(own.Id)} in project '{Project}'*";
+        string rule = $"A session's principal records only on flow run {Ids.Short(own.Id)} in project '{Project}'";
 
         var held = new GatedExecutor(stalled.Inner);
         await using (RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = held }, None))
@@ -375,12 +385,12 @@ public sealed class SessionPrincipalTests
             // The token resolves to the same principal it did before the restart, and records on its own flow run.
             Principal principal = await second.Services.GetRequiredService<SessionTokens>().ResolveAsync(access.Token, None)
                 ?? throw new InvalidOperationException("The token issued before the restart did not resolve after it.");
-            principal.Should().Be(Principal.ForSession(binding));
-            (await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.OK);
+            Assert.Equal(Principal.ForSession(binding), principal);
+            Assert.Equal(HttpStatusCode.OK, await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
             FlowRunService flowRuns = second.Services.GetRequiredService<FlowRunService>();
             Guid sessionId = held.Inner.Spawns.Single(s => s.Access == access).Handle.Id;
             await flowRuns.RecordUsageAsync(principal, Project, own.Id, "build", "build", sessionId, Scripts.Usage(1), None);
-            (await EventsAsync(second, Project, own.Id)).OfType<AgentStepUsageRecorded>().Should().ContainSingle();
+            Assert.Single((await EventsAsync(second, Project, own.Id)).OfType<AgentStepUsageRecorded>());
 
             // A reattach records nothing, and every other flow run recorded its session before the stop.
             await SettledAsync(second, Project, sibling.Id);
@@ -388,19 +398,21 @@ public sealed class SessionPrincipalTests
             int siblingEvents = (await EventsAsync(second, Project, sibling.Id)).Count;
             int elsewhereEvents = (await EventsAsync(second, Other, elsewhere.Id)).Count;
 
-            await FluentActions.Awaiting(() => FlowRunDriver.PauseAsync(session, Project, sibling.Id, "Not mine."))
-                .Should().ThrowAsync<DomainException>().WithMessage(rule);
-            await FluentActions.Awaiting(() => FlowRunDriver.PauseAsync(session, Other, elsewhere.Id, "Not mine either."))
-                .Should().ThrowAsync<DomainException>().WithMessage(rule);
+            DomainException exception = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.PauseAsync(session, Project, sibling.Id, "Not mine."));
+            Assert.StartsWith(rule, exception.Message, StringComparison.Ordinal);
+            DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.PauseAsync(session, Other, elsewhere.Id, "Not mine either."));
+            Assert.StartsWith(rule, exception2.Message, StringComparison.Ordinal);
             ParcelView spare = await owner.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Never started", null), None);
-            await FluentActions.Awaiting(() => FlowRunDriver.StartAsync(session, Project, spare.Id, Single))
-                .Should().ThrowAsync<DomainException>().WithMessage(rule + "a flow run it starts is never its own*");
-            (await StatusAsync(second, access.Token, HttpMethod.Post, $"/flow-runs/{sibling.Id}/pause", new FlowRunPauseRequest(Project, "Not mine.")))
-                .Should().Be(HttpStatusCode.UnprocessableEntity);
+            DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.StartAsync(session, Project, spare.Id, Single));
+            Assert.Matches(WildcardPattern.ToRegex(rule + "*a flow run it starts is never its own*"), exception3.Message);
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, await StatusAsync(second, access.Token, HttpMethod.Post, $"/flow-runs/{sibling.Id}/pause", new FlowRunPauseRequest(Project, "Not mine.")));
 
-            (await EventsAsync(second, Project, sibling.Id)).Should().HaveCount(siblingEvents, "a refused write appends nothing");
-            (await EventsAsync(second, Other, elsewhere.Id)).Should().HaveCount(elsewhereEvents, "a refused write appends nothing");
-            (await FlowRunDriver.OfParcelAsync(owner, Project, spare.Id)).Should().BeEmpty("a refused start starts nothing");
+            // a refused write appends nothing
+            Assert.Equal(siblingEvents, (await EventsAsync(second, Project, sibling.Id)).Count);
+            // a refused write appends nothing
+            Assert.Equal(elsewhereEvents, (await EventsAsync(second, Other, elsewhere.Id)).Count);
+            // a refused start starts nothing
+            Assert.Empty(await FlowRunDriver.OfParcelAsync(owner, Project, spare.Id));
 
             await held.Holding.WaitAsync(Patience);
             await second.StopAsync(None);
@@ -410,18 +422,19 @@ public sealed class SessionPrincipalTests
         var answering = new GatedExecutor(stalled.Inner);
         await using RunningDaemon third = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = answering }, None);
         await answering.Holding.WaitAsync(Patience);
-        (await third.Services.GetRequiredService<SessionTokens>().ResolveAsync(access.Token, None)).Should().Be(Principal.ForSession(binding));
-        (await StatusAsync(third, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.OK);
+        Assert.Equal(Principal.ForSession(binding), await third.Services.GetRequiredService<SessionTokens>().ResolveAsync(access.Token, None));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(third, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         answering.Open();
         using var client = new DaemonClient(temp.Home, sessionToken: null);
         await FlowRunDriver.UntilAsync(client, Project, own.Id, "ended");
 
-        (await StatusAsync(third, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(third, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
         await FlowRunDriver.UntilAsync(
             async () => (await BindingsOfAsync(third, launch)).Count == 0,
             "the ended agent step's bindings are removed");
-        answering.Inner.Spawns.Should().HaveCount(3, "no flow run launched its agent step again");
+        // no flow run launched its agent step again
+        Assert.Equal(3, answering.Inner.Spawns.Count);
 
         await third.StopAsync(None);
     }
@@ -437,21 +450,21 @@ public sealed class SessionPrincipalTests
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = fresh }, None);
         using var owner = new DaemonClient(temp.Home, sessionToken: null);
         FlowRunView paused = await FlowRunDriver.UntilAsync(owner, Project, flowRunId, "paused");
-        paused.PauseReason.Should().StartWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart");
+        Assert.StartsWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart", paused.PauseReason, StringComparison.Ordinal);
 
-        (await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
         await FlowRunDriver.UntilAsync(
             async () => (await BindingsOfAsync(second, launch)).Count == 0,
             "the lost launch's binding is removed");
 
         await FlowRunDriver.ResumeAsync(owner, Project, flowRunId, "Perform it again.");
         await fresh.Holding.WaitAsync(Patience);
-        string relaunched = fresh.Inner.Spawns.Should().ContainSingle().Subject.Access?.Token
+        string relaunched = Assert.Single(fresh.Inner.Spawns).Access?.Token
             ?? throw new InvalidOperationException("The relaunch carried no session access.");
-        (await StatusAsync(second, relaunched, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.OK);
-        (await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null))
-            .Should().Be(HttpStatusCode.Unauthorized, "a token that stopped resolving never resolves again");
-        (await BindingsOfAsync(second, launch)).Should().BeEmpty();
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(second, relaunched, HttpMethod.Get, $"/flow-runs?project={Project}", null));
+        // a token that stopped resolving never resolves again
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
+        Assert.Empty(await BindingsOfAsync(second, launch));
 
         await second.StopAsync(None);
     }
@@ -465,8 +478,8 @@ public sealed class SessionPrincipalTests
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            (await BindingsOfAsync(store, launch)).Should().ContainSingle("a daemon stop keeps the binding")
-                .Which.Id.Should().Be(HashOf(access.Token));
+            // a daemon stop keeps the binding
+            Assert.Equal(HashOf(access.Token), Assert.Single(await BindingsOfAsync(store, launch)).Id);
             await new FlowRunService(store, TimeProvider.System).PauseAsync(
                 Principal.LocalOwner, Project, flowRunId, "A person paused it.", FlowRunLevers.PerformAgain("build"), None);
         }
@@ -474,8 +487,9 @@ public sealed class SessionPrincipalTests
         var held = new GatedExecutor(stalled.Inner);
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = held }, None);
 
-        (await BindingsOfAsync(second, launch)).Should().BeEmpty("the start removes a binding whose launch its flow run no longer expects");
-        (await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null)).Should().Be(HttpStatusCode.Unauthorized);
+        // the start removes a binding whose launch its flow run no longer expects
+        Assert.Empty(await BindingsOfAsync(second, launch));
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(second, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
 
         await second.StopAsync(None);
     }
@@ -497,7 +511,8 @@ public sealed class SessionPrincipalTests
         SessionAccess access = AccessOf(stalled, flowRun.Id);
         Guid launch = await LaunchOfAsync(first, Project, flowRun.Id);
         await first.StopAsync(None);
-        stalled.Inner.Stops.Should().BeEmpty("a daemon stop leaves the session for a reattach");
+        // a daemon stop leaves the session for a reattach
+        Assert.Empty(stalled.Inner.Stops);
         return (flowRun.Id, access, launch);
     }
 
@@ -550,9 +565,12 @@ public sealed class SessionPrincipalTests
     }
 
     /// <summary>The session access the flow run's one launch was spawned with, found by the flow run's working directory.</summary>
-    private static SessionAccess AccessOf(GatedExecutor executor, Guid flowRunId) =>
-        executor.Inner.Spawns.Should().ContainSingle(s => s.WorkingDirectory.EndsWith(flowRunId.ToString(), StringComparison.Ordinal))
-            .Which.Access.Should().NotBeNull().And.Subject.As<SessionAccess>();
+    private static SessionAccess AccessOf(GatedExecutor executor, Guid flowRunId)
+    {
+        SessionAccess? access = Assert.Single(executor.Inner.Spawns, s => s.WorkingDirectory.EndsWith(flowRunId.ToString(), StringComparison.Ordinal)).Access;
+        Assert.NotNull(access);
+        return access;
+    }
 
     private static async Task<Guid> LaunchOfAsync(RunningDaemon daemon, string project, Guid flowRunId)
     {

@@ -41,7 +41,8 @@ public static class FlowRunDriver
             bound = await BoundOfParcelAsync(client, project, parcelId);
         }
 
-        return bound.Should().ContainSingle("a binding starts one flow run per entry").Subject;
+        // a binding starts one flow run per entry
+        return Assert.Single(bound);
     }
 
     private static async Task<List<FlowRunView>> BoundOfParcelAsync(DaemonClient client, string project, Guid parcelId) =>

@@ -66,7 +66,7 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
     public async Task A_close_of_a_parcel_a_paused_flow_run_holds_is_refused()
     {
         (Parcel parcel, FlowRun flowRun) = await HeldAtBuildAsync();
-        (await flowRuns.PauseAsync(Person, Project, flowRun.Id, "Waiting on a person.", "Answer it.", None)).Status.Should().Be(FlowRunStatus.Paused);
+        Assert.Equal(FlowRunStatus.Paused, (await flowRuns.PauseAsync(Person, Project, flowRun.Id, "Waiting on a person.", "Answer it.", None)).Status);
 
         await RefusedUnchangedAsync(
             parcel.Id,
@@ -112,11 +112,11 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
             new SystemStepRequest(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
             None);
 
-        outcome.Should().BeOfType<SystemStepOutcome.Done>();
+        Assert.IsType<SystemStepOutcome.Done>(outcome);
         Parcel? moved = await parcels.ShowAsync(Person, Project, parcel.Id, None);
-        moved.Should().NotBeNull();
-        moved.Stage.Should().Be("review");
-        moved.LiveFlowRunId.Should().Be(flowRun.Id);
+        Assert.NotNull(moved);
+        Assert.Equal("review", moved.Stage);
+        Assert.Equal(flowRun.Id, moved.LiveFlowRunId);
     }
 
     [Fact]
@@ -127,8 +127,8 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
 
         Parcel closed = await parcels.CloseAsync(Person, Project, parcel.Id, "abandoned", "Not wanted any more.", None);
 
-        closed.IsClosed.Should().BeTrue();
-        closed.Resolution.Should().Be("abandoned");
+        Assert.True(closed.IsClosed);
+        Assert.Equal("abandoned", closed.Resolution);
     }
 
     /// <summary>A task moved to build by a person, then held by a build flow run that is started and not advanced.</summary>
@@ -140,7 +140,7 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
         FlowRun flowRun = await flowRuns.StartAsync(Person, Project, parcel.Id, "build", None);
         Parcel held = await parcels.ShowAsync(Person, Project, parcel.Id, None)
             ?? throw new InvalidOperationException("The parcel just added is missing.");
-        held.LiveFlowRunId.Should().Be(flowRun.Id);
+        Assert.Equal(flowRun.Id, held.LiveFlowRunId);
         return (held, flowRun);
     }
 
@@ -149,12 +149,13 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
         Parcel? before = await parcels.ShowAsync(Person, Project, parcelId, None);
         IReadOnlyList<object> eventsBefore = await EventsAsync(parcelId);
 
-        await FluentActions.Awaiting(attempt).Should().ThrowAsync<DomainException>()
-            .WithMessage($"*held by flow run {Ids.Short(holder)}*stop flow run {Ids.Short(holder)} (flow-run.stop) before {doing} the parcel*");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(attempt);
+        Assert.Matches(WildcardPattern.ToRegex($"*held by flow run {Ids.Short(holder)}*stop flow run {Ids.Short(holder)} (flow-run.stop) before {doing} the parcel*"), exception.Message);
 
         Parcel? after = await parcels.ShowAsync(Person, Project, parcelId, None);
-        after.Should().BeEquivalentTo(before);
-        (await EventsAsync(parcelId)).Should().HaveCount(eventsBefore.Count, "a refusal appends nothing to the parcel's stream");
+        Assert.Equivalent(before, after, strict: true);
+        // a refusal appends nothing to the parcel's stream
+        Assert.Equal(eventsBefore.Count, (await EventsAsync(parcelId)).Count);
     }
 
     private async Task<IReadOnlyList<object>> EventsAsync(Guid parcelId)

@@ -35,12 +35,12 @@ public sealed class ParcelBindingTests
         ParcelType? task = await resolver.ResolveParcelTypeAsync(Project, "task", None);
         ParcelType? idea = await resolver.ResolveParcelTypeAsync(Project, "idea", None);
 
-        task.Should().NotBeNull();
-        task.Hash.Should().Be(ShippedTypes.Task.Hash);
-        task.FlowBindings.Should().Equal(new FlowBinding("build", "build"));
-        idea.Should().NotBeNull();
-        idea.Hash.Should().Be(ShippedTypes.Idea.Hash);
-        idea.FlowBindings.Should().Equal(new FlowBinding("discovery", "discovery"));
+        Assert.NotNull(task);
+        Assert.Equal(ShippedTypes.Task.Hash, task.Hash);
+        Assert.Equal([new FlowBinding("build", "build")], task.FlowBindings);
+        Assert.NotNull(idea);
+        Assert.Equal(ShippedTypes.Idea.Hash, idea.Hash);
+        Assert.Equal([new FlowBinding("discovery", "discovery")], idea.FlowBindings);
 
         await daemon.StopAsync(None);
     }
@@ -63,17 +63,16 @@ public sealed class ParcelBindingTests
         await PublishTypeAsync(daemon, gated);
 
         ParcelView unready = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "gated-task", "unready work", null), None);
-        await FluentActions.Awaiting(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, unready.Id, "build"), None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage($"The gate 'stand-in' refused the move from 'refine' to 'build': {StandInGate.Reason}");
-        (await client.GetAsync<ParcelView>($"/parcels/{unready.Id}?project={Project}", None)).Stage.Should().Be("refine");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, unready.Id, "build"), None));
+        Assert.Equal($"The gate 'stand-in' refused the move from 'refine' to 'build': {StandInGate.Reason}", exception.Message);
+        Assert.Equal("refine", (await client.GetAsync<ParcelView>($"/parcels/{unready.Id}?project={Project}", None)).Stage);
 
         ParcelView ready = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "gated-task", "ready work", null), None);
-        (await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, ready.Id, "build"), None)).Stage.Should().Be("build");
+        Assert.Equal("build", (await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, ready.Id, "build"), None)).Stage);
 
         ParcelType unknown = gated with { Name = "unknown-gate", GateBindings = [new GateBinding("refine", "build", "not-given")] };
-        await FluentActions.Awaiting(() => PublishTypeAsync(daemon, unknown))
-            .Should().ThrowAsync<DomainException>().WithMessage("*binds the gate 'not-given', which is not a gate this daemon runs*");
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => PublishTypeAsync(daemon, unknown));
+        Assert.Contains("binds the gate 'not-given', which is not a gate this daemon runs", exception2.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }

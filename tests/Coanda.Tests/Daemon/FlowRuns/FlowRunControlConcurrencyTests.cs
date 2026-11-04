@@ -37,11 +37,13 @@ public sealed class FlowRunControlConcurrencyTests
         interjection.Arm(() => flowRuns.SessionOpenedAsync(Runner, Project, flowRun.Id, "build", session, None));
         FlowRun stopped = await flowRuns.StopAsync(Principal.LocalOwner, Project, flowRun.Id, "Not wanted.", None);
 
-        interjection.Fired.Should().Be(1, "the session record landed inside the stop's save");
-        stopped.Status.Should().Be(FlowRunStatus.Stopped);
-        stopped.StopReason.Should().Be("Not wanted.");
-        stopped.Current?.SessionId.Should().Be(session, "the stop read the flow run again, the session record included");
-        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(AgentStepSessionOpened), typeof(FlowRunStopped)]);
+        // the session record landed inside the stop's save
+        Assert.Equal(1, interjection.Fired);
+        Assert.Equal(FlowRunStatus.Stopped, stopped.Status);
+        Assert.Equal("Not wanted.", stopped.StopReason);
+        // the stop read the flow run again, the session record included
+        Assert.Equal(session, stopped.Current?.SessionId);
+        Assert.Equal([typeof(AgentStepSessionOpened), typeof(FlowRunStopped)], (await EventsAsync(store, flowRun.Id)).TakeLast(2));
     }
 
     [Fact]
@@ -57,11 +59,13 @@ public sealed class FlowRunControlConcurrencyTests
         interjection.Arm(() => flowRuns.SessionOpenedAsync(Runner, Project, flowRun.Id, "build", session, None));
         FlowRun paused = await flowRuns.PauseAsync(Principal.LocalOwner, Project, flowRun.Id, "Hold on.", FlowRunLevers.PerformAgain("build"), None);
 
-        interjection.Fired.Should().Be(1, "the session record landed inside the pause's save");
-        paused.Status.Should().Be(FlowRunStatus.Paused);
-        paused.PauseReason.Should().Be("Hold on.");
-        paused.Current?.SessionId.Should().Be(session, "the pause read the flow run again, the session record included");
-        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(AgentStepSessionOpened), typeof(FlowRunPaused)]);
+        // the session record landed inside the pause's save
+        Assert.Equal(1, interjection.Fired);
+        Assert.Equal(FlowRunStatus.Paused, paused.Status);
+        Assert.Equal("Hold on.", paused.PauseReason);
+        // the pause read the flow run again, the session record included
+        Assert.Equal(session, paused.Current?.SessionId);
+        Assert.Equal([typeof(AgentStepSessionOpened), typeof(FlowRunPaused)], (await EventsAsync(store, flowRun.Id)).TakeLast(2));
     }
 
     [Fact]
@@ -79,10 +83,12 @@ public sealed class FlowRunControlConcurrencyTests
         interjection.Arm(() => flowRuns.RecordUsageAsync(Runner, Project, flowRun.Id, "build", "build", session, Scripts.Usage(1), None));
         FlowRun resumed = await flowRuns.ResumeAsync(Principal.LocalOwner, Project, flowRun.Id, "Go on.", None);
 
-        interjection.Fired.Should().Be(1, "the usage record landed inside the resume's save");
-        resumed.Status.Should().Be(FlowRunStatus.Running);
-        resumed.Cost.Should().Be(Scripts.Usage(1).CostUsd, "the resume read the flow run again, the usage record included");
-        (await EventsAsync(store, flowRun.Id)).Should().EndWith([typeof(AgentStepUsageRecorded), typeof(FlowRunResumed)]);
+        // the usage record landed inside the resume's save
+        Assert.Equal(1, interjection.Fired);
+        Assert.Equal(FlowRunStatus.Running, resumed.Status);
+        // the resume read the flow run again, the usage record included
+        Assert.Equal(Scripts.Usage(1).CostUsd, resumed.Cost);
+        Assert.Equal([typeof(AgentStepUsageRecorded), typeof(FlowRunResumed)], (await EventsAsync(store, flowRun.Id)).TakeLast(2));
     }
 
     /// <summary>Opens a seeded store whose every save runs <paramref name="interjection"/> first.</summary>

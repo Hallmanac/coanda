@@ -55,26 +55,19 @@ public sealed class FixContextFlowRunTests
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        flowRun.Steps.Select(s => s.Step).Should().Equal(
-            "worktree", "build", "gates", "adversarial-review", "fix", "gates", "adversarial-review", "fix",
-            "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review");
+        Assert.Equal(["worktree", "build", "gates", "adversarial-review", "fix", "gates", "adversarial-review", "fix", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review"], flowRun.Steps.Select(s => s.Step));
         string[][] fixes = [.. executor.Spawns.Where(s => s.Agent == "fix").Select(s => s.Context.Split('\n'))];
-        fixes.Should().HaveCount(2);
+        Assert.Equal(2, fixes.Length);
 
-        fixes[0][^3..].Should().Equal(
-            SourceLine(flowRun, "gates", 1),
-            SourceLine(flowRun, "adversarial-review", 1),
-            "Source conformance-review: has not run on this flow run yet");
-        fixes[0][^3].Should().Contain("""{"verdict":"done",""");
-        fixes[0][^2].Should().EndWith("""{"verdict":"not-clean","findings":[{"title":"The first finding."}]}""");
+        Assert.Equal([SourceLine(flowRun, "gates", 1), SourceLine(flowRun, "adversarial-review", 1), "Source conformance-review: has not run on this flow run yet"], fixes[0][^3..]);
+        Assert.Contains("""{"verdict":"done",""", fixes[0][^3], StringComparison.Ordinal);
+        Assert.EndsWith("""{"verdict":"not-clean","findings":[{"title":"The first finding."}]}""", fixes[0][^2], StringComparison.Ordinal);
 
-        fixes[1][^3..].Should().Equal(
-            SourceLine(flowRun, "gates", 2),
-            SourceLine(flowRun, "adversarial-review", 2),
-            "Source conformance-review: has not run on this flow run yet");
-        fixes[1][^2].Should().EndWith("""{"verdict":"not-clean","findings":[{"title":"The second finding."}]}""");
+        Assert.Equal([SourceLine(flowRun, "gates", 2), SourceLine(flowRun, "adversarial-review", 2), "Source conformance-review: has not run on this flow run yet"], fixes[1][^3..]);
+        Assert.EndsWith("""{"verdict":"not-clean","findings":[{"title":"The second finding."}]}""", fixes[1][^2], StringComparison.Ordinal);
         string second = string.Join('\n', fixes[1]);
-        second.Should().NotContain("visit 1,").And.NotContain("The first finding.");
+        Assert.DoesNotContain("visit 1,", second, StringComparison.Ordinal);
+        Assert.DoesNotContain("The first finding.", second, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }
@@ -101,14 +94,11 @@ public sealed class FixContextFlowRunTests
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        flowRun.Steps.Select(s => s.Step).Take(5).Should().Equal("worktree", "build", "gates", "fix", "gates");
+        Assert.Equal(["worktree", "build", "gates", "fix", "gates"], flowRun.Steps.Select(s => s.Step).Take(5));
         string[] fix = executor.Spawns.Single(s => s.Agent == "fix").Context.Split('\n');
-        fix[^3..].Should().Equal(
-            SourceLine(flowRun, "gates", 1),
-            "Source adversarial-review: has not run on this flow run yet",
-            "Source conformance-review: has not run on this flow run yet");
-        fix[^3].Should().Contain("\"verdict\":\"failed\"").And.Contain(
-            "\"reason\":\"The test command 'dotnet test' exited with code 1. The last 1 lines of its output:\\nFailed ParserTests.ReadsEmpty\"");
+        Assert.Equal([SourceLine(flowRun, "gates", 1), "Source adversarial-review: has not run on this flow run yet", "Source conformance-review: has not run on this flow run yet"], fix[^3..]);
+        Assert.Contains("\"verdict\":\"failed\"", fix[^3], StringComparison.Ordinal);
+        Assert.Contains("\"reason\":\"The test command 'dotnet test' exited with code 1. The last 1 lines of its output:\\nFailed ParserTests.ReadsEmpty\"", fix[^3], StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }

@@ -28,10 +28,7 @@ public sealed class SpawnInputsTests
         await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         decimal budget = ShippedFlows.Build.Budget;
-        executor.Spawns.Select(s => s.Caps.CostCeilingUsd).Should().Equal(
-            budget,
-            budget - Scripts.Usage(1).CostUsd,
-            budget - Scripts.Usage(1).CostUsd - Scripts.Usage(2).CostUsd);
+        Assert.Equal([budget, budget - Scripts.Usage(1).CostUsd, budget - Scripts.Usage(1).CostUsd - Scripts.Usage(2).CostUsd], executor.Spawns.Select(s => s.Caps.CostCeilingUsd));
 
         await daemon.StopAsync(None);
     }
@@ -56,9 +53,8 @@ public sealed class SpawnInputsTests
             async () => (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Count(f => f.Status == "ended") == 2,
             "the seed flow run and the flow run following it both end");
 
-        executor.Spawns.Select(s => s.Caps.CostCeilingUsd).Should().Equal(
-            [1m, 0.4m],
-            "the follower's own budget leaves $5.00, and its chain, rooted at a $1.00 flow that already spent $0.60, leaves $0.40");
+        // the follower's own budget leaves $5.00, and its chain, rooted at a $1.00 flow that already spent $0.60, leaves $0.40
+        Assert.Equal([1m, 0.4m], executor.Spawns.Select(s => s.Caps.CostCeilingUsd));
 
         await daemon.StopAsync(None);
     }
@@ -76,13 +72,15 @@ public sealed class SpawnInputsTests
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         string work = temp.Home.FlowRunWorkPath(Project, flowRun.Id);
-        executor.Seen.Should().HaveCount(3);
+        Assert.Equal(3, executor.Seen.Count);
         foreach ((string task, string prompt, ScriptedSpawn spawn) in executor.Seen.Zip(executor.Inner.Spawns, (seen, spawn) => (seen.Task, seen.Prompt, spawn)))
         {
-            spawn.WorkingDirectory.Should().Be(work);
-            prompt.Should().Be(spawn.Context, "prompt.md holds the context the spawn carries");
-            task.Should().NotContain(TamperingExecutor.Tampered, "the session rewrote it, and the next spawn wrote it again from the parcel");
-            task.Should().Be($"""
+            Assert.Equal(work, spawn.WorkingDirectory);
+            // prompt.md holds the context the spawn carries
+            Assert.Equal(spawn.Context, prompt);
+            // the session rewrote it, and the next spawn wrote it again from the parcel
+            Assert.DoesNotContain(TamperingExecutor.Tampered, task, StringComparison.Ordinal);
+            Assert.Equal($"""
                 # Render the record
 
                 - Parcel: {parcel.Id}
@@ -107,19 +105,20 @@ public sealed class SpawnInputsTests
 
                 42 (https://github.com/example/coanda/pull/42)
 
-                """.ReplaceLineEndings("\n"));
+                """.ReplaceLineEndings("\n"), task);
         }
 
-        File.ReadAllText(Path.Combine(work, ".coanda", "task.md")).Should().Be(TamperingExecutor.Tampered, "the daemon never reads the file back");
-        Directory.EnumerateFileSystemEntries(work, "*", SearchOption.AllDirectories)
-            .Select(p => Path.GetRelativePath(work, p).Replace('\\', '/'))
-            .Should().BeEquivalentTo(".coanda", ".coanda/task.md", ".coanda/prompt.md");
+        // the daemon never reads the file back
+        Assert.Equal(TamperingExecutor.Tampered, File.ReadAllText(Path.Combine(work, ".coanda", "task.md")));
+        Assert.Equivalent(
+            new[] { ".coanda", ".coanda/task.md", ".coanda/prompt.md" },
+            Directory.EnumerateFileSystemEntries(work, "*", SearchOption.AllDirectories).Select(p => Path.GetRelativePath(work, p).Replace('\\', '/')),
+            strict: true);
 
         if (!OperatingSystem.IsWindows())
         {
-            executor.Modes.Should().HaveCount(3).And.OnlyContain(
-                modes => modes.Task == OwnerOnly && modes.Prompt == OwnerOnly,
-                "each spawn finds both written owner-only, the record again after the session left it wider");
+            Assert.Equal(3, executor.Modes.Count);
+            Assert.All(executor.Modes, modes => Assert.True(modes.Task == OwnerOnly && modes.Prompt == OwnerOnly, "each spawn finds both written owner-only, the record again after the session left it wider"));
         }
 
         await daemon.StopAsync(None);

@@ -59,7 +59,8 @@ public sealed class ToolGuardTests : IDisposable
         ToolGuardOutcome outcome = Guard(Call("Read", new { file_path = home.DaemonInfoPath }));
 
         RefusedInNodeHome(outcome);
-        outcome.Reason.Should().NotContain("port", "the reason never holds a file's contents");
+        // the reason never holds a file's contents
+        Assert.DoesNotContain("port", outcome.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -542,7 +543,8 @@ public sealed class ToolGuardTests : IDisposable
             RefusedInConfig(ToolGuard.Run(arguments, new StringReader(Call("Bash", new { command = "cat ~/.claude.json" })), environment));
         }
 
-        ClaudeCodeInvocation.DefaultConfigFiles(Environment()).Should().BeEmpty("with CLAUDE_CONFIG_DIR set, the global config lives inside that directory");
+        // with CLAUDE_CONFIG_DIR set, the global config lives inside that directory
+        Assert.Empty(ClaudeCodeInvocation.DefaultConfigFiles(Environment()));
     }
 
     [Theory]
@@ -569,8 +571,7 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("a/{..,b}/.?/c", "a/", 2)]
     [InlineData("src/*.cs", "src/", 0)]
     [InlineData("src/a.cs", "src/a.cs", 0)]
-    public void The_highest_directory_a_pattern_may_reach_counts_each_climb_beyond_its_descents(string text, string before, int climbs) =>
-        ShellWords.HighestReach(text).Should().Be(before + string.Concat(Enumerable.Repeat(".." + Path.DirectorySeparatorChar, climbs)));
+    public void The_highest_directory_a_pattern_may_reach_counts_each_climb_beyond_its_descents(string text, string before, int climbs) => Assert.Equal(before + string.Concat(Enumerable.Repeat(".." + Path.DirectorySeparatorChar, climbs)), ShellWords.HighestReach(text));
 
     [Theory]
     [InlineData("cat {a/b/c/d,e}/../../../../daemon.json")]
@@ -609,12 +610,10 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("${HOME}/{1..3}", new[] { "${HOME}/{1..3}" })]
     [InlineData("${A,B}", new[] { "$A", "$B", "${A,B}" })]
     [InlineData("{a,b", new[] { "{a,b" })]
-    public void A_brace_expands_to_each_of_its_choices_and_the_text_as_quoted(string text, string[] expected) =>
-        ShellWords.Braces(text).Should().Equal(expected);
+    public void A_brace_expands_to_each_of_its_choices_and_the_text_as_quoted(string text, string[] expected) => Assert.Equal(expected, ShellWords.Braces(text));
 
     [Fact]
-    public void A_brace_expansion_of_more_words_than_the_limit_gives_none() =>
-        ShellWords.Braces(string.Concat(Enumerable.Repeat("{a,b}", 9))).Should().BeNull();
+    public void A_brace_expansion_of_more_words_than_the_limit_gives_none() => Assert.Null(ShellWords.Braces(string.Concat(Enumerable.Repeat("{a,b}", 9))));
 
     [Theory]
     [InlineData("/c/Users/me/.coanda/daemon.json", @"C:\Users\me\.coanda\daemon.json")]
@@ -624,8 +623,7 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("/usr/bin", null)]
     [InlineData("/cygdrive", null)]
     [InlineData("c/Users", null)]
-    public void A_git_bash_drive_path_is_read_as_the_windows_drive_path_it_names(string text, string? expected) =>
-        GuardPath.ShellDrivePath(text).Should().Be(expected);
+    public void A_git_bash_drive_path_is_read_as_the_windows_drive_path_it_names(string text, string? expected) => Assert.Equal(expected, GuardPath.ShellDrivePath(text));
 
     [Fact]
     public void On_windows_a_git_bash_drive_path_into_the_node_home_is_refused()
@@ -673,8 +671,8 @@ public sealed class ToolGuardTests : IDisposable
     {
         ToolGuardOutcome outcome = Run(arguments, Call("Read", new { file_path = Path.Combine(work, "src", "a.cs") }));
 
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().StartWith("coa refused this call because the tool guard's arguments are malformed");
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.StartsWith("coa refused this call because the tool guard's arguments are malformed", outcome.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -682,13 +680,12 @@ public sealed class ToolGuardTests : IDisposable
     {
         ToolGuardOutcome outcome = Guard(Call("Read", new { file_path = "bad\0path" }));
 
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().StartWith("coa refused this call because the tool guard failed while deciding it");
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.StartsWith("coa refused this call because the tool guard failed while deciding it", outcome.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void An_input_that_cannot_be_read_is_a_refusal() =>
-        Run(Arguments(), new FailingReader()).ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
+    public void An_input_that_cannot_be_read_is_a_refusal() => Assert.Equal(ToolGuardOutcome.DenyCode, Run(Arguments(), new FailingReader()).ExitCode);
 
     // Allowed.
 
@@ -781,36 +778,38 @@ public sealed class ToolGuardTests : IDisposable
     {
         ToolGuardRules rules = Rules(directoryProfile, Environment());
 
-        ToolGuardRules.Parse(rules.Arguments, out string? problem).Should().BeEquivalentTo(rules, problem);
-        rules.ProtectedConfigDirectories.Should().BeEquivalentTo([directoryProfile.ConfigDirectory, otherProfile.ConfigDirectory, defaultConfig]);
+        ToolGuardRules? parsed = ToolGuardRules.Parse(rules.Arguments, out string? problem);
+        Assert.True(parsed is not null, problem);
+        Assert.Equivalent(rules, parsed, strict: true);
+        Assert.Equivalent(new[] { directoryProfile.ConfigDirectory, otherProfile.ConfigDirectory, defaultConfig }, rules.ProtectedConfigDirectories, strict: true);
     }
 
     private static void RefusedInNodeHome(ToolGuardOutcome outcome)
     {
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().Contain("is in the node home");
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("is in the node home", outcome.Reason, StringComparison.Ordinal);
     }
 
     private static void RefusedInConfig(ToolGuardOutcome outcome)
     {
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().Contain("is in a Claude Code config directory");
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("is in a Claude Code config directory", outcome.Reason, StringComparison.Ordinal);
     }
 
     private static void RefusedUnknowable(ToolGuardOutcome outcome)
     {
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().Contain("which the tool guard cannot know");
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("which the tool guard cannot know", outcome.Reason, StringComparison.Ordinal);
     }
 
     private static void RefusedUnreadable(ToolGuardOutcome outcome)
     {
-        outcome.ExitCode.Should().Be(ToolGuardOutcome.DenyCode);
-        outcome.Reason.Should().StartWith("coa refused this call because the tool guard could not read it");
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.StartsWith("coa refused this call because the tool guard could not read it", outcome.Reason, StringComparison.Ordinal);
     }
 
     private static void Allowed(ToolGuardOutcome outcome) =>
-        outcome.Should().Be(ToolGuardOutcome.Allowed, outcome.Reason);
+        Assert.True(outcome == ToolGuardOutcome.Allowed, outcome.Reason);
 
     private IReadOnlyDictionary<string, string> Environment(params (string Name, string Value)[] more)
     {

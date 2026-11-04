@@ -14,11 +14,11 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Executor.Should().BeOfType<ClaudeCodeExecutor>("a cold install runs its agent steps on Claude Code")
-            .Which.Executable.Should().Be("claude");
-        options.Profiles.Should().BeEmpty();
-        options.Gates.Should().BeEmpty();
-        options.AgentStepLimit.Should().Be(DaemonOptions.DefaultAgentStepLimit);
+        // a cold install runs its agent steps on Claude Code
+        Assert.Equal("claude", Assert.IsType<ClaudeCodeExecutor>(options.Executor).Executable);
+        Assert.Empty(options.Profiles);
+        Assert.Empty(options.Gates);
+        Assert.Equal(DaemonOptions.DefaultAgentStepLimit, options.AgentStepLimit);
     }
 
     [Fact]
@@ -29,8 +29,8 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Executor.Should().BeOfType<ClaudeCodeExecutor>().Which.Executable.Should().Be("claude");
-        options.Profiles.Should().ContainSingle().Which.Name.Should().Be("work");
+        Assert.Equal("claude", Assert.IsType<ClaudeCodeExecutor>(options.Executor).Executable);
+        Assert.Equal("work", Assert.Single(options.Profiles).Name);
     }
 
     [Theory]
@@ -43,8 +43,7 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Executor.Should().BeOfType<ClaudeCodeExecutor>()
-            .Which.Executable.Should().Be(expected.Replace("<home>/", temp.Home.Path + Path.DirectorySeparatorChar, StringComparison.Ordinal).Replace('/', Path.DirectorySeparatorChar));
+        Assert.Equal(expected.Replace("<home>/", temp.Home.Path + Path.DirectorySeparatorChar, StringComparison.Ordinal).Replace('/', Path.DirectorySeparatorChar), Assert.IsType<ClaudeCodeExecutor>(options.Executor).Executable);
     }
 
     [Fact]
@@ -54,7 +53,7 @@ public sealed class NodeConfigurationTests
         string absolute = Path.Combine(Path.GetTempPath(), "tools", OperatingSystem.IsWindows() ? "claude.exe" : "claude");
         Write(temp, $$"""{ "executor": "claude-code", "claudeExecutable": {{System.Text.Json.JsonSerializer.Serialize(absolute)}} }""");
 
-        NodeConfiguration.Load(temp.Home).Executor.Should().BeOfType<ClaudeCodeExecutor>().Which.Executable.Should().Be(absolute);
+        Assert.Equal(absolute, Assert.IsType<ClaudeCodeExecutor>(NodeConfiguration.Load(temp.Home).Executor).Executable);
     }
 
     [Fact]
@@ -77,12 +76,9 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Executor.Should().BeOfType<ScriptedExecutor>();
-        options.Profiles.Should().Equal(
-            new CredentialProfile("claude-code", "work", Path.Combine(temp.Home.Path, "accounts", "work"), null),
-            new CredentialProfile("claude-code", "personal", absolute, null),
-            new CredentialProfile("claude-code", "ci", null, "op read op://ci/anthropic/key"));
-        options.Profiles.Select(p => p.ConfigDirectory).OfType<string>().Should().OnlyContain(d => Path.IsPathFullyQualified(d));
+        Assert.IsType<ScriptedExecutor>(options.Executor);
+        Assert.Equal([new CredentialProfile("claude-code", "work", Path.Combine(temp.Home.Path, "accounts", "work"), null), new CredentialProfile("claude-code", "personal", absolute, null), new CredentialProfile("claude-code", "ci", null, "op read op://ci/anthropic/key")], options.Profiles);
+        Assert.All(options.Profiles.Select(p => p.ConfigDirectory).OfType<string>(), d => Assert.True(Path.IsPathFullyQualified(d)));
     }
 
     [Fact]
@@ -93,8 +89,8 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Executor.Should().BeOfType<ScriptedExecutor>();
-        options.Profiles.Should().BeEmpty();
+        Assert.IsType<ScriptedExecutor>(options.Executor);
+        Assert.Empty(options.Profiles);
     }
 
     [Theory]
@@ -131,9 +127,9 @@ public sealed class NodeConfigurationTests
         using var temp = new TemporaryHome();
         Write(temp, content);
 
-        FluentActions.Invoking(() => NodeConfiguration.Load(temp.Home))
-            .Should().Throw<DomainException>()
-            .Which.Message.Should().StartWith($"The node configuration {temp.Home.ConfigurationPath} ").And.Contain(rule);
+        DomainException exception = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+        Assert.StartsWith($"The node configuration {temp.Home.ConfigurationPath} ", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(rule, exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -146,12 +142,15 @@ public sealed class NodeConfigurationTests
         using var temp = new TemporaryHome();
         Write(temp, content);
 
-        string message = FluentActions.Invoking(() => NodeConfiguration.Load(temp.Home))
-            .Should().Throw<DomainException>().Which.Message;
+        string message = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home)).Message;
 
-        message.Should().NotContain("Coanda.").And.NotContain("Shape").And.NotContain("System.")
-            .And.NotContain("LineNumber").And.NotContain("BytePositionInLine");
-        message.Split("line ").Should().HaveCount(2, "the location is named once");
+        Assert.DoesNotContain("Coanda.", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Shape", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("System.", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("LineNumber", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("BytePositionInLine", message, StringComparison.Ordinal);
+        // the location is named once
+        Assert.Equal(2, message.Split("line ").Length);
     }
 
     [Fact]
@@ -160,8 +159,8 @@ public sealed class NodeConfigurationTests
         using var temp = new TemporaryHome();
         Write(temp, "{\n  \"executor\": \"scripted\",\n}");
 
-        FluentActions.Invoking(() => NodeConfiguration.Load(temp.Home))
-            .Should().Throw<DomainException>().Which.Message.Should().EndWith("is not valid JSON; the reader stopped at $ (line 3).");
+        DomainException exception = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+        Assert.EndsWith("is not valid JSON; the reader stopped at $ (line 3).", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -170,9 +169,8 @@ public sealed class NodeConfigurationTests
         using var temp = new TemporaryHome();
         Directory.CreateDirectory(temp.Home.ConfigurationPath);
 
-        FluentActions.Invoking(() => NodeConfiguration.Load(temp.Home))
-            .Should().Throw<DomainException>()
-            .WithMessage($"The node configuration {temp.Home.ConfigurationPath} is a directory; the node configuration is a file.");
+        DomainException exception = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+        Assert.Equal($"The node configuration {temp.Home.ConfigurationPath} is a directory; the node configuration is a file.", exception.Message);
     }
 
     [Fact]
@@ -193,9 +191,8 @@ public sealed class NodeConfigurationTests
                 return; // A superuser reads it regardless of its mode, so there is nothing to refuse.
             }
 
-            FluentActions.Invoking(() => NodeConfiguration.Load(temp.Home))
-                .Should().Throw<DomainException>()
-                .Which.Message.Should().StartWith($"The node configuration {temp.Home.ConfigurationPath} could not be read: ");
+            DomainException exception = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+            Assert.StartsWith($"The node configuration {temp.Home.ConfigurationPath} could not be read: ", exception.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -209,7 +206,7 @@ public sealed class NodeConfigurationTests
         using var temp = new TemporaryHome();
         Write(temp, """{ "executor": "scripted", "profiles": { "claude-code": [ { "name": "work", "configDirectory": "/a" }, { "name": "Work", "configDirectory": "/b" } ] } }""");
 
-        NodeConfiguration.Load(temp.Home).Profiles.Select(p => p.Name).Should().Equal("work", "Work");
+        Assert.Equal(["work", "Work"], NodeConfiguration.Load(temp.Home).Profiles.Select(p => p.Name));
     }
 
     [Fact]
@@ -221,8 +218,8 @@ public sealed class NodeConfigurationTests
 
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
-        options.Profiles.Select(p => p.ConfigDirectory ?? p.ApiKeyHelper).Should().Equal(missing, "/no/such/helper --print");
-        Directory.Exists(missing).Should().BeFalse();
+        Assert.Equal([missing, "/no/such/helper --print"], options.Profiles.Select(p => p.ConfigDirectory ?? p.ApiKeyHelper));
+        Assert.False(Directory.Exists(missing));
     }
 
     private static bool Readable(string path)

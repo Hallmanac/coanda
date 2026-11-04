@@ -70,7 +70,8 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage(Refusal);
+        DomainException exception = Assert.Throws<DomainException>(check);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
     }
 
     [Fact]
@@ -81,7 +82,8 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage(Refusal);
+        DomainException exception = Assert.Throws<DomainException>(check);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
     }
 
     [Fact]
@@ -92,7 +94,8 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage(Refusal);
+        DomainException exception = Assert.Throws<DomainException>(check);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
     }
 
     [Fact]
@@ -103,7 +106,7 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().NotThrow();
+        check();
     }
 
     [Fact]
@@ -113,7 +116,7 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().NotThrow();
+        check();
     }
 
     [Fact]
@@ -129,7 +132,7 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().NotThrow();
+        check();
     }
 
     [Fact]
@@ -141,8 +144,9 @@ public sealed class PreRenameStoreTests
 
         Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
-        await start.Should().ThrowAsync<DomainException>().WithMessage(Refusal);
-        (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(start);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
+        Assert.Equal(before, await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None));
     }
 
     [Fact]
@@ -154,8 +158,9 @@ public sealed class PreRenameStoreTests
 
         Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
-        await start.Should().ThrowAsync<DomainException>().WithMessage(Refusal);
-        (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(start);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
+        Assert.Equal(before, await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None));
     }
 
     [Theory]
@@ -173,7 +178,8 @@ public sealed class PreRenameStoreTests
 
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
 
-        check.Should().Throw<DomainException>().WithMessage(Refusal);
+        DomainException exception = Assert.Throws<DomainException>(check);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
     }
 
     [Fact]
@@ -185,8 +191,9 @@ public sealed class PreRenameStoreTests
 
         Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
 
-        await start.Should().ThrowAsync<DomainException>().WithMessage(Refusal);
-        (await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None)).Should().Equal(before);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(start);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
+        Assert.Equal(before, await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None));
     }
 
     [Fact]
@@ -224,9 +231,12 @@ public sealed class PreRenameStoreTests
             await daemon.WaitForShutdownAsync(CancellationToken.None);
         }
 
-        RecordedTypes(temp.Home).Should().Contain(["flow_run_started", "parcel_flow_run_attached", "flow_run_paused"])
-            .And.NotContain(type => type.StartsWith("flow_", StringComparison.Ordinal) && !type.StartsWith("flow_run_", StringComparison.Ordinal));
+        List<string> recorded = RecordedTypes(temp.Home);
+        Assert.Contains("flow_run_started", recorded);
+        Assert.Contains("parcel_flow_run_attached", recorded);
+        Assert.Contains("flow_run_paused", recorded);
+        Assert.DoesNotContain(recorded, type => type.StartsWith("flow_", StringComparison.Ordinal) && !type.StartsWith("flow_run_", StringComparison.Ordinal));
         Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
-        check.Should().NotThrow();
+        check();
     }
 }

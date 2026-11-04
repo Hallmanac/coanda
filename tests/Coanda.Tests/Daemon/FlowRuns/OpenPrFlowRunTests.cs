@@ -33,13 +33,14 @@ public sealed class OpenPrFlowRunTests
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         JsonElement opened = flowRun.Steps.Single(s => s.Step == "open-pr").Result.GetValueOrDefault();
-        opened.GetProperty("verdict").GetString().Should().Be(OpenPrSystemStep.OpenedVerdict);
-        opened.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
-        opened.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);
-        opened.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
-        github.Requests.Should().NotBeEmpty().And.OnlyContain(r => r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}");
-        JsonSerializer.Serialize(flowRun).Should().NotContain(ScriptedCommandRunner.GitHubToken);
-        JsonSerializer.Serialize(await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Should().NotContain(ScriptedCommandRunner.GitHubToken);
+        Assert.Equal(OpenPrSystemStep.OpenedVerdict, opened.GetProperty("verdict").GetString());
+        Assert.Equal(FakeGitHub.Number, opened.GetProperty("number").GetInt32());
+        Assert.Equal(FakeGitHub.Url, opened.GetProperty("url").GetString());
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, opened.GetProperty("head").GetString());
+        Assert.NotEmpty(github.Requests);
+        Assert.All(github.Requests, r => Assert.True(r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}"));
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, JsonSerializer.Serialize(flowRun), StringComparison.Ordinal);
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, JsonSerializer.Serialize(await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)), StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }
@@ -59,10 +60,12 @@ public sealed class OpenPrFlowRunTests
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
 
-        paused.CurrentStep.Should().Be("open-pr");
-        paused.PauseReason.Should().Contain("status 422").And.Contain("Validation Failed").And.NotContain(ScriptedCommandRunner.GitHubToken);
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("open-pr"));
-        JsonSerializer.Serialize(paused).Should().NotContain(ScriptedCommandRunner.GitHubToken);
+        Assert.Equal("open-pr", paused.CurrentStep);
+        Assert.Contains("status 422", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("Validation Failed", paused.PauseReason, StringComparison.Ordinal);
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
+        Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, JsonSerializer.Serialize(paused), StringComparison.Ordinal);
 
         github.On(r => r.IsOpen && r.Body is not null, r => FakeGitHub.Json(HttpStatusCode.Created, new JsonObject
         {
@@ -73,11 +76,11 @@ public sealed class OpenPrFlowRunTests
         await FlowRunDriver.ResumeAsync(client, Project, flowRunId, "GitHub is back.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
 
-        ended.Outcome.Should().Be("pr-opened");
+        Assert.Equal("pr-opened", ended.Outcome);
         await FlowRunDriver.MergedAsync(client, Project, parcel.Id, flowRunId);
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage
-            .Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
-        github.Unexpected.Should().BeEmpty();
+        // the build moved the task to review, and the merge that followed closed it
+        Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
+        Assert.Empty(github.Unexpected);
 
         await daemon.StopAsync(None);
     }

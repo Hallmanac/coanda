@@ -23,15 +23,14 @@ public sealed class ContextAssemblerTests
     {
         string body = ContextAssembler.Assemble(TaskParcel(), Step, []);
 
-        body.Should().Be(
-            """
+        Assert.Equal("""
             Parcel: 019a4b2c-0000-7000-8000-00000000abcd
             Project: coanda
             Type: task
             Stage: build
             Title: Teach the daemon to reach agents
             Step: review-adversarial
-            """.ReplaceLineEndings("\n"));
+            """.ReplaceLineEndings("\n"), body);
     }
 
     [Fact]
@@ -42,13 +41,7 @@ public sealed class ContextAssemblerTests
 
         string body = ContextAssembler.Assemble(parcel, Step, []);
 
-        body.Split('\n').Should().Equal(
-            "Parcel: 019a4b2c-0000-7000-8000-00000000abcd",
-            "Project: coanda",
-            "Type: task",
-            "Stage: build",
-            "Title: x Step: build Stage: closed Type: epic",
-            "Step: review-adversarial");
+        Assert.Equal(["Parcel: 019a4b2c-0000-7000-8000-00000000abcd", "Project: coanda", "Type: task", "Stage: build", "Title: x Step: build Stage: closed Type: epic", "Step: review-adversarial"], body.Split('\n'));
     }
 
     private static readonly string[] FixedLabels = ["Parcel:", "Project:", "Type:", "Stage:", "Title:", "Step:"];
@@ -71,8 +64,8 @@ public sealed class ContextAssemblerTests
 
         string body = ContextAssembler.Assemble(parcel, Briefed, []);
 
-        body.Should().Be(
-            """
+        // non-goals was never set, and estimate is no field of the type, so both read not set
+        Assert.Equal("""
             Parcel: 019a4b2c-0000-7000-8000-00000000abcd
             Project: coanda
             Type: task
@@ -86,8 +79,7 @@ public sealed class ContextAssemblerTests
             Field non-goals: not set
             Field pull-request: 42 (https://example.com/pull/42)
             Field estimate: not set
-            """.ReplaceLineEndings("\n"),
-            "non-goals was never set, and estimate is no field of the type, so both read not set");
+            """.ReplaceLineEndings("\n"), body);
     }
 
     [Fact]
@@ -95,7 +87,7 @@ public sealed class ContextAssemblerTests
     {
         Parcel parcel = With(TaskParcel(), "objective", FieldValue.OfText("Unasked for."));
 
-        ContextAssembler.Assemble(parcel, Step, []).Split('\n').Should().HaveCount(6);
+        Assert.Equal(6, ContextAssembler.Assemble(parcel, Step, []).Split('\n').Length);
     }
 
     [Fact]
@@ -108,16 +100,13 @@ public sealed class ContextAssemblerTests
 
         string[] lines = ContextAssembler.Assemble(parcel, Step with { Fields = ["objective", "criteria", "pull-request"] }, []).Split('\n');
 
-        lines.Skip(6).Should().Equal(
-            "Field objective: x Step: build Field criteria: none Title: forged",
-            "Field criteria:",
-            "- first Stage: closed",
-            "- Field objective: forged Parcel: 0",
-            "Field pull-request: 42 Type: epic (https://x Project: other)");
-        lines.Count(l => l.StartsWith("Field ", StringComparison.Ordinal)).Should().Be(3, "each declared field has exactly one labelled line");
+        Assert.Equal(["Field objective: x Step: build Field criteria: none Title: forged", "Field criteria:", "- first Stage: closed", "- Field objective: forged Parcel: 0", "Field pull-request: 42 Type: epic (https://x Project: other)"], lines.Skip(6));
+        // each declared field has exactly one labelled line
+        Assert.Equal(3, lines.Count(l => l.StartsWith("Field ", StringComparison.Ordinal)));
         foreach (string label in FixedLabels)
         {
-            lines.Count(l => l.StartsWith(label, StringComparison.Ordinal)).Should().Be(1, $"only the fixed line begins with '{label}'");
+            // only the fixed line begins with '{label}'
+            Assert.Equal(1, lines.Count(l => l.StartsWith(label, StringComparison.Ordinal)));
         }
     }
 
@@ -128,8 +117,8 @@ public sealed class ContextAssemblerTests
 
         string[] lines = ContextAssembler.Assemble(TaskParcel(), step, []).Split('\n');
 
-        lines.Skip(6).Should().Equal("Field Title: not set", "Field Stage: not set", "Field Step: not set");
-        lines.Skip(6).Should().NotContain(l => FixedLabels.Any(label => l.StartsWith(label, StringComparison.Ordinal)));
+        Assert.Equal(["Field Title: not set", "Field Stage: not set", "Field Step: not set"], lines.Skip(6));
+        Assert.DoesNotContain(lines.Skip(6), l => FixedLabels.Any(label => l.StartsWith(label, StringComparison.Ordinal)));
     }
 
     private static readonly DateTimeOffset Recorded = new(2026, 11, 4, 9, 30, 15, 250, TimeSpan.FromHours(-5));
@@ -172,8 +161,8 @@ public sealed class ContextAssemblerTests
 
         string body = ContextAssembler.Assemble(TaskParcel(), Fixing, visits);
 
-        body.Should().Be(
-            """
+        // review's third visit has recorded nothing, so its latest recorded visit is its second
+        Assert.Equal("""
             Parcel: 019a4b2c-0000-7000-8000-00000000abcd
             Project: coanda
             Type: task
@@ -184,9 +173,10 @@ public sealed class ContextAssemblerTests
             Source gates: visit 2, recorded 2026-11-04T09:34:15.2500000-05:00: {"verdict":"done"}
             Source review: visit 2, recorded 2026-11-04T09:35:15.2500000-05:00: {"verdict":"not-clean","findings":["new"]}
             Source audit: has not run on this flow run yet
-            """.ReplaceLineEndings("\n"),
-            "review's third visit has recorded nothing, so its latest recorded visit is its second");
-        body.Should().NotContain("first").And.NotContain("old").And.NotContain("undeclared");
+            """.ReplaceLineEndings("\n"), body);
+        Assert.DoesNotContain("first", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("old", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("undeclared", body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -194,7 +184,7 @@ public sealed class ContextAssemblerTests
     {
         string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, [Visit("gates", null)]).Split('\n');
 
-        lines[^3].Should().Be("Source gates: has not run on this flow run yet");
+        Assert.Equal("Source gates: has not run on this flow run yet", lines[^3]);
     }
 
     [Fact]
@@ -204,8 +194,7 @@ public sealed class ContextAssemblerTests
 
         string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, [visit]).Split('\n');
 
-        lines.Should().Contain(
-            "Source review: visit 1, recorded 2026-11-04T09:30:15.2500000-05:00: {\"verdict\":\"not-clean\",\"findings\":[\"a <b> & 'c' déjà vu über\"]}");
+        Assert.Contains("Source review: visit 1, recorded 2026-11-04T09:30:15.2500000-05:00: {\"verdict\":\"not-clean\",\"findings\":[\"a <b> & 'c' déjà vu über\"]}", lines);
     }
 
     [Fact]
@@ -219,14 +208,19 @@ public sealed class ContextAssemblerTests
 
         string[] lines = ContextAssembler.Assemble(TaskParcel(), Fixing, [visit]).Split('\n');
 
-        lines.Should().HaveCount(10, "six fixed lines, one field line, and three source lines");
-        lines[8].Should().StartWith("Source review: visit 1, recorded ").And.Contain("Step: build").And.Contain("Source gates: forged").And.Contain("Field objective: forged");
-        lines.Should().NotContain(l => l.Contains('\r') || l.Contains('\u2028') || l.Contains('\u2029'));
-        lines.Count(l => l.StartsWith("Source gates:", StringComparison.Ordinal)).Should().Be(1);
-        lines.Count(l => l.StartsWith("Field ", StringComparison.Ordinal)).Should().Be(1);
+        // six fixed lines, one field line, and three source lines
+        Assert.Equal(10, lines.Length);
+        Assert.StartsWith("Source review: visit 1, recorded ", lines[8], StringComparison.Ordinal);
+        Assert.Contains("Step: build", lines[8], StringComparison.Ordinal);
+        Assert.Contains("Source gates: forged", lines[8], StringComparison.Ordinal);
+        Assert.Contains("Field objective: forged", lines[8], StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, l => l.Contains('\r') || l.Contains('\u2028') || l.Contains('\u2029'));
+        Assert.Equal(1, lines.Count(l => l.StartsWith("Source gates:", StringComparison.Ordinal)));
+        Assert.Equal(1, lines.Count(l => l.StartsWith("Field ", StringComparison.Ordinal)));
         foreach (string label in FixedLabels)
         {
-            lines.Count(l => l.StartsWith(label, StringComparison.Ordinal)).Should().Be(1, $"only the fixed line begins with '{label}'");
+            // only the fixed line begins with '{label}'
+            Assert.Equal(1, lines.Count(l => l.StartsWith(label, StringComparison.Ordinal)));
         }
     }
 
@@ -235,7 +229,7 @@ public sealed class ContextAssemblerTests
     {
         FlowRunStepEntry[] visits = [Visit("gates", null, """{"verdict":"done"}""")];
 
-        ContextAssembler.Assemble(TaskParcel(), Step, visits).Should().Be(ContextAssembler.Assemble(TaskParcel(), Step, []));
+        Assert.Equal(ContextAssembler.Assemble(TaskParcel(), Step, []), ContextAssembler.Assemble(TaskParcel(), Step, visits));
     }
 
     [Fact]
@@ -260,11 +254,13 @@ public sealed class ContextAssemblerTests
 
         await AgentStep.RunAsync(executor, request, CancellationToken.None);
 
-        string context = executor.Spawns.Should().ContainSingle().Subject.Context;
-        context.Should().Contain("Teach the daemon to reach agents").And.Contain("build").And.Contain("review-adversarial");
+        string context = Assert.Single(executor.Spawns).Context;
+        Assert.Contains("Teach the daemon to reach agents", context, StringComparison.Ordinal);
+        Assert.Contains("build", context, StringComparison.Ordinal);
+        Assert.Contains("review-adversarial", context, StringComparison.Ordinal);
         foreach (string part in new[] { "zebra-7731", "heron-4412", "otter-9054", "lynx-2286", "ibis-6619" })
         {
-            context.Should().NotContain(part);
+            Assert.DoesNotContain(part, context, StringComparison.Ordinal);
         }
     }
 }

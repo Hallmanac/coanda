@@ -93,31 +93,15 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         JsonElement result = Done(await PerformAsync(parcel, flowRun));
 
-        result.GetProperty("head").GetString().Should().Be(Rebased);
-        result.GetProperty("branch").GetString().Should().Be(branch);
-        runner.GitCalls.Should().Equal(
-            "rebase --abort",
-            "status --porcelain --untracked-files=all",
-            $"ls-remote --refs origin refs/heads/{branch}",
-            $"for-each-ref --format=%(objectname) {ProjectClones.NoteRefOf(flowRun)}",
-            $"for-each-ref --format=%(objectname) refs/heads/{branch}",
-            $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}",
-            $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}",
-            $"checkout --quiet --detach {Recorded}",
-            $"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}",
-            "rev-parse --verify --quiet HEAD^{commit}",
-            $"update-ref {ProjectClones.NoteRefOf(flowRun)} {Rebased}",
-            $"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}",
-            $"checkout --quiet --detach {Rebased}",
-            $"update-ref refs/heads/{branch} {Rebased} {Recorded}",
-            $"checkout --quiet {branch}",
-            $"update-ref {ProjectClones.TrackingRefOf(branch)} {Rebased}");
-        runner.Commands.Where(c => c.GitDirectory() is null).Should().OnlyContain(c => c.WorkingDirectory == workPath, "the rebase works in the merge flow run's own worktree");
-        runner.Branch(Clone, branch).Should().Be(Rebased);
-        runner.CheckedOut(Clone, workPath).Should().Be(branch);
-        runner.RemoteBranch(Clone, branch).Should().Be(Rebased);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Rebased);
-        runner.TrackingRef(Clone, ProjectClones.NoteRefOf(flowRun)).Should().Be(Rebased);
+        Assert.Equal(Rebased, result.GetProperty("head").GetString());
+        Assert.Equal(branch, result.GetProperty("branch").GetString());
+        Assert.Equal(["rebase --abort", "status --porcelain --untracked-files=all", $"ls-remote --refs origin refs/heads/{branch}", $"for-each-ref --format=%(objectname) {ProjectClones.NoteRefOf(flowRun)}", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"checkout --quiet --detach {Recorded}", $"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", "rev-parse --verify --quiet HEAD^{commit}", $"update-ref {ProjectClones.NoteRefOf(flowRun)} {Rebased}", $"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", $"checkout --quiet --detach {Rebased}", $"update-ref refs/heads/{branch} {Rebased} {Recorded}", $"checkout --quiet {branch}", $"update-ref {ProjectClones.TrackingRefOf(branch)} {Rebased}"], runner.GitCalls);
+        Assert.All(runner.Commands.Where(c => c.GitDirectory() is null), c => Assert.True(c.WorkingDirectory == workPath, "the rebase works in the merge flow run's own worktree"));
+        Assert.Equal(Rebased, runner.Branch(Clone, branch));
+        Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
+        Assert.Equal(Rebased, runner.RemoteBranch(Clone, branch));
+        Assert.Equal(Rebased, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        Assert.Equal(Rebased, runner.TrackingRef(Clone, ProjectClones.NoteRefOf(flowRun)));
     }
 
     [Fact]
@@ -129,9 +113,11 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         IReadOnlyList<string> calls = runner.GitCalls;
         int push = IndexOf(calls, "push ");
-        IndexOf(calls, $"update-ref {ProjectClones.NoteRefOf(flowRun)} ").Should().BeLessThan(push);
-        IndexOf(calls, $"update-ref refs/heads/{branch} ").Should().BeGreaterThan(push);
-        calls.Select((c, i) => (c, i)).Where(p => p.c == $"checkout --quiet {branch}").Should().OnlyContain(p => p.i > push);
+        int note = IndexOf(calls, $"update-ref {ProjectClones.NoteRefOf(flowRun)} ");
+        int moved = IndexOf(calls, $"update-ref refs/heads/{branch} ");
+        Assert.True(note < push, $"Expected the note's update-ref before the push at {push}, but it is at {note}.");
+        Assert.True(moved > push, $"Expected the branch's update-ref after the push at {push}, but it is at {moved}.");
+        Assert.All(calls.Select((c, i) => (c, i)).Where(p => p.c == $"checkout --quiet {branch}"), p => Assert.True(p.i > push));
     }
 
     [Fact]
@@ -141,12 +127,12 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         Done(await PerformAsync(parcel, flowRun));
 
-        runner.Commands.Should().NotBeEmpty().And.OnlyContain(c =>
-            c.Program == "git"
+        Assert.NotEmpty(runner.Commands);
+        Assert.All(runner.Commands, c => Assert.True(c.Program == "git"
             && c.Environment["GIT_TERMINAL_PROMPT"] == "0"
             && c.Environment["GIT_SSH_COMMAND"].Contains("BatchMode=yes")
             && c.Environment["LC_ALL"] == "C"
-            && c.Limit == Git.Limit);
+            && c.Limit == Git.Limit));
     }
 
     [Fact]
@@ -157,17 +143,26 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Reason.Should().StartWith("Step 'rebase' rebased nothing").And.Contain("stopped on a conflict")
-            .And.Contain("src/Program.cs").And.Contain("docs/a b.md").And.Contain(Recorded);
-        paused.Lever.Should().Be(FlowRunLevers.RebaseConflict(Clone, branch, RegisteredProjects.Branch));
-        paused.Lever.Should().Contain("Stop the flow run").And.Contain(Clone).And.Contain("outside the daemon's work paths")
-            .And.Contain($"rebase {branch}").And.Contain("without pushing").And.Contain("Remove that worktree").And.Contain("move the task back to build")
-            .And.NotContain("merge commit").And.NotContain("Update branch");
-        runner.GitCalls.Should().ContainInOrder("rebase --abort", "-c rebase.updateRefs=false rebase --quiet " + ScriptedCommandRunner.PrimaryHead, "rebase --abort", $"checkout --quiet {branch}");
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
-        runner.Branch(Clone, branch).Should().Be(Recorded);
-        runner.CheckedOut(Clone, workPath).Should().Be(branch);
-        runner.RemoteBranch(Clone, branch).Should().Be(Recorded);
+        Assert.StartsWith("Step 'rebase' rebased nothing", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("stopped on a conflict", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("src/Program.cs", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("docs/a b.md", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(Recorded, paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.RebaseConflict(Clone, branch, RegisteredProjects.Branch), paused.Lever);
+        Assert.Contains("Stop the flow run", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains(Clone, paused.Lever, StringComparison.Ordinal);
+        Assert.Contains("outside the daemon's work paths", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains($"rebase {branch}", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains("without pushing", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains("Remove that worktree", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains("move the task back to build", paused.Lever, StringComparison.Ordinal);
+        Assert.DoesNotContain("merge commit", paused.Lever, StringComparison.Ordinal);
+        Assert.DoesNotContain("Update branch", paused.Lever, StringComparison.Ordinal);
+        SequenceAssert.ContainsInOrder(["rebase --abort", "-c rebase.updateRefs=false rebase --quiet " + ScriptedCommandRunner.PrimaryHead, "rebase --abort", $"checkout --quiet {branch}"], runner.GitCalls);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("update-ref", StringComparison.Ordinal));
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
+        Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
+        Assert.Equal(Recorded, runner.RemoteBranch(Clone, branch));
     }
 
     [Fact]
@@ -178,9 +173,11 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Reason.Should().Contain("someone else updated branch").And.Contain("(stale info)");
-        paused.Lever.Should().Be(FlowRunLevers.RebaseRefused("rebase"));
-        runner.Branch(Clone, branch).Should().Be(Recorded, "the branch moves only once the push has succeeded");
+        Assert.Contains("someone else updated branch", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("(stale info)", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.RebaseRefused("rebase"), paused.Lever);
+        // the branch moves only once the push has succeeded
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
     }
 
     [Fact]
@@ -191,8 +188,10 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Reason.Should().Contain("has changes").And.Contain("src/Program.cs").And.Contain("notes.txt");
-        paused.Lever.Should().Be(FlowRunLevers.RebaseRefused("rebase"));
+        Assert.Contains("has changes", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("src/Program.cs", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("notes.txt", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.RebaseRefused("rebase"), paused.Lever);
         NothingFetchedRebasedOrPushed();
     }
 
@@ -204,8 +203,8 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Reason.Should().Contain($"is at {Moved}, not {Recorded}");
-        paused.Lever.Should().Be(FlowRunLevers.RebaseRefused("rebase"));
+        Assert.Contains($"is at {Moved}, not {Recorded}", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.RebaseRefused("rebase"), paused.Lever);
         NothingFetchedRebasedOrPushed();
     }
 
@@ -219,10 +218,10 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         SystemStepOutcome outcome = await PerformAsync(parcel, flowRun);
 
         SystemStepOutcome.Paused paused = Paused(outcome);
-        paused.Lever.Should().Be(FlowRunLevers.RebaseRefused("rebase"));
-        paused.Reason.Should().Contain($"the remote's branch, at {Moved}, is no commit this step noted and pushed");
+        Assert.Equal(FlowRunLevers.RebaseRefused("rebase"), paused.Lever);
+        Assert.Contains($"the remote's branch, at {Moved}, is no commit this step noted and pushed", paused.Reason, StringComparison.Ordinal);
         NothingFetchedRebasedOrPushed();
-        runner.Branch(Clone, branch).Should().Be(Moved);
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
     }
 
     [Fact]
@@ -234,18 +233,22 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("rebase"));
-        paused.Reason.Should().StartWith("Step 'rebase' could not push").And.Contain("remote line 30").And.NotContain("remote line 11").And.NotContain("secret");
-        runner.Branch(Clone, branch).Should().Be(Recorded);
+        Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
+        Assert.StartsWith("Step 'rebase' could not push", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("remote line 30", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("remote line 11", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
 
         runner.On(c => c.IsGit("push"), (command, _) => Task.FromResult(ScriptedCommandRunner.Ok()));
         runner.SetRemoteBranch(Clone, branch, Recorded);
         int before = runner.Commands.Count;
         JsonElement again = Done(await PerformAsync(parcel, flowRun));
 
-        again.GetProperty("head").GetString().Should().Be(Rebased);
-        runner.GitCalls.Skip(before).Should().Contain($"checkout --quiet --detach {Recorded}")
-            .And.Contain($"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}");
+        Assert.Equal(Rebased, again.GetProperty("head").GetString());
+        IEnumerable<string> actual = runner.GitCalls.Skip(before);
+        Assert.Contains($"checkout --quiet --detach {Recorded}", actual);
+        Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", actual);
     }
 
     [Fact]
@@ -260,17 +263,18 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         });
 
         Func<Task> first = async () => await PerformAsync(parcel, flowRun);
-        await first.Should().ThrowAsync<OperationCanceledException>();
-        runner.Branch(Clone, branch).Should().Be(Recorded);
-        runner.CheckedOut(Clone, workPath).Should().BeNull("the rebase ran on a detached head");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
+        // the rebase ran on a detached head
+        Assert.Null(runner.CheckedOut(Clone, workPath));
 
         int before = runner.Commands.Count;
         JsonElement result = Done(await PerformAsync(parcel, flowRun));
 
-        result.GetProperty("head").GetString().Should().Be(Rebased);
-        runner.GitCalls.Skip(before).Should().Contain($"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}");
-        runner.Branch(Clone, branch).Should().Be(Rebased);
-        runner.RemoteBranch(Clone, branch).Should().Be(Rebased);
+        Assert.Equal(Rebased, result.GetProperty("head").GetString());
+        Assert.Contains($"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", runner.GitCalls.Skip(before));
+        Assert.Equal(Rebased, runner.Branch(Clone, branch));
+        Assert.Equal(Rebased, runner.RemoteBranch(Clone, branch));
     }
 
     [Fact]
@@ -285,23 +289,24 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         });
 
         Func<Task> first = async () => await PerformAsync(parcel, flowRun);
-        await first.Should().ThrowAsync<OperationCanceledException>();
-        runner.RemoteBranch(Clone, branch).Should().Be(Rebased, "the push went through before the stop");
-        runner.Branch(Clone, branch).Should().Be(Recorded);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
+        // the push went through before the stop
+        Assert.Equal(Rebased, runner.RemoteBranch(Clone, branch));
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
 
         int before = runner.Commands.Count;
         JsonElement result = Done(await PerformAsync(parcel, flowRun));
 
-        result.GetProperty("head").GetString().Should().Be(Rebased);
-        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("fetch", StringComparison.Ordinal) || c.Contains(" rebase --quiet", StringComparison.Ordinal));
-        runner.Branch(Clone, branch).Should().Be(Rebased);
-        runner.CheckedOut(Clone, workPath).Should().Be(branch);
-        runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)).Should().Be(Rebased);
+        Assert.Equal(Rebased, result.GetProperty("head").GetString());
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("fetch", StringComparison.Ordinal) || c.Contains(" rebase --quiet", StringComparison.Ordinal));
+        Assert.Equal(Rebased, runner.Branch(Clone, branch));
+        Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
+        Assert.Equal(Rebased, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
 
         // Once the branch has moved too, performing it again still answers the noted commit.
         before = runner.Commands.Count;
-        Done(await PerformAsync(parcel, flowRun)).GetProperty("head").GetString().Should().Be(Rebased);
-        runner.GitCalls.Skip(before).Should().NotContain(c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("update-ref refs/heads/", StringComparison.Ordinal));
+        Assert.Equal(Rebased, Done(await PerformAsync(parcel, flowRun)).GetProperty("head").GetString());
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("update-ref refs/heads/", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -316,15 +321,15 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
             throw new OperationCanceledException("The daemon stopped.");
         });
         Func<Task> first = async () => await PerformAsync(parcel, flowRun);
-        await first.Should().ThrowAsync<OperationCanceledException>();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
         runner.ConflictOnRebase();
 
         int before = runner.Commands.Count;
         JsonElement result = Done(await PerformAsync(parcel, flowRun));
 
-        GitCallAt(before).Should().Be("rebase --abort");
-        result.GetProperty("head").GetString().Should().Be(Rebased);
-        runner.Branch(Clone, branch).Should().Be(Rebased);
+        Assert.Equal("rebase --abort", GitCallAt(before));
+        Assert.Equal(Rebased, result.GetProperty("head").GetString());
+        Assert.Equal(Rebased, runner.Branch(Clone, branch));
     }
 
     [Theory]
@@ -346,9 +351,9 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("rebase"));
-        paused.Reason.Should().Contain("cannot lock ref");
-        runner.GitCalls.Should().Equal("rebase --abort");
+        Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
+        Assert.Contains("cannot lock ref", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(["rebase --abort"], runner.GitCalls);
     }
 
     [Fact]
@@ -359,9 +364,9 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, started.Id));
 
-        paused.Reason.Should().Contain("no open-pr or rebase result with a head is recorded");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("rebase"));
-        runner.Commands.Should().BeEmpty();
+        Assert.Contains("no open-pr or rebase result with a head is recorded", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
+        Assert.Empty(runner.Commands);
     }
 
     [Fact]
@@ -372,9 +377,10 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
 
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("rebase"));
-        paused.Reason.Should().StartWith("Step 'rebase' could not rebase").And.Contain("could not read from remote repository");
-        runner.GitCalls.Should().NotContain(c => c.StartsWith("push", StringComparison.Ordinal));
+        Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
+        Assert.StartsWith("Step 'rebase' could not rebase", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("could not read from remote repository", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("push", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -399,13 +405,15 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
     private ValueTask<SystemStepOutcome> PerformAsync(Guid parcel, Guid flowRun) =>
         systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
 
-    private void NothingFetchedRebasedOrPushed() =>
-        runner.GitCalls.Should().NotContain(c =>
+    private void NothingFetchedRebasedOrPushed()
+    {
+        Assert.DoesNotContain(runner.GitCalls, c =>
             c.StartsWith("fetch", StringComparison.Ordinal)
             || c.Contains(" rebase --quiet", StringComparison.Ordinal)
             || c.StartsWith("push", StringComparison.Ordinal)
             || c.StartsWith("checkout", StringComparison.Ordinal)
             || c.StartsWith("update-ref", StringComparison.Ordinal));
+    }
 
     private string GitCallAt(int index) => runner.GitCalls[index];
 
@@ -414,12 +422,11 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
     private static JsonElement Done(SystemStepOutcome outcome)
     {
-        JsonElement result = outcome.Should().BeOfType<SystemStepOutcome.Done>().Subject.Result;
-        result.GetProperty("verdict").GetString().Should().Be("done");
-        result.GetProperty("systemStep").GetString().Should().Be(SoftwareSystemSteps.Rebase);
+        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        Assert.Equal("done", result.GetProperty("verdict").GetString());
+        Assert.Equal(SoftwareSystemSteps.Rebase, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) =>
-        outcome.Should().BeOfType<SystemStepOutcome.Paused>().Subject;
+    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
 }

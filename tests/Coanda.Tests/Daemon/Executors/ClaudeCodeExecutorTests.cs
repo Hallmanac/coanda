@@ -37,35 +37,32 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
+        FakeClaude.Start start = Assert.Single(fake.Starts);
         // The fake reads its directory back with links resolved (macOS's /var is /private/var), so the
         // directory is matched by its flow-run-specific tail and by holding the persona file the spawn wrote.
-        start.WorkingDirectory.Should().EndWith(Path.Combine("work", Project, flowRunId.ToString()));
-        File.Exists(Path.Combine(start.WorkingDirectory, ".coanda", "persona.md")).Should().BeTrue();
-        WithoutGuard(start.Arguments).Should().Equal(
-            "--print",
-            "--output-format", "stream-json",
-            "--verbose",
-            "--session-id", handle.Id.ToString(),
-            "--append-system-prompt-file", ".coanda/persona.md",
-            "--model", "claude-sonnet-5-5",
-            "--effort", "high",
-            "--tools", "Read,Glob,Grep,Edit,Write,Bash",
-            "--permission-mode", "dontAsk",
-            "--permission-prompts", "none",
-            "--strict-mcp-config",
-            "--setting-sources", "",
-            "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""",
-            "--max-budget-usd", "2.5");
-        start.Arguments.Should().NotContain("--mcp-config").And.NotContain("--append-system-prompt").And.NotContain("--allowedTools", "the tools are approved inside the settings document, so a CLI that skips it approves none");
-        JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.ValueKind.Should().Be(JsonValueKind.Object, "the settings reach the CLI as a JSON document, never as a file");
+        Assert.EndsWith(Path.Combine("work", Project, flowRunId.ToString()), start.WorkingDirectory, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(start.WorkingDirectory, ".coanda", "persona.md")));
+        Assert.Equal(["--print", "--output-format", "stream-json", "--verbose", "--session-id", handle.Id.ToString(), "--append-system-prompt-file", ".coanda/persona.md", "--model", "claude-sonnet-5-5", "--effort", "high", "--tools", "Read,Glob,Grep,Edit,Write,Bash", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--strict-mcp-config", "--setting-sources", "", "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""", "--max-budget-usd", "2.5"], WithoutGuard(start.Arguments));
+        Assert.DoesNotContain("--mcp-config", start.Arguments);
+        Assert.DoesNotContain("--append-system-prompt", start.Arguments);
+        // the tools are approved inside the settings document, so a CLI that skips it approves none
+        Assert.DoesNotContain("--allowedTools", start.Arguments);
+        // the settings reach the CLI as a JSON document, never as a file
+        Assert.Equal(JsonValueKind.Object, JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.ValueKind);
 
         string persona = await File.ReadAllTextAsync(Path.Combine(WorkDirectory, ".coanda", "persona.md"));
         AgentPersona parts = ShippedAgents.Build.Persona;
-        persona.Should().Contain(parts.Role).And.Contain(parts.Purpose).And.Contain(parts.Output).And.Contain(parts.Rules).And.Contain(parts.Prohibitions);
-        persona.Should().Be(ClaudeCodeInvocation.Persona(parts));
+        Assert.Contains(parts.Role, persona, StringComparison.Ordinal);
+        Assert.Contains(parts.Purpose, persona, StringComparison.Ordinal);
+        Assert.Contains(parts.Output, persona, StringComparison.Ordinal);
+        Assert.Contains(parts.Rules, persona, StringComparison.Ordinal);
+        Assert.Contains(parts.Prohibitions, persona, StringComparison.Ordinal);
+        Assert.Equal(ClaudeCodeInvocation.Persona(parts), persona);
 
-        start.Input.Should().StartWith("Step: build").And.Contain(".coanda/task.md").And.Contain(".coanda/prompt.md").And.Contain("'build' answer schema");
+        Assert.StartsWith("Step: build", start.Input, StringComparison.Ordinal);
+        Assert.Contains(".coanda/task.md", start.Input, StringComparison.Ordinal);
+        Assert.Contains(".coanda/prompt.md", start.Input, StringComparison.Ordinal);
+        Assert.Contains("'build' answer schema", start.Input, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -83,10 +80,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
-        start.After("--tools").Should().Be(mapped);
-        start.Arguments.Should().NotContain("--allowedTools");
-        AllowRules(start).Should().Equal(mapped.Split(','));
+        FakeClaude.Start start = Assert.Single(fake.Starts);
+        Assert.Equal(mapped, start.After("--tools"));
+        Assert.DoesNotContain("--allowedTools", start.Arguments);
+        Assert.Equal(mapped.Split(','), AllowRules(start));
     }
 
     [Fact]
@@ -98,10 +95,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build with { Tools = [] }, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
-        start.After("--tools").Should().BeEmpty();
-        start.Arguments.Should().NotContain("--allowedTools");
-        JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.TryGetProperty("permissions", out _).Should().BeFalse();
+        FakeClaude.Start start = Assert.Single(fake.Starts);
+        Assert.Equal("", start.After("--tools"));
+        Assert.DoesNotContain("--allowedTools", start.Arguments);
+        Assert.False(JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.TryGetProperty("permissions", out _));
     }
 
     [Fact]
@@ -115,12 +112,15 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, profile, null, None);
         await executor.CollectAsync(handle, None);
 
-        FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
-        start.Environment.Should().Contain("CLAUDE_CONFIG_DIR", "/profiles/work");
-        start.Environment.Keys.Should().NotContain(ClaudeCodeInvocation.CredentialVariables);
-        ClaudeCodeInvocation.CredentialVariables.Should().Contain(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
-        WithoutGuard(start.Arguments).Should().ContainInConsecutiveOrder(
-            "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""");
+        FakeClaude.Start start = Assert.Single(fake.Starts);
+        Assert.Equal("/profiles/work", Assert.Contains("CLAUDE_CONFIG_DIR", start.Environment));
+        Assert.DoesNotContain(start.Environment.Keys, key => ClaudeCodeInvocation.CredentialVariables.Contains(key));
+        Assert.Contains("ANTHROPIC_API_KEY", ClaudeCodeInvocation.CredentialVariables);
+        Assert.Contains("ANTHROPIC_AUTH_TOKEN", ClaudeCodeInvocation.CredentialVariables);
+        Assert.Contains("CLAUDE_CODE_OAUTH_TOKEN", ClaudeCodeInvocation.CredentialVariables);
+        SequenceAssert.ContainsConsecutively(
+            ["--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}"""],
+            WithoutGuard(start.Arguments));
     }
 
     [Fact]
@@ -133,11 +133,13 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, profile, null, None);
         await executor.CollectAsync(handle, None);
 
-        FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
+        FakeClaude.Start start = Assert.Single(fake.Starts);
         JsonElement settings = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement;
-        settings.GetProperty("apiKeyHelper").GetString().Should().Be("op read \"op://ci/anthropic key\"");
-        settings.GetProperty("autoMemoryEnabled").GetBoolean().Should().BeFalse();
-        start.Environment.Keys.Should().NotContain(["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"]);
+        Assert.Equal("op read \"op://ci/anthropic key\"", settings.GetProperty("apiKeyHelper").GetString());
+        Assert.False(settings.GetProperty("autoMemoryEnabled").GetBoolean());
+        Assert.DoesNotContain("ANTHROPIC_API_KEY", start.Environment.Keys);
+        Assert.DoesNotContain("CLAUDE_CODE_OAUTH_TOKEN", start.Environment.Keys);
+        Assert.DoesNotContain("CLAUDE_CONFIG_DIR", start.Environment.Keys);
     }
 
     [Fact]
@@ -149,9 +151,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        FakeClaude.Start start = fake.Starts.Should().ContainSingle().Subject;
-        start.Environment.Should().Contain("ANTHROPIC_API_KEY", "sk-inherited").And.Contain("CLAUDE_CONFIG_DIR", "/inherited/config");
-        JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.TryGetProperty("apiKeyHelper", out _).Should().BeFalse();
+        FakeClaude.Start start = Assert.Single(fake.Starts);
+        Assert.Equal("sk-inherited", Assert.Contains("ANTHROPIC_API_KEY", start.Environment));
+        Assert.Equal("/inherited/config", Assert.Contains("CLAUDE_CONFIG_DIR", start.Environment));
+        Assert.False(JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.TryGetProperty("apiKeyHelper", out _));
     }
 
     [Fact]
@@ -163,13 +166,14 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         await AgentStep.RunAsync(executor, Request(), None);
 
-        ClaudeCodeInvocation.EnclosingSessionVariables.Should().Contain(
+        string[] expected =
         [
             "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
             "CLAUDE_EFFORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "AI_AGENT",
-        ]);
-        fake.Starts.Should().HaveCount(2);
-        fake.Starts.Should().OnlyContain(s => !s.Environment.Keys.Intersect(ClaudeCodeInvocation.EnclosingSessionVariables).Any() && s.Environment["KEPT"] == "yes");
+        ];
+        Assert.All(expected, name => Assert.Contains(name, ClaudeCodeInvocation.EnclosingSessionVariables));
+        Assert.Equal(2, fake.Starts.Count);
+        Assert.All(fake.Starts, s => Assert.True(!s.Environment.Keys.Intersect(ClaudeCodeInvocation.EnclosingSessionVariables).Any() && s.Environment["KEPT"] == "yes"));
     }
 
     [Theory]
@@ -184,10 +188,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         AgentDefinition agent = ShippedAgents.Build with { Model = new ModelSpec("claude-code", model, effort) };
 
-        await FluentActions.Awaiting(() => executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*is not a plain token*no process was started*");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        Assert.Matches(@"(?s)^.*is not a plain token.*no process was started.*$", exception.Message);
 
-        fake.Starts.Should().BeEmpty();
+        Assert.Empty(fake.Starts);
     }
 
     [Theory]
@@ -203,7 +207,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             ShippedAgents.Build with { Model = new ModelSpec("claude-code", model, effort) }, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        fake.Starts.Should().ContainSingle().Which.Should().Match<FakeClaude.Start>(s => s.After("--model") == model && s.After("--effort") == effort);
+        FakeClaude.Start start = Assert.Single(fake.Starts);
+        Assert.True(start.After("--model") == model && start.After("--effort") == effort);
     }
 
     [Fact]
@@ -213,10 +218,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         AgentDefinition agent = ShippedAgents.Build with { Model = new ModelSpec("codex", "gpt", "high") };
 
-        await FluentActions.Awaiting(() => executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("Agent 'build' names the vendor 'codex', and this executor runs only agents of the vendor 'claude-code'.");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        Assert.Equal("Agent 'build' names the vendor 'codex', and this executor runs only agents of the vendor 'claude-code'.", exception.Message);
 
-        fake.Starts.Should().BeEmpty();
+        Assert.Empty(fake.Starts);
     }
 
     [Theory]
@@ -229,11 +234,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await File.WriteAllTextAsync(script, "@echo off");
         var executor = new ClaudeCodeExecutor(script, temp.Home, fake.Environment());
 
-        await FluentActions.Awaiting(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage($"The claude executable '{script}' is a command script*Configure the path of the native claude executable instead.");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        Assert.Matches(WildcardPattern.ToRegex($"The claude executable '{script}' is a command script*Configure the path of the native claude executable instead."), exception.Message);
 
-        fake.Starts.Should().BeEmpty();
+        Assert.Empty(fake.Starts);
     }
 
     [Fact]
@@ -246,8 +251,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await File.WriteAllTextAsync(script, "@echo off");
         var executor = new ClaudeCodeExecutor("claude.cmd", temp.Home, fake.Environment(("PATH", bin)));
 
-        await FluentActions.Awaiting(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage($"The claude executable '{script}' is a command script*");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        Assert.StartsWith($"The claude executable '{script}' is a command script", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -256,12 +261,12 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string missing = Path.Combine(Path.GetTempPath(), "coanda-no-such-dir", Guid.NewGuid().ToString("N"), "claude");
         var executor = new ClaudeCodeExecutor(missing, temp.Home, new Dictionary<string, string>());
 
-        await FluentActions.Awaiting(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage($"The claude executable '{missing}' could not be started*");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        Assert.StartsWith($"The claude executable '{missing}' could not be started", exception.Message, StringComparison.Ordinal);
 
         var onPath = new ClaudeCodeExecutor("claude-nowhere", temp.Home, new Dictionary<string, string> { ["PATH"] = Path.GetTempPath() });
-        await FluentActions.Awaiting(() => onPath.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("The claude executable 'claude-nowhere' could not be started*PATH*");
+        InvalidOperationException exception2 = await Assert.ThrowsAsync<InvalidOperationException>(() => onPath.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        Assert.Matches(@"(?s)^The claude executable 'claude-nowhere' could not be started.*PATH.*$", exception2.Message);
     }
 
     [Fact]
@@ -275,21 +280,24 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(profile), None);
 
-        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
-        answered.Answer.Should().Be(ValidBuild, "a document in a code fence that ends the reply counts as trailing");
-        answered.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)), "the sum of both attempts, its cost the session's cost after the retry");
+        AgentStepOutcome.Answered answered = Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        // a document in a code fence that ends the reply counts as trailing
+        Assert.Equal(ValidBuild, answered.Answer);
+        // the sum of both attempts, its cost the session's cost after the retry
+        Assert.Equal(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)), answered.Usage);
 
-        fake.Starts.Should().HaveCount(2);
+        Assert.Equal(2, fake.Starts.Count);
         (FakeClaude.Start spawn, FakeClaude.Start resume) = (fake.Starts[0], fake.Starts[1]);
-        spawn.After("--session-id").Should().Be(answered.Session.Id.ToString());
-        resume.After("--resume").Should().Be(answered.Session.Id.ToString());
-        resume.Arguments.Should().NotContain("--session-id");
-        resume.Shared.Should().Equal(spawn.Shared);
-        resume.WorkingDirectory.Should().Be(spawn.WorkingDirectory);
-        resume.Environment.Should().Equal(spawn.Environment);
-        resume.Input.Should().Contain("No answer document was found");
-        spawn.After("--max-budget-usd").Should().Be("2.5");
-        resume.After("--max-budget-usd").Should().Be("1.75", "the CLI does not count the first process's spend against the resumed process's cap");
+        Assert.Equal(answered.Session.Id.ToString(), spawn.After("--session-id"));
+        Assert.Equal(answered.Session.Id.ToString(), resume.After("--resume"));
+        Assert.DoesNotContain("--session-id", resume.Arguments);
+        Assert.Equal(spawn.Shared, resume.Shared);
+        Assert.Equal(spawn.WorkingDirectory, resume.WorkingDirectory);
+        Assert.Equal(spawn.Environment, resume.Environment);
+        Assert.Contains("No answer document was found", resume.Input, StringComparison.Ordinal);
+        Assert.Equal("2.5", spawn.After("--max-budget-usd"));
+        // the CLI does not count the first process's spend against the resumed process's cap
+        Assert.Equal("1.75", resume.After("--max-budget-usd"));
     }
 
     [Fact]
@@ -307,18 +315,19 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request() with { Access = access }, None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
-        fake.Starts.Should().HaveCount(2, "the spawn's process and the retry's process");
+        Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        // the spawn's process and the retry's process
+        Assert.Equal(2, fake.Starts.Count);
         foreach (FakeClaude.Start start in fake.Starts)
         {
-            start.Environment.Should().Contain(SessionAccess.TokenVariable, "issued-session-token")
-                .And.Contain(NodeHome.EnvironmentVariable, temp.Home.Path)
-                .And.Contain(SessionAccess.HomeVariable, temp.Home.Path)
-                .And.Contain(SessionAccess.ProjectVariable, Project);
+            Assert.Equal("issued-session-token", Assert.Contains(SessionAccess.TokenVariable, start.Environment));
+            Assert.Equal(temp.Home.Path, Assert.Contains(NodeHome.EnvironmentVariable, start.Environment));
+            Assert.Equal(temp.Home.Path, Assert.Contains(SessionAccess.HomeVariable, start.Environment));
+            Assert.Equal(Project, Assert.Contains(SessionAccess.ProjectVariable, start.Environment));
 
             // Windows names the variable Path, and its environment matches names without regard to case.
             string path = start.Environment.Single(v => string.Equals(v.Key, "PATH", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).Value;
-            path.Split(Path.PathSeparator)[0].Should().Be(coa);
+            Assert.Equal(coa, path.Split(Path.PathSeparator)[0]);
         }
     }
 
@@ -327,7 +336,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         var access = new SessionAccess("issued-session-token", "/home", Project);
 
-        access.ToString().Should().NotContain("issued-session-token").And.Contain(Project);
+        string actual = access.ToString();
+        Assert.DoesNotContain("issued-session-token", actual, StringComparison.Ordinal);
+        Assert.Contains(Project, actual, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -345,9 +356,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
+        Assert.IsType<AgentStepOutcome.Answered>(outcome);
         string persona = ClaudeCodeInvocation.Persona(ShippedAgents.Build.Persona);
-        fake.Starts.Select(s => s.Persona).Should().Equal(persona, persona);
+        Assert.Equal([persona, persona], fake.Starts.Select(s => s.Persona));
     }
 
     [Fact]
@@ -361,9 +372,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         File.Delete(path);
         Directory.CreateDirectory(Path.Combine(path, "inside"));
 
-        await FluentActions.Awaiting(() => executor.ResumeAsync(handle, "again", None).AsTask()).Should().ThrowAsync<Exception>();
+        await Assert.ThrowsAnyAsync<Exception>(() => executor.ResumeAsync(handle, "again", None).AsTask());
 
-        fake.Starts.Should().ContainSingle();
+        Assert.Single(fake.Starts);
     }
 
     [Fact]
@@ -373,11 +384,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         var spend = new AgentStepSpend();
 
-        await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*has already cost $2.50 of its cost ceiling of $2.50, so no claude process was started to resume it.");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None));
+        Assert.EndsWith("has already cost $2.50 of its cost ceiling of $2.50, so no claude process was started to resume it.", exception.Message, StringComparison.Ordinal);
 
-        fake.Starts.Should().ContainSingle();
-        spend.Reported.Should().Be(new Measurement(100, 2.5m, 2, TimeSpan.FromMilliseconds(1500)));
+        Assert.Single(fake.Starts);
+        Assert.Equal(new Measurement(100, 2.5m, 2, TimeSpan.FromMilliseconds(1500)), spend.Reported);
     }
 
     [Fact]
@@ -390,7 +401,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        outcome.Usage.Should().Be(new Measurement(100 + 26, 0.45m, 3, TimeSpan.FromMilliseconds(2200)));
+        Assert.Equal(new Measurement(100 + 26, 0.45m, 3, TimeSpan.FromMilliseconds(2200)), outcome.Usage);
     }
 
     [Fact]
@@ -413,8 +424,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Answered>().Which.Answer.Should().Be(ValidBuild);
-        outcome.Usage.Should().Be(new Measurement(110, 0.9m, 7, TimeSpan.FromSeconds(61)), "every model in model_usage_since_last_result is summed");
+        Assert.Equal(ValidBuild, Assert.IsType<AgentStepOutcome.Answered>(outcome).Answer);
+        // every model in model_usage_since_last_result is summed
+        Assert.Equal(new Measurement(110, 0.9m, 7, TimeSpan.FromSeconds(61)), outcome.Usage);
     }
 
     [Fact]
@@ -425,18 +437,20 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        AgentStepOutcome.Paused paused = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
-        paused.Lever.Should().Be(Path.Combine(TranscriptDirectory, $"{paused.Session.Id}.jsonl"));
+        AgentStepOutcome.Paused paused = Assert.IsType<AgentStepOutcome.Paused>(outcome);
+        Assert.Equal(Path.Combine(TranscriptDirectory, $"{paused.Session.Id}.jsonl"), paused.Lever);
         string[] lines = await File.ReadAllLinesAsync(paused.Lever);
-        lines.Count(l => l.Contains("\"subtype\":\"init\"", StringComparison.Ordinal)).Should().Be(2, "a resume appends its output to the session's transcript");
-        lines.Should().Contain(l => l.Contains("rate_limit_event", StringComparison.Ordinal));
-        lines.Should().Contain(l => l.Contains("Still nope.", StringComparison.Ordinal));
-        Directory.EnumerateFiles(WorkDirectory, "*", SearchOption.AllDirectories).Should().OnlyContain(f => Path.GetFileName(Path.GetDirectoryName(f)) == ".coanda");
+        // a resume appends its output to the session's transcript
+        Assert.Equal(2, lines.Count(l => l.Contains("\"subtype\":\"init\"", StringComparison.Ordinal)));
+        Assert.Contains(lines, l => l.Contains("rate_limit_event", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("Still nope.", StringComparison.Ordinal));
+        Assert.All(Directory.EnumerateFiles(WorkDirectory, "*", SearchOption.AllDirectories), f => Assert.True(Path.GetFileName(Path.GetDirectoryName(f)) == ".coanda"));
 
         fake.Script(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         AgentStepOutcome later = await AgentStep.RunAsync(executor, Request(), None);
-        later.Should().BeOfType<AgentStepOutcome.Answered>().Which.TranscriptPath.Should().Be(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl"));
-        Directory.GetFiles(TranscriptDirectory).Should().HaveCount(2, "a later spawn on the same flow run writes a transcript of its own");
+        Assert.Equal(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl"), Assert.IsType<AgentStepOutcome.Answered>(later).TranscriptPath);
+        // a later spawn on the same flow run writes a transcript of its own
+        Assert.Equal(2, Directory.GetFiles(TranscriptDirectory).Length);
     }
 
     [Fact]
@@ -458,13 +472,14 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         var spend = new AgentStepSpend();
 
-        await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
-            .Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($2.5); second");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None));
+        Assert.Equal("The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($2.5); second", exception.Message);
 
-        fake.Starts.Should().ContainSingle("an error result is not retried");
-        spend.Reported.Should().Be(new Measurement(110, 2.6m, 4, TimeSpan.FromSeconds(9)), "the spend cap stopped it, so its usage reads zero and model_usage_since_last_result holds the real figures");
-        spend.CostUnreported.Should().BeFalse();
+        // an error result is not retried
+        Assert.Single(fake.Starts);
+        // the spend cap stopped it, so its usage reads zero and model_usage_since_last_result holds the real figures
+        Assert.Equal(new Measurement(110, 2.6m, 4, TimeSpan.FromSeconds(9)), spend.Reported);
+        Assert.False(spend.CostUnreported);
     }
 
     [Fact]
@@ -475,9 +490,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
-        InvalidOperationException failure = (await FluentActions.Awaiting(() => executor.CollectAsync(handle, None).AsTask()).Should().ThrowAsync<InvalidOperationException>()).Which;
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.CollectAsync(handle, None).AsTask());
 
-        failure.Message.Should().EndWith(": " + text[..500]);
+        Assert.EndsWith(": " + text[..500], failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -488,11 +503,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         var spend = new AgentStepSpend();
 
-        InvalidOperationException failure = (await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None))
-            .Should().ThrowAsync<InvalidOperationException>()).Which;
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => AgentStep.RunAsync(executor, Request(), onSpawned: null, spend, CancellationToken.None, None));
 
-        failure.Message.Should().Be($"The claude process exited with code 2 without a result; the last line of its error output was: {last[..500]}");
-        spend.Reported.Should().BeNull("it printed no assistant message");
+        Assert.Equal($"The claude process exited with code 2 without a result; the last line of its error output was: {last[..500]}", failure.Message);
+        // it printed no assistant message
+        Assert.Null(spend.Reported);
     }
 
     [Fact]
@@ -518,15 +533,17 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         StopReport? report = await executor.StopAsync(handle, None);
 
-        report.Should().NotBeNull();
-        report?.CostReported.Should().BeFalse();
-        report?.Usage.Tokens.Should().Be(5 + 40 + 100 + 1000 + 2 + 7 + 0 + 1200, "msg_1 printed twice is counted once, at its last figure");
-        report?.Usage.CostUsd.Should().Be(0m);
-        report?.Usage.Turns.Should().Be(2);
-        report?.Usage.Duration.Should().BePositive();
+        Assert.NotNull(report);
+        Assert.False(report?.CostReported);
+        // msg_1 printed twice is counted once, at its last figure
+        Assert.Equal(5 + 40 + 100 + 1000 + 2 + 7 + 0 + 1200, report?.Usage.Tokens);
+        Assert.Equal(0m, report?.Usage.CostUsd);
+        Assert.Equal(2, report?.Usage.Turns);
+        Assert.True(report?.Usage.Duration > TimeSpan.Zero, $"Expected a positive duration, but found {report?.Usage.Duration}.");
         await Until(() => !FakeClaude.Running(parent) && !FakeClaude.Running(child));
-        (await executor.ListAsync(None)).Should().BeEmpty();
-        (await executor.StopAsync(handle, None)).Should().BeNull("stopping a session that has already ended succeeds");
+        Assert.Empty(await executor.ListAsync(None));
+        // stopping a session that has already ended succeeds
+        Assert.Null(await executor.StopAsync(handle, None));
     }
 
     [Fact]
@@ -539,11 +556,12 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         StopReport? report = await executor.StopAsync(handle, None);
 
-        report.Should().NotBeNull("the killed turn may already have been billed");
-        report?.CostReported.Should().BeFalse();
-        report?.Usage.Tokens.Should().Be(0);
-        report?.Usage.CostUsd.Should().Be(0m);
-        report?.Usage.Turns.Should().Be(0);
+        // the killed turn may already have been billed
+        Assert.NotNull(report);
+        Assert.False(report?.CostReported);
+        Assert.Equal(0, report?.Usage.Tokens);
+        Assert.Equal(0m, report?.Usage.CostUsd);
+        Assert.Equal(0, report?.Usage.Turns);
     }
 
     [Fact]
@@ -560,7 +578,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         await executor.StopAsync(handle, None);
         await Until(() => !FakeClaude.Running(pid));
-        (await executor.ListAsync(None)).Should().BeEmpty();
+        Assert.Empty(await executor.ListAsync(None));
     }
 
     [Fact]
@@ -572,19 +590,19 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         int pid = fake.Starts[0].Pid;
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ListAsync(None)).Should().Equal(handle);
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle));
-        FakeClaude.Running(pid).Should().BeTrue();
+        Assert.Equal([handle], await restarted.ListAsync(None));
+        Assert.Equal(ReattachedSession.OnSpawn(handle), await restarted.ReattachAsync(handle, access: null, None));
+        Assert.True(FakeClaude.Running(pid));
         fake.Release();
         CollectedAnswer collected = await restarted.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
 
-        collected.Answer.Should().Be(ValidBuild);
-        collected.Usage.Should().Be(new Measurement(7 + 8 + 9 + 10, 0.4m, 3, TimeSpan.FromMilliseconds(2500)));
-        collected.TranscriptPath.Should().Be(Path.Combine(TranscriptDirectory, $"{handle.Id}.jsonl"));
-        fake.Starts.Where(s => s.After("--session-id") == handle.Id.ToString() || s.After("--resume") == handle.Id.ToString())
-            .Should().ContainSingle("the reattach starts no process of its own");
-        (await restarted.StopAsync(handle, None)).Should().BeNull();
-        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse("a stopped session's record is removed");
+        Assert.Equal(ValidBuild, collected.Answer);
+        Assert.Equal(new Measurement(7 + 8 + 9 + 10, 0.4m, 3, TimeSpan.FromMilliseconds(2500)), collected.Usage);
+        Assert.Equal(Path.Combine(TranscriptDirectory, $"{handle.Id}.jsonl"), collected.TranscriptPath);
+        // the reattach starts no process of its own
+        Assert.Single(fake.Starts, s => s.After("--session-id") == handle.Id.ToString() || s.After("--resume") == handle.Id.ToString());
+        Assert.Null(await restarted.StopAsync(handle, None));
+        Assert.False(File.Exists(temp.Home.SessionRecordPath(handle.Id)), "a stopped session's record is removed");
     }
 
     [Fact]
@@ -596,13 +614,13 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(
-            ReattachedSession.OnSpawn(handle) with { Finished = true }, "its process already ended with its result");
+        // its process already ended with its result
+        Assert.Equal(ReattachedSession.OnSpawn(handle) with { Finished = true }, await restarted.ReattachAsync(handle, access: null, None));
         CollectedAnswer collected = await restarted.CollectAsync(handle, None);
 
-        collected.Answer.Should().Be(ValidBuild);
-        collected.Usage.CostUsd.Should().Be(0.3m);
-        fake.Starts.Should().ContainSingle();
+        Assert.Equal(ValidBuild, collected.Answer);
+        Assert.Equal(0.3m, collected.Usage.CostUsd);
+        Assert.Single(fake.Starts);
     }
 
     [Fact]
@@ -614,15 +632,15 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Subject;
+        ReattachedSession reattached = Assert.IsType<ReattachedSession>(await restarted.ReattachAsync(handle, access: null, None));
         using var limit = new CancellationTokenSource();
         await limit.CancelAsync();
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, limit.Token);
 
-        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
-        answered.Answer.Should().Be(ValidBuild);
-        answered.Usage.CostUsd.Should().Be(0.3m);
-        fake.Starts.Should().ContainSingle();
+        AgentStepOutcome.Answered answered = Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        Assert.Equal(ValidBuild, answered.Answer);
+        Assert.Equal(0.3m, answered.Usage.CostUsd);
+        Assert.Single(fake.Starts);
         await restarted.StopAsync(handle, None);
     }
 
@@ -636,18 +654,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
-        reattached.Should().Be(ReattachedSession.OnSpawn(handle));
+        Reattachment? actual = await restarted.ReattachAsync(handle, access: null, None);
+        Assert.NotNull(actual);
+        ReattachedSession reattached = Assert.IsType<ReattachedSession>(actual);
+        Assert.Equal(ReattachedSession.OnSpawn(handle), reattached);
         fake.Release();
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
-        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
-        answered.Answer.Should().Be(ValidBuild);
-        answered.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)));
-        fake.Starts.Should().HaveCount(2);
-        fake.Starts[1].After("--resume").Should().Be(handle.Id.ToString());
-        fake.Starts[1].Shared.Should().Equal(fake.Starts[0].Shared);
-        fake.Starts[1].After("--max-budget-usd").Should().Be("1.75", "what the first daemon's session cost is still taken from the ceiling");
+        AgentStepOutcome.Answered answered = Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        Assert.Equal(ValidBuild, answered.Answer);
+        Assert.Equal(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)), answered.Usage);
+        Assert.Equal(2, fake.Starts.Count);
+        Assert.Equal(handle.Id.ToString(), fake.Starts[1].After("--resume"));
+        Assert.Equal(fake.Starts[0].Shared, fake.Starts[1].Shared);
+        // what the first daemon's session cost is still taken from the ceiling
+        Assert.Equal("1.75", fake.Starts[1].After("--max-budget-usd"));
     }
 
     [Fact]
@@ -663,19 +684,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home, coaDirectory: coa);
         var reissued = new SessionAccess("second-daemon-token", temp.Home.Path, Project);
-        ReattachedSession reattached = (await restarted.ReattachAsync(handle, reissued, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
+        Reattachment? actual = await restarted.ReattachAsync(handle, reissued, None);
+        Assert.NotNull(actual);
+        ReattachedSession reattached = Assert.IsType<ReattachedSession>(actual);
         fake.Release();
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
-        fake.Starts.Should().HaveCount(2);
+        Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        Assert.Equal(2, fake.Starts.Count);
         FakeClaude.Start retry = fake.Starts[1];
-        retry.Environment.Should().Contain(SessionAccess.TokenVariable, "second-daemon-token")
-            .And.Contain(NodeHome.EnvironmentVariable, temp.Home.Path)
-            .And.Contain(SessionAccess.HomeVariable, temp.Home.Path)
-            .And.Contain(SessionAccess.ProjectVariable, Project);
+        Assert.Equal("second-daemon-token", Assert.Contains(SessionAccess.TokenVariable, retry.Environment));
+        Assert.Equal(temp.Home.Path, Assert.Contains(NodeHome.EnvironmentVariable, retry.Environment));
+        Assert.Equal(temp.Home.Path, Assert.Contains(SessionAccess.HomeVariable, retry.Environment));
+        Assert.Equal(Project, Assert.Contains(SessionAccess.ProjectVariable, retry.Environment));
         string path = retry.Environment.Single(v => string.Equals(v.Key, "PATH", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).Value;
-        path.Split(Path.PathSeparator)[0].Should().Be(coa);
+        Assert.Equal(coa, path.Split(Path.PathSeparator)[0]);
     }
 
     [Fact]
@@ -689,14 +712,16 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home, coaDirectory: coa);
-        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
+        Reattachment? actual = await restarted.ReattachAsync(handle, access: null, None);
+        Assert.NotNull(actual);
+        ReattachedSession reattached = Assert.IsType<ReattachedSession>(actual);
         fake.Release();
         await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None);
 
-        fake.Starts.Should().HaveCount(2);
+        Assert.Equal(2, fake.Starts.Count);
         string path = fake.Starts[1].Environment.Single(v => string.Equals(v.Key, "PATH", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).Value;
-        path.Split(Path.PathSeparator)[0].Should().Be(coa);
-        fake.Starts[1].Environment.Keys.Should().NotContain(SessionAccess.TokenVariable);
+        Assert.Equal(coa, path.Split(Path.PathSeparator)[0]);
+        Assert.DoesNotContain(SessionAccess.TokenVariable, fake.Starts[1].Environment.Keys);
     }
 
     [Fact]
@@ -712,17 +737,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => fake.Starts.Count == 2);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().NotBeNull().And.BeOfType<ReattachedSession>().Subject;
-        reattached.Should().Be(new ReattachedSession(handle, 2, invalid.Usage), "the record says the session is on its retry and what its first turn returned");
+        Reattachment? actual = await restarted.ReattachAsync(handle, access: null, None);
+        Assert.NotNull(actual);
+        ReattachedSession reattached = Assert.IsType<ReattachedSession>(actual);
+        // the record says the session is on its retry and what its first turn returned
+        Assert.Equal(new ReattachedSession(handle, 2, invalid.Usage), reattached);
         fake.Release();
         var spend = new AgentStepSpend();
         AgentStepOutcome outcome = await AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend, CancellationToken.None, None, None);
 
-        AgentStepOutcome.Paused paused = outcome.Should().BeOfType<AgentStepOutcome.Paused>().Subject;
-        paused.Reason.Should().Contain("after one retry");
-        paused.Usage.Should().Be(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)));
-        spend.Reported.Should().Be(paused.Usage);
-        fake.Starts.Should().HaveCount(2, "the retry before the restart was the one retry");
+        AgentStepOutcome.Paused paused = Assert.IsType<AgentStepOutcome.Paused>(outcome);
+        Assert.Contains("after one retry", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(new Measurement(1010, 1.00m, 4, TimeSpan.FromMilliseconds(5000)), paused.Usage);
+        Assert.Equal(paused.Usage, spend.Reported);
+        // the retry before the restart was the one retry
+        Assert.Equal(2, fake.Starts.Count);
         await restarted.StopAsync(handle, None);
     }
 
@@ -742,10 +771,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         // The start-up sweep lists the sessions first, which lets the record go; the reattach after it still hears of the first turn.
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ListAsync(None)).Should().BeEmpty();
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(new LostSession(handle, invalid.Usage));
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().BeNull("a lost session's usage is handed back once");
-        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse();
+        Assert.Empty(await restarted.ListAsync(None));
+        Assert.Equal(new LostSession(handle, invalid.Usage), await restarted.ReattachAsync(handle, access: null, None));
+        // a lost session's usage is handed back once
+        Assert.Null(await restarted.ReattachAsync(handle, access: null, None));
+        Assert.False(File.Exists(temp.Home.SessionRecordPath(handle.Id)));
     }
 
     [Fact]
@@ -757,9 +787,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ListAsync(None)).Should().BeEmpty();
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().BeNull();
-        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse("a session that cannot answer is let go");
+        Assert.Empty(await restarted.ListAsync(None));
+        Assert.Null(await restarted.ReattachAsync(handle, access: null, None));
+        Assert.False(File.Exists(temp.Home.SessionRecordPath(handle.Id)), "a session that cannot answer is let go");
     }
 
     [Fact]
@@ -772,8 +802,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         File.Delete(temp.Home.SessionRecordPath(handle.Id));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ListAsync(None)).Should().BeEmpty();
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().BeNull();
+        Assert.Empty(await restarted.ListAsync(None));
+        Assert.Null(await restarted.ReattachAsync(handle, access: null, None));
 
         await first.StopAsync(handle, None);
         await Until(() => !FakeClaude.Running(fake.Starts[0].Pid));
@@ -797,10 +827,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             File.WriteAllText(path, record.ToJsonString());
 
             ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-            (await restarted.ListAsync(None)).Should().BeEmpty();
-            (await restarted.ReattachAsync(handle, access: null, None)).Should().BeNull();
+            Assert.Empty(await restarted.ListAsync(None));
+            Assert.Null(await restarted.ReattachAsync(handle, access: null, None));
             await Task.Delay(TimeSpan.FromMilliseconds(200));
-            FakeClaude.Running(other.Id).Should().BeTrue("a process the executor did not start is never ended");
+            Assert.True(FakeClaude.Running(other.Id), "a process the executor did not start is never ended");
         }
         finally
         {
@@ -823,10 +853,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await daemon.StopAsync(None);
         await daemon.DisposeAsync();
 
-        FakeClaude.Running(parent).Should().BeTrue("the daemon's stop does not end a session's process");
-        FakeClaude.Running(child).Should().BeTrue();
-        (await executor.ListAsync(None)).Should().Equal(handle);
-        (await executor.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle));
+        Assert.True(FakeClaude.Running(parent), "the daemon's stop does not end a session's process");
+        Assert.True(FakeClaude.Running(child));
+        Assert.Equal([handle], await executor.ListAsync(None));
+        Assert.Equal(ReattachedSession.OnSpawn(handle), await executor.ReattachAsync(handle, access: null, None));
 
         await executor.StopAsync(handle, None);
         await Until(() => !FakeClaude.Running(parent) && !FakeClaude.Running(child));
@@ -840,13 +870,13 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        (await executor.StopAsync(handle, None)).Should().BeNull();
-        (await executor.StopAsync(handle, None)).Should().BeNull();
+        Assert.Null(await executor.StopAsync(handle, None));
+        Assert.Null(await executor.StopAsync(handle, None));
 
-        await FluentActions.Awaiting(() => executor.ResumeAsync(handle, "again", None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage($"Session {handle.Id} has been stopped.");
-        await FluentActions.Awaiting(() => executor.StopAsync(new SessionHandle(Ids.New(), "build"), None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("The claude-code executor holds no session *");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ResumeAsync(handle, "again", None).AsTask());
+        Assert.Equal($"Session {handle.Id} has been stopped.", exception.Message);
+        InvalidOperationException exception2 = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.StopAsync(new SessionHandle(Ids.New(), "build"), None).AsTask());
+        Assert.StartsWith("The claude-code executor holds no session ", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -855,15 +885,15 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m, waitFor: "release"));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
-        (await executor.ListAsync(None)).Should().Equal(handle);
-        (await executor.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle));
+        Assert.Equal([handle], await executor.ListAsync(None));
+        Assert.Equal(ReattachedSession.OnSpawn(handle), await executor.ReattachAsync(handle, access: null, None));
         fake.Release();
         await executor.CollectAsync(handle, None);
 
-        (await executor.StopAsync(handle, None)).Should().BeNull();
+        Assert.Null(await executor.StopAsync(handle, None));
 
-        (await executor.ListAsync(None)).Should().BeEmpty();
-        (await executor.ReattachAsync(handle, access: null, None)).Should().BeNull();
+        Assert.Empty(await executor.ListAsync(None));
+        Assert.Null(await executor.ReattachAsync(handle, access: null, None));
     }
 
     [Fact]
@@ -873,11 +903,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
 
-        await FluentActions.Awaiting(() => executor.SendAsync(handle, "hello", None).AsTask())
-            .Should().ThrowAsync<NotSupportedException>().WithMessage("The claude-code executor does not support sending into a live session yet.");
+        NotSupportedException exception = await Assert.ThrowsAsync<NotSupportedException>(() => executor.SendAsync(handle, "hello", None).AsTask());
+        Assert.Equal("The claude-code executor does not support sending into a live session yet.", exception.Message);
 
         await executor.CollectAsync(handle, None);
-        fake.Starts.Should().ContainSingle().Which.Input.Should().NotContain("hello");
+        Assert.DoesNotContain("hello", Assert.Single(fake.Starts).Input, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -893,13 +923,14 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         CollectedAnswer collected = await executor.CollectAsync(handle, None);
 
-        File.GetUnixFileMode(Path.Combine(WorkDirectory, ".coanda", "persona.md")).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        File.GetUnixFileMode(collected.TranscriptPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path.Combine(WorkDirectory, ".coanda", "persona.md")));
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(collected.TranscriptPath));
         string[] recorded = Directory.GetFiles(temp.Home.SessionsPath);
-        recorded.Should().HaveCount(3, "the session's record, and its process's input and error files");
+        // the session's record, and its process's input and error files
+        Assert.Equal(3, recorded.Length);
         foreach (string file in recorded)
         {
-            File.GetUnixFileMode(file).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite, file);
+            Assert.True(File.GetUnixFileMode(file) == (UnixFileMode.UserRead | UnixFileMode.UserWrite), $"{file} has mode {File.GetUnixFileMode(file)}, not owner read and write.");
         }
     }
 
@@ -925,42 +956,49 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(work), None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
-        ClaudeCodeInvocation.HookSkippingVariables.Should().Contain(["CLAUDE_CODE_SAFE_MODE", "CLAUDE_CODE_SIMPLE"]);
-        fake.Starts.Should().HaveCount(2, "the spawn's process and the retry's process");
+        Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        Assert.Contains("CLAUDE_CODE_SAFE_MODE", ClaudeCodeInvocation.HookSkippingVariables);
+        Assert.Contains("CLAUDE_CODE_SIMPLE", ClaudeCodeInvocation.HookSkippingVariables);
+        // the spawn's process and the retry's process
+        Assert.Equal(2, fake.Starts.Count);
         foreach (FakeClaude.Start start in fake.Starts)
         {
-            start.Environment.Keys.Should().NotContain(ClaudeCodeInvocation.HookSkippingVariables);
-            start.Arguments.Should().NotContain(["--bare", "--safe-mode"]);
-            start.Arguments.Count(a => a == "--settings").Should().Be(1, "the guard reaches the session in the one settings document");
+            Assert.DoesNotContain(start.Environment.Keys, key => ClaudeCodeInvocation.HookSkippingVariables.Contains(key));
+            Assert.DoesNotContain("--bare", start.Arguments);
+            Assert.DoesNotContain("--safe-mode", start.Arguments);
+            // the guard reaches the session in the one settings document
+            Assert.Equal(1, start.Arguments.Count(a => a == "--settings"));
 
             JsonElement settings = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement;
-            settings.GetProperty("disableAllHooks").GetBoolean().Should().BeFalse();
-            JsonElement entry = settings.GetProperty("hooks").GetProperty("PreToolUse").EnumerateArray().Should().ContainSingle().Subject;
-            entry.GetProperty("matcher").GetString().Should().Be("Read|Edit|Write|Glob|Grep|Bash");
-            JsonElement hook = entry.GetProperty("hooks").EnumerateArray().Should().ContainSingle().Subject;
-            hook.GetProperty("type").GetString().Should().Be("command");
-            hook.GetProperty("command").GetString().Should().Be(ClaudeCodeExecutor.CoaExecutable(coaDirectory));
-            Path.IsPathFullyQualified(hook.GetProperty("command").GetString() ?? string.Empty).Should().BeTrue();
-            hook.GetProperty("onFailure").GetString().Should().Be("block");
+            Assert.False(settings.GetProperty("disableAllHooks").GetBoolean());
+            JsonElement entry = Assert.Single(settings.GetProperty("hooks").GetProperty("PreToolUse").EnumerateArray());
+            Assert.Equal("Read|Edit|Write|Glob|Grep|Bash", entry.GetProperty("matcher").GetString());
+            JsonElement hook = Assert.Single(entry.GetProperty("hooks").EnumerateArray());
+            Assert.Equal("command", hook.GetProperty("type").GetString());
+            Assert.Equal(ClaudeCodeExecutor.CoaExecutable(coaDirectory), hook.GetProperty("command").GetString());
+            Assert.True(Path.IsPathFullyQualified(hook.GetProperty("command").GetString() ?? string.Empty));
+            Assert.Equal("block", hook.GetProperty("onFailure").GetString());
 
-            JsonElement evidence = settings.GetProperty("hooks").GetProperty("SessionStart").EnumerateArray().Should().ContainSingle().Subject
-                .GetProperty("hooks").EnumerateArray().Should().ContainSingle().Subject;
-            evidence.GetProperty("type").GetString().Should().Be("command");
-            evidence.GetProperty("command").GetString().Should().Be(ClaudeCodeExecutor.CoaExecutable(coaDirectory), "the evidence hook runs the same coa as the guard, in the same exec form");
-            evidence.GetProperty("onFailure").GetString().Should().Be("block");
-            evidence.TryGetProperty("matcher", out _).Should().BeFalse("it runs on every session start, a resume's included");
-            evidence.GetProperty("args").EnumerateArray().Select(a => a.GetString()).Should().Equal(SettingsEvidence.Arguments);
+            JsonElement evidence = Assert.Single(Assert.Single(settings.GetProperty("hooks").GetProperty("SessionStart").EnumerateArray())
+                .GetProperty("hooks").EnumerateArray());
+            Assert.Equal("command", evidence.GetProperty("type").GetString());
+            // the evidence hook runs the same coa as the guard, in the same exec form
+            Assert.Equal(ClaudeCodeExecutor.CoaExecutable(coaDirectory), evidence.GetProperty("command").GetString());
+            Assert.Equal("block", evidence.GetProperty("onFailure").GetString());
+            Assert.False(evidence.TryGetProperty("matcher", out _), "it runs on every session start, a resume's included");
+            Assert.Equal(SettingsEvidence.Arguments, evidence.GetProperty("args").EnumerateArray().Select(a => a.GetString()));
 
             List<string> arguments = [.. hook.GetProperty("args").EnumerateArray().Select(a => a.GetString() ?? string.Empty)];
-            ToolGuardRules rules = ToolGuardRules.Parse(arguments, out string? problem).Should().NotBeNull(problem).And.Subject.As<ToolGuardRules>();
-            rules.NodeHome.Should().Be(temp.Home.Path);
-            rules.WorkDirectory.Should().Be(WorkDirectory);
-            rules.SessionConfigDirectory.Should().Be(work.ConfigDirectory);
-            rules.ProtectedConfigDirectories.Should().BeEquivalentTo([work.ConfigDirectory, other.ConfigDirectory, inheritedConfig]);
+            ToolGuardRules? rules = ToolGuardRules.Parse(arguments, out string? problem);
+            Assert.True(rules is not null, problem);
+            Assert.Equal(temp.Home.Path, rules.NodeHome);
+            Assert.Equal(WorkDirectory, rules.WorkDirectory);
+            Assert.Equal(work.ConfigDirectory, rules.SessionConfigDirectory);
+            Assert.Equivalent(new[] { work.ConfigDirectory, other.ConfigDirectory, inheritedConfig }, rules.ProtectedConfigDirectories, strict: true);
         }
 
-        fake.Starts[1].After("--settings").Should().Be(fake.Starts[0].After("--settings"), "a retry resumes with the same settings document");
+        // a retry resumes with the same settings document
+        Assert.Equal(fake.Starts[0].After("--settings"), fake.Starts[1].After("--settings"));
     }
 
     [Fact]
@@ -977,17 +1015,20 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await executor.CollectAsync(handle, None);
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(profile), None);
 
-        outcome.Should().BeOfType<AgentStepOutcome.Answered>();
-        fake.Starts.Should().HaveCount(3);
-        fake.Starts[0].After("--session-id").Should().NotBeNull("the first process spawns a session with no profile");
-        fake.Starts[1].After("--session-id").Should().NotBeNull("the second process spawns a session with a profile");
-        fake.Starts[1].Environment.Should().Contain("CLAUDE_CONFIG_DIR", "/profiles/work");
-        fake.Starts[2].After("--resume").Should().Be(fake.Starts[1].After("--session-id"), "the third process resumes that session");
+        Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        Assert.Equal(3, fake.Starts.Count);
+        // the first process spawns a session with no profile
+        Assert.NotNull(fake.Starts[0].After("--session-id"));
+        // the second process spawns a session with a profile
+        Assert.NotNull(fake.Starts[1].After("--session-id"));
+        Assert.Equal("/profiles/work", Assert.Contains("CLAUDE_CONFIG_DIR", fake.Starts[1].Environment));
+        // the third process resumes that session
+        Assert.Equal(fake.Starts[1].After("--session-id"), fake.Starts[2].After("--resume"));
         foreach (FakeClaude.Start start in fake.Starts)
         {
             JsonElement settings = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement;
-            settings.GetProperty("attribution").GetRawText().Should().Be("""{"commit":"","pr":""}""");
-            settings.TryGetProperty("includeCoAuthoredBy", out _).Should().BeFalse("the deprecated setting is never set");
+            Assert.Equal("""{"commit":"","pr":""}""", settings.GetProperty("attribution").GetRawText());
+            Assert.False(settings.TryGetProperty("includeCoAuthoredBy", out _), "the deprecated setting is never set");
         }
     }
 
@@ -1001,9 +1042,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
-        ToolGuardRules rules = GuardOf(fake.Starts.Should().ContainSingle().Subject);
-        rules.SessionConfigDirectory.Should().Be(Path.Combine(userHome, ".claude"));
-        rules.ProtectedConfigDirectories.Should().Contain([Path.Combine(userHome, ".claude.json"), Path.Combine(userHome, ".claude.json.backup")]);
+        ToolGuardRules rules = GuardOf(Assert.Single(fake.Starts));
+        Assert.Equal(Path.Combine(userHome, ".claude"), rules.SessionConfigDirectory);
+        Assert.Contains(Path.Combine(userHome, ".claude.json"), rules.ProtectedConfigDirectories);
+        Assert.Contains(Path.Combine(userHome, ".claude.json.backup"), rules.ProtectedConfigDirectories);
     }
 
     [Fact]
@@ -1016,9 +1058,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
-        AgentStepOutcome.Answered answered = outcome.Should().BeOfType<AgentStepOutcome.Answered>().Subject;
-        answered.Answer.Should().Be(ValidBuild);
-        fake.Starts.Should().HaveCount(2);
+        AgentStepOutcome.Answered answered = Assert.IsType<AgentStepOutcome.Answered>(outcome);
+        Assert.Equal(ValidBuild, answered.Answer);
+        Assert.Equal(2, fake.Starts.Count);
         List<JsonElement> events = [.. (await File.ReadAllLinesAsync(answered.TranscriptPath)).Select(l => JsonDocument.Parse(l).RootElement)];
         List<string> sequence = [.. events
             .Where(e => e.GetProperty("type").GetString() == "system")
@@ -1026,11 +1068,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
                 ? $"{e.GetProperty("hook_name").GetString()}:{e.GetProperty("stderr").GetString()}"
                 : e.GetProperty("subtype").GetString() ?? string.Empty)
             .Where(e => e != "hook_started")];
-        sequence.Should().Equal(
-            $"SessionStart:startup:{SettingsEvidence.Marker}\n",
-            "init",
-            $"SessionStart:resume:{SettingsEvidence.Marker}\n",
-            "init");
+        Assert.Equal([$"SessionStart:startup:{SettingsEvidence.Marker}\n", "init", $"SessionStart:resume:{SettingsEvidence.Marker}\n", "init"], sequence);
     }
 
     [Fact]
@@ -1040,20 +1078,19 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
 
-        InvalidOperationException failure = (await FluentActions.Awaiting(() => executor.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30)))
-            .Should().ThrowAsync<InvalidOperationException>()).Which;
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30)));
 
-        failure.Message.Should().Be(
-            "The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.999: its init event came without the evidence "
+        Assert.Equal("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.999: its init event came without the evidence "
             + "the document's SessionStart hook prints, so its process was stopped and no answer was collected from it. "
-            + "A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.");
-        int pid = fake.Starts.Should().ContainSingle().Subject.Pid;
+            + "A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.", failure.Message);
+        int pid = Assert.Single(fake.Starts).Pid;
         await Until(() => FakeClaude.Finished(pid));
         StopReport? report = await executor.StopAsync(handle, None);
-        report.Should().NotBeNull("the collect stopped the process while it ran, so its turn may already have been billed, though it had exited by the stop");
-        report?.CostReported.Should().BeFalse();
-        report?.Usage.Turns.Should().Be(0);
-        (await executor.ListAsync(None)).Should().BeEmpty();
+        // the collect stopped the process while it ran, so its turn may already have been billed, though it had exited by the stop
+        Assert.NotNull(report);
+        Assert.False(report?.CostReported);
+        Assert.Equal(0, report?.Usage.Turns);
+        Assert.Empty(await executor.ListAsync(None));
     }
 
     [Fact]
@@ -1064,13 +1101,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             new { settings = "skipped", result = "hang" });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        InvalidOperationException failure = (await FluentActions.Awaiting(
-                () => AgentStep.RunAsync(executor, Request(), None).WaitAsync(TimeSpan.FromSeconds(30)))
-            .Should().ThrowAsync<InvalidOperationException>()).Which;
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => AgentStep.RunAsync(executor, Request(), None).WaitAsync(TimeSpan.FromSeconds(30)));
 
-        failure.Message.Should().StartWith("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.318:");
-        fake.Starts.Should().HaveCount(2);
-        fake.Starts[1].After("--resume").Should().NotBeNull();
+        Assert.StartsWith("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.318:", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(2, fake.Starts.Count);
+        Assert.NotNull(fake.Starts[1].After("--resume"));
         await Until(() => !FakeClaude.Running(fake.Starts[1].Pid));
     }
 
@@ -1082,15 +1117,13 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        ReattachedSession reattached = (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Subject;
+        ReattachedSession reattached = Assert.IsType<ReattachedSession>(await restarted.ReattachAsync(handle, access: null, None));
         fake.Release();
-        InvalidOperationException failure = (await FluentActions.Awaiting(
-                () => AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None).WaitAsync(TimeSpan.FromSeconds(30)))
-            .Should().ThrowAsync<InvalidOperationException>()).Which;
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => AgentStep.ReattachAsync(restarted, reattached, AnswerSchemas.Build, spend: null, CancellationToken.None, None, None).WaitAsync(TimeSpan.FromSeconds(30)));
 
-        failure.Message.Should().StartWith("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.318:");
+        Assert.StartsWith("The session's settings document, and with it its tool guard, was not applied by claude CLI 2.1.318:", failure.Message, StringComparison.Ordinal);
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
-        File.Exists(temp.Home.SessionRecordPath(handle.Id)).Should().BeFalse("the agent step stopped the session");
+        Assert.False(File.Exists(temp.Home.SessionRecordPath(handle.Id)), "the agent step stopped the session");
     }
 
     [Fact]
@@ -1109,16 +1142,16 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         JsonNode settings = JsonNode.Parse(arguments[index + 1]) ?? throw new InvalidOperationException("An empty settings document.");
         settings["hooks"]?.AsObject().Remove(SettingsEvidence.HookEvent);
         arguments[index + 1] = settings.ToJsonString();
-        SettingsEvidence.RegisteredIn(arguments).Should().BeFalse();
+        Assert.False(SettingsEvidence.RegisteredIn(arguments));
         record["arguments"] = new JsonArray([.. arguments.Select(argument => (JsonNode?)JsonValue.Create(argument))]);
         File.WriteAllText(path, record.ToJsonString());
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().Be(ReattachedSession.OnSpawn(handle) with { Finished = true });
+        Assert.Equal(ReattachedSession.OnSpawn(handle) with { Finished = true }, await restarted.ReattachAsync(handle, access: null, None));
         CollectedAnswer collected = await restarted.CollectAsync(handle, None);
 
-        collected.Answer.Should().Be(ValidBuild);
-        collected.Usage.CostUsd.Should().Be(0.3m);
+        Assert.Equal(ValidBuild, collected.Answer);
+        Assert.Equal(0.3m, collected.Usage.CostUsd);
     }
 
     [Fact]
@@ -1129,12 +1162,12 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await Until(() => fake.Starts.Count == 1 && FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
-        (await restarted.ReattachAsync(handle, access: null, None)).Should().BeOfType<ReattachedSession>().Which.Finished.Should().BeTrue();
+        Assert.True(Assert.IsType<ReattachedSession>(await restarted.ReattachAsync(handle, access: null, None)).Finished);
 
-        InvalidOperationException failure = (await FluentActions.Awaiting(() => restarted.CollectAsync(handle, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>()).Which;
-        failure.Message.Should().Contain("so no answer was collected from its process.");
-        (await restarted.StopAsync(handle, None)).Should().NotBeNull("its result was never collected, so the stop reports its usage");
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.CollectAsync(handle, None).AsTask());
+        Assert.Contains("so no answer was collected from its process.", failure.Message, StringComparison.Ordinal);
+        // its result was never collected, so the stop reports its usage
+        Assert.NotNull(await restarted.StopAsync(handle, None));
     }
 
     [Fact]
@@ -1143,12 +1176,10 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(new { settings = "skipped", init = false, result = "none", stderr = new[] { "first", "Error: settings rejected", "" }, exitCode = 1 });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        InvalidOperationException failure = (await FluentActions.Awaiting(() => AgentStep.RunAsync(executor, Request(), None))
-            .Should().ThrowAsync<InvalidOperationException>()).Which;
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => AgentStep.RunAsync(executor, Request(), None));
 
-        failure.Message.Should().Be(
-            "The session's settings document, and with it its tool guard, was not applied: the claude process exited with code 1 without printing its init event "
-            + "or the evidence the document's SessionStart hook prints; the last line of its error output was: Error: settings rejected");
+        Assert.Equal("The session's settings document, and with it its tool guard, was not applied: the claude process exited with code 1 without printing its init event "
+            + "or the evidence the document's SessionStart hook prints; the last line of its error output was: Error: settings rejected", failure.Message);
     }
 
     [Fact]
@@ -1157,13 +1188,14 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string coa = ClaudeCodeExecutor.CoaExecutable(AppContext.BaseDirectory);
 
         (int code, string output, string error) = await RunAsync(coa, SettingsEvidence.Arguments);
-        code.Should().Be(0);
-        output.Should().BeEmpty("the CLI adds a hook's standard output to the session's context");
-        error.Should().Be(SettingsEvidence.Marker + "\n");
+        Assert.Equal(0, code);
+        // the CLI adds a hook's standard output to the session's context
+        Assert.Empty(output);
+        Assert.Equal(SettingsEvidence.Marker + "\n", error);
 
         (int otherCode, string otherOutput, string otherError) = await RunAsync(coa, [SettingsEvidence.Command, "something-else"]);
-        otherCode.Should().NotBe(0);
-        (otherOutput + otherError).Should().BeEmpty();
+        Assert.NotEqual(0, otherCode);
+        Assert.Empty(otherOutput + otherError);
     }
 
     private static async Task<(int Code, string Output, string Error)> RunAsync(string executable, IReadOnlyList<string> arguments)

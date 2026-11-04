@@ -64,17 +64,20 @@ public sealed class SubscriptionTests
             await RecordAsync(daemon, Project, "brian", "Review my PR");
 
             first = await ParcelTitledAsync(client, "Review my PR");
-            first.Type.Should().Be("task");
-            first.Stage.Should().Be("refine");
-            first.CreatedBy.Should().Be(Teammate.Id, "the subscription acts as the principal that recorded it");
+            Assert.Equal("task", first.Type);
+            Assert.Equal("refine", first.Stage);
+            // the subscription acts as the principal that recorded it
+            Assert.Equal(Teammate.Id, first.CreatedBy);
 
             FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, first.Id);
-            bound.FlowName.Should().Be("review-on-assignment");
-            bound.StartedBy.Should().Be(Teammate.Id);
-            (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("report-produced");
+            Assert.Equal("review-on-assignment", bound.FlowName);
+            Assert.Equal(Teammate.Id, bound.StartedBy);
+            Assert.Equal("report-produced", (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome);
 
-            (await ParcelsAsync(client, Project)).Should().ContainSingle("an event whose assignee differs creates nothing");
-            (await ParcelsAsync(client, Other)).Should().BeEmpty("a subscription sees its own project's events only");
+            // an event whose assignee differs creates nothing
+            Assert.Single(await ParcelsAsync(client, Project));
+            // a subscription sees its own project's events only
+            Assert.Empty(await ParcelsAsync(client, Other));
             await daemon.StopAsync(None);
         }
 
@@ -83,10 +86,10 @@ public sealed class SubscriptionTests
         await RecordAsync(restarted, Project, "brian", "Review another");
         ParcelView second = await ParcelTitledAsync(again, "Review another");
         FlowRunView secondFlowRun = await FlowRunDriver.BoundAsync(again, Project, second.Id);
-        (await FlowRunDriver.UntilAsync(again, Project, secondFlowRun.Id, "ended")).Outcome.Should().Be("report-produced");
+        Assert.Equal("report-produced", (await FlowRunDriver.UntilAsync(again, Project, secondFlowRun.Id, "ended")).Outcome);
 
-        (await ParcelsAsync(again, Project)).Select(p => p.Title).Should().BeEquivalentTo("Review my PR", "Review another");
-        (await FlowRunDriver.OfParcelAsync(again, Project, first.Id)).Should().ContainSingle();
+        Assert.Equivalent(new[] { "Review my PR", "Review another" }, (await ParcelsAsync(again, Project)).Select(p => p.Title), strict: true);
+        Assert.Single(await FlowRunDriver.OfParcelAsync(again, Project, first.Id));
 
         await restarted.StopAsync(None);
     }
@@ -107,7 +110,7 @@ public sealed class SubscriptionTests
         await RecordAsync(daemon, Project, "brian", "Titled this time");
 
         await ParcelTitledAsync(client, "Titled this time");
-        (await ParcelsAsync(client, Project)).Should().ContainSingle();
+        Assert.Single(await ParcelsAsync(client, Project));
 
         await daemon.StopAsync(None);
     }
@@ -121,18 +124,18 @@ public sealed class SubscriptionTests
         var agent = new Principal("build-session", Role.Agent);
         var fields = new Dictionary<string, string> { ["assignee"] = "brian" };
 
-        await FluentActions.Awaiting(() => triggers.RecordEventAsync(agent, Project, "pr-assigned", fields, None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'event.record' is not open to the Agent role.");
-        await FluentActions.Awaiting(() => triggers.SubscribeAsync(agent, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'subscription.add' is not open to the Agent role.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(agent, Project, "pr-assigned", fields, None));
+        Assert.Equal("'event.record' is not open to the Agent role.", exception.Message);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => triggers.SubscribeAsync(agent, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None));
+        Assert.Equal("'subscription.add' is not open to the Agent role.", exception2.Message);
 
         ExternalEvent recorded = await triggers.RecordEventAsync(Teammate, Project, "pr-assigned", fields, None);
-        recorded.RecordedBy.Should().Be(Teammate.Id);
+        Assert.Equal(Teammate.Id, recorded.RecordedBy);
         Subscription subscription = await triggers.SubscribeAsync(Principal.LocalOwner, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None);
-        (await triggers.ListSubscriptionsAsync(agent, Project, None)).Should().ContainSingle(s => s.Id == subscription.Id);
-        (await triggers.ListSubscriptionsAsync(agent, Other, None)).Should().BeEmpty();
+        Assert.Single(await triggers.ListSubscriptionsAsync(agent, Project, None), s => s.Id == subscription.Id);
+        Assert.Empty(await triggers.ListSubscriptionsAsync(agent, Other, None));
 
-        await FluentActions.Awaiting(() => triggers.RecordEventAsync(Teammate, Tenants.Node, "pr-assigned", fields, None))
-            .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
+        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Teammate, Tenants.Node, "pr-assigned", fields, None));
+        Assert.Contains("reserved for node-level records", exception3.Message, StringComparison.Ordinal);
     }
 }

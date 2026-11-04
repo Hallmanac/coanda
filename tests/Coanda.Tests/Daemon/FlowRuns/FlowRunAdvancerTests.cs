@@ -42,33 +42,37 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        flowRun.Outcome.Should().Be("pr-opened");
-        flowRun.FlowName.Should().Be("build");
+        Assert.Equal("pr-opened", flowRun.Outcome);
+        Assert.Equal("build", flowRun.FlowName);
         FlowRunView merge = await FlowRunDriver.MergedAsync(client, Project, parcel.Id, started.Id);
-        (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.Id)
-            .Should().Equal([started.Id, merge.Id], "the binding starts one flow run for the one entry to build, and the merge follows its end");
-        flowRun.Steps.Select(s => s.Step).Should().Equal(CleanPath, "each go-to records the step it enters");
-        flowRun.Steps.Should().OnlyContain(s => s.RecordedAt != null);
+        // the binding starts one flow run for the one entry to build, and the merge follows its end
+        Assert.Equal([started.Id, merge.Id], (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.Id));
+        // each go-to records the step it enters
+        Assert.Equal(CleanPath, flowRun.Steps.Select(s => s.Step));
+        Assert.All(flowRun.Steps, s => Assert.True(s.RecordedAt != null));
         ExpectAgentStep(flowRun.Steps[1], ShippedAgents.Build, 1);
         ExpectAgentStep(flowRun.Steps[3], ShippedAgents.ReviewerAdversarial, 2);
         ExpectAgentStep(flowRun.Steps[4], ShippedAgents.ReviewerConformance, 3);
-        flowRun.Steps[0].Result.GetValueOrDefault().GetProperty("branch").GetString().Should().Be($"coanda/{Ids.Short(parcel.Id)}");
+        Assert.Equal($"coanda/{Ids.Short(parcel.Id)}", flowRun.Steps[0].Result.GetValueOrDefault().GetProperty("branch").GetString());
         JsonElement gates = flowRun.Steps[2].Result.GetValueOrDefault();
-        gates.GetProperty("verdict").GetString().Should().Be("done");
-        gates.TryGetProperty("placeholder", out _).Should().BeFalse("the gates step runs the project's build and test commands");
+        Assert.Equal("done", gates.GetProperty("verdict").GetString());
+        Assert.False(gates.TryGetProperty("placeholder", out _), "the gates step runs the project's build and test commands");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.Stage.Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
-        after.Resolution.Should().Be("completed");
-        after.LiveFlowRunId.Should().BeNull();
+        // the build moved the task to review, and the merge that followed closed it
+        Assert.Equal("closed", after.Stage);
+        Assert.Equal("completed", after.Resolution);
+        Assert.Null(after.LiveFlowRunId);
 
         ScriptedSpawn build = executor.Spawns[0];
-        build.WorkingDirectory.Should().Be(temp.Home.FlowRunWorkPath(Project, started.Id));
-        build.Caps.Should().Be(new SpawnCaps(ShippedFlows.Build.Budget, DaemonOptions.DefaultAgentStepLimit));
-        build.CredentialProfile.Should().BeNull();
-        build.AnswerSchema.Should().Be("build");
-        build.Context.Should().Contain("Title: Run the clean path").And.Contain("Step: build");
-        executor.Stops.Should().HaveCount(3, "the runner ends each agent step's session once its answer is in hand");
+        Assert.Equal(temp.Home.FlowRunWorkPath(Project, started.Id), build.WorkingDirectory);
+        Assert.Equal(new SpawnCaps(ShippedFlows.Build.Budget, DaemonOptions.DefaultAgentStepLimit), build.Caps);
+        Assert.Null(build.CredentialProfile);
+        Assert.Equal("build", build.AnswerSchema);
+        Assert.Contains("Title: Run the clean path", build.Context, StringComparison.Ordinal);
+        Assert.Contains("Step: build", build.Context, StringComparison.Ordinal);
+        // the runner ends each agent step's session once its answer is in hand
+        Assert.Equal(3, executor.Stops.Count);
 
         await daemon.StopAsync(None);
     }
@@ -87,8 +91,9 @@ public sealed class FlowRunAdvancerTests
 
         await using IQuerySession session = daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Project);
         var events = await session.Events.FetchStreamAsync(parcel.Id, token: None);
-        ParcelMoved toReview = events.Select(e => e.Data).OfType<ParcelMoved>().Should().ContainSingle(m => m.ToStage == "review").Subject;
-        toReview.MovedBy.Should().Be(FlowRunAdvancer.PrincipalFor(started.Id).Id).And.Be($"flow-run:{started.Id}");
+        ParcelMoved toReview = Assert.Single(events.Select(e => e.Data).OfType<ParcelMoved>(), m => m.ToStage == "review");
+        Assert.Equal(FlowRunAdvancer.PrincipalFor(started.Id).Id, toReview.MovedBy);
+        Assert.Equal($"flow-run:{started.Id}", toReview.MovedBy);
 
         await daemon.StopAsync(None);
     }
@@ -111,15 +116,16 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        flowRun.CurrentStep.Should().Be("adversarial-review");
-        flowRun.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
-        flowRun.Lever.Should().Be(FlowRunLevers.PerformAgain("adversarial-review"));
-        flowRun.Steps.Count(s => s.Step == "adversarial-review").Should().Be(4);
-        flowRun.Steps[^1].Answer.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("not-clean");
+        Assert.Equal("adversarial-review", flowRun.CurrentStep);
+        Assert.Equal("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.", flowRun.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("adversarial-review"), flowRun.Lever);
+        Assert.Equal(4, flowRun.Steps.Count(s => s.Step == "adversarial-review"));
+        Assert.Equal("not-clean", flowRun.Steps[^1].Answer.GetValueOrDefault().GetProperty("verdict").GetString());
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.Stage.Should().Be("build", "a flow run pause leaves the parcel in its stage");
-        after.LiveFlowRunId.Should().Be(started.Id);
+        // a flow run pause leaves the parcel in its stage
+        Assert.Equal("build", after.Stage);
+        Assert.Equal(started.Id, after.LiveFlowRunId);
 
         await daemon.StopAsync(None);
     }
@@ -141,37 +147,39 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView first = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        first.Steps.Count(s => s.Step == "adversarial-review").Should().Be(4);
+        Assert.Equal(4, first.Steps.Count(s => s.Step == "adversarial-review"));
         int spawnsAtFirst = executor.Spawns.Count;
 
         // The clean transition is capped at 5, so a fifth visit could still route, and the resume performs it.
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "One more look.");
         FlowRunView second = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        executor.Spawns.Should().HaveCount(spawnsAtFirst + 1);
-        second.Steps.Count(s => s.Step == "adversarial-review").Should().Be(5);
-        second.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
-        second.Lever.Should().Be(FlowRunLevers.PerformAgain("adversarial-review"));
+        Assert.Equal(spawnsAtFirst + 1, executor.Spawns.Count);
+        Assert.Equal(5, second.Steps.Count(s => s.Step == "adversarial-review"));
+        Assert.Equal("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.", second.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("adversarial-review"), second.Lever);
         List<ScriptedSpawn> spawnsAtSecond = [.. executor.Spawns];
 
         // No transition out of the step allows a sixth visit, so the resume pauses before entering it.
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "And another.");
         FlowRunView third = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        third.Lever.Should().Be(FlowRunLevers.VisitCapsSpent("adversarial-review"));
-        third.PauseReason.Should().Be("Step 'adversarial-review' has a visit count of 5, and every transition out of it has a visit cap below 6; performing it again could only pause on a visit cap.");
-        executor.Spawns.Should().Equal(spawnsAtSecond);
-        JsonSerializer.Serialize(third.Steps).Should().Be(JsonSerializer.Serialize(second.Steps), "the resume entered no step and recorded nothing");
-        third.Spawns.Should().Be(second.Spawns);
+        Assert.Equal(FlowRunLevers.VisitCapsSpent("adversarial-review"), third.Lever);
+        Assert.Equal("Step 'adversarial-review' has a visit count of 5, and every transition out of it has a visit cap below 6; performing it again could only pause on a visit cap.", third.PauseReason);
+        Assert.Equal(spawnsAtSecond, executor.Spawns);
+        // the resume entered no step and recorded nothing
+        Assert.Equal(JsonSerializer.Serialize(second.Steps), JsonSerializer.Serialize(third.Steps));
+        Assert.Equal(second.Spawns, third.Spawns);
 
         // Resuming that pause pauses the same way, still performing nothing.
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         FlowRunView fourth = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        fourth.Lever.Should().Be(FlowRunLevers.VisitCapsSpent("adversarial-review"));
-        fourth.PauseReason.Should().Be(third.PauseReason);
-        executor.Spawns.Should().Equal(spawnsAtSecond);
-        JsonSerializer.Serialize(fourth.Steps).Should().Be(JsonSerializer.Serialize(second.Steps), "the resume entered no step and recorded nothing");
+        Assert.Equal(FlowRunLevers.VisitCapsSpent("adversarial-review"), fourth.Lever);
+        Assert.Equal(third.PauseReason, fourth.PauseReason);
+        Assert.Equal(spawnsAtSecond, executor.Spawns);
+        // the resume entered no step and recorded nothing
+        Assert.Equal(JsonSerializer.Serialize(second.Steps), JsonSerializer.Serialize(fourth.Steps));
 
         await daemon.StopAsync(None);
     }
@@ -209,15 +217,15 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, hold.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        paused.Lever.Should().Be("Read the task and resume to approve it.");
-        paused.PauseReason.Should().Contain("Step 'approve'");
+        Assert.Equal("Read the task and resume to approve it.", paused.Lever);
+        Assert.Contains("Step 'approve'", paused.PauseReason, StringComparison.Ordinal);
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Approved.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        ended.Outcome.Should().Be("approved");
-        FlowRunStepView approve = ended.Steps.Should().ContainSingle().Subject;
-        approve.Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("done");
+        Assert.Equal("approved", ended.Outcome);
+        FlowRunStepView approve = Assert.Single(ended.Steps);
+        Assert.Equal("done", approve.Result.GetValueOrDefault().GetProperty("verdict").GetString());
 
         await daemon.StopAsync(None);
     }
@@ -241,9 +249,9 @@ public sealed class FlowRunAdvancerTests
         await Task.WhenAll(joined, again).WaitAsync(TimeSpan.FromSeconds(15));
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
-        executor.Inner.Spawns.Count(s => s.Agent == "build").Should().Be(1);
-        FlowRunStepView build = flowRun.Steps.Should().ContainSingle(s => s.Step == "build").Subject;
-        build.Answer.Should().NotBeNull();
+        Assert.Equal(1, executor.Inner.Spawns.Count(s => s.Agent == "build"));
+        FlowRunStepView build = Assert.Single(flowRun.Steps, s => s.Step == "build");
+        Assert.NotNull(build.Answer);
 
         await daemon.StopAsync(None);
     }
@@ -263,10 +271,11 @@ public sealed class FlowRunAdvancerTests
         FlowRunView build = await FlowRunDriver.BoundAsync(client, Project, task.Id);
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, discovery.Id, "paused");
-        paused.PauseReason.Should().StartWith("Step 'discover' got no judgment from agent 'discovery':").And.Contain("agent 'discovery'");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("discover"));
-        paused.Steps.Should().ContainSingle().Which.Answer.Should().BeNull();
-        (await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended")).Outcome.Should().Be("pr-opened");
+        Assert.StartsWith("Step 'discover' got no judgment from agent 'discovery':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("agent 'discovery'", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("discover"), paused.Lever);
+        Assert.Null(Assert.Single(paused.Steps).Answer);
+        Assert.Equal("pr-opened", (await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended")).Outcome);
 
         await daemon.StopAsync(None);
     }
@@ -285,12 +294,12 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        flowRun.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 0.3 seconds for one agent step, so its session was stopped.");
-        flowRun.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        flowRun.Steps[^1].Step.Should().Be("build");
-        flowRun.Steps[^1].Answer.Should().BeNull();
-        executor.Inner.Stops.Should().ContainSingle().Which.Agent.Should().Be("build");
-        executor.StopTokensCancelled.Should().Equal(false);
+        Assert.Equal("Step 'build' ran past the wall-clock limit of 0.3 seconds for one agent step, so its session was stopped.", flowRun.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), flowRun.Lever);
+        Assert.Equal("build", flowRun.Steps[^1].Step);
+        Assert.Null(flowRun.Steps[^1].Answer);
+        Assert.Equal("build", Assert.Single(executor.Inner.Stops).Agent);
+        Assert.Equal([false], executor.StopTokensCancelled);
 
         await daemon.StopAsync(None);
     }
@@ -309,9 +318,9 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        flowRun.PauseReason.Should().StartWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one agent step, and stopping its session failed:");
-        flowRun.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        flowRun.Steps[^1].Answer.Should().BeNull();
+        Assert.StartsWith("Step 'build' ran past the wall-clock limit of 0.3 seconds for one agent step, and stopping its session failed:", flowRun.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), flowRun.Lever);
+        Assert.Null(flowRun.Steps[^1].Answer);
 
         await daemon.StopAsync(None);
     }
@@ -338,11 +347,11 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, shouted.Name);
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        ended.Outcome.Should().Be("built");
-        FlowRunStepView build = ended.Steps.Should().ContainSingle().Subject;
-        build.Performer.Should().Be("BUILD");
-        build.AgentHash.Should().Be(ShippedAgents.Build.Hash);
-        executor.Spawns.Should().ContainSingle();
+        Assert.Equal("built", ended.Outcome);
+        FlowRunStepView build = Assert.Single(ended.Steps);
+        Assert.Equal("BUILD", build.Performer);
+        Assert.Equal(ShippedAgents.Build.Hash, build.AgentHash);
+        Assert.Single(executor.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -371,15 +380,16 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, capped.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        paused.PauseReason.Should().Contain("reached its spawn cap of 1");
+        Assert.Contains("reached its spawn cap of 1", paused.PauseReason, StringComparison.Ordinal);
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowRunView after = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        after.PauseReason.Should().Be("Flow 'one-spawn' reached its spawn cap of 1; performing agent step 'first' again would spawn another agent.");
-        after.Lever.Should().Be(FlowRunLevers.SpawnCapReached(capped.Name));
-        executor.Spawns.Should().ContainSingle("a resume never spawns past the flow's cap");
-        after.Steps.Should().ContainSingle();
+        Assert.Equal("Flow 'one-spawn' reached its spawn cap of 1; performing agent step 'first' again would spawn another agent.", after.PauseReason);
+        Assert.Equal(FlowRunLevers.SpawnCapReached(capped.Name), after.Lever);
+        // a resume never spawns past the flow's cap
+        Assert.Single(executor.Spawns);
+        Assert.Single(after.Steps);
 
         await daemon.StopAsync(None);
     }
@@ -408,25 +418,28 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, refused.Name);
         FlowRunView first = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        first.PauseReason.Should().Contain("gave no valid 'build' answer");
-        first.Spawns.Should().Be(1);
+        Assert.Contains("gave no valid 'build' answer", first.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(1, first.Spawns);
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowRunView second = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        second.PauseReason.Should().Contain("gave no valid 'build' answer");
-        executor.Spawns.Should().HaveCount(2);
-        second.Spawns.Should().Be(2, "the resume spawned the agent step again and counted it");
-        second.Steps.Should().ContainSingle("the resume performed the same visit again rather than entering the step anew");
-        second.Steps[0].Answer.Should().BeNull();
+        Assert.Contains("gave no valid 'build' answer", second.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(2, executor.Spawns.Count);
+        // the resume spawned the agent step again and counted it
+        Assert.Equal(2, second.Spawns);
+        // the resume performed the same visit again rather than entering the step anew
+        Assert.Single(second.Steps);
+        Assert.Null(second.Steps[0].Answer);
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         FlowRunView capped = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        capped.PauseReason.Should().Be("Flow 'never-answers' reached its spawn cap of 2; performing agent step 'build' again would spawn another agent.");
-        capped.Lever.Should().Be(FlowRunLevers.SpawnCapReached(refused.Name));
-        executor.Spawns.Should().HaveCount(2, "a resume never spawns past the flow's cap");
-        capped.Spawns.Should().Be(2);
+        Assert.Equal("Flow 'never-answers' reached its spawn cap of 2; performing agent step 'build' again would spawn another agent.", capped.PauseReason);
+        Assert.Equal(FlowRunLevers.SpawnCapReached(refused.Name), capped.Lever);
+        // a resume never spawns past the flow's cap
+        Assert.Equal(2, executor.Spawns.Count);
+        Assert.Equal(2, capped.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -458,10 +471,11 @@ public sealed class FlowRunAdvancerTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        ended.Outcome.Should().Be("built");
-        ended.Steps.Should().ContainSingle("the resume added no visit, so the visit cap of 1 still lets the answer route");
-        ended.Spawns.Should().Be(2);
-        executor.Spawns.Should().HaveCount(2);
+        Assert.Equal("built", ended.Outcome);
+        // the resume added no visit, so the visit cap of 1 still lets the answer route
+        Assert.Single(ended.Steps);
+        Assert.Equal(2, ended.Spawns);
+        Assert.Equal(2, executor.Spawns.Count);
 
         await daemon.StopAsync(None);
     }
@@ -493,10 +507,12 @@ public sealed class FlowRunAdvancerTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try again.");
         FlowRunView capped = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        capped.PauseReason.Should().Contain("spawn cap of 2", "the answer is routed against the spawn the resume counted");
-        capped.Steps.Select(s => s.Step).Should().Equal(["a"], "step 'b' would spawn a third agent");
-        capped.Spawns.Should().Be(2);
-        executor.Spawns.Should().HaveCount(2);
+        // the answer is routed against the spawn the resume counted
+        Assert.Contains("spawn cap of 2", capped.PauseReason, StringComparison.Ordinal);
+        // step 'b' would spawn a third agent
+        Assert.Equal(["a"], capped.Steps.Select(s => s.Step));
+        Assert.Equal(2, capped.Spawns);
+        Assert.Equal(2, executor.Spawns.Count);
 
         await daemon.StopAsync(None);
     }
@@ -525,8 +541,8 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, late.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        paused.PauseReason.Should().Contain("names the agent 'late-builder'");
-        paused.Spawns.Should().Be(1);
+        Assert.Contains("names the agent 'late-builder'", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(1, paused.Spawns);
 
         AgentDefinition agent = ShippedAgents.Build with { Name = "late-builder" };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
@@ -536,9 +552,10 @@ public sealed class FlowRunAdvancerTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "The agent is published now.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        ended.Outcome.Should().Be("built");
-        ended.Spawns.Should().Be(1, "the spawn counted when the step was entered was the one the resume used");
-        executor.Spawns.Should().ContainSingle();
+        Assert.Equal("built", ended.Outcome);
+        // the spawn counted when the step was entered was the one the resume used
+        Assert.Equal(1, ended.Spawns);
+        Assert.Single(executor.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -568,13 +585,14 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, unanswered.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().Contain("gave no valid 'build' answer");
-        paused.PauseUsage.Should().Be(Scripts.Usage(3), "the pause reports both attempts' usage");
-        FlowRunStepView build = paused.Steps.Should().ContainSingle().Subject;
-        build.AgentHash.Should().Be(ShippedAgents.Build.Hash);
-        build.Model.Should().Be(ShippedAgents.Build.Model);
-        build.Answer.Should().BeNull();
-        build.Measurement.Should().BeNull();
+        Assert.Contains("gave no valid 'build' answer", paused.PauseReason, StringComparison.Ordinal);
+        // the pause reports both attempts' usage
+        Assert.Equal(Scripts.Usage(3), paused.PauseUsage);
+        FlowRunStepView build = Assert.Single(paused.Steps);
+        Assert.Equal(ShippedAgents.Build.Hash, build.AgentHash);
+        Assert.Equal(ShippedAgents.Build.Model, build.Model);
+        Assert.Null(build.Answer);
+        Assert.Null(build.Measurement);
 
         await daemon.StopAsync(None);
     }
@@ -594,14 +612,14 @@ public sealed class FlowRunAdvancerTests
         await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
         FlowRun? held = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
 
-        SessionHandle issued = executor.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        held.Should().NotBeNull();
-        held.Current.Should().NotBeNull();
-        held.Current?.Step.Should().Be("build");
-        held.Current?.SessionId.Should().Be(issued.Id);
+        SessionHandle issued = Assert.Single(executor.Inner.Spawns).Handle;
+        Assert.NotNull(held);
+        Assert.NotNull(held.Current);
+        Assert.Equal("build", held.Current?.Step);
+        Assert.Equal(issued.Id, held.Current?.SessionId);
 
         executor.Open();
-        (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome.Should().Be("pr-opened");
+        Assert.Equal("pr-opened", (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome);
 
         await daemon.StopAsync(None);
     }
@@ -633,21 +651,25 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, twice.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':").And.Contain("could not be launched");
-        paused.Spawns.Should().Be(1);
+        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("could not be launched", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(1, paused.Spawns);
         FlowRun? failed = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
-        failed.Should().NotBeNull();
-        failed.Current?.SpawnedAt.Should().NotBeNull("the launch was recorded before the spawn failed, so its counted spawn is used");
-        failed.Current?.SessionId.Should().BeNull("the spawn returned no session");
-        executor.Inner.Spawns.Should().BeEmpty();
+        Assert.NotNull(failed);
+        // the launch was recorded before the spawn failed, so its counted spawn is used
+        Assert.NotNull(failed.Current?.SpawnedAt);
+        // the spawn returned no session
+        Assert.Null(failed.Current?.SessionId);
+        Assert.Empty(executor.Inner.Spawns);
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Try the launch again.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
 
-        ended.Outcome.Should().Be("built");
-        ended.Spawns.Should().Be(2, "the resume of a used spawn counts another");
-        ended.Steps.Should().ContainSingle();
-        executor.Inner.Spawns.Should().ContainSingle();
+        Assert.Equal("built", ended.Outcome);
+        // the resume of a used spawn counts another
+        Assert.Equal(2, ended.Spawns);
+        Assert.Single(ended.Steps);
+        Assert.Single(executor.Inner.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -671,10 +693,11 @@ public sealed class FlowRunAdvancerTests
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             FlowRun? between = await new FlowRunService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowRunId, None);
-            between.Should().NotBeNull();
-            between.Status.Should().Be(FlowRunStatus.Running, "a daemon stop is not a pause");
-            between.CurrentStep.Should().Be("build");
-            between.Current?.IsRecorded.Should().BeFalse("nothing is recorded for a step the stop cancelled");
+            Assert.NotNull(between);
+            // a daemon stop is not a pause
+            Assert.Equal(FlowRunStatus.Running, between.Status);
+            Assert.Equal("build", between.CurrentStep);
+            Assert.False(between.Current?.IsRecorded, "nothing is recorded for a step the stop cancelled");
         }
 
         // The fresh executor holds no session, so the launch's session is lost: the flow run pauses
@@ -683,15 +706,16 @@ public sealed class FlowRunAdvancerTests
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = fresh }, None);
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
-        paused.PauseReason.Should().StartWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart")
-            .And.EndWith("so its usage was not observed.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        fresh.Spawns.Should().BeEmpty();
+        Assert.StartsWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart", paused.PauseReason, StringComparison.Ordinal);
+        Assert.EndsWith("so its usage was not observed.", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Empty(fresh.Spawns);
 
         await FlowRunDriver.ResumeAsync(again, Project, flowRunId, "Perform it again.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        ended.Spawns.Should().Be(4, "the resume counts one more spawn for build");
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        // the resume counts one more spawn for build
+        Assert.Equal(4, ended.Spawns);
 
         await second.StopAsync(None);
     }
@@ -710,14 +734,16 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':").And.Contain("gave up collecting");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.Steps[^1].Answer.Should().BeNull();
-        SessionHandle issued = executor.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("gave up collecting", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Null(paused.Steps[^1].Answer);
+        SessionHandle issued = Assert.Single(executor.Inner.Spawns).Handle;
         FlowRun? flowRun = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
-        flowRun?.Current?.SessionId.Should().Be(issued.Id, "the session was recorded before the collect gave up");
-        executor.Inner.Stops.Should().Equal(issued);
-        executor.StopTokensCancelled.Should().Equal(false);
+        // the session was recorded before the collect gave up
+        Assert.Equal(issued.Id, flowRun?.Current?.SessionId);
+        Assert.Equal([issued], executor.Inner.Stops);
+        Assert.Equal([false], executor.StopTokensCancelled);
 
         await daemon.StopAsync(None);
     }
@@ -757,8 +783,8 @@ public sealed class FlowRunAdvancerTests
         using var client = new DaemonClient(temp.Home);
 
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        executor.Spawns.Select(s => s.Agent).Should().Equal("reviewer-adversarial", "reviewer-conformance");
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        Assert.Equal(["reviewer-adversarial", "reviewer-conformance"], executor.Spawns.Select(s => s.Agent));
 
         await daemon.StopAsync(None);
     }
@@ -789,12 +815,12 @@ public sealed class FlowRunAdvancerTests
 
         ParcelView second = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Still wanted");
         FlowRunView other = await FlowRunDriver.BoundAsync(client, Project, second.Id);
-        (await FlowRunDriver.UntilAsync(client, Project, other.Id, "ended")).Outcome.Should().Be("pr-opened");
+        Assert.Equal("pr-opened", (await FlowRunDriver.UntilAsync(client, Project, other.Id, "ended")).Outcome);
 
         FlowRunView stopped = await FlowRunDriver.ShowAsync(client, Project, doomed.Id);
-        stopped.Status.Should().Be("stopped");
-        stopped.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
-        stopped.Steps[^1].Answer.Should().BeNull();
+        Assert.Equal("stopped", stopped.Status);
+        Assert.Equal(["worktree", "build"], stopped.Steps.Select(s => s.Step));
+        Assert.Null(stopped.Steps[^1].Answer);
 
         await daemon.StopAsync(None);
     }
@@ -808,8 +834,8 @@ public sealed class FlowRunAdvancerTests
         using var client = new DaemonClient(temp.Home);
         ParcelView idea = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "idea", "Not a task", null), None);
 
-        await FluentActions.Awaiting(() => FlowRunDriver.StartAsync(client, Project, idea.Id, "build"))
-            .Should().ThrowAsync<DomainException>().WithMessage("Flow 'build' accepts parcels of type task, not 'idea'.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => FlowRunDriver.StartAsync(client, Project, idea.Id, "build"));
+        Assert.Equal("Flow 'build' accepts parcels of type task, not 'idea'.", exception.Message);
 
         await daemon.StopAsync(None);
     }
@@ -833,10 +859,10 @@ public sealed class FlowRunAdvancerTests
 
     private static void ExpectAgentStep(FlowRunStepView step, AgentDefinition agent, int ordinal)
     {
-        step.Kind.Should().Be("agent-step");
-        step.Performer.Should().Be(agent.Name);
-        step.AgentHash.Should().Be(agent.Hash);
-        step.Model.Should().Be(agent.Model);
-        step.Measurement.Should().Be(Scripts.Usage(ordinal));
+        Assert.Equal("agent-step", step.Kind);
+        Assert.Equal(agent.Name, step.Performer);
+        Assert.Equal(agent.Hash, step.AgentHash);
+        Assert.Equal(agent.Model, step.Model);
+        Assert.Equal(Scripts.Usage(ordinal), step.Measurement);
     }
 }

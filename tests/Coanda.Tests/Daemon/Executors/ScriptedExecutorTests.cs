@@ -34,11 +34,9 @@ public sealed class ScriptedExecutorTests
         CollectedAnswer firstAnswer = await executor.CollectAsync(one, token);
         CollectedAnswer secondAnswer = await executor.CollectAsync(two, token);
 
-        firstAnswer.Should().Be(new CollectedAnswer(First.Answer, First.TranscriptPath, First.Usage));
-        secondAnswer.Should().Be(new CollectedAnswer(Second.Answer, Second.TranscriptPath, Second.Usage));
-        executor.Spawns.Should().Equal(
-            new ScriptedSpawn(one, "build", "first context", "/work/tree", Caps, "build", Work),
-            new ScriptedSpawn(two, "build", "second context", "/work/tree", Caps, "build", null));
+        Assert.Equal(new CollectedAnswer(First.Answer, First.TranscriptPath, First.Usage), firstAnswer);
+        Assert.Equal(new CollectedAnswer(Second.Answer, Second.TranscriptPath, Second.Usage), secondAnswer);
+        Assert.Equal([new ScriptedSpawn(one, "build", "first context", "/work/tree", Caps, "build", Work), new ScriptedSpawn(two, "build", "second context", "/work/tree", Caps, "build", null)], executor.Spawns);
     }
 
     [Fact]
@@ -48,13 +46,13 @@ public sealed class ScriptedExecutorTests
         ScriptedExecutor executor = Executor();
         SessionHandle handle = await Spawn(executor);
 
-        (await executor.CollectAsync(handle, token)).Answer.Should().Be(First.Answer);
-        (await executor.CollectAsync(handle, token)).Answer.Should().Be(First.Answer);
+        Assert.Equal(First.Answer, (await executor.CollectAsync(handle, token)).Answer);
+        Assert.Equal(First.Answer, (await executor.CollectAsync(handle, token)).Answer);
 
         await executor.ResumeAsync(handle, "Try again.", token);
 
-        (await executor.CollectAsync(handle, token)).Answer.Should().Be(Second.Answer);
-        executor.Resumes.Should().Equal(new ScriptedMessage(handle, "Try again."));
+        Assert.Equal(Second.Answer, (await executor.CollectAsync(handle, token)).Answer);
+        Assert.Equal([new ScriptedMessage(handle, "Try again.")], executor.Resumes);
     }
 
     [Fact]
@@ -68,8 +66,9 @@ public sealed class ScriptedExecutorTests
 
         Func<Task> collect = async () => await executor.CollectAsync(third, token);
 
-        (await collect.Should().ThrowAsync<InvalidOperationException>())
-            .Which.Message.Should().Contain("'build'").And.Contain("entry 3");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(collect);
+        Assert.Contains("'build'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("entry 3", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -82,8 +81,9 @@ public sealed class ScriptedExecutorTests
 
         Func<Task> collect = async () => await executor.CollectAsync(handle, token);
 
-        (await collect.Should().ThrowAsync<InvalidOperationException>())
-            .Which.Message.Should().Contain("'reviewer-adversarial'").And.Contain("entry 1");
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(collect);
+        Assert.Contains("'reviewer-adversarial'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("entry 1", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -96,9 +96,9 @@ public sealed class ScriptedExecutorTests
         await executor.SendAsync(handle, "The base branch moved.", token);
         await executor.StopAsync(handle, token);
 
-        executor.Sends.Should().Equal(new ScriptedMessage(handle, "The base branch moved."));
-        executor.Stops.Should().Equal(handle);
-        executor.Resumes.Should().BeEmpty();
+        Assert.Equal([new ScriptedMessage(handle, "The base branch moved.")], executor.Sends);
+        Assert.Equal([handle], executor.Stops);
+        Assert.Empty(executor.Resumes);
     }
 
     [Fact]
@@ -109,11 +109,11 @@ public sealed class ScriptedExecutorTests
         SessionHandle one = await Spawn(executor);
         SessionHandle two = await Spawn(executor);
 
-        (await executor.ListAsync(token)).Should().BeEquivalentTo([one, two]);
+        Assert.Equivalent(new[] { one, two }, await executor.ListAsync(token), strict: true);
 
         await executor.StopAsync(one, token);
 
-        (await executor.ListAsync(token)).Should().Equal(two);
+        Assert.Equal([two], await executor.ListAsync(token));
     }
 
     [Fact]
@@ -125,9 +125,9 @@ public sealed class ScriptedExecutorTests
         SessionHandle stopped = await Spawn(executor);
         await executor.StopAsync(stopped, token);
 
-        (await executor.ReattachAsync(issued with { }, access: null, token)).Should().Be(ReattachedSession.OnSpawn(issued));
-        (await executor.ReattachAsync(new SessionHandle(Ids.New(), "build"), access: null, token)).Should().BeNull();
-        (await executor.ReattachAsync(stopped, access: null, token)).Should().BeNull();
+        Assert.Equal(ReattachedSession.OnSpawn(issued), await executor.ReattachAsync(issued with { }, access: null, token));
+        Assert.Null(await executor.ReattachAsync(new SessionHandle(Ids.New(), "build"), access: null, token));
+        Assert.Null(await executor.ReattachAsync(stopped, access: null, token));
     }
 
     [Fact]
@@ -139,6 +139,6 @@ public sealed class ScriptedExecutorTests
 
         CollectedAnswer answer = await executor.CollectAsync(handle with { Agent = "someone-else" }, token);
 
-        answer.Answer.Should().Be(First.Answer);
+        Assert.Equal(First.Answer, answer.Answer);
     }
 }

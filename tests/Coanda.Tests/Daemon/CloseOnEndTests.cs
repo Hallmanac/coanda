@@ -52,15 +52,16 @@ public sealed class CloseOnEndTests : IAsyncLifetime
         await flowRuns.EndAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, "closed-it", None);
 
         Parcel closed = await ShowAsync(parcel.Id);
-        closed.Resolution.Should().Be("completed");
-        closed.Stage.Should().Be(ShippedTypes.Closed);
-        closed.LiveFlowRunId.Should().BeNull();
+        Assert.Equal("completed", closed.Resolution);
+        Assert.Equal(ShippedTypes.Closed, closed.Stage);
+        Assert.Null(closed.LiveFlowRunId);
         IReadOnlyList<IEvent> events = await EventsAsync(parcel.Id);
-        ParcelClosed recorded = events[^1].Data.Should().BeOfType<ParcelClosed>().Subject;
-        events[^2].Data.Should().BeOfType<ParcelFlowRunReleased>().Which.FlowRunId.Should().Be(flowRun.Id);
-        recorded.ClosedBy.Should().Be($"flow-run:{flowRun.Id}", "the flow run's own principal closes the parcel");
-        recorded.Reason.Should().Be($"Flow run {Ids.Short(flowRun.Id)} of flow 'closer' reached its end, and the flow closes its parcel as 'completed'.");
-        (await flowRuns.ShowAsync(Principal.LocalOwner, Project, flowRun.Id, None))?.Status.Should().Be(FlowRunStatus.Ended);
+        ParcelClosed recorded = Assert.IsType<ParcelClosed>(events[^1].Data);
+        Assert.Equal(flowRun.Id, Assert.IsType<ParcelFlowRunReleased>(events[^2].Data).FlowRunId);
+        // the flow run's own principal closes the parcel
+        Assert.Equal($"flow-run:{flowRun.Id}", recorded.ClosedBy);
+        Assert.Equal($"Flow run {Ids.Short(flowRun.Id)} of flow 'closer' reached its end, and the flow closes its parcel as 'completed'.", recorded.Reason);
+        Assert.Equal(FlowRunStatus.Ended, (await flowRuns.ShowAsync(Principal.LocalOwner, Project, flowRun.Id, None))?.Status);
     }
 
     [Fact]
@@ -69,15 +70,14 @@ public sealed class CloseOnEndTests : IAsyncLifetime
         (Parcel parcel, FlowRun flowRun) = await StartedAsync(Closing("split"));
         int before = (await EventsAsync(parcel.Id)).Count;
 
-        await FluentActions.Awaiting(() => flowRuns.EndAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, "closed-it", None))
-            .Should().ThrowAsync<DomainException>()
-            .WithMessage($"Flow run {Ids.Short(flowRun.Id)} of flow 'closer' reached its end, but its parcel could not be closed as 'split', so neither the end nor the close was recorded: Parcel type 'task' closes with one of completed, abandoned, superseded, duplicate, not 'split'.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.EndAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, "closed-it", None));
+        Assert.Equal($"Flow run {Ids.Short(flowRun.Id)} of flow 'closer' reached its end, but its parcel could not be closed as 'split', so neither the end nor the close was recorded: Parcel type 'task' closes with one of completed, abandoned, superseded, duplicate, not 'split'.", exception.Message);
 
-        (await EventsAsync(parcel.Id)).Should().HaveCount(before);
+        Assert.Equal(before, (await EventsAsync(parcel.Id)).Count);
         Parcel open = await ShowAsync(parcel.Id);
-        open.Resolution.Should().BeNull();
-        open.LiveFlowRunId.Should().Be(flowRun.Id);
-        (await flowRuns.ShowAsync(Principal.LocalOwner, Project, flowRun.Id, None))?.Status.Should().Be(FlowRunStatus.Running);
+        Assert.Null(open.Resolution);
+        Assert.Equal(flowRun.Id, open.LiveFlowRunId);
+        Assert.Equal(FlowRunStatus.Running, (await flowRuns.ShowAsync(Principal.LocalOwner, Project, flowRun.Id, None))?.Status);
     }
 
     [Fact]
@@ -88,8 +88,8 @@ public sealed class CloseOnEndTests : IAsyncLifetime
         await flowRuns.EndAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, "closed-it", None);
 
         Parcel open = await ShowAsync(parcel.Id);
-        open.Resolution.Should().BeNull();
-        open.LiveFlowRunId.Should().BeNull();
+        Assert.Null(open.Resolution);
+        Assert.Null(open.LiveFlowRunId);
     }
 
     [Fact]
@@ -97,11 +97,11 @@ public sealed class CloseOnEndTests : IAsyncLifetime
     {
         (Parcel parcel, FlowRun flowRun) = await StartedAsync(Closing("completed"));
 
-        await FluentActions.Awaiting(() => parcels.CloseAsync(Principal.LocalOwner, Project, parcel.Id, "completed", "By hand.", None))
-            .Should().ThrowAsync<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun.Id)}*");
-        CommandRegistry.Entries.Single(e => e.Name == "parcel.close").AllowedRoles.Should().BeEquivalentTo([Role.Owner, Role.Member]);
-        await FluentActions.Awaiting(() => parcels.CloseAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, parcel.Id, "completed", "As the flow run.", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("'parcel.close' is not open to the Agent role.");
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.CloseAsync(Principal.LocalOwner, Project, parcel.Id, "completed", "By hand.", None));
+        Assert.Contains($"held by flow run {Ids.Short(flowRun.Id)}", exception.Message, StringComparison.Ordinal);
+        Assert.Equivalent(new[] { Role.Owner, Role.Member }, CommandRegistry.Entries.Single(e => e.Name == "parcel.close").AllowedRoles, strict: true);
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => parcels.CloseAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, parcel.Id, "completed", "As the flow run.", None));
+        Assert.Equal("'parcel.close' is not open to the Agent role.", exception2.Message);
     }
 
     private static Flow Closing(string resolution) => new()

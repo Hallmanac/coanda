@@ -65,27 +65,33 @@ public sealed class FlowRunRestartTests
 
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
 
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
         FlowRunStepView build = ended.Steps.Single(s => s.Step == "build");
-        build.AgentHash.Should().Be(ShippedAgents.Build.Hash, "the answer is recorded with the agent the launch recorded");
-        build.AgentHash.Should().NotBe(republished.Hash);
-        build.Model.Should().Be(ShippedAgents.Build.Model);
-        build.Measurement.Should().Be(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), "both turns of the reattached session are its usage");
-        ended.Spawns.Should().Be(3, "the reattach counts no spawn: build and the two reviews");
-        held.Inner.Spawns.Where(s => s.Agent == "build").Should().ContainSingle("the executor records no second spawn");
-        held.Inner.Resumes.Should().ContainSingle(r => r.Handle == issued, "an invalid answer is retried once on the same session");
-        held.Inner.Stops.Should().ContainSingle(handle => handle == issued);
-        answeredBeforeStop.Should().BeTrue("the session is stopped after its answer is recorded");
+        // the answer is recorded with the agent the launch recorded
+        Assert.Equal(ShippedAgents.Build.Hash, build.AgentHash);
+        Assert.NotEqual(republished.Hash, build.AgentHash);
+        Assert.Equal(ShippedAgents.Build.Model, build.Model);
+        // both turns of the reattached session are its usage
+        Assert.Equal(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), build.Measurement);
+        // the reattach counts no spawn: build and the two reviews
+        Assert.Equal(3, ended.Spawns);
+        // the executor records no second spawn
+        Assert.Single(held.Inner.Spawns, s => s.Agent == "build");
+        // an invalid answer is retried once on the same session
+        Assert.Single(held.Inner.Resumes, r => r.Handle == issued);
+        Assert.Single(held.Inner.Stops, handle => handle == issued);
+        Assert.True(answeredBeforeStop, "the session is stopped after its answer is recorded");
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             IReadOnlyList<object> events = await EventsOfAsync(store, flowRunId);
-            events.OfType<AgentStepSpawned>().Where(e => e.Step == "build").Should().ContainSingle();
-            events.OfType<AgentStepRespawned>().Should().BeEmpty();
+            Assert.Single(events.OfType<AgentStepSpawned>(), e => e.Step == "build");
+            Assert.Empty(events.OfType<AgentStepRespawned>());
         }
 
         Definition? resolved = await second.Services.GetRequiredService<DefinitionService>().ResolveAgentAsync(Principal.LocalOwner, Project, "build", None);
-        resolved?.ContentHash.Should().Be(republished.Hash, "the republished agent stood while the session was reattached");
+        // the republished agent stood while the session was reattached
+        Assert.Equal(republished.Hash, resolved?.ContentHash);
 
         await second.StopAsync(None);
     }
@@ -104,19 +110,23 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         await held.Holding.WaitAsync(TimeSpan.FromSeconds(30));
 
-        SessionAccess reissued = held.Inner.Reattaches.Where(r => r.Handle == issued).Select(r => r.Access).OfType<SessionAccess>().Should().ContainSingle().Subject;
-        reissued.NodeHome.Should().Be(temp.Home.Path);
-        reissued.Project.Should().Be(Project);
-        reissued.Token.Should().NotBe(spawned.Token);
+        SessionAccess reissued = Assert.Single(held.Inner.Reattaches.Where(r => r.Handle == issued).Select(r => r.Access).OfType<SessionAccess>());
+        Assert.Equal(temp.Home.Path, reissued.NodeHome);
+        Assert.Equal(Project, reissued.Project);
+        Assert.NotEqual(spawned.Token, reissued.Token);
         SessionTokens tokens = second.Services.GetRequiredService<SessionTokens>();
         Principal? principal = await tokens.ResolveAsync(reissued.Token, None);
-        principal?.Session.Should().Be(new SessionBinding(Project, flowRunId, launch), "the token is bound to the launch the restart found");
-        (await tokens.ResolveAsync(spawned.Token, None))?.Session.Should().Be(new SessionBinding(Project, flowRunId, launch), "the token the earlier daemon issued is kept across the restart");
+        // the token is bound to the launch the restart found
+        Assert.Equal(new SessionBinding(Project, flowRunId, launch), principal?.Session);
+        // the token the earlier daemon issued is kept across the restart
+        Assert.Equal(new SessionBinding(Project, flowRunId, launch), (await tokens.ResolveAsync(spawned.Token, None))?.Session);
 
         held.Open();
         await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
-        (await tokens.ResolveAsync(reissued.Token, None)).Should().BeNull("the token is revoked once the reattached agent step ends");
-        (await tokens.ResolveAsync(spawned.Token, None)).Should().BeNull("so is the one the launch was spawned with");
+        // the token is revoked once the reattached agent step ends
+        Assert.Null(await tokens.ResolveAsync(reissued.Token, None));
+        // so is the one the launch was spawned with
+        Assert.Null(await tokens.ResolveAsync(spawned.Token, None));
 
         await second.StopAsync(None);
     }
@@ -136,11 +146,10 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().Be(
-            $"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which could not be reattached), so its usage was not observed.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        failing.Inner.Stops.Should().Equal(issued);
-        failing.Inner.Spawns.Should().ContainSingle();
+        Assert.Equal($"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which could not be reattached), so its usage was not observed.", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Equal([issued], failing.Inner.Stops);
+        Assert.Single(failing.Inner.Spawns);
 
         await second.StopAsync(None);
     }
@@ -155,7 +164,7 @@ public sealed class FlowRunRestartTests
         // The first collect passes, so the daemon stops while the retry's collect is held.
         var stalled = new GatedExecutor(new ScriptedExecutor(script)) { FreeCollects = 1 };
         (Guid flowRunId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Stopped in the retry");
-        stalled.Inner.Resumes.Should().ContainSingle(r => r.Handle == issued);
+        Assert.Single(stalled.Inner.Resumes, r => r.Handle == issued);
 
         var answering = new GatedExecutor(stalled.Inner);
         answering.Open();
@@ -163,11 +172,13 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer after one retry:");
-        paused.PauseUsage.Should().Be(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), "the first turn, which nothing recorded at the stop, is counted");
-        answering.Inner.Resumes.Should().ContainSingle("the retry before the restart was the one retry");
-        answering.Inner.Spawns.Should().ContainSingle();
-        answering.Inner.Stops.Should().Equal(issued);
+        Assert.StartsWith("Agent 'build' gave no valid 'build' answer after one retry:", paused.PauseReason, StringComparison.Ordinal);
+        // the first turn, which nothing recorded at the stop, is counted
+        Assert.Equal(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), paused.PauseUsage);
+        // the retry before the restart was the one retry
+        Assert.Single(answering.Inner.Resumes);
+        Assert.Single(answering.Inner.Spawns);
+        Assert.Equal([issued], answering.Inner.Stops);
 
         await second.StopAsync(None);
     }
@@ -194,13 +205,13 @@ public sealed class FlowRunRestartTests
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = answering }, None);
         await FlowRunDriver.UntilAsync(() => answering.Inner.Stops.Contains(issued), "the session the sweep left is stopped");
 
-        answering.Inner.Stops.Should().Equal(issued);
-        answering.Collecting.IsCompleted.Should().BeFalse("a paused flow run's session is not collected");
-        answering.Inner.Spawns.Should().ContainSingle();
+        Assert.Equal([issued], answering.Inner.Stops);
+        Assert.False(answering.Collecting.IsCompleted, "a paused flow run's session is not collected");
+        Assert.Single(answering.Inner.Spawns);
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.ShowAsync(again, Project, flowRunId);
-        paused.Status.Should().Be("paused");
-        paused.PauseReason.Should().Be("A person paused it.");
+        Assert.Equal("paused", paused.Status);
+        Assert.Equal("A person paused it.", paused.PauseReason);
 
         await second.StopAsync(None);
     }
@@ -227,13 +238,13 @@ public sealed class FlowRunRestartTests
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = answering }, None);
         await FlowRunDriver.UntilAsync(() => answering.Inner.Stops.Contains(issued), "the reattached session is stopped");
 
-        answering.Collecting.IsCompleted.Should().BeFalse("a paused flow run's session is not collected");
+        Assert.False(answering.Collecting.IsCompleted, "a paused flow run's session is not collected");
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.ShowAsync(again, Project, flowRunId);
-        paused.Status.Should().Be("paused");
-        paused.PauseReason.Should().Be("A person paused it.");
-        paused.Steps.Single(s => s.Step == "build").RecordedAt.Should().BeNull();
-        answering.Inner.Stops.Should().Equal(issued);
+        Assert.Equal("paused", paused.Status);
+        Assert.Equal("A person paused it.", paused.PauseReason);
+        Assert.Null(paused.Steps.Single(s => s.Step == "build").RecordedAt);
+        Assert.Equal([issued], answering.Inner.Stops);
 
         await second.StopAsync(None);
     }
@@ -254,11 +265,11 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().Be("Step 'build' ran past the wall-clock limit of 1 seconds for one agent step, so its session was stopped.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.Spawns.Should().Be(1);
-        stalled.Inner.Spawns.Should().ContainSingle();
-        stalled.Inner.Stops.Should().Equal(issued);
+        Assert.Equal("Step 'build' ran past the wall-clock limit of 1 seconds for one agent step, so its session was stopped.", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Equal(1, paused.Spawns);
+        Assert.Single(stalled.Inner.Spawns);
+        Assert.Equal([issued], stalled.Inner.Stops);
 
         await second.StopAsync(None);
     }
@@ -280,11 +291,14 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
 
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        ended.Steps.Single(s => s.Step == "build").RecordedAt.Should().NotBeNull("the answer the session left is recorded");
-        ended.Spawns.Should().Be(3, "the reattach counts no spawn: build and the two reviews");
-        stalled.Inner.Spawns.Where(s => s.Agent == "build").Should().ContainSingle();
-        stalled.Inner.Stops.Should().Contain(issued, "the session is stopped once its answer is recorded");
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        // the answer the session left is recorded
+        Assert.NotNull(ended.Steps.Single(s => s.Step == "build").RecordedAt);
+        // the reattach counts no spawn: build and the two reviews
+        Assert.Equal(3, ended.Spawns);
+        Assert.Single(stalled.Inner.Spawns, s => s.Agent == "build");
+        // the session is stopped once its answer is recorded
+        Assert.Contains(issued, stalled.Inner.Stops);
 
         await second.StopAsync(None);
     }
@@ -301,18 +315,19 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().Be(
-            $"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which the executor no longer holds), so its usage was not observed.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.Spawns.Should().Be(1);
-        paused.PauseUsage.Should().BeNull();
-        fresh.Spawns.Should().BeEmpty("a lost session is not launched again");
+        Assert.Equal($"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which the executor no longer holds), so its usage was not observed.", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Equal(1, paused.Spawns);
+        Assert.Null(paused.PauseUsage);
+        // a lost session is not launched again
+        Assert.Empty(fresh.Spawns);
 
         await FlowRunDriver.ResumeAsync(again, Project, flowRunId, "Perform it again.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        ended.Spawns.Should().Be(4, "the resume counts one more spawn for build");
-        fresh.Spawns.Select(s => s.Agent).Should().Equal("build", "reviewer-adversarial", "reviewer-conformance");
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        // the resume counts one more spawn for build
+        Assert.Equal(4, ended.Spawns);
+        Assert.Equal(["build", "reviewer-adversarial", "reviewer-conformance"], fresh.Spawns.Select(s => s.Agent));
 
         await second.StopAsync(None);
     }
@@ -327,7 +342,7 @@ public sealed class FlowRunRestartTests
         // The first collect passes, so the daemon stops while the retry's collect is held; the retry then ends unanswered.
         var stalled = new GatedExecutor(new ScriptedExecutor(script)) { FreeCollects = 1 };
         (Guid flowRunId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Lost in the retry");
-        stalled.Inner.Resumes.Should().ContainSingle(r => r.Handle == issued);
+        Assert.Single(stalled.Inner.Resumes, r => r.Handle == issued);
         stalled.Inner.Lose(issued);
 
         var restarted = new GatedExecutor(stalled.Inner);
@@ -336,17 +351,19 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().Be(
-            $"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which ended on its retry without an answer), so the usage of its retry was not observed; the usage of its turns before the retry is recorded.");
-        paused.PauseUsage.Should().Be(Scripts.Usage(4), "the first turn, which nothing recorded at the stop, is counted");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        paused.Spawns.Should().Be(1);
-        restarted.Inner.Spawns.Should().ContainSingle("a lost session is not launched again");
+        Assert.Equal($"Step 'build' lost the session agent 'build' was launched in across a daemon restart (session {Ids.Short(issued.Id)}, which ended on its retry without an answer), so the usage of its retry was not observed; the usage of its turns before the retry is recorded.", paused.PauseReason);
+        // the first turn, which nothing recorded at the stop, is counted
+        Assert.Equal(Scripts.Usage(4), paused.PauseUsage);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Equal(1, paused.Spawns);
+        // a lost session is not launched again
+        Assert.Single(restarted.Inner.Spawns);
 
         await FlowRunDriver.ResumeAsync(again, Project, flowRunId, "Perform it again.");
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        ended.Spawns.Should().Be(4, "the resume counts one more spawn for build");
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        // the resume counts one more spawn for build
+        Assert.Equal(4, ended.Spawns);
 
         await second.StopAsync(None);
     }
@@ -377,15 +394,14 @@ public sealed class FlowRunRestartTests
         using var client = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().Be(
-            "Step 'build' lost the session agent 'build' was launched in across a daemon restart (a session the daemon stopped before it was recorded), so its usage was not observed.");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        executor.Spawns.Should().BeEmpty();
+        Assert.Equal("Step 'build' lost the session agent 'build' was launched in across a daemon restart (a session the daemon stopped before it was recorded), so its usage was not observed.", paused.PauseReason);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Empty(executor.Spawns);
 
         // The resume counts its spawn like any other resume, so the cap is reached by the same count.
         await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null);
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
-        ended.Spawns.Should().Be(4);
+        Assert.Equal(4, ended.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -404,12 +420,13 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView ended = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "ended");
 
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        stalled.Inner.Stops[0].Should().Be(orphan, "the unclaimed session is stopped before any flow run advances");
-        stalled.Inner.Stops.Should().ContainSingle(handle => handle == orphan);
-        stalled.Inner.Stops.Should().ContainSingle(handle => handle == issued);
-        stalled.Inner.Spawns.Where(s => s.Agent == "build").Select(s => s.Handle).Should().Equal(issued, orphan);
-        ended.Steps.Single(s => s.Step == "build").Measurement.Should().Be(Scripts.Usage(1));
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        // the unclaimed session is stopped before any flow run advances
+        Assert.Equal(orphan, stalled.Inner.Stops[0]);
+        Assert.Single(stalled.Inner.Stops, handle => handle == orphan);
+        Assert.Single(stalled.Inner.Stops, handle => handle == issued);
+        Assert.Equal([issued, orphan], stalled.Inner.Spawns.Where(s => s.Agent == "build").Select(s => s.Handle));
+        Assert.Equal(Scripts.Usage(1), ended.Steps.Single(s => s.Step == "build").Measurement);
 
         await second.StopAsync(None);
     }
@@ -426,11 +443,12 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':").And.Contain("gave up collecting");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        givingUp.Inner.Stops.Should().Equal(issued);
-        givingUp.StopTokensCancelled.Should().Equal(false);
-        givingUp.Inner.Spawns.Should().ContainSingle();
+        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Contains("gave up collecting", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        Assert.Equal([issued], givingUp.Inner.Stops);
+        Assert.Equal([false], givingUp.StopTokensCancelled);
+        Assert.Single(givingUp.Inner.Spawns);
 
         await second.StopAsync(None);
     }
@@ -449,13 +467,14 @@ public sealed class FlowRunRestartTests
             await second.StopAsync(None);
         }
 
-        heldAgain.Inner.Stops.Should().BeEmpty("a daemon stop during a reattached collect leaves the session held");
-        (await heldAgain.ListAsync(None)).Should().Equal(issued);
+        // a daemon stop during a reattached collect leaves the session held
+        Assert.Empty(heldAgain.Inner.Stops);
+        Assert.Equal([issued], await heldAgain.ListAsync(None));
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             FlowRun? between = await new FlowRunService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowRunId, None);
-            between?.Status.Should().Be(FlowRunStatus.Running);
-            between?.Current?.SessionId.Should().Be(issued.Id);
+            Assert.Equal(FlowRunStatus.Running, between?.Status);
+            Assert.Equal(issued.Id, between?.Current?.SessionId);
         }
 
         var answering = new GatedExecutor(stalled.Inner);
@@ -464,10 +483,10 @@ public sealed class FlowRunRestartTests
         using var client = new DaemonClient(temp.Home);
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
 
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-        ended.Spawns.Should().Be(3);
-        answering.Inner.Spawns.Where(s => s.Agent == "build").Should().ContainSingle();
-        answering.Inner.Stops.Should().ContainSingle(handle => handle == issued);
+        Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
+        Assert.Equal(3, ended.Spawns);
+        Assert.Single(answering.Inner.Spawns, s => s.Agent == "build");
+        Assert.Single(answering.Inner.Stops, handle => handle == issued);
 
         await third.StopAsync(None);
     }
@@ -502,22 +521,23 @@ public sealed class FlowRunRestartTests
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Left running, then stopped");
         flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
-        paused.PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':");
-        SessionHandle issued = stopping.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        (await stopping.ListAsync(None)).Should().ContainSingle("its stop after the pause failed").Which.Should().Be(issued);
+        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        SessionHandle issued = Assert.Single(stopping.Inner.Spawns).Handle;
+        // its stop after the pause failed
+        Assert.Equal(issued, Assert.Single(await stopping.ListAsync(None)));
 
         stopping.FailStops = false;
         stopping.CollectsGiveUp = false;
         await FlowRunDriver.ResumeAsync(client, Project, flowRunId, "Again.");
         decimal relaunchCost = await costAtRelaunch.Task.WaitAsync(TimeSpan.FromSeconds(15));
 
-        relaunchCost.Should().Be(paused.Cost + left.CostUsd, "the stop's report is recorded before the new launch");
-        stopping.Inner.Stops.Should().Equal(issued);
+        // the stop's report is recorded before the new launch
+        Assert.Equal(paused.Cost + left.CostUsd, relaunchCost);
+        Assert.Equal([issued], stopping.Inner.Stops);
         await using (IQuerySession session = store.QuerySession(Project))
         {
             IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(flowRunId, token: None);
-            events.Select(e => e.Data).OfType<AgentStepUsageRecorded>().Should().ContainSingle()
-                .Which.Should().BeEquivalentTo(new { Step = "build", Agent = "build", SessionId = issued.Id, Usage = left });
+            Assert.Equivalent(new { Step = "build", Agent = "build", SessionId = issued.Id, Usage = left }, Assert.Single(events.Select(e => e.Data).OfType<AgentStepUsageRecorded>()));
         }
 
         await stopping.Holding.WaitAsync(TimeSpan.FromSeconds(15));
@@ -539,8 +559,8 @@ public sealed class FlowRunRestartTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Spent by its stop");
         Guid flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
-        (await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused")).PauseReason.Should().StartWith("Step 'build' got no judgment from agent 'build':");
-        SessionHandle issued = stopping.Inner.Spawns.Should().ContainSingle().Subject.Handle;
+        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", (await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused")).PauseReason, StringComparison.Ordinal);
+        SessionHandle issued = Assert.Single(stopping.Inner.Spawns).Handle;
 
         stopping.FailStops = false;
         stopping.CollectsGiveUp = false;
@@ -548,11 +568,12 @@ public sealed class FlowRunRestartTests
         await FlowRunDriver.UntilAsync(async () => (await FlowRunDriver.ShowAsync(client, Project, flowRunId)).Lever == FlowRunLevers.BudgetReached(), "the resume pauses on the budget");
         FlowRunView spent = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
 
-        spent.Status.Should().Be("paused");
-        spent.Cost.Should().BeGreaterThanOrEqualTo(ShippedFlows.Build.Budget);
-        spent.PauseReason.Should().StartWith($"Flow run {Ids.Short(flowRunId)} has recorded a cost of");
-        stopping.Inner.Stops.Should().Equal(issued);
-        stopping.Inner.Spawns.Should().ContainSingle("the budget the stopped session's usage reached launches no other agent");
+        Assert.Equal("paused", spent.Status);
+        Assert.True(spent.Cost >= ShippedFlows.Build.Budget, $"Expected at least {ShippedFlows.Build.Budget}, but found {spent.Cost}.");
+        Assert.StartsWith($"Flow run {Ids.Short(flowRunId)} has recorded a cost of", spent.PauseReason, StringComparison.Ordinal);
+        Assert.Equal([issued], stopping.Inner.Stops);
+        // the budget the stopped session's usage reached launches no other agent
+        Assert.Single(stopping.Inner.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -572,17 +593,19 @@ public sealed class FlowRunRestartTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Will not stop");
         Guid flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
-        (await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused")).PauseReason.Should().StartWith("Agent 'build' gave no valid 'build' answer");
-        SessionHandle issued = stubborn.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        (await stubborn.ListAsync(None)).Should().ContainSingle("its stop after the pause failed").Which.Should().Be(issued);
+        Assert.StartsWith("Agent 'build' gave no valid 'build' answer", (await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused")).PauseReason, StringComparison.Ordinal);
+        SessionHandle issued = Assert.Single(stubborn.Inner.Spawns).Handle;
+        // its stop after the pause failed
+        Assert.Equal(issued, Assert.Single(await stubborn.ListAsync(None)));
 
         await FlowRunDriver.ResumeAsync(client, Project, flowRunId, "Again.");
         await FlowRunDriver.UntilAsync(async () => (await FlowRunDriver.ShowAsync(client, Project, flowRunId)).PauseReason?.Contains("could not stop", StringComparison.Ordinal) == true, "the resume pauses on the stop");
         FlowRunView paused = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
 
-        paused.PauseReason.Should().StartWith($"Step 'build' could not stop session {Ids.Short(issued.Id)} that agent 'build' was left running in");
-        paused.Lever.Should().Be(FlowRunLevers.PerformAgain("build"));
-        stubborn.Inner.Spawns.Should().ContainSingle("no second agent is launched beside one that would not stop");
+        Assert.StartsWith($"Step 'build' could not stop session {Ids.Short(issued.Id)} that agent 'build' was left running in", paused.PauseReason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
+        // no second agent is launched beside one that would not stop
+        Assert.Single(stubborn.Inner.Spawns);
 
         await daemon.StopAsync(None);
     }
@@ -615,20 +638,22 @@ public sealed class FlowRunRestartTests
             await first.StopAsync(None);
         }
 
-        SessionHandle issued = stalled.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        issued.Id.Should().Be(sessionId);
-        stalled.Inner.Stops.Should().BeEmpty("a daemon stop leaves a recorded session for a reattach");
-        stalled.StopTokensCancelled.Should().BeEmpty();
-        (await stalled.ListAsync(None)).Should().Equal(issued);
+        SessionHandle issued = Assert.Single(stalled.Inner.Spawns).Handle;
+        Assert.Equal(sessionId, issued.Id);
+        // a daemon stop leaves a recorded session for a reattach
+        Assert.Empty(stalled.Inner.Stops);
+        Assert.Empty(stalled.StopTokensCancelled);
+        Assert.Equal([issued], await stalled.ListAsync(None));
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             FlowRun? between = await new FlowRunService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowRunId, None);
-            between.Should().NotBeNull();
-            between.Status.Should().Be(FlowRunStatus.Running, "a daemon stop is not a pause");
-            between.Current?.IsRecorded.Should().BeFalse();
-            between.Current?.SessionId.Should().Be(issued.Id);
-            between.Current?.AwaitsLaunchedSession.Should().BeTrue();
+            Assert.NotNull(between);
+            // a daemon stop is not a pause
+            Assert.Equal(FlowRunStatus.Running, between.Status);
+            Assert.False(between.Current?.IsRecorded);
+            Assert.Equal(issued.Id, between.Current?.SessionId);
+            Assert.True(between.Current?.AwaitsLaunchedSession);
         }
 
         return (flowRunId, issued);
@@ -656,7 +681,8 @@ public sealed class FlowRunRestartTests
             Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         Definition? resolved = await definitions.ResolveAgentAsync(Principal.LocalOwner, Project, agent.Name, None);
-        resolved?.ContentHash.Should().Be(agent.Hash, "the republished agent is what resolution now returns");
+        // the republished agent is what resolution now returns
+        Assert.Equal(agent.Hash, resolved?.ContentHash);
     }
 
     private static async Task<IReadOnlyList<object>> EventsOfAsync(IDocumentStore store, Guid flowRunId)
