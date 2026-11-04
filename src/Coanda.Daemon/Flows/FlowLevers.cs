@@ -29,4 +29,12 @@ public static class FlowLevers
     /// <summary>Names the way out of a flow whose budget, or its chain's, is spent: a resume pauses it again.</summary>
     public static string BudgetReached() =>
         "Stop the flow; its budget is spent, so a resume pauses it again before any judgment.";
+
+    /// <summary>
+    /// Names the one recovery from a pull request whose head is behind the primary branch that the
+    /// head guard accepts: the rebase is never pushed by hand, so the build contour gates, reviews, and
+    /// pushes the rebased branch, and open-pr records the head a new merge follows.
+    /// </summary>
+    public static string RebaseThroughBuild(string branch, string primaryBranch) =>
+        $"Stop the flow, rebase {branch} onto {primaryBranch} in the node's clone without pushing it, and move the task back to build, so the build contour gates, reviews, and pushes the rebased branch and a merge follows again.";
 }
