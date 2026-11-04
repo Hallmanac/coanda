@@ -4,8 +4,8 @@ namespace Coanda.Core.Types;
 /// The software engineering lifecycle, installed by default: an idea goes through discovery and
 /// either carries forward or derives tasks and closes as split; a task goes refine, build, review,
 /// closed. Both are ordinary <see cref="ParcelType"/> data with no privileges a user's type lacks.
-/// Entering discovery starts the discovery flow and entering build starts the build flow; no other
-/// state carries a flow, and neither type binds a gate.
+/// Entering discovery starts the discovery contour and entering build starts the build contour; no other
+/// state carries a contour, and neither type binds a gate.
 /// </summary>
 public static class ShippedTypes
 {
@@ -24,7 +24,7 @@ public static class ShippedTypes
         {
             ["open"] = ["discovery"],
         },
-        FlowBindings = [new FlowBinding("discovery", "discovery")],
+        ContourBindings = [new ContourBinding("discovery", "discovery")],
     };
 
     public static readonly ParcelType Task = new()
@@ -41,7 +41,7 @@ public static class ShippedTypes
             ["build"] = ["review"],
             ["review"] = ["build"],
         },
-        FlowBindings = [new FlowBinding("build", "build")],
+        ContourBindings = [new ContourBinding("build", "build")],
     };
 
     public static readonly IReadOnlyList<ParcelType> All = [Idea, Task];

@@ -1,11 +1,11 @@
-using Coanda.Core.Flows;
-using Coanda.Daemon.Flights;
+using Coanda.Core.Contours;
+using Coanda.Daemon.Flows;
 
 namespace Coanda.Daemon.Actions;
 
 /// <summary>
-/// Pauses the flight until the event its <c>event</c> argument names. Phase 1 has no event
-/// subscriptions, so a person resuming the flight stands in for the event, and once the flight is
+/// Pauses the flow until the event its <c>event</c> argument names. Phase 1 has no event
+/// subscriptions, so a person resuming the flow stands in for the event, and once the flow is
 /// resumed on this visit the step answers done.
 /// </summary>
 public sealed class WaitForExternalEventAction : IFlowAction
@@ -21,7 +21,7 @@ public sealed class WaitForExternalEventAction : IFlowAction
             ? ActionOutcome.DoneWith(Name, (EventArgument, awaited))
             : new ActionOutcome.Paused(
                 $"Step '{request.Step.Name}' waits for the external event '{awaited}'.",
-                FlightLevers.PerformAgain(request.Step.Name));
+                FlowLevers.PerformAgain(request.Step.Name));
         return ValueTask.FromResult(outcome);
     }
 }

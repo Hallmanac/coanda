@@ -33,12 +33,12 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
         Trigger trigger,
         string parcelType,
         string titleField,
-        string flow,
+        string contour,
         CancellationToken cancellationToken)
     {
         CommandRegistry.Require("subscription.add", principal);
         string tenant = Tenants.RequireProject(project);
-        SubscriptionRecorded recorded = TriggerDecider.RecordSubscription(tenant, trigger, parcelType, titleField, flow, principal, clock.GetUtcNow());
+        SubscriptionRecorded recorded = TriggerDecider.RecordSubscription(tenant, trigger, parcelType, titleField, contour, principal, clock.GetUtcNow());
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         session.Events.StartStream<Subscription>(recorded.SubscriptionId, recorded);

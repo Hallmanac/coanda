@@ -1,4 +1,4 @@
-using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Triggers;
@@ -10,8 +10,8 @@ namespace Coanda.Core.Triggers;
 /// </summary>
 public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, string> Filters)
 {
-    /// <summary>The trigger a flow binding is: a parcel of the type entering the bound state.</summary>
-    public static Trigger ForBinding(ParcelType type, FlowBinding binding) => new(
+    /// <summary>The trigger a contour binding is: a parcel of the type entering the bound state.</summary>
+    public static Trigger ForBinding(ParcelType type, ContourBinding binding) => new(
         TriggerEvent.ParcelEnteredKind,
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -20,20 +20,20 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
         });
 
     /// <summary>
-    /// The trigger a follow is: a flight ending with the followed outcome, from the followed flow
-    /// when the follow names one. Like every filter, each compares for exact equality; the flow's
-    /// name is folded as <see cref="TriggerEvent.FlightEnded"/> folds it, so any spelling of the
-    /// followed flow's name matches it.
+    /// The trigger a follow is: a flow ending with the followed outcome, from the followed contour
+    /// when the follow names one. Like every filter, each compares for exact equality; the contour's
+    /// name is folded as <see cref="TriggerEvent.FlowEnded"/> folds it, so any spelling of the
+    /// followed contour's name matches it.
     /// </summary>
-    public static Trigger ForFollow(FlowFollow follow)
+    public static Trigger ForFollow(ContourFollow follow)
     {
         var filters = new Dictionary<string, string>(StringComparer.Ordinal) { [TriggerEvent.OutcomeField] = follow.Outcome };
-        if (follow.Flow is not null)
+        if (follow.Contour is not null)
         {
-            filters[TriggerEvent.FlowField] = TriggerEvent.FlowKey(follow.Flow);
+            filters[TriggerEvent.ContourField] = TriggerEvent.ContourKey(follow.Contour);
         }
 
-        return new Trigger(TriggerEvent.FlightEndedKind, filters);
+        return new Trigger(TriggerEvent.FlowEndedKind, filters);
     }
 
     public bool Matches(TriggerEvent candidate) =>

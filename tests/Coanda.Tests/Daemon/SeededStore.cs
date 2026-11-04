@@ -14,7 +14,7 @@ public static class SeededStore
     public static Task<IDocumentStore> OpenAsync(string databasePath) =>
         OpenAsync(databasePath, ShippedDefinition.ShippedParcelTypes);
 
-    /// <summary>Opens a store seeded with <paramref name="shipped"/>; a flight test passes <see cref="ShippedDefinition.All"/> so the flows resolve.</summary>
+    /// <summary>Opens a store seeded with <paramref name="shipped"/>; a flow test passes <see cref="ShippedDefinition.All"/> so the contours resolve.</summary>
     public static async Task<IDocumentStore> OpenAsync(string databasePath, IReadOnlyCollection<ShippedDefinition> shipped)
     {
         IDocumentStore store = StoreConfiguration.Open(databasePath);

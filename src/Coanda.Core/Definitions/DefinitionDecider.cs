@@ -1,6 +1,6 @@
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions.Events;
-using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Software;
 using Coanda.Core.Types;
@@ -15,7 +15,7 @@ namespace Coanda.Core.Definitions;
 public static class DefinitionDecider
 {
     /// <summary>
-    /// Every action name a flow may use: the core catalog and the software catalog. The flow's own
+    /// Every action name a contour may use: the core catalog and the software catalog. The contour's own
     /// validation takes the names as an input and knows neither catalog.
     /// </summary>
     public static readonly IReadOnlySet<string> KnownActions =
@@ -135,8 +135,8 @@ public static class DefinitionDecider
             case DefinitionKind.ParcelType:
                 RequireParcelType(trimmedName, content, contentHash, knownGates);
                 break;
-            case DefinitionKind.Flow:
-                RequireFlow(trimmedName, content, contentHash);
+            case DefinitionKind.Contour:
+                RequireContour(trimmedName, content, contentHash);
                 break;
             case DefinitionKind.Agent:
                 RequireAgent(trimmedName, content, contentHash);
@@ -164,20 +164,20 @@ public static class DefinitionDecider
         }
     }
 
-    private static void RequireFlow(string name, string content, string contentHash)
+    private static void RequireContour(string name, string content, string contentHash)
     {
-        FlowDefinition flow = FlowDefinition.FromJson(content);
-        flow.Validate(KnownActions);
+        Contour contour = Contour.FromJson(content);
+        contour.Validate(KnownActions);
 
-        if (!string.Equals(flow.Name, name, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(contour.Name, name, StringComparison.OrdinalIgnoreCase))
         {
-            throw new DomainException($"A flow definition is named for its flow; '{name}' holds the flow '{flow.Name}'.");
+            throw new DomainException($"A contour definition is named for its contour; '{name}' holds the contour '{contour.Name}'.");
         }
 
-        if (!string.Equals(flow.Hash, contentHash, StringComparison.Ordinal))
+        if (!string.Equals(contour.Hash, contentHash, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"The content hash '{contentHash}' differs from the flow's hash '{flow.Hash}'.");
+                $"The content hash '{contentHash}' differs from the contour's hash '{contour.Hash}'.");
         }
     }
 

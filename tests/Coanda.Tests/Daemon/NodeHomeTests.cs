@@ -8,11 +8,11 @@ public sealed class NodeHomeTests
     private static readonly NodeHome Home = new(Path.Combine(Path.GetTempPath(), "coanda-home"));
 
     [Fact]
-    public void A_flights_work_path_sits_under_the_homes_work_directory()
+    public void A_flows_work_path_sits_under_the_homes_work_directory()
     {
-        Guid flightId = Ids.New();
+        Guid flowId = Ids.New();
 
-        Home.FlightWorkPath("alpha", flightId).Should().Be(Path.Combine(Home.Path, "work", "alpha", flightId.ToString()));
+        Home.FlowWorkPath("alpha", flowId).Should().Be(Path.Combine(Home.Path, "work", "alpha", flowId.ToString()));
     }
 
     [Theory]
@@ -24,7 +24,7 @@ public sealed class NodeHomeTests
     [InlineData("a\\b")]
     public void A_project_that_is_not_a_plain_directory_name_has_no_work_path(string project)
     {
-        Action work = () => Home.FlightWorkPath(project, Ids.New());
+        Action work = () => Home.FlowWorkPath(project, Ids.New());
 
         work.Should().Throw<DomainException>().WithMessage($"Project '{project}' is not a plain directory name*");
     }

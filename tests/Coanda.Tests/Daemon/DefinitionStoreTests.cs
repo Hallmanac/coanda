@@ -287,7 +287,7 @@ public sealed class DefinitionStoreTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var parcels = new ParcelService(store, TimeProvider.System);
-        Parcel inReview = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "In flight", null, CancellationToken.None);
+        Parcel inReview = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Under way", null, CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "review", CancellationToken.None);
 

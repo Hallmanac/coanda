@@ -1,9 +1,9 @@
 namespace Coanda.Daemon.Triggers;
 
 /// <summary>
-/// The follows the trigger loop could not start yet because their parcel already had a live flight,
+/// The follows the trigger loop could not start yet because their parcel already had a live flow,
 /// most often another follower of the same end. One document per parcel in the parcel's project, so
-/// it survives a restart; each release of the parcel's live flight starts the oldest pending follow,
+/// it survives a restart; each release of the parcel's live flow starts the oldest pending follow,
 /// and a follow still waiting keeps its place until a later release.
 /// </summary>
 public sealed class DeferredFollows
@@ -15,5 +15,5 @@ public sealed class DeferredFollows
     public List<PendingFollow> Pending { get; set; } = [];
 }
 
-/// <summary>A follow waiting to start: the ended flight it follows and the flow that follows it.</summary>
-public sealed record PendingFollow(Guid ParentFlightId, string Flow);
+/// <summary>A follow waiting to start: the ended flow it follows and the contour that follows it.</summary>
+public sealed record PendingFollow(Guid ParentFlowId, string Contour);

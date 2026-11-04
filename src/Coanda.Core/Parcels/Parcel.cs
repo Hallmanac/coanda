@@ -36,9 +36,9 @@ public sealed class Parcel
     public string? Resolution { get; private set; }
     [JsonInclude]
     public string? CloseReason { get; private set; }
-    /// <summary>The flight running or paused on this parcel, or null when it has none. A parcel has at most one.</summary>
+    /// <summary>The flow running or paused on this parcel, or null when it has none. A parcel has at most one.</summary>
     [JsonInclude]
-    public Guid? LiveFlightId { get; private set; }
+    public Guid? LiveFlowId { get; private set; }
 
     public bool IsClosed => Resolution is not null;
 
@@ -77,15 +77,15 @@ public sealed class Parcel
         UpdatedAt = closed.ClosedAt;
     }
 
-    public void Apply(ParcelFlightAttached attached)
+    public void Apply(ParcelFlowAttached attached)
     {
-        LiveFlightId = attached.FlightId;
+        LiveFlowId = attached.FlowId;
         UpdatedAt = attached.AttachedAt;
     }
 
-    public void Apply(ParcelFlightReleased released)
+    public void Apply(ParcelFlowReleased released)
     {
-        LiveFlightId = null;
+        LiveFlowId = null;
         UpdatedAt = released.ReleasedAt;
     }
 }

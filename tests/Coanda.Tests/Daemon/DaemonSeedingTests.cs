@@ -1,7 +1,7 @@
 using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
+using Coanda.Core.Contours;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Core.Types;
@@ -86,11 +86,11 @@ public sealed class DaemonSeedingTests
         });
     }
 
-    private static async Task<List<FlowView>> FlowsAsync(DaemonClient client, string project) =>
-        await client.GetAsync<List<FlowView>>($"/flows?project={Uri.EscapeDataString(project)}", CancellationToken.None);
+    private static async Task<List<ContourView>> ContoursAsync(DaemonClient client, string project) =>
+        await client.GetAsync<List<ContourView>>($"/contours?project={Uri.EscapeDataString(project)}", CancellationToken.None);
 
     [Fact]
-    public async Task Starting_the_daemon_seeds_the_three_shipped_flows_as_published_shipped_scope_definitions_and_a_second_start_appends_nothing()
+    public async Task Starting_the_daemon_seeds_the_three_shipped_contours_as_published_shipped_scope_definitions_and_a_second_start_appends_nothing()
     {
         using var temp = new TemporaryHome();
 
@@ -102,10 +102,10 @@ public sealed class DaemonSeedingTests
         {
             await using IQuerySession session = store.QuerySession(Tenants.Node);
             IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
-            List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
-            flows.Select(d => (d.Name, d.ContentHash)).Should().BeEquivalentTo(ShippedFlows.All.Select(f => (f.Name, f.Hash)));
-            flows.Should().OnlyContain(d => d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1);
-            flows.Should().OnlyContain(d => FlowDefinition.FromJson(d.Content).Hash == d.ContentHash);
+            List<Definition> contours = [.. all.Where(d => d.Kind == DefinitionKind.Contour)];
+            contours.Select(d => (d.Name, d.ContentHash)).Should().BeEquivalentTo(ShippedContours.All.Select(f => (f.Name, f.Hash)));
+            contours.Should().OnlyContain(d => d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1);
+            contours.Should().OnlyContain(d => Contour.FromJson(d.Content).Hash == d.ContentHash);
         }
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
@@ -113,52 +113,52 @@ public sealed class DaemonSeedingTests
     }
 
     [Fact]
-    public async Task The_flow_list_endpoint_returns_exactly_the_three_shipped_flows_on_a_fresh_node_home()
+    public async Task The_contour_list_endpoint_returns_exactly_the_three_shipped_contours_on_a_fresh_node_home()
     {
         using var temp = new TemporaryHome();
 
         await RunAndStopAsync(temp.Home, async client =>
         {
-            List<FlowView> flows = await FlowsAsync(client, "alpha");
+            List<ContourView> contours = await ContoursAsync(client, "alpha");
 
-            flows.Select(f => (f.Name, f.Version, f.Hash)).Should().Equal(
-                ShippedFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)));
-            flows.Select(f => f.Name).Should().BeEquivalentTo("build", "discovery", "review-on-assignment");
+            contours.Select(f => (f.Name, f.Version, f.Hash)).Should().Equal(
+                ShippedContours.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)));
+            contours.Select(f => f.Name).Should().BeEquivalentTo("build", "discovery", "review-on-assignment");
 
-            await FluentActions.Awaiting(() => client.GetAsync<List<FlowView>>("/flows?project=_node", CancellationToken.None))
+            await FluentActions.Awaiting(() => client.GetAsync<List<ContourView>>("/contours?project=_node", CancellationToken.None))
                 .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
         });
     }
 
     [Fact]
-    public async Task A_project_flow_overrides_the_shipped_one_in_that_project_only()
+    public async Task A_project_contour_overrides_the_shipped_one_in_that_project_only()
     {
         using var temp = new TemporaryHome();
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        FlowDefinition quick = ShippedFlows.ReviewOnAssignment with { Budget = 1m };
+        Contour quick = ShippedContours.ReviewOnAssignment with { Budget = 1m };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System);
             Definition draft = await definitions.DraftAsync(
-                Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, "alpha",
-                quick.Name, FlowDefinition.CanonicalJson(quick), quick.Hash, null, CancellationToken.None);
+                Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, "alpha",
+                quick.Name, Contour.CanonicalJson(quick), quick.Hash, null, CancellationToken.None);
             await definitions.PublishAsync(Principal.LocalOwner, "alpha", draft.Id, CancellationToken.None);
         }
 
         await RunAndStopAsync(temp.Home, async client =>
         {
-            (await FlowsAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(quick.Hash);
-            (await FlowsAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(ShippedFlows.ReviewOnAssignment.Hash);
+            (await ContoursAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(quick.Hash);
+            (await ContoursAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(ShippedContours.ReviewOnAssignment.Hash);
         });
     }
 
     [Fact]
-    public void The_flow_list_query_is_open_to_every_role()
+    public void The_contour_list_query_is_open_to_every_role()
     {
         foreach (Role role in Enum.GetValues<Role>())
         {
-            CommandRegistry.Require("flow.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
+            CommandRegistry.Require("contour.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
         }
     }
 }

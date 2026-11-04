@@ -2,7 +2,7 @@ namespace Coanda.Core.Software;
 
 /// <summary>
 /// The names of the software engineering actions: worktree, gates, pull request, merge, rebase.
-/// Nothing in the flow shape or its validation refers to this type; the daemon passes these names
+/// Nothing in the contour shape or its validation refers to this type; the daemon passes these names
 /// in alongside the core ones, so the meta-model stays free of software.
 /// </summary>
 public static class SoftwareActions
