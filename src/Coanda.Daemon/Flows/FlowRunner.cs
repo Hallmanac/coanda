@@ -588,7 +588,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             ?? throw new DomainException($"No parcel {Ids.Short(flow.ParcelId)} in project '{project}'.");
         ParcelType type = await parcels.TypeVersionAsync(principal, project, parcel.TypeHash, cancellationToken)
             ?? throw new DomainException($"Parcel {Ids.Short(parcel.Id)} names a version of type '{parcel.TypeName}' that project '{project}' does not hold.");
-        string context = ContextAssembler.Assemble(parcel, step);
+        string context = ContextAssembler.Assemble(parcel, step, flow.Steps);
         string workingDirectory = home.FlowWorkPath(project, flow.Id);
         try
         {

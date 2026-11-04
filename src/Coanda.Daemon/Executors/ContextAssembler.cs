@@ -1,29 +1,55 @@
+using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 
 namespace Coanda.Daemon.Executors;
 
 /// <summary>
-/// Builds the per-parcel context body a step's spawn carries. It reads only the parcel record and
-/// the step; it never takes the agent definition, so the persona reaches the executor only through
-/// the definition on the spawn and is never folded into the context. Six fixed lines come first;
+/// Builds the per-parcel context body a step's spawn carries. It reads only the parcel record, the
+/// step, and the visits of the flow the step runs on; it never takes the agent definition, so the
+/// persona reaches the executor only through the definition on the spawn and is never folded into
+/// the context. Six fixed lines come first;
 /// after them, one entry per field the step declares, in the step's order, holding the field's
-/// value or "not set". Each value is folded onto its own line, so a title or a field value holding a
-/// line break cannot start a labelled line of its own, and every field entry begins with
-/// <see cref="FieldLabel"/>, so none reads as one of the fixed labels.
+/// value or "not set"; after those, one line per source the step declares, in the step's order,
+/// holding the latest recorded visit of the source step on this flow or saying it has not run on
+/// this flow yet. Each value is folded onto its own line, so a title, a field value, or a recorded
+/// answer holding a line break cannot start a labelled line of its own, and every field entry begins
+/// with <see cref="FieldLabel"/> and every source line with <see cref="SourceLabel"/>, so none reads
+/// as one of the fixed labels.
 /// </summary>
 public static partial class ContextAssembler
 {
     /// <summary>The word every field entry's first line begins with.</summary>
     public const string FieldLabel = "Field";
 
+    /// <summary>The word every source line begins with.</summary>
+    public const string SourceLabel = "Source";
+
     public const string NotSet = "not set";
 
-    public static string Assemble(Parcel parcel, ContourStep step)
+    /// <summary>What a source line says of a step with no recorded visit on the flow.</summary>
+    public const string NotRun = "has not run on this flow yet";
+
+    /// <summary>
+    /// Writes a recorded answer or result as compact JSON whose text reads as written: characters such
+    /// as <c>&lt;</c>, <c>&amp;</c>, an apostrophe, and non-ASCII letters are not escaped. The context
+    /// is never embedded in HTML, which is what the relaxed encoder's caution concerns, and the
+    /// contour's canonical JSON and hash never use these options.
+    /// </summary>
+    private static readonly JsonSerializerOptions SourceJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    /// <param name="parcel">The parcel the step's flow runs on.</param>
+    /// <param name="step">The step about to spawn.</param>
+    /// <param name="visits">Every visit of the flow the step runs on, in the order entered (<see cref="Flow.Steps"/>).</param>
+    public static string Assemble(Parcel parcel, ContourStep step, IReadOnlyList<FlowStepEntry> visits)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(step);
+        ArgumentNullException.ThrowIfNull(visits);
 
         string[] fixedLines =
         [
@@ -35,7 +61,28 @@ public static partial class ContextAssembler
             $"Step: {OneLine(step.Name)}",
         ];
 
-        return string.Join('\n', [.. fixedLines, .. step.Fields.SelectMany(field => FieldLines(field, parcel.ValueOf(field)))]);
+        return string.Join('\n',
+        [
+            .. fixedLines,
+            .. step.Fields.SelectMany(field => FieldLines(field, parcel.ValueOf(field))),
+            .. step.Sources.Select(source => SourceLine(source.Step ?? string.Empty, visits)),
+        ]);
+    }
+
+    /// <summary>
+    /// A source's line: the step's latest visit on the flow that recorded an answer or result, with
+    /// that visit's number among the step's visits counting from 1, when it recorded, and what it
+    /// recorded; or, when no visit of the step has recorded, that it has not run on this flow yet.
+    /// </summary>
+    private static string SourceLine(string source, IReadOnlyList<FlowStepEntry> visits)
+    {
+        string label = $"{SourceLabel} {OneLine(source)}:";
+        FlowStepEntry[] ofSource = [.. visits.Where(entry => string.Equals(entry.Step, source, StringComparison.Ordinal))];
+        int latest = Array.FindLastIndex(ofSource, entry => entry.IsRecorded && (entry.Answer ?? entry.Result) is not null);
+
+        return latest >= 0 && ofSource[latest] is { RecordedAt: { } recordedAt } visit && (visit.Answer ?? visit.Result) is JsonElement recorded
+            ? $"{label} visit {latest + 1}, recorded {recordedAt.ToString("O", CultureInfo.InvariantCulture)}: {OneLine(JsonSerializer.Serialize(recorded, SourceJson))}"
+            : $"{label} {NotRun}";
     }
 
     /// <summary>
