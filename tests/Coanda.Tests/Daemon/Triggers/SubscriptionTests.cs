@@ -3,6 +3,7 @@ using Coanda.Core;
 using Coanda.Core.Registry;
 using Coanda.Core.Triggers;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;

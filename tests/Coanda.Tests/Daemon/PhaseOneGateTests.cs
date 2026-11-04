@@ -8,6 +8,7 @@ using Coanda.Core.Contours;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;

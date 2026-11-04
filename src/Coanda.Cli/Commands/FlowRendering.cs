@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 
 namespace Coanda.Cli.Commands;
 

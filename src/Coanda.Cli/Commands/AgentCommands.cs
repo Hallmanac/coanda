@@ -1,5 +1,5 @@
 using Coanda.Daemon;
-using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Spectre.Console;
 using Spectre.Console.Cli;
 

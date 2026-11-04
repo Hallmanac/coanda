@@ -4,6 +4,7 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Tests.Core;
 using Fisher;

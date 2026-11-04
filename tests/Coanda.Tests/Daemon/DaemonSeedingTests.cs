@@ -7,6 +7,7 @@ using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
 using Fisher;

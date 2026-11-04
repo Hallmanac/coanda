@@ -1,21 +1,18 @@
 using System.Reflection;
 using System.Security.Cryptography;
-using Coanda.Core;
 using Coanda.Core.Definitions;
-using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
-using Coanda.Core.Registry;
-using Coanda.Core.Types;
 using Coanda.Daemon.Actions;
+using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Api.Middleware;
+using Coanda.Daemon.Contours;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
-using Coanda.Daemon.Contours;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -79,7 +76,18 @@ public sealed class DaemonHost
         builder.Services.AddHostedService(services => services.GetRequiredService<TriggerLoop>());
 
         WebApplication app = builder.Build();
-        MapEndpoints(app, token);
+
+        // The token check runs first for everything but /health; the DomainException mapping sits
+        // inside it, wrapping the endpoints.
+        app.UseDaemonToken(token);
+        app.UseDomainExceptionMapping();
+
+        app.MapDaemonEndpoints();
+        app.MapTypeEndpoints();
+        app.MapContourEndpoints();
+        app.MapAgentEndpoints();
+        app.MapFlowEndpoints();
+        app.MapParcelEndpoints();
 
         await app.StartAsync(cancellationToken);
 
@@ -119,137 +127,6 @@ public sealed class DaemonHost
         string address = addresses?.Addresses.FirstOrDefault() ?? throw new InvalidOperationException("The daemon bound no address.");
         return new Uri(address).Port;
     }
-
-    private static void MapEndpoints(WebApplication app, string token)
-    {
-        app.Use(async (context, next) =>
-        {
-            if (context.Request.Path == "/health")
-            {
-                await next(context);
-                return;
-            }
-
-            if (!context.Request.Headers.TryGetValue(TokenHeader, out var presented) || presented != token)
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                await context.Response.WriteAsJsonAsync(new ErrorView("The call carried no valid daemon token."));
-                return;
-            }
-
-            await next(context);
-        });
-
-        app.MapGet("/health", () => Results.Ok(new { ok = true }));
-
-        app.MapGet("/status", (NodeHome home, IHostApplicationLifetime _) =>
-        {
-            DaemonInfo? info = DaemonInfo.Load(home);
-            return info is null
-                ? Results.NotFound(new ErrorView("The daemon has not written its address yet."))
-                : Results.Ok(new DaemonStatusView(info.Pid, info.Port, info.StartedAt, info.Version, home.Path, home.DatabasePath));
-        });
-
-        app.MapPost("/stop", (HttpContext context, IHostApplicationLifetime lifetime) =>
-        {
-            CommandRegistry.Require("daemon.stop", PrincipalOf(context));
-            lifetime.StopApplication();
-            return Results.Ok(new { stopping = true });
-        });
-
-        app.MapGet("/types", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
-        {
-            IReadOnlyList<ParcelType> types = await parcels.TypesAsync(PrincipalOf(context), project, cancellationToken);
-            return Results.Ok(types.Select(t => new TypeView(t.Name, t.Hash, t.States, t.Resolutions)).ToList());
-        });
-
-        app.MapGet("/contours", async (HttpContext context, ContourService contours, string project, CancellationToken cancellationToken) =>
-        {
-            IReadOnlyList<Definition> resolved = await contours.ListAsync(PrincipalOf(context), project, cancellationToken);
-            return Results.Ok(resolved.Select(d => new ContourView(d.Name, d.VersionNumber, d.ContentHash)).ToList());
-        });
-
-        app.MapGet("/agents", async (HttpContext context, DefinitionService definitions, string project, CancellationToken cancellationToken) =>
-        {
-            IReadOnlyList<Definition> agents = await definitions.ListAgentsAsync(PrincipalOf(context), project, cancellationToken);
-            return Results.Ok(agents.Select(AgentView.From).ToList());
-        });
-
-        app.MapGet("/flows", async (HttpContext context, FlowService flows, string project, Guid? parcel, CancellationToken cancellationToken) =>
-        {
-            IReadOnlyList<Flow> list = await flows.ListAsync(PrincipalOf(context), project, parcel, cancellationToken);
-            return Results.Ok(list.Select(f => FlowView.From(project.Trim(), f)).ToList());
-        });
-
-        app.MapGet("/flows/{id:guid}", async (HttpContext context, FlowService flows, Guid id, string project, CancellationToken cancellationToken) =>
-        {
-            Flow? flow = await flows.ShowAsync(PrincipalOf(context), project, id, cancellationToken);
-            return flow is null
-                ? Results.NotFound(new ErrorView($"No flow {Ids.Short(id)} in project '{project}'."))
-                : Results.Ok(FlowView.From(project.Trim(), flow));
-        });
-
-        app.MapPost("/flows", async (HttpContext context, FlowService flows, IFlowAdvancer advancer, FlowStartRequest request, CancellationToken cancellationToken) =>
-        {
-            string project = request.Project.Trim();
-            Flow flow = await flows.StartAsync(PrincipalOf(context), project, request.ParcelId, request.Contour, cancellationToken);
-
-            // The flow advances on the daemon's own workers; the start answers without waiting for it.
-            _ = advancer.RequestAdvance(project, flow.Id);
-            return Results.Created($"/flows/{flow.Id}", FlowView.From(project, flow));
-        });
-
-        app.MapGet("/parcels", async (HttpContext context, ParcelService parcels, string project, CancellationToken cancellationToken) =>
-        {
-            IReadOnlyList<Parcel> list = await parcels.ListAsync(PrincipalOf(context), project, cancellationToken);
-            return Results.Ok(list.Select(ParcelView.From).ToList());
-        });
-
-        app.MapGet("/parcels/{id:guid}", async (HttpContext context, ParcelService parcels, Guid id, string project, CancellationToken cancellationToken) =>
-        {
-            Parcel? parcel = await parcels.ShowAsync(PrincipalOf(context), project, id, cancellationToken);
-            return parcel is null
-                ? Results.NotFound(new ErrorView($"No parcel {Ids.Short(id)} in project '{project}'."))
-                : Results.Ok(ParcelView.From(parcel));
-        });
-
-        app.MapPost("/parcels", async (HttpContext context, ParcelService parcels, ParcelAddRequest request, CancellationToken cancellationToken) =>
-        {
-            Parcel parcel = await parcels.AddAsync(PrincipalOf(context), request.Project, request.Type, request.Title, request.State, cancellationToken);
-            return Results.Created($"/parcels/{parcel.Id}", ParcelView.From(parcel));
-        });
-
-        app.MapPost("/parcels/move", async (HttpContext context, ParcelService parcels, ParcelMoveRequest request, CancellationToken cancellationToken) =>
-        {
-            Parcel parcel = await parcels.MoveAsync(PrincipalOf(context), request.Project, request.ParcelId, request.To, cancellationToken);
-            return Results.Ok(ParcelView.From(parcel));
-        });
-
-        app.MapPost("/parcels/close", async (HttpContext context, ParcelService parcels, ParcelCloseRequest request, CancellationToken cancellationToken) =>
-        {
-            Parcel parcel = await parcels.CloseAsync(PrincipalOf(context), request.Project, request.ParcelId, request.Resolution, request.Reason, cancellationToken);
-            return Results.Ok(ParcelView.From(parcel));
-        });
-
-        app.Use(async (context, next) =>
-        {
-            try
-            {
-                await next(context);
-            }
-            catch (DomainException exception)
-            {
-                context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
-                await context.Response.WriteAsJsonAsync(new ErrorView(exception.Message));
-            }
-        });
-    }
-
-    /// <summary>Phase 0 knows one principal: whoever holds the token is the local owner.</summary>
-    private static Principal PrincipalOf(HttpContext context) =>
-        context.Request.Headers.TryGetValue(PrincipalHeader, out var id) && !string.IsNullOrWhiteSpace(id)
-            ? new Principal(id.ToString(), Role.Owner)
-            : Principal.LocalOwner;
 }
 
 public sealed class RunningDaemon(WebApplication app, DaemonInfo info) : IAsyncDisposable
