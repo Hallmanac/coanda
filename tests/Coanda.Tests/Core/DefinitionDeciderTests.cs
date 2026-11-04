@@ -29,7 +29,7 @@ public sealed class DefinitionDeciderTests
         ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
         DefinitionDrafted drafted = DefinitionDecider.Draft(
             DefinitionKind.ParcelType, "task", DefinitionScope.Project, " alpha ", 2,
-            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now);
+            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, shippedVersions: [new ForkBase("task", 1)]);
 
         Definition definition = Definition.Create(drafted);
         definition.Kind.Should().Be(DefinitionKind.ParcelType);
@@ -41,6 +41,38 @@ public sealed class DefinitionDeciderTests
         definition.Content.Should().Be(ParcelType.CanonicalJson(fork));
         definition.ForkBase.Should().Be(new ForkBase("task", 1));
         definition.Status.Should().Be(DefinitionStatus.Draft);
+    }
+
+    [Theory]
+    [InlineData("task", 2)]
+    [InlineData("bug", 1)]
+    [InlineData("build", 1)]
+    public void A_fork_base_naming_no_shipped_definition_of_the_drafts_kind_is_refused_naming_it(string baseName, int baseVersion)
+    {
+        ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
+        ForkBase[] shipped = [new("task", 1), new("idea", 1)];
+
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
+                ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase(baseName, baseVersion), "brian", Now, shippedVersions: shipped))
+            .Should().Throw<DomainException>()
+            .WithMessage($"The fork base '{baseName}' version {baseVersion} of 'task' names no shipped parcel type*");
+    }
+
+    [Fact]
+    public void A_fork_base_is_refused_when_no_shipped_versions_are_given_and_matched_by_name_without_case()
+    {
+        ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
+        string content = ParcelType.CanonicalJson(fork);
+
+        FluentActions.Invoking(() => DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Owner, null, 0, content, fork.Hash, new ForkBase("task", 1), "brian", Now))
+            .Should().Throw<DomainException>().WithMessage("The fork base 'task' version 1*");
+
+        DefinitionDecider.Draft(
+                DefinitionKind.ParcelType, "task", DefinitionScope.Owner, null, 0, content, fork.Hash, new ForkBase("Task", 1), "brian", Now,
+                shippedVersions: [new ForkBase("task", 1)])
+            .ForkBase.Should().Be(new ForkBase("Task", 1));
     }
 
     [Fact]

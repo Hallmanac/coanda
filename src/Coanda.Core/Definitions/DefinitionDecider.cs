@@ -21,6 +21,8 @@ public static class DefinitionDecider
     /// daemon runs, which a parcel type's gate bindings are validated against; none when null.
     /// <paramref name="knownActions"/> is every action name the daemon registered, which a contour's
     /// action steps are validated against; none when null. The decider holds no catalog of either.
+    /// <paramref name="shippedVersions"/> is the name and version of every shipped definition of
+    /// <paramref name="kind"/>, which a fork base must name one of; none when null.
     /// </summary>
     public static DefinitionDrafted Draft(
         DefinitionKind kind,
@@ -34,7 +36,8 @@ public static class DefinitionDecider
         string draftedBy,
         DateTimeOffset now,
         IReadOnlySet<string>? knownGates = null,
-        IReadOnlySet<string>? knownActions = null)
+        IReadOnlySet<string>? knownActions = null,
+        IReadOnlyCollection<ForkBase>? shippedVersions = null)
     {
         if (scope == DefinitionScope.Shipped)
         {
@@ -42,7 +45,9 @@ public static class DefinitionDecider
                 "A definition cannot be drafted into shipped scope; shipped definitions enter the store only by seeding.");
         }
 
-        return Build(kind, name, scope, project, latestVersion, content, contentHash, forkBase, knownGates ?? GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, draftedBy, now);
+        return Build(
+            kind, name, scope, project, latestVersion, content, contentHash, forkBase, shippedVersions ?? [],
+            knownGates ?? GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, draftedBy, now);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -84,7 +89,7 @@ public static class DefinitionDecider
     {
         DefinitionDrafted drafted = Build(
             shipped.Kind, shipped.Name, DefinitionScope.Shipped, null, latestVersion,
-            shipped.Content, shipped.ContentHash, null, GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, seededBy, now);
+            shipped.Content, shipped.ContentHash, null, [], GateSet.None.Names, knownActions ?? FrozenSet<string>.Empty, seededBy, now);
         return (drafted, new DefinitionPublished(drafted.DefinitionId, seededBy, now));
     }
 
@@ -97,6 +102,7 @@ public static class DefinitionDecider
         string content,
         string contentHash,
         ForkBase? forkBase,
+        IReadOnlyCollection<ForkBase> shippedVersions,
         IReadOnlySet<string> knownGates,
         IReadOnlySet<string> knownActions,
         string draftedBy,
@@ -121,6 +127,13 @@ public static class DefinitionDecider
         {
             throw new DomainException(
                 $"A fork base names the shipped definition and version a customization came from; '{trimmedName}' has an invalid one.");
+        }
+
+        if (forkBase is not null
+            && !shippedVersions.Any(v => DefinitionResolution.SameName(v.Name, forkBase.Name.Trim()) && v.Version == forkBase.Version))
+        {
+            throw new DomainException(
+                $"The fork base '{forkBase.Name}' version {forkBase.Version} of '{trimmedName}' names no shipped {Describe(kind)}; a fork base names a shipped definition of the draft's own kind, by name and version.");
         }
 
         if (string.IsNullOrWhiteSpace(content) || string.IsNullOrWhiteSpace(contentHash))
@@ -195,6 +208,13 @@ public static class DefinitionDecider
                 $"The content hash '{contentHash}' differs from the agent's hash '{agent.Hash}'.");
         }
     }
+
+    private static string Describe(DefinitionKind kind) => kind switch
+    {
+        DefinitionKind.ParcelType => "parcel type",
+        DefinitionKind.Contour => "contour",
+        _ => "agent",
+    };
 
     private static string Describe(DefinitionStatus status) => status switch
     {

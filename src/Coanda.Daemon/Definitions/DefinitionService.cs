@@ -53,8 +53,12 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             await using IDocumentSession session = store.LightweightSession(tenant);
             IReadOnlyList<Definition> existing = await session.Query<Definition>().ToListAsync(cancellationToken);
             int latest = LatestVersion(existing, kind, scope, project, name);
+            IReadOnlyCollection<ForkBase> shippedVersions = forkBase is null
+                ? []
+                : await ShippedVersionsAsync(kind, cancellationToken);
             DefinitionDrafted drafted = DefinitionDecider.Draft(
-                kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(), (gates ?? GateSet.None).Names, actions);
+                kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(),
+                (gates ?? GateSet.None).Names, actions, shippedVersions);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);
@@ -155,6 +159,17 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
         {
             writes.Release();
         }
+    }
+
+    /// <summary>
+    /// The name and version of every shipped definition of a kind. Shipped definitions live in the
+    /// node tenant whatever the draft's scope, so a project-scope draft reads them from there.
+    /// </summary>
+    private async Task<IReadOnlyCollection<ForkBase>> ShippedVersionsAsync(DefinitionKind kind, CancellationToken cancellationToken)
+    {
+        await using IQuerySession node = store.QuerySession(Tenants.Node);
+        IReadOnlyList<Definition> inNode = await node.Query<Definition>().ToListAsync(cancellationToken);
+        return [.. inNode.Where(d => d.Scope == DefinitionScope.Shipped && d.Kind == kind).Select(d => new ForkBase(d.Name, d.VersionNumber))];
     }
 
     private static int LatestVersion(IEnumerable<Definition> existing, DefinitionKind kind, DefinitionScope scope, string? project, string name) =>
