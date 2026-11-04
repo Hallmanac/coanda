@@ -15,7 +15,11 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// Confirmed against Claude Code 2.1.318. Print mode with stream-json output requires
 /// <c>--verbose</c>. <c>--permission-mode dontAsk</c> with <c>--permission-prompts none</c> denies
 /// any call that would need a permission answer instead of waiting for one, whatever mode the
-/// operator's own settings name. <c>--setting-sources ""</c> loads no user, project, or local
+/// operator's own settings name. The tools the adapter pre-approves are approved by permission
+/// rules in the settings document (<c>permissions.allow</c>), not by <c>--allowedTools</c>, so a CLI
+/// that skips the document approves none of them and refuses every call that needs approval; the
+/// calls it runs without approval are read-only ones that stay inside the work directory.
+/// <c>--setting-sources ""</c> loads no user, project, or local
 /// settings (and with them no hooks and no CLAUDE.md), <c>--strict-mcp-config</c> with no
 /// <c>--mcp-config</c> loads no MCP server, and the CLI still turns on its automatic memory under
 /// the operator's config directory unless the settings document says <c>autoMemoryEnabled</c> is false.
@@ -51,6 +55,9 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>The setting that names the attribution added to a session's commits and pull requests; the settings document hides both.</summary>
     public const string AttributionSetting = "attribution";
+
+    /// <summary>The setting whose <c>allow</c> rules pre-approve the session's tools.</summary>
+    public const string PermissionsSetting = "permissions";
 
     /// <summary>The setting that switches every hook off when true; the settings document sets it to false.</summary>
     public const string DisableAllHooksSetting = "disableAllHooks";
@@ -149,13 +156,15 @@ public static partial class ClaudeCodeInvocation
     /// <summary>
     /// The settings document every process of a session receives through <c>--settings</c>: automatic
     /// memory off, no attribution on commits or pull requests, a helper profile's API key helper,
+    /// permission rules that pre-approve each of <paramref name="tools"/> (none when it is empty),
     /// hooks left on, and the tool guard registered before every call to the six tools it judges, run
     /// as <paramref name="coaExecutable"/> with the <paramref name="guard"/>'s arguments and no shell,
     /// blocking the call when it cannot run.
     /// </summary>
-    public static string Settings(CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
+    public static string Settings(CredentialProfile? profile, ToolGuardRules guard, string coaExecutable, IReadOnlyList<string> tools)
     {
         ArgumentNullException.ThrowIfNull(guard);
+        ArgumentNullException.ThrowIfNull(tools);
         ArgumentException.ThrowIfNullOrWhiteSpace(coaExecutable);
         var settings = new JsonObject
         {
@@ -167,23 +176,33 @@ public static partial class ClaudeCodeInvocation
             settings[ApiKeyHelperSetting] = helper;
         }
 
+        if (tools.Count > 0)
+        {
+            settings[PermissionsSetting] = new JsonObject { ["allow"] = Strings(tools) };
+        }
+
         settings[DisableAllHooksSetting] = false;
         settings["hooks"] = new JsonObject
         {
             ["PreToolUse"] = new JsonArray(new JsonObject
             {
                 ["matcher"] = string.Join('|', ToolGuard.GuardedTools),
-                ["hooks"] = new JsonArray(new JsonObject
-                {
-                    ["type"] = "command",
-                    ["command"] = coaExecutable,
-                    ["args"] = new JsonArray([.. guard.Arguments.Select(a => (JsonNode?)JsonValue.Create(a))]),
-                    ["onFailure"] = "block",
-                }),
+                ["hooks"] = new JsonArray(Hook(coaExecutable, guard.Arguments)),
             }),
         };
         return settings.ToJsonString();
     }
+
+    /// <summary>One exec-form hook entry: <paramref name="coaExecutable"/> run with the arguments and no shell, blocking when it cannot run.</summary>
+    private static JsonObject Hook(string coaExecutable, IReadOnlyList<string> arguments) => new()
+    {
+        ["type"] = "command",
+        ["command"] = coaExecutable,
+        ["args"] = Strings(arguments),
+        ["onFailure"] = "block",
+    };
+
+    private static JsonArray Strings(IEnumerable<string> values) => new([.. values.Select(v => (JsonNode?)JsonValue.Create(v))]);
 
     /// <summary>
     /// The config directory a session's CLI uses when its spawn sets none: the
@@ -256,35 +275,25 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>
     /// The arguments every process of a session carries, spawn and resume alike, since the CLI keeps
-    /// none of them with the session: the persona file, the model and effort, the tools and their
-    /// pre-approval, the permission mode, no MCP servers, no setting sources, and the settings
-    /// document, which carries the session's tool guard.
+    /// none of them with the session: the persona file, the model and effort, the tools, the
+    /// permission mode, no MCP servers, no setting sources, and the settings document, which carries
+    /// the tools' pre-approval and the session's tool guard.
     /// </summary>
     public static IReadOnlyList<string> SessionArguments(AgentDefinition agent, CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
     {
         IReadOnlyList<string> tools = ToolsOf(agent);
-        string joined = string.Join(',', tools);
-        List<string> arguments =
+        return
         [
             "--append-system-prompt-file", SessionFiles.PersonaFile,
             "--model", agent.Model.Model,
             "--effort", agent.Model.Effort,
-            "--tools", joined,
-        ];
-        if (tools.Count > 0)
-        {
-            arguments.AddRange(["--allowedTools", joined]);
-        }
-
-        arguments.AddRange(
-        [
+            "--tools", string.Join(',', tools),
             "--permission-mode", PermissionMode,
             "--permission-prompts", PermissionPrompts,
             "--strict-mcp-config",
             "--setting-sources", string.Empty,
-            "--settings", Settings(profile, guard, coaExecutable),
-        ]);
-        return arguments;
+            "--settings", Settings(profile, guard, coaExecutable, tools),
+        ];
     }
 
     /// <summary>The arguments of the process that starts the session.</summary>
