@@ -342,6 +342,46 @@ public sealed class ToolGuardTests : IDisposable
     public void A_cd_with_a_redirection_still_moves_the_shell_to_its_directory(string command) =>
         RefusedInNodeHome(Guard(Call("Bash", new { command })));
 
+    [Theory]
+    [InlineData("cd >\"/dev/null\" && cat .claude/settings.json")]
+    [InlineData("cd #\"x\"\ncat .claude/settings.json")]
+    [InlineData("cd {fd}>/dev/null && cat .claude/settings.json")]
+    [InlineData("cd 12>/dev/null && cat .claude/settings.json")]
+    [InlineData("cd 3<\"x\" && cat .claude/settings.json")]
+    [InlineData("12>/dev/null cd ../../.. && cat daemon.json")]
+    [InlineData("{fd}>/dev/null cd ../../.. && cat daemon.json")]
+    [InlineData(">\"/dev/null\" cd ../../.. && cat daemon.json")]
+    [InlineData("cd <(true) && cat ../../Users/x/.claude/settings.json")]
+    [InlineData("cd +1 && cat ../../../daemon.json")]
+    [InlineData("pushd -- +1 && cat ../../../daemon.json")]
+    [InlineData("cd -e && cat .claude/settings.json")]
+    [InlineData("cd -P@ && cat .claude/settings.json")]
+    public void A_cd_whose_directory_may_be_a_redirection_a_comment_or_a_stack_place_is_refused(string command) =>
+        RefusedUnknowable(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Theory]
+    [InlineData("cd -- -x && cat ../../../../daemon.json")]
+    [InlineData("cd -x && cat ../../../../daemon.json")]
+    [InlineData("cd +x && cat ../../../../daemon.json")]
+    [InlineData("cd -P -- -x && cat ../../../../daemon.json")]
+    [InlineData("cd -Px && cat ../../../../daemon.json")]
+    public void A_cd_to_a_directory_named_like_an_option_moves_the_shell_into_it(string command)
+    {
+        foreach (string name in new[] { "-x", "+x", "-Px" })
+        {
+            Directory.CreateDirectory(Path.Combine(work, name));
+        }
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+    }
+
+    [Theory]
+    [InlineData("cd -P src && cat a.cs")]
+    [InlineData("cd -- src && cat a.cs")]
+    [InlineData("cd -L -- src 2>/dev/null && cat a.cs")]
+    public void A_cd_with_options_still_moves_the_shell_to_its_directory(string command) =>
+        Allowed(Guard(Call("Bash", new { command })));
+
     [Fact]
     public void A_cd_after_a_zsh_glob_flag_is_still_read_as_a_cd() =>
         RefusedInConfig(Guard(Call("Bash", new { command = "ls (#i)x; cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
