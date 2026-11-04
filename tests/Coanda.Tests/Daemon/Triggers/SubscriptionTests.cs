@@ -50,7 +50,7 @@ public sealed class SubscriptionTests
     {
         using var temp = new TemporaryHome();
         ParcelView first;
-        await using (RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = CleanReview() }, None))
+        await using (RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = CleanReview() }, None))
         {
             await RegisteredProjects.AddAsync(daemon, Project, None);
             using var client = new DaemonClient(temp.Home);
@@ -78,7 +78,7 @@ public sealed class SubscriptionTests
             await daemon.StopAsync(None);
         }
 
-        await using RunningDaemon restarted = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = CleanReview() }, None);
+        await using RunningDaemon restarted = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = CleanReview() }, None);
         using var again = new DaemonClient(temp.Home);
         await RecordAsync(restarted, Project, "brian", "Review another");
         ParcelView second = await ParcelTitledAsync(again, "Review another");
@@ -95,7 +95,7 @@ public sealed class SubscriptionTests
     public async Task A_matching_event_without_the_title_field_creates_nothing_and_the_loop_goes_on()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = CleanReview() }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = CleanReview() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();

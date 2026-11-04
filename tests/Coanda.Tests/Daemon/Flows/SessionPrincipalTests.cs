@@ -36,7 +36,7 @@ public sealed class SessionPrincipalTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 1)));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         await PublishSingleAsync(daemon, Project);
         using var owner = new DaemonClient(temp.Home, sessionToken: null);
@@ -88,7 +88,7 @@ public sealed class SessionPrincipalTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript());
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         await RegisteredProjects.AddAsync(daemon, Other, None);
         await PublishSingleAsync(daemon, Project);
@@ -159,7 +159,7 @@ public sealed class SessionPrincipalTests
         using var temp = new TemporaryHome();
         var invalid = new ScriptEntry("""{"verdict":"maybe"}""", "/transcripts/1.jsonl", Scripts.Usage(1));
         var executor = new GatedExecutor(BuildScript(invalid, Scripts.Answer("done", 2))) { FreeCollects = 1 };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         await PublishSingleAsync(daemon, Project);
         using var owner = new DaemonClient(temp.Home, sessionToken: null);
@@ -185,7 +185,7 @@ public sealed class SessionPrincipalTests
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(BuildScript(Scripts.Answer("done", 1)));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         await PublishSingleAsync(daemon, Project);
         using var owner = new DaemonClient(temp.Home, sessionToken: null);
@@ -233,7 +233,7 @@ public sealed class SessionPrincipalTests
     public async Task A_token_the_daemon_never_issued_is_refused_with_401()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
 
         (await StatusAsync(daemon, "not-a-token-this-daemon-issued", HttpMethod.Get, "/projects", null)).Should().Be(HttpStatusCode.Unauthorized);
         (await StatusAsync(daemon, null, HttpMethod.Get, "/projects", null)).Should().Be(HttpStatusCode.Unauthorized);
@@ -272,7 +272,7 @@ public sealed class SessionPrincipalTests
     public async Task A_client_for_another_home_reaches_its_daemon_with_that_daemons_own_token()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         string? token = DaemonClient.SessionTokenFor(temp.Home, "a-session-token", Path.Combine(temp.Home.Path, "the-session-home"));
         using var client = new DaemonClient(temp.Home, token);
 

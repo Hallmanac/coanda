@@ -65,7 +65,7 @@ public sealed class FlowStoreTests
             await service.PauseAsync(Owner, Project, flowId, "Held for the read-back.", "Resume it.", CancellationToken.None);
         }
 
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
 
         FlowView shown = await client.GetAsync<FlowView>($"/flows/{flowId}?project={Project}", CancellationToken.None);
@@ -99,7 +99,7 @@ public sealed class FlowStoreTests
     public async Task A_second_start_is_refused_while_the_first_flow_is_paused_and_accepted_once_it_is_stopped()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, Project, CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();
@@ -214,7 +214,7 @@ public sealed class FlowStoreTests
     public async Task Flow_show_prints_the_contour_the_parcel_the_status_each_step_and_the_pause()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, Project, CancellationToken.None);
         using var client = new DaemonClient(temp.Home);
         FlowService flows = daemon.Services.GetRequiredService<FlowService>();

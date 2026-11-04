@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Commands;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -44,7 +45,8 @@ public sealed class DaemonRunCommand : AsyncCommand<DaemonRunSettings>
         }
 
         // Read after the redirect, so a refusal lands in the log, and before anything binds a port.
-        DaemonOptions options = NodeConfiguration.Load(home);
+        // The daemon a person runs starts real processes for its worktree and gates steps.
+        DaemonOptions options = NodeConfiguration.Load(home) with { CommandRunner = new ProcessCommandRunner() };
         await using RunningDaemon daemon = await DaemonHost.StartAsync(home, settings.Port, options, cancellationToken);
         Console.WriteLine($"coanda daemon {daemon.Info.Version} listening on {daemon.Info.BaseAddress} (pid {daemon.Info.Pid}), home {home.Path}");
         await daemon.WaitForShutdownAsync(cancellationToken);

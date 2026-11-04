@@ -10,7 +10,7 @@ public sealed class OpenApiTests
     public async Task The_daemon_serves_its_openapi_document_behind_the_token()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
         using var http = new HttpClient();
         string address = $"{daemon.Info.BaseAddress}/openapi/v1.json";
 

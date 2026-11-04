@@ -52,7 +52,7 @@ public sealed class CredentialProfileFlowTests
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Builds(1);
         var options = new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci, Work] };
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, options, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         await Publishing.ContourAsync(daemon, Project, OneJudgment);
         using var client = new DaemonClient(temp.Home);
@@ -71,7 +71,7 @@ public sealed class CredentialProfileFlowTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Builds(1);
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor, Profiles = [Work] }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [Work] }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         await Publishing.ContourAsync(daemon, Project, OneJudgment);
         using var client = new DaemonClient(temp.Home);
@@ -88,7 +88,7 @@ public sealed class CredentialProfileFlowTests
     public async Task A_profile_the_configuration_no_longer_holds_pauses_before_the_launch_and_a_resume_after_set_profile_spawns_with_the_held_one()
     {
         using var temp = new TemporaryHome();
-        await using (RunningDaemon earlier = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Profiles = [Work] }, None))
+        await using (RunningDaemon earlier = await Daemons.StartAsync(temp.Home, new DaemonOptions { Profiles = [Work] }, None))
         {
             await RegisteredProjects.AddAsync(earlier, Project, None);
             await earlier.Services.GetRequiredService<ProjectService>().SetProfileAsync(Principal.LocalOwner, Project, "work", None);
@@ -97,7 +97,7 @@ public sealed class CredentialProfileFlowTests
 
         // The node's configuration changed between starts: it holds 'work' only under another vendor now.
         ScriptedExecutor executor = Builds(2);
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci] }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, Profiles = [OtherVendorWork, Ci] }, None);
         await Publishing.ContourAsync(daemon, Project, OneJudgment);
         using var client = new DaemonClient(temp.Home);
 

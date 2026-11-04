@@ -119,7 +119,7 @@ public sealed class ProjectProfileTests
     public async Task The_cli_client_sets_a_profile_and_shows_it_through_the_running_daemon()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Profiles = Held.All }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Profiles = Held.All }, None);
         using var client = new DaemonClient(temp.Home);
         await RegisteredProjects.AddAsync(daemon, Project, None);
 

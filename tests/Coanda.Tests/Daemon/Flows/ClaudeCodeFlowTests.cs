@@ -175,7 +175,7 @@ public sealed class ClaudeCodeFlowTests
     private static async Task<RunningDaemon> StartAsync(TemporaryHome temp, FakeClaude fake, TimeSpan? limit = null)
     {
         var options = new DaemonOptions { Executor = fake.Executor(temp.Home), JudgmentLimit = limit ?? DaemonOptions.DefaultJudgmentLimit };
-        RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, options, None);
+        RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         return daemon;
     }

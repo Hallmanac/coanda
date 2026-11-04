@@ -22,7 +22,7 @@ public sealed class DaemonSeedingTests
 
     private static async Task RunAndStopAsync(NodeHome home, Func<DaemonClient, Task> act)
     {
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(home, 0, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(home, CancellationToken.None);
         using var client = new DaemonClient(home);
         await act(client);
         await client.StopAsync(CancellationToken.None);

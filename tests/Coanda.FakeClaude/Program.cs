@@ -12,12 +12,15 @@ namespace Coanda.Testing.FakeClaude;
 /// <c>script.json</c> whose position is the number of starts before it (the last entry once they
 /// run out): a system init event, a rate-limit event, the entry's assistant events, and its result,
 /// printed the way Claude Code 2.1.318 prints them in print mode with stream-json output.
+/// Started with <see cref="CommandFlag"/> first, it is instead the stand-in command the command
+/// runner's tests start, and needs no control directory (see <see cref="Command"/>).
 /// </summary>
 public static class Program
 {
     public const string ControlVariable = "FAKE_CLAUDE_DIR";
     public const string ChildFlag = "--fake-child";
     public const string IgnoreInputVariable = "FAKE_CLAUDE_IGNORE_INPUT";
+    public const string CommandFlag = "--fake-command";
 
     private static readonly JsonSerializerOptions Compact = new() { WriteIndented = false };
 
@@ -28,6 +31,11 @@ public static class Program
             File.WriteAllText(pidFile, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Thread.Sleep(TimeSpan.FromSeconds(120));
             return 0;
+        }
+
+        if (args is [CommandFlag, .. string[] command])
+        {
+            return Command(command);
         }
 
         string? control = Environment.GetEnvironmentVariable(ControlVariable);
@@ -50,6 +58,66 @@ public static class Program
         JsonArray script = JsonNode.Parse(File.ReadAllText(Path.Combine(control, "script.json")))?.AsArray() ?? [];
         JsonObject entry = script.Count == 0 ? [] : script[Math.Min(ordinal, script.Count - 1)]?.AsObject() ?? [];
         return Play(control, args, entry);
+    }
+
+    /// <summary>
+    /// The stand-in command: <c>exit &lt;code&gt; &lt;stdout&gt; &lt;stderr&gt;</c> writes the two texts and
+    /// exits with the code; <c>stdin</c> reads its standard input to the end and prints how many
+    /// characters it held; <c>args ...</c> prints each argument it was given in brackets, one a line;
+    /// <c>leave-child &lt;pid file&gt;</c> starts a child that shares its output and outlives it, then
+    /// exits; <c>hold &lt;pid file&gt;</c> writes its own pid beside the file, with <c>.parent</c> added
+    /// to its name, starts such a child, and then waits two minutes. The child writes its pid to the file.
+    /// </summary>
+    private static int Command(string[] command)
+    {
+        switch (command)
+        {
+            case ["exit", string code, string output, string error]:
+                Console.Out.Write(output);
+                Console.Out.Flush();
+                Console.Error.Write(error);
+                return int.Parse(code, System.Globalization.CultureInfo.InvariantCulture);
+            case ["stdin"]:
+                Console.Out.WriteLine($"stdin:{Console.In.ReadToEnd().Length}");
+                return 0;
+            case ["args", .. string[] given]:
+                foreach (string argument in given)
+                {
+                    Console.Out.WriteLine($"[{argument}]");
+                }
+
+                return 0;
+            case ["leave-child", string pidFile]:
+                StartChild(pidFile);
+                Console.Out.WriteLine("parent exits");
+                return 0;
+            case ["hold", string pidFile]:
+                File.WriteAllText(pidFile + ".parent", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                StartChild(pidFile);
+                Console.Out.WriteLine("holding");
+                Console.Out.Flush();
+                Thread.Sleep(TimeSpan.FromSeconds(120));
+                return 0;
+            default:
+                Console.Error.WriteLine($"No such fake command: {string.Join(' ', command)}");
+                return 2;
+        }
+    }
+
+    /// <summary>Starts a child that inherits this process's standard handles, and waits for it to write its pid.</summary>
+    private static void StartChild(string pidFile)
+    {
+        var child = new ProcessStartInfo(Environment.ProcessPath ?? throw new InvalidOperationException("No process path."))
+        {
+            UseShellExecute = false,
+        };
+        child.ArgumentList.Add(ChildFlag);
+        child.ArgumentList.Add(pidFile);
+        Process.Start(child);
+        for (int waited = 0; waited < 200 && !File.Exists(pidFile); waited++)
+        {
+            Thread.Sleep(50);
+        }
     }
 
     /// <summary>Appends this start's record and returns how many starts came before it.</summary>

@@ -40,7 +40,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
 
@@ -77,7 +77,7 @@ public sealed class PhaseOneGateTests
     public async Task A_flow_of_the_shipped_build_contour_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
@@ -106,7 +106,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never clean");
@@ -127,7 +127,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour copy = await Publishing.ContourAsync(daemon, Project, ShippedContours.Build with { SpawnCap = 4 });
@@ -151,7 +151,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 5).Select(n => Costing("clean", 0.1m, n))]));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour loop = await Publishing.ContourAsync(daemon, Project, Reviewing("loop", "looped", 5m, new ContourFollow { Outcome = "looped", Contour = "loop", DepthCap = 2 }));
@@ -195,7 +195,7 @@ public sealed class PhaseOneGateTests
             ("build", [Costing("done", ShippedContours.Build.Budget, 1)]),
             ("reviewer-adversarial", [Costing("clean", 0.1m, 2)]),
             ("reviewer-conformance", [Costing("clean", 0.1m, 3)]));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Spent at once");
@@ -217,7 +217,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 4).Select(n => Costing("clean", 0.6m, n))]));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         Contour seed = await Publishing.ContourAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
@@ -248,7 +248,7 @@ public sealed class PhaseOneGateTests
             new ScriptEntry("not json", "/transcripts/2.jsonl", new Measurement(600, 15m, 3, TimeSpan.FromSeconds(40))),
             Costing("done", 0.1m, 3),
         ]));
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Never answers");
