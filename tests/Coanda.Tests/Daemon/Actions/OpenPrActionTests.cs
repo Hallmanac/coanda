@@ -114,7 +114,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     {
         const string Theirs = "aaaabbbbccccddddeeeeffff0000111122223333";
         const string Built = "1111222233334444555566667777888899990000";
-        var worktree = new WorktreeAction(projects, clones);
+        var worktree = new WorktreeAction(projects, clones, new FlowService(store, TimeProvider.System), new FlowWorkers());
         ContourStep checkoutStep = Step with { Name = "worktree", Action = SoftwareActions.Worktree };
         Parcel parcel = await TaskAsync(Project, "Build on the reviewer's update");
         string branch = ProjectClones.BranchOf(parcel.Id);
@@ -408,7 +408,7 @@ public sealed class OpenPrActionTests : IAsyncLifetime
     [Fact]
     public async Task The_push_waits_its_turn_at_the_clone_behind_a_worktree_checkout_in_the_same_project()
     {
-        var worktree = new WorktreeAction(projects, clones);
+        var worktree = new WorktreeAction(projects, clones, new FlowService(store, TimeProvider.System), new FlowWorkers());
         Parcel parcel = await TaskAsync(Project, "Wait your turn");
         var fetching = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

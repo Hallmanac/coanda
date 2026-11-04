@@ -14,6 +14,8 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon;
+using Coanda.Tests.Daemon.Commands;
 using Coanda.Tests.Daemon.GitHub;
 using Fisher;
 using JasperFx.Events;
@@ -22,15 +24,17 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Coanda.Tests.Daemon.Flows;
 
 /// <summary>
-/// The merge contour as the daemon runs it after a build: its waiting lap, a close its parcel's gate
-/// refuses and the resume that then closes it, and a project whose QA contour sits between the
-/// build and its own merge. A lap test runs a project contour of the shipped merge's shape with a
-/// timer of a few milliseconds and smaller caps; the shipped contour's twenty-minute floor is checked from its data.
+/// The merge contour as the daemon runs it after a build: its waiting lap, its rebase lap, a close
+/// its parcel's gate refuses and the resume that then closes it, and a project whose QA contour sits
+/// between the build and its own merge. A lap test runs a project contour of the shipped merge's
+/// shape with a timer of a few milliseconds and smaller caps; the shipped contour's twenty-minute
+/// floor and its rebase lap's route and caps are checked from its data.
 /// </summary>
 public sealed class MergeFlowTests
 {
     private const string Project = "alpha";
     private const int LapCap = 3;
+    private const int RebaseLaps = 2;
     private static readonly CancellationToken None = CancellationToken.None;
 
     /// <summary>The shipped merge contour's shape with a short timer: <see cref="LapCap"/> laps, and a merged cap five above it.</summary>
@@ -53,6 +57,35 @@ public sealed class MergeFlowTests
             },
         ],
     };
+
+    /// <summary>
+    /// The shipped merge contour's shape, rebase lap included, with a short timer: six inspections,
+    /// <see cref="RebaseLaps"/> rebases, and a merged cap five above the pending cap.
+    /// </summary>
+    private static readonly Contour QuickRebaseLap = ShippedContours.Merge with
+    {
+        Steps =
+        [
+            new ContourStep
+            {
+                Name = "gated-merge",
+                Action = SoftwareActions.GatedMerge,
+                Transitions = [On("merged", Contour.End, 11), On("pending", "wait-for-checks", 6), On("behind", "worktree", 6)],
+            },
+            new ContourStep
+            {
+                Name = "wait-for-checks",
+                Action = CoreActions.Timer,
+                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = ContourValue.Of(0.01) },
+                Transitions = [On("done", "gated-merge", 6)],
+            },
+            new ContourStep { Name = "worktree", Action = SoftwareActions.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
+            new ContourStep { Name = "rebase", Action = SoftwareActions.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
+        ],
+    };
+
+    /// <summary>The commit the scripted runner's rebase makes of the build's pushed head onto the primary branch.</summary>
+    private static readonly string Rebased = ScriptedCommandRunner.RebasedOnto(ScriptedCommandRunner.PrimaryHead, ScriptedCommandRunner.PrimaryHead);
 
     /// <summary>A QA contour that follows the build's pull request: one review that ends on clean and pauses on not-clean.</summary>
     private static readonly Contour Qa = new()
@@ -140,6 +173,132 @@ public sealed class MergeFlowTests
         merge.Steps.Count(s => s.Step == "gated-merge").Should().Be(LapCap + 1, "the merge came on the visit a pending answer would have paused");
         merge.Outcome.Should().Be("merged");
         await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
+    }
+
+    [Fact]
+    public async Task A_behind_pull_request_is_rebased_its_checks_run_on_the_new_head_and_it_is_merged_expecting_the_rebased_commit()
+    {
+        var runner = new ScriptedCommandRunner();
+        var github = new FakeGitHub();
+        var pr = new RemotePullRequest(runner, github);
+        int newHeadReads = 0;
+        pr.BehindWhen = (head, _, _) => head == ScriptedCommandRunner.PrimaryHead;
+        pr.ChecksOn = head => head == Rebased && Interlocked.Increment(ref newHeadReads) == 1
+            ? "in_progress"
+            : "success";
+        await using Harness harness = await Harness.StartAsync(github, QuickRebaseLap, runner: runner);
+
+        (FlowView build, FlowView merge) = await harness.BuildThenMergeAsync("Behind main", "ended", pr);
+
+        merge.Steps.Select(s => s.Step).Should().Equal(
+            "gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge", "wait-for-checks", "gated-merge");
+        merge.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("behind");
+        merge.Steps[2].Result.GetValueOrDefault().GetProperty("head").GetString().Should().Be(Rebased);
+        merge.Steps[4].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("pending");
+        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(Rebased);
+        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{pr.Branch}:{ScriptedCommandRunner.PrimaryHead} origin {Rebased}:refs/heads/{pr.Branch}");
+        await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
+        await ExpectOnlyTheMergesOwnEndRemovedItsWorktreeAsync(runner, harness, build, merge);
+    }
+
+    [Fact]
+    public async Task A_head_current_at_its_first_inspection_and_behind_at_a_later_one_is_rebased()
+    {
+        var runner = new ScriptedCommandRunner();
+        var github = new FakeGitHub();
+        var pr = new RemotePullRequest(runner, github);
+        pr.BehindWhen = (head, inspection, _) => head == ScriptedCommandRunner.PrimaryHead && inspection >= 2;
+        pr.ChecksOn = head => head == ScriptedCommandRunner.PrimaryHead
+            ? "in_progress"
+            : "success";
+        await using Harness harness = await Harness.StartAsync(github, QuickRebaseLap, runner: runner);
+
+        (FlowView build, FlowView merge) = await harness.BuildThenMergeAsync("Falls behind while CI runs", "ended", pr);
+
+        merge.Steps.Select(s => s.Step).Should().Equal(
+            "gated-merge", "wait-for-checks", "gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge");
+        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(Rebased);
+        await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
+    }
+
+    [Fact]
+    public async Task A_head_found_behind_only_at_the_comparison_right_before_the_merge_request_is_rebased()
+    {
+        var runner = new ScriptedCommandRunner();
+        var github = new FakeGitHub();
+        var pr = new RemotePullRequest(runner, github);
+        pr.BehindWhen = (head, _, comparison) => head == ScriptedCommandRunner.PrimaryHead && comparison == 2;
+        await using Harness harness = await Harness.StartAsync(github, QuickRebaseLap, runner: runner);
+
+        (FlowView build, FlowView merge) = await harness.BuildThenMergeAsync("Main moves at the last moment", "ended", pr);
+
+        merge.Steps.Select(s => s.Step).Should().Equal("gated-merge", "worktree", "rebase", "wait-for-checks", "gated-merge");
+        github.Requests.Where(r => r.IsCompare).Should().HaveCount(4, "both comparisons ran on each visit");
+        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(Rebased);
+        await harness.ExpectClosedAsync(build.ParcelId, merge.Id);
+    }
+
+    [Fact]
+    public async Task A_head_still_behind_once_the_rebase_laps_are_spent_pauses_on_the_worktree_steps_cap_before_a_further_rebase()
+    {
+        var runner = new ScriptedCommandRunner();
+        var github = new FakeGitHub();
+        var pr = new RemotePullRequest(runner, github);
+        pr.BehindWhen = (_, _, _) => true;
+        await using Harness harness = await Harness.StartAsync(github, QuickRebaseLap, runner: runner);
+
+        (FlowView build, FlowView merge) = await harness.BuildThenMergeAsync("Main never stops moving", "paused", pr);
+
+        merge.PauseReason.Should().Be($"Step 'worktree' reached the visit cap of {RebaseLaps} on its transition to 'rebase'.");
+        merge.Steps.Count(s => s.Step == "rebase").Should().Be(RebaseLaps);
+        merge.Steps.Count(s => s.Step == "worktree").Should().Be(RebaseLaps + 1);
+        runner.GitCalls.Count(c => c.StartsWith("push ", StringComparison.Ordinal)).Should().Be(1 + RebaseLaps, "the build's push and one per rebase lap");
+        github.Requests.Should().NotContain(r => r.IsMerge);
+        (await harness.ParcelAsync(build.ParcelId)).LiveFlowId.Should().Be(merge.Id);
+    }
+
+    [Fact]
+    public async Task A_conflicting_rebase_stopped_rebased_by_hand_and_moved_back_to_build_is_checked_out_pushed_and_merged()
+    {
+        const string ByHand = "1234123412341234123412341234123412341234";
+        var runner = new ScriptedCommandRunner();
+        var github = new FakeGitHub();
+        var pr = new RemotePullRequest(runner, github);
+        pr.BehindWhen = (head, _, _) => head == ScriptedCommandRunner.PrimaryHead;
+        runner.ConflictOnRebase("src/Program.cs");
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["build"] = [Scripts.Answer("done", 1), Scripts.Answer("done", 4)],
+            ["reviewer-adversarial"] = [Scripts.Answer("clean", 2), Scripts.Answer("clean", 5)],
+            ["reviewer-conformance"] = [Scripts.Answer("clean", 3), Scripts.Answer("clean", 6)],
+        });
+        await using Harness harness = await Harness.StartAsync(github, project: null, executor: executor, runner: runner);
+
+        (FlowView build, FlowView merge) = await harness.BuildThenMergeAsync("Conflicts with main", "paused", pr);
+        merge.CurrentStep.Should().Be("rebase");
+        merge.PauseReason.Should().Contain("stopped on a conflict").And.Contain("src/Program.cs");
+        merge.Lever.Should().Contain("move the task back to build");
+
+        await Flowing.StopAsync(harness.Client, Project, merge.Id, "resolving the conflict by hand");
+        await Flowing.UntilAsync(harness.Client, Project, merge.Id, "stopped");
+        string clone = harness.Home.ProjectClonePath(Project);
+        await Flowing.UntilAsync(() => !runner.Worktrees(clone).Any(), "the stopped merge flow's worktree is removed");
+        runner.ConflictOnRebase();
+        runner.AddBranch(clone, pr.Branch, ByHand);
+        runner.RemoteBranch(clone, pr.Branch).Should().Be(ScriptedCommandRunner.PrimaryHead, "the remote still holds what the earlier chain's open-pr pushed");
+
+        await harness.Client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, build.ParcelId, "build"), None);
+        FlowView rebuild = await Flowing.UntilAsync(
+            harness.Client, Project,
+            (await WaitForAsync(harness, build.ParcelId, f => f.ContourName == "build" && f.Id != build.Id)).Id,
+            "ended");
+
+        rebuild.RootFlowId.Should().Be(rebuild.Id, "a move back to build starts a fresh chain");
+        rebuild.Steps[0].Result.GetValueOrDefault().GetProperty("head").GetString().Should().Be(ByHand);
+        runner.GitCalls.Should().Contain($"push --force-with-lease=refs/heads/{pr.Branch}:{ScriptedCommandRunner.PrimaryHead} origin {ByHand}:refs/heads/{pr.Branch}");
+        FlowView merged = await Flowing.MergedAsync(harness.Client, Project, build.ParcelId, rebuild.Id);
+        merged.Steps.Select(s => s.Step).Should().Equal("gated-merge");
+        ((string?)JsonNode.Parse(github.Requests.Single(r => r.IsMerge).Body ?? "{}")?["sha"]).Should().Be(ByHand);
     }
 
     [Fact]
@@ -252,6 +411,93 @@ public sealed class MergeFlowTests
         await harness.ExpectNoMergeAsync(parcel.Id, ["build", "qa"]);
     }
 
+    /// <summary>Waits for a flow on the parcel that <paramref name="which"/> picks.</summary>
+    private static async Task<FlowView> WaitForAsync(Harness harness, Guid parcelId, Func<FlowView, bool> which)
+    {
+        FlowView? found = null;
+        await Flowing.UntilAsync(
+            async () => (found = (await Flowing.OfParcelAsync(harness.Client, Project, parcelId)).FirstOrDefault(which)) is not null,
+            "the flow is on the parcel");
+        return found ?? throw new InvalidOperationException("The wait ended with no flow.");
+    }
+
+    /// <summary>
+    /// The merge flow's worktree is removed at most once, by its own end after its rebase pushed,
+    /// never by the build flow's removal racing its takeover, and the build flow recorded nothing
+    /// after it ended.
+    /// </summary>
+    private static async Task ExpectOnlyTheMergesOwnEndRemovedItsWorktreeAsync(ScriptedCommandRunner runner, Harness harness, FlowView build, FlowView merge)
+    {
+        string mergePath = harness.Home.FlowWorkPath(Project, merge.Id);
+        IReadOnlyList<string> calls = runner.GitCalls;
+        int lastPush = calls.Select((c, i) => (c, i)).Last(p => p.c.StartsWith("push ", StringComparison.Ordinal)).i;
+        int[] removals = [.. calls.Select((c, i) => (c, i)).Where(p => p.c == $"worktree remove --force --force {mergePath}").Select(p => p.i)];
+        removals.Should().HaveCountLessThanOrEqualTo(1).And.OnlyContain(i => i > lastPush);
+        FlowView after = await Flowing.ShowAsync(harness.Client, Project, build.Id);
+        after.Steps.Should().HaveCount(build.Steps.Count);
+        after.PauseReason.Should().BeNull();
+    }
+
+    /// <summary>
+    /// GitHub's view of the task's pull request, read from the scripted runner's remote: its head is
+    /// whatever the remote's branch holds, it reads merged once a merge is accepted, each comparison
+    /// with the primary branch asks <see cref="BehindWhen"/> with the head and how many comparisons
+    /// have been made on this visit's head, and the required check on a head reports
+    /// <see cref="ChecksOn"/>.
+    /// </summary>
+    private sealed class RemotePullRequest
+    {
+        private readonly ScriptedCommandRunner runner;
+        private string clone = string.Empty;
+        private int inspections;
+        private int compares;
+        private volatile bool merged;
+
+        public RemotePullRequest(ScriptedCommandRunner runner, FakeGitHub github)
+        {
+            this.runner = runner;
+            github.On(r => r.IsPullRequestRead, _ =>
+            {
+                Interlocked.Increment(ref inspections);
+                Interlocked.Exchange(ref compares, 0);
+                return FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, merged: merged, head: Head));
+            });
+            github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject
+            {
+                ["ahead_by"] = 1,
+                ["behind_by"] = BehindWhen(Head, Volatile.Read(ref inspections), Interlocked.Increment(ref compares)) ? 1 : 0,
+            }));
+            github.On(r => r.IsCheckRuns, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.CheckRuns(
+                [ChecksOn(Head) switch
+                {
+                    "success" => FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, "completed", "success"),
+                    string running => FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, running, null),
+                }],
+                total: 1)));
+            github.On(r => r.IsMerge, _ =>
+            {
+                merged = true;
+                return FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["sha"] = FakeGitHub.MergeCommit, ["merged"] = true });
+            });
+        }
+
+        public string Branch { get; private set; } = string.Empty;
+
+        /// <summary>Whether a comparison finds the head behind, given the head, the inspection's number, and the comparison's number within it.</summary>
+        public Func<string, int, int, bool> BehindWhen { get; set; } = (_, _, _) => false;
+
+        /// <summary>The required check's status on a head: success, or a status still running.</summary>
+        public Func<string, string> ChecksOn { get; set; } = _ => "success";
+
+        private string Head => runner.RemoteBranch(clone, Branch) ?? ScriptedCommandRunner.PrimaryHead;
+
+        public void Track(string clonePath, Guid parcelId)
+        {
+            clone = clonePath;
+            Branch = $"coanda/{Coanda.Core.Ids.Short(parcelId)}";
+        }
+    }
+
     /// <summary>The clean build path, then the QA review answering <paramref name="qaVerdict"/>.</summary>
     private static ScriptedExecutor QaScript(string qaVerdict) => new(new Dictionary<string, IReadOnlyList<ScriptEntry>>
     {
@@ -283,6 +529,7 @@ public sealed class MergeFlowTests
 
         private Harness(TemporaryHome temp, RunningDaemon daemon, FakeGitHub github)
         {
+            Home = temp.Home;
             this.temp = temp;
             Daemon = daemon;
             GitHub = github;
@@ -291,16 +538,25 @@ public sealed class MergeFlowTests
 
         public RunningDaemon Daemon { get; }
 
+        public NodeHome Home { get; }
+
         public FakeGitHub GitHub { get; }
 
         public DaemonClient Client { get; }
 
-        public static async Task<Harness> StartAsync(FakeGitHub github, Contour? project, IGate? gate = null, IAgentExecutor? executor = null)
+        public static async Task<Harness> StartAsync(
+            FakeGitHub github, Contour? project, IGate? gate = null, IAgentExecutor? executor = null, ScriptedCommandRunner? runner = null)
         {
             var temp = new TemporaryHome();
             RunningDaemon daemon = await Daemons.StartAsync(
                 temp.Home,
-                new DaemonOptions { Executor = executor ?? Scripts.CleanBuildExecutor(), GitHubHandler = github.Handler, Gates = gate is null ? [] : [gate] },
+                new DaemonOptions
+                {
+                    Executor = executor ?? Scripts.CleanBuildExecutor(),
+                    GitHubHandler = github.Handler,
+                    Gates = gate is null ? [] : [gate],
+                    CommandRunner = runner,
+                },
                 None);
             await RegisteredProjects.AddAsync(daemon, Project, None);
             if (project is not null)
@@ -318,10 +574,14 @@ public sealed class MergeFlowTests
             await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         }
 
-        /// <summary>Runs a task's build to its end and waits for the merge that follows to reach <paramref name="status"/>.</summary>
-        public async Task<(FlowView Build, FlowView Merge)> BuildThenMergeAsync(string title, string status)
+        /// <summary>
+        /// Runs a task's build to its end and waits for the merge that follows to reach
+        /// <paramref name="status"/>; <paramref name="pullRequest"/>, when given, is told the task's branch.
+        /// </summary>
+        public async Task<(FlowView Build, FlowView Merge)> BuildThenMergeAsync(string title, string status, RemotePullRequest? pullRequest = null)
         {
             ParcelView parcel = await Flowing.TaskAtBuildAsync(Client, Project, title);
+            pullRequest?.Track(Home.ProjectClonePath(Project), parcel.Id);
             FlowView build = await Flowing.BoundAsync(Client, Project, parcel.Id);
             build = await Flowing.UntilAsync(Client, Project, build.Id, "ended");
             FlowView merge = await Flowing.FollowerAsync(Client, Project, parcel.Id, build.Id, "merge");

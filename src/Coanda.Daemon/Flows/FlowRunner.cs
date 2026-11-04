@@ -82,6 +82,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, Worker> workers = [];
+    private readonly FlowWorkers flowWorkers;
 
     /// <summary>The flows whose session the start-up sweep left running for the flow's first advance to reattach.</summary>
     private readonly HashSet<Guid> claimedAtStart = [];
@@ -107,6 +108,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         TimeProvider clock,
         FlowRunnerOptions options,
         GateSet gates,
+        FlowWorkers flowWorkers,
         ILogger<FlowRunner> logger)
     {
         // A flow's end closes its parcel when its contour says so, running the gates the daemon runs.
@@ -122,6 +124,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         this.sessionTokens = sessionTokens;
         this.clock = clock;
         judgmentLimit = options.JudgmentLimit;
+        this.flowWorkers = flowWorkers;
         this.logger = logger;
     }
 
@@ -146,6 +149,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             var worker = new Worker();
             workers.Add(flowId, worker);
             worker.Idle = Task.Run(() => WorkAsync(project, flowId, worker, stopping.Token));
+            flowWorkers.Started(flowId, worker.Idle);
             return worker.Idle;
         }
     }
@@ -356,6 +360,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                 if (!worker.Again || cancellationToken.IsCancellationRequested)
                 {
                     workers.Remove(flowId);
+                    flowWorkers.Returned(flowId);
                     return;
                 }
 

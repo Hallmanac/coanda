@@ -9,11 +9,17 @@ namespace Coanda.Daemon.Actions;
 /// <summary>
 /// Makes the flow's work path, where its judgments run, a git worktree of the node's clone of the
 /// project's repository on the parcel's branch, and answers done with the <c>branch</c> and the
-/// <c>head</c> checked out. A project with no record, or a refusal (a branch another parcel owns, a
-/// commit tracking <c>.coanda</c> in any letter case or files under it, something at the clone's path that is no repository),
-/// pauses with the perform-again lever; a failing git command throws, and the runner pauses quoting it.
+/// <c>head</c> checked out. The commit last recorded as pushed among all the parcel's flows (read
+/// through <paramref name="flows"/>, a service of the actions' own) is what tells a person's local
+/// rewrite of the branch from a remote someone else moved, and a branch still checked out in the
+/// worktree of a flow that has ended or been stopped is taken over once that flow's worker, which
+/// <paramref name="workers"/> waits on, has returned (<see cref="ProjectClones.CheckOutAsync"/>).
+/// A project with no record, or a refusal (a branch another parcel owns, a branch a live flow's or
+/// an unknown worktree holds, a commit tracking <c>.coanda</c> in any letter case or files under it,
+/// something at the clone's path that is no repository), pauses with the perform-again lever; a
+/// failing git command throws, and the runner pauses quoting it.
 /// </summary>
-public sealed class WorktreeAction(ProjectService projects, ProjectClones clones) : IFlowAction
+public sealed class WorktreeAction(ProjectService projects, ProjectClones clones, FlowService flows, FlowWorkers workers) : IFlowAction
 {
     public string Name => SoftwareActions.Worktree;
 
@@ -27,7 +33,11 @@ public sealed class WorktreeAction(ProjectService projects, ProjectClones clones
                 FlowLevers.PerformAgain(request.Step.Name));
         }
 
-        Checkout checkout = await clones.CheckOutAsync(project, request.ParcelId, request.FlowId, cancellationToken);
+        string? lastPushed = await RecordedHeads.OfParcelAsync(flows, request, cancellationToken);
+        var holders = new WorktreeHolders(
+            async (flowId, token) => (await flows.ShowAsync(request.Principal, request.Project, flowId, token))?.Status,
+            workers.ReturnedAsync);
+        Checkout checkout = await clones.CheckOutAsync(project, request.ParcelId, request.FlowId, lastPushed, holders, cancellationToken);
         return checkout switch
         {
             Checkout.Ready ready => ActionOutcome.DoneWith(Name, ("branch", ready.Branch), ("head", ready.Head)),

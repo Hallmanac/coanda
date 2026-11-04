@@ -21,9 +21,10 @@ using Fisher;
 namespace Coanda.Tests.Daemon.Actions;
 
 /// <summary>
-/// The gated-merge action against a fake GitHub: what it inspects, when it merges, waits, or pauses,
-/// and that it merges exactly the head the chain's open-pr result recorded. The flow it runs on is
-/// a one-step contour whose open-pr result the test records by hand, so the chain is that flow.
+/// The gated-merge action against a fake GitHub: what it inspects, when it merges, waits, answers
+/// behind, or pauses, and that it merges exactly the head the chain's latest open-pr or rebase result
+/// recorded. The flow it runs on is a contour of open-pr, rebase, and worktree steps whose results the
+/// test records by hand, so the chain is that flow.
 /// </summary>
 public sealed class GatedMergeActionTests : IAsyncLifetime
 {
@@ -39,7 +40,7 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of(GatedMergeAction.MergedVerdict), VisitCap = 1, Target = Contour.End }],
     };
 
-    /// <summary>A contour whose one step is open-pr, so a flow of it can hold a recorded open-pr result.</summary>
+    /// <summary>A contour of open-pr, rebase, and worktree steps, so a flow of it can hold a result of each.</summary>
     private static readonly Contour Recorder = new()
     {
         Name = "recorder",
@@ -53,7 +54,19 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
             {
                 Name = "open-pr",
                 Action = SoftwareActions.OpenPr,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("opened"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("opened"), VisitCap = 1, Target = "rebase" }],
+            },
+            new ContourStep
+            {
+                Name = "rebase",
+                Action = SoftwareActions.Rebase,
+                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = "worktree" }],
+            },
+            new ContourStep
+            {
+                Name = "worktree",
+                Action = SoftwareActions.Worktree,
+                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
             },
         ],
     };
@@ -286,7 +299,7 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         Guid parcel = await TaskAsync();
         Flow started = await flows.StartAsync(Principal.LocalOwner, Project, parcel, Recorder.Name, None);
 
-        PausedToPerformAgain(await PerformAsync(parcel, started.Id)).Should().Contain("no open-pr result with a head is recorded");
+        PausedToPerformAgain(await PerformAsync(parcel, started.Id)).Should().Contain("no open-pr or rebase result with a head is recorded");
         github.Requests.Should().NotContain(r => r.IsMerge);
     }
 
@@ -370,21 +383,44 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_head_behind_the_primary_branch_pauses_naming_the_merge_through_build()
+    public async Task A_head_behind_the_primary_branch_answers_behind_before_mergeability_and_the_checks_are_read()
     {
         (Guid parcel, Guid flow) = await ArrangeAsync();
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 2 }));
 
-        ActionOutcome.Paused paused = Paused(await PerformAsync(parcel, flow));
+        JsonElement result = Behind(await PerformAsync(parcel, flow));
 
-        paused.Reason.Should().StartWith("Step 'gated-merge' merged nothing").And.Contain("is behind the primary branch 'main' by 2 commits");
-        paused.Lever.Should().Be(FlowLevers.BehindThroughBuild($"coanda/{Ids.Short(parcel)}", "main"));
-        paused.Lever.Should().Contain("Stop the flow").And.Contain("with a merge, not a rebase").And.Contain("move the task back to build");
-        github.Requests.Should().NotContain(r => r.IsMerge);
+        result.GetProperty("reason").GetString().Should().Contain("is behind the primary branch 'main' by 2 commits");
+        result.GetProperty("behind").GetInt32().Should().Be(2);
+        github.Requests.Should().NotContain(r => r.IsMerge || r.IsCheckRuns || r.IsStatuses || r.IsRepositoryRead);
+    }
+
+    [Theory]
+    [InlineData("completed", "failure")]
+    [InlineData("in_progress", null)]
+    public async Task A_behind_head_answers_behind_whatever_its_checks_report(string status, string? conclusion)
+    {
+        (Guid parcel, Guid flow) = await ArrangeAsync();
+        RunsAre(FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, status, conclusion));
+        github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 1 }));
+
+        Behind(await PerformAsync(parcel, flow));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task A_behind_head_answers_behind_whatever_github_reports_of_its_mergeability(bool? mergeable)
+    {
+        (Guid parcel, Guid flow) = await ArrangeAsync();
+        github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, mergeable: mergeable)));
+        github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 1 }));
+
+        Behind(await PerformAsync(parcel, flow));
     }
 
     [Fact]
-    public async Task A_primary_branch_that_moves_while_the_checks_are_read_pauses_before_the_merge()
+    public async Task A_primary_branch_that_moves_while_the_checks_are_read_answers_behind_before_the_merge()
     {
         (Guid parcel, Guid flow) = await ArrangeAsync();
         int compares = 0;
@@ -397,12 +433,60 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
             return FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = behind });
         });
 
-        ActionOutcome.Paused paused = Paused(await PerformAsync(parcel, flow));
+        JsonElement result = Behind(await PerformAsync(parcel, flow));
 
-        paused.Reason.Should().Contain("is behind the primary branch 'main' by 1 commit,");
-        paused.Lever.Should().Be(FlowLevers.BehindThroughBuild($"coanda/{Ids.Short(parcel)}", "main"));
+        result.GetProperty("reason").GetString().Should().Contain("is behind the primary branch 'main' by 1 commit,");
         github.Requests.Where(r => r.IsCompare).Should().HaveCount(2, "the primary branch is compared again after the checks and methods are read");
         github.Requests.Should().NotContain(r => r.IsMerge);
+    }
+
+    [Fact]
+    public async Task A_project_that_names_no_check_pauses_before_a_behind_head_is_answered_behind()
+    {
+        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.Branch, None);
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "unchecked", "task", "Merge me", null, None);
+        await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
+        Guid flow = await RecordedFlowAsync("unchecked", parcel.Id, Head);
+        github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
+
+        ActionOutcome outcome = await action.PerformAsync(new ActionRequest(FlowPrincipal, "unchecked", flow, parcel.Id, Recorder, Step, false), None);
+
+        PausedToPerformAgain(outcome).Should().Contain("names no check");
+        github.Requests.Should().NotContain(r => r.IsCompare);
+    }
+
+    [Theory]
+    [InlineData("closed", RegisteredProjects.Branch, Head)]
+    [InlineData("open", "elsewhere", Head)]
+    [InlineData("open", RegisteredProjects.Branch, Other)]
+    public async Task A_closed_pull_request_another_base_or_another_head_pauses_before_a_behind_head_is_answered_behind(string state, string baseRef, string head)
+    {
+        (Guid parcel, Guid flow) = await ArrangeAsync();
+        github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, state: state, baseRef: baseRef, head: head)));
+        github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
+
+        PausedToPerformAgain(await PerformAsync(parcel, flow));
+        github.Requests.Should().NotContain(r => r.IsCompare);
+    }
+
+    [Fact]
+    public async Task A_rebase_result_recorded_after_the_open_pr_result_names_the_head_held_to_and_a_worktree_result_never_does()
+    {
+        const string Rebased = "1111222233334444555566667777888899990000";
+        (Guid parcel, Guid flow) = await ArrangeAsync();
+        await flows.StartStepAsync(Principal.LocalOwner, Project, flow, "rebase", None);
+        await flows.RecordResultAsync(
+            Principal.LocalOwner, Project, flow, "rebase", SoftwareActions.Rebase,
+            JsonSerializer.SerializeToElement(new { verdict = "done", action = SoftwareActions.Rebase, head = Rebased }), None);
+        await flows.StartStepAsync(Principal.LocalOwner, Project, flow, "worktree", None);
+        await flows.RecordResultAsync(
+            Principal.LocalOwner, Project, flow, "worktree", SoftwareActions.Worktree,
+            JsonSerializer.SerializeToElement(new { verdict = "done", action = SoftwareActions.Worktree, head = Other }), None);
+        github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, head: Rebased)));
+
+        Merged(await PerformAsync(parcel, flow));
+
+        ((string?)JsonNode.Parse(MergeRequest().Body ?? "{}")?["sha"]).Should().Be(Rebased);
     }
 
     [Fact]
@@ -562,6 +646,14 @@ public sealed class GatedMergeActionTests : IAsyncLifetime
         JsonElement result = outcome.Should().BeOfType<ActionOutcome.Done>().Subject.Result;
         result.GetProperty("verdict").GetString().Should().Be(GatedMergeAction.PendingVerdict);
         return result.GetProperty("reason").GetString() ?? string.Empty;
+    }
+
+    private static JsonElement Behind(ActionOutcome outcome)
+    {
+        JsonElement result = outcome.Should().BeOfType<ActionOutcome.Done>().Subject.Result;
+        result.GetProperty("verdict").GetString().Should().Be(GatedMergeAction.BehindVerdict);
+        result.GetProperty("action").GetString().Should().Be(SoftwareActions.GatedMerge);
+        return result;
     }
 
     private static ActionOutcome.Paused Paused(ActionOutcome outcome) => outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;

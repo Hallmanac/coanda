@@ -31,15 +31,24 @@ public static class FlowLevers
         "Stop the flow; its budget is spent, so a resume pauses it again before any judgment.";
 
     /// <summary>
-    /// Names the recovery from a pull request whose head is behind the primary branch that the head
-    /// guard and the next build's worktree step both accept. The primary branch is merged into the
-    /// branch, never rebased onto: the worktree step refuses a branch whose commits the remote's no
-    /// longer contains, which a rebase always makes, while a merge keeps the remote's head as an
-    /// ancestor. Either the pull request's update with a merge commit on GitHub, which the worktree step
-    /// fetches and builds on, or a merge in the node's clone that is never pushed by hand, which the
-    /// build pushes, leaves the build contour to gate, review, and push the updated branch, and open-pr
-    /// records the head a new merge follows.
+    /// Names the way out of a rebase that found the flow's worktree or branch other than the step
+    /// left them: a resume finds them the same way and pauses again.
     /// </summary>
-    public static string BehindThroughBuild(string branch, string primaryBranch) =>
-        $"Stop the flow, bring {primaryBranch} into {branch} with a merge, not a rebase (GitHub's \"Update branch\" with a merge commit on the pull request, or a merge in the node's clone that you do not push), and move the task back to build, so the build contour gates, reviews, and pushes the updated branch and a merge follows again. A rebased branch no longer contains the commits the remote's holds, and the next build's worktree step refuses it.";
+    public static string RebaseRefused(string step) =>
+        $"Stop the flow; performing step '{step}' again would find the branch and its worktree as they are now and pause the same way.";
+
+    /// <summary>
+    /// Names the recovery from a rebase onto the primary branch that stopped on a conflict. Resolving
+    /// a conflict is a code change, so it goes through build, whose gates and both reviews run on it:
+    /// the person rebases the branch in a worktree of their own cut from the node's clone, which is
+    /// bare, fetching the primary branch first because the clone's copy of it is only as fresh as its
+    /// last fetch, and removes that worktree before moving the task back, because a worktree left
+    /// holding the branch at a path that is no flow's work path pauses the build's worktree step. That
+    /// step accepts the rewritten branch while the remote still holds the commit last pushed, and the
+    /// build's open-pr pushes it.
+    /// </summary>
+    public static string RebaseConflict(string clone, string branch, string primaryBranch) =>
+        $"Stop the flow. Then add a worktree of {branch} from the node's clone at {clone}, at a path outside the daemon's work paths (git --git-dir={clone} worktree add <path> {branch}); "
+        + $"in it, fetch {primaryBranch} (git fetch origin {primaryBranch}) and rebase {branch} onto it (git rebase origin/{primaryBranch}), resolving the conflicts, without pushing. "
+        + $"Remove that worktree (git --git-dir={clone} worktree remove <path>), and move the task back to build, so the build contour gates, reviews, and pushes the resolved branch and a merge follows.";
 }

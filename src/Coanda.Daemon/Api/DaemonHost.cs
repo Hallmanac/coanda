@@ -86,6 +86,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new FlowRunnerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton<ProjectClones>();
+        builder.Services.AddSingleton<FlowWorkers>();
         GitHubClient.Register(builder.Services, options.GitHubHandler ?? (() => new NoGitHubHandler()));
         builder.Services.AddSingleton(services => FlowActions.Shipped(
             services.GetRequiredService<ParcelService>(),
@@ -98,7 +99,8 @@ public sealed class DaemonHost
             // A typed client is resolved for each use, so it never holds a handler past its rotation.
             () => services.GetRequiredService<GitHubClient>(),
             // Its own flow service, which only reads: the registered one depends on the runner, which depends on these actions.
-            new FlowService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>())));
+            new FlowService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
+            services.GetRequiredService<FlowWorkers>()));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunner>();
         builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());
