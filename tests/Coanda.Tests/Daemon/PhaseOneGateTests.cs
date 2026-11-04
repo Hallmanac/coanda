@@ -56,8 +56,24 @@ public sealed class PhaseOneGateTests
 
         flow.Outcome.Should().Be("pr-opened");
         flow.ContourHash.Should().Be(ShippedContours.Build.Hash);
+
+        // The merge follows the build's end with no step taken by hand, merges the head open-pr recorded, and closes the task.
+        FlowView merge = await Flowing.MergedAsync(client, Project, parcel.Id, flow.Id);
+        merge.ContourHash.Should().Be(ShippedContours.Merge.Hash);
+        merge.Outcome.Should().Be("merged");
+        merge.ParentFlowId.Should().Be(flow.Id);
+        merge.Depth.Should().Be(1);
+        string head = flow.Steps.Single(s => s.Step == "open-pr").Result.GetValueOrDefault().GetProperty("head").GetString() ?? string.Empty;
+        head.Should().NotBeEmpty();
+        FakeGitHub.Sent mergeRequest = github.Requests.Should().ContainSingle(r => r.IsMerge).Subject;
+        JsonNode.Parse(mergeRequest.Body ?? "{}")?["sha"]?.GetValue<string>().Should().Be(head);
+        merge.Steps.Single().Result.GetValueOrDefault().GetProperty("commit").GetString().Should().Be(FakeGitHub.MergeCommit);
+
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.State.Should().Be("review");
+        after.State.Should().Be("closed");
+        after.Resolution.Should().Be("completed");
+        after.LiveFlowId.Should().BeNull();
+        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().OnlyContain(f => f.Status == "ended");
         after.Fields.Single(f => f.Name == TaskFields.PullRequest).Value.Should().Be(
             FieldValue.OfReference(FakeGitHub.Number.ToString(CultureInfo.InvariantCulture), FakeGitHub.Url));
         github.Requests.Count(r => r.IsOpen).Should().Be(1);

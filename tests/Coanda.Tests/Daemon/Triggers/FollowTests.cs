@@ -58,7 +58,7 @@ public sealed class FollowTests
 
             build = await Flowing.BoundAsync(client, Project, parcel.Id);
             (await Flowing.UntilAsync(client, Project, build.Id, "ended")).Outcome.Should().Be("pr-opened");
-            FlowView follower = await FollowerOfAsync(client, parcel.Id, build.Id);
+            FlowView follower = await Flowing.FollowerAsync(client, Project, parcel.Id, build.Id, AfterBuild.Name);
             FlowView ended = await Flowing.UntilAsync(client, Project, follower.Id, "ended");
 
             ended.ContourName.Should().Be(AfterBuild.Name);
@@ -78,8 +78,10 @@ public sealed class FollowTests
             lines.Should().Contain($"Parent  {build.Id}").And.Contain("Depth   1");
             FlowRendering.Show(root).Should().NotContain(line => line.StartsWith("Parent", StringComparison.Ordinal) || line.StartsWith("Depth", StringComparison.Ordinal));
 
-            // The follower started from the same end, so the loop has handled it: the contour following an unproduced outcome started nothing.
-            (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", AfterBuild.Name);
+            // The followers started from the same end, so the loop has handled it: the contour following an unproduced outcome started nothing.
+            // The shipped merge sorts after the project's follower, so it starts once that one releases the parcel.
+            await Flowing.MergedAsync(client, Project, parcel.Id, build.Id);
+            (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", AfterBuild.Name, "merge");
             await first.StopAsync(None);
         }
 
@@ -90,10 +92,11 @@ public sealed class FollowTests
         ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "A later build");
         FlowView laterBuild = await Flowing.BoundAsync(again, Project, later.Id);
         await Flowing.UntilAsync(again, Project, laterBuild.Id, "ended");
-        await Flowing.UntilAsync(again, Project, (await FollowerOfAsync(again, later.Id, laterBuild.Id)).Id, "ended");
+        await Flowing.UntilAsync(again, Project, (await Flowing.FollowerAsync(again, Project, later.Id, laterBuild.Id, AfterBuild.Name)).Id, "ended");
+        await Flowing.MergedAsync(again, Project, later.Id, laterBuild.Id);
 
         (await Flowing.OfParcelAsync(again, Project, parcel.Id)).Select(f => f.ContourName)
-            .Should().Equal(["build", AfterBuild.Name], "a restart starts no second follower of an end already followed");
+            .Should().Equal(["build", AfterBuild.Name, "merge"], "a restart starts no second follower of an end already followed");
 
         await second.StopAsync(None);
     }
@@ -117,29 +120,16 @@ public sealed class FollowTests
             {
                 List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
                 followers = [.. flows.Where(f => f.ParentFlowId == build.Id && f.Status == "ended")];
-                return followers.Count == 2;
+                return followers.Count == 3;
             },
-            $"both followers of flow {build.Id} end");
+            $"every follower of flow {build.Id} ends");
 
-        followers.Select(f => f.ContourName).Should().BeEquivalentTo([AfterBuild.Name, AlsoAfterBuild.Name]);
-        followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlowId == build.Id && f.Outcome == "followed");
-        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(3, "each follower starts once");
+        // The shipped merge follows the same end and sorts after both, so it starts last and closes the task.
+        followers.Select(f => f.ContourName).Should().Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"]);
+        followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlowId == build.Id);
+        followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
+        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "each follower starts once");
 
         await daemon.StopAsync(None);
-    }
-
-    /// <summary>Waits for the flow a follow starts on the parcel from the end of <paramref name="parentId"/>.</summary>
-    private static async Task<FlowView> FollowerOfAsync(DaemonClient client, Guid parcelId, Guid parentId)
-    {
-        FlowView? follower = null;
-        await Flowing.UntilAsync(
-            async () =>
-            {
-                List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcelId);
-                follower = flows.SingleOrDefault(f => f.ParentFlowId == parentId);
-                return follower is not null;
-            },
-            $"a follower of flow {parentId} starts");
-        return follower ?? throw new InvalidOperationException("The wait ended with no follower.");
     }
 }

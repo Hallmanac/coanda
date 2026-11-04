@@ -44,7 +44,9 @@ public sealed class FlowRunnerTests
 
         flow.Outcome.Should().Be("pr-opened");
         flow.ContourName.Should().Be("build");
-        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().ContainSingle("the binding starts one flow for the one entry to build");
+        FlowView merge = await Flowing.MergedAsync(client, Project, parcel.Id, started.Id);
+        (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.Id)
+            .Should().Equal([started.Id, merge.Id], "the binding starts one flow for the one entry to build, and the merge follows its end");
         flow.Steps.Select(s => s.Step).Should().Equal(CleanPath, "each go-to records the step it enters");
         flow.Steps.Should().OnlyContain(s => s.RecordedAt != null);
         ExpectJudgment(flow.Steps[1], ShippedAgents.Build, 1);
@@ -56,7 +58,8 @@ public sealed class FlowRunnerTests
         gates.TryGetProperty("placeholder", out _).Should().BeFalse("the gates step runs the project's build and test commands");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.State.Should().Be("review");
+        after.State.Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
+        after.Resolution.Should().Be("completed");
         after.LiveFlowId.Should().BeNull();
 
         ScriptedSpawn build = executor.Spawns[0];

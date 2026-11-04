@@ -59,6 +59,26 @@ failure (changes left in the worktree, a remote in another form, no token, a pus
 GitHub refuses) pauses the flow at its open-pr step with the reason, and a resume performs the step
 again.
 
+When the build flow ends, the merge contour follows it on the same task with no step taken by hand.
+It inspects the pull request and merges it through GitHub's API, never through auto-merge, and only
+when the pull request is open against the primary branch, its head is the commit the build pushed,
+that head is not behind the primary branch, GitHub reports it mergeable, and every check the
+project names has succeeded with no other check failed or still running. The merge then closes the
+task as completed. While checks are still running it waits a minute and looks again, for twenty
+minutes in all, and then pauses. A project names no checks until you set them, and a merge pauses
+until it does, because without names it cannot tell whether every check has reported yet. Name the
+checks by the names GitHub shows for them; for coanda's own repository those are its two CI legs:
+
+```bash
+coa project set coanda --required-check "build-test (ubuntu-latest)" --required-check "build-test (windows-latest)"
+```
+
+The checks given replace the project's list, and `coa project show` prints them. When the branch is
+behind the primary branch the merge pauses rather than land a tree CI never ran. The way out is to
+stop the merge flow, rebase `coanda/<short id>` onto the primary branch in the node's clone without
+pushing it, and move the task back to build, so the build contour gates, reviews, and pushes the
+rebased branch and a merge follows again.
+
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
 Judgments run on Claude Code. With no configuration at all, the daemon runs each judgment as a
@@ -76,8 +96,8 @@ session; change that file to `claude-code` to run real sessions there. The workt
 open-pr steps are real even there: a build flow fetches from the project's remote, runs its build and
 test commands, and pushes and opens its pull request on GitHub, so the prerequisites above apply to
 that home too. A flow run there pushes a real `coanda/<id>` branch and opens a real pull request on
-the project's remote, so register a scratch repository in that home rather than one whose pull
-requests other people watch.
+the project's remote, and once the checks the project names pass, the merge that follows merges it,
+so register a scratch repository in that home rather than one whose pull requests other people watch.
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
