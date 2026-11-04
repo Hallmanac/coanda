@@ -300,6 +300,8 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("cd alpha . && cat daemon.json")]
     [InlineData("cd alpha b>x && cat daemon.json")]
     [InlineData("cd alpha 12>x && cat daemon.json")]
+    [InlineData("cd alpha 1&>x && cat daemon.json")]
+    [InlineData("cd alpha \\>&x && cat daemon.json")]
     [InlineData("cd alpha >(true) && cat daemon.json")]
     [InlineData("cd alpha \"#x\" && cat daemon.json")]
     [InlineData("cd alpha \" #x\" && cat daemon.json")]
@@ -320,6 +322,9 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("cd src # enter the source directory\ncat a.cs")]
     [InlineData("cd src # one; two && three\ncat a.cs")]
     [InlineData("cd src >#log && cat a.cs")]
+    [InlineData("cd src 2>&1 >&2 <&0 && cat a.cs")]
+    [InlineData("cd src &>/dev/null && cat a.cs")]
+    [InlineData("cd src >|log && cat a.cs")]
     public void A_redirection_or_a_comment_after_a_cd_is_not_a_second_directory(string command) =>
         Allowed(Guard(Call("Bash", new { command })));
 
@@ -327,12 +332,23 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("cd src/x/y 2>/dev/null && cat ../../../../../../daemon.json")]
     [InlineData("cd >/dev/null src/x/y && cat ../../../../../../daemon.json")]
     [InlineData("2>/dev/null cd src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd 2>&1 src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd >&2 src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd <&0 src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd >& /dev/null src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd &>/dev/null src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd &>>log src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("cd >|log src/x/y && cat ../../../../../../daemon.json")]
     public void A_cd_with_a_redirection_still_moves_the_shell_to_its_directory(string command) =>
         RefusedInNodeHome(Guard(Call("Bash", new { command })));
 
     [Fact]
     public void A_cd_after_a_zsh_glob_flag_is_still_read_as_a_cd() =>
         RefusedInConfig(Guard(Call("Bash", new { command = "ls (#i)x; cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Fact]
+    public void An_escaped_redirection_before_an_ampersand_still_ends_the_command() =>
+        RefusedInConfig(Guard(Call("Bash", new { command = "echo \\>& cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
 
     [Fact]
     public void A_bare_cd_followed_by_a_comment_goes_to_the_home_directory() =>
