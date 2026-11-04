@@ -146,6 +146,18 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
     public Task<Flow> PauseAsync(Principal principal, string project, Guid flowId, string reason, string lever, CancellationToken cancellationToken) =>
         PauseAsync(principal, project, flowId, reason, lever, usage: null, cancellationToken);
 
+    /// <summary>
+    /// Pauses a flow so that a resume performs its current step again, the lever naming that step as
+    /// the write itself reads it rather than as an earlier read saw it, so the runner entering
+    /// another step in between cannot leave the lever naming the step before.
+    /// </summary>
+    public Task<Flow> PauseToPerformAgainAsync(Principal principal, string project, Guid flowId, string reason, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flow.pause", principal, project, flowId,
+            (contour, flow) => FlowDecider.Pause(contour, flow, reason, FlowLevers.PerformAgain(flow.CurrentStep), principal.Id, clock.GetUtcNow()),
+            (flow, paused) => flow.Apply(paused),
+            cancellationToken);
+
     /// <summary>Pauses a flow, recording the <paramref name="usage"/> a judgment that paused without an answer reported.</summary>
     public Task<Flow> PauseAsync(
         Principal principal, string project, Guid flowId, string reason, string lever, Measurement? usage, CancellationToken cancellationToken) =>
