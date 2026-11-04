@@ -20,6 +20,9 @@ public sealed class FollowTests
     /// <summary>A second follower of the same end, naming the build contour in another spelling.</summary>
     private static readonly Contour AlsoAfterBuild = Ending("also-after-build", new ContourFollow { Outcome = "pr-opened", Contour = "Build", DepthCap = 1 });
 
+    /// <summary>A follower of the same end whose name sorts after the shipped merge's.</summary>
+    private static readonly Contour NotifyAfterBuild = Ending("notify-pr", new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 });
+
     /// <summary>A contour that follows an outcome no contour declares.</summary>
     private static readonly Contour AfterNothing = Ending("after-nothing", new ContourFollow { Outcome = "nobody-produces-this", DepthCap = 1 });
 
@@ -79,7 +82,7 @@ public sealed class FollowTests
             FlowRendering.Show(root).Should().NotContain(line => line.StartsWith("Parent", StringComparison.Ordinal) || line.StartsWith("Depth", StringComparison.Ordinal));
 
             // The followers started from the same end, so the loop has handled it: the contour following an unproduced outcome started nothing.
-            // The shipped merge sorts after the project's follower, so it starts once that one releases the parcel.
+            // The shipped merge closes the parcel, so it starts only once the project's follower releases it.
             await Flowing.MergedAsync(client, Project, parcel.Id, build.Id);
             (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", AfterBuild.Name, "merge");
             await first.StopAsync(None);
@@ -124,11 +127,43 @@ public sealed class FollowTests
             },
             $"every follower of flow {build.Id} ends");
 
-        // The shipped merge follows the same end and sorts after both, so it starts last and closes the task.
+        // The shipped merge follows the same end and closes the parcel, so it starts after both and closes the task.
         followers.Select(f => f.ContourName).Should().Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"]);
         followers.Should().OnlyContain(f => f.Depth == 1 && f.RootFlowId == build.Id);
         followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
         (await Flowing.OfParcelAsync(client, Project, parcel.Id)).Should().HaveCount(4, "each follower starts once");
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_follower_whose_name_sorts_after_the_closing_merge_still_starts_before_the_merge_closes_the_parcel()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        await Publishing.ContourAsync(daemon, Project, AfterBuild);
+        await Publishing.ContourAsync(daemon, Project, NotifyAfterBuild);
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Build, then notify after merge's name");
+
+        FlowView build = await Flowing.BoundAsync(client, Project, parcel.Id);
+        await Flowing.UntilAsync(client, Project, build.Id, "ended");
+        List<FlowView> followers = [];
+        await Flowing.UntilAsync(
+            async () =>
+            {
+                List<FlowView> flows = await Flowing.OfParcelAsync(client, Project, parcel.Id);
+                followers = [.. flows.Where(f => f.ParentFlowId == build.Id && f.Status == "ended")];
+                return followers.Count == 3;
+            },
+            $"every follower of flow {build.Id} ends");
+
+        // "notify-pr" sorts after "merge", but the merge closes the parcel, so every follower that
+        // does not close it starts first and none is refused on a closed parcel.
+        followers.Select(f => f.ContourName).Should().Equal([AfterBuild.Name, NotifyAfterBuild.Name, "merge"]);
+        followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("closed");
 
         await daemon.StopAsync(None);
     }
