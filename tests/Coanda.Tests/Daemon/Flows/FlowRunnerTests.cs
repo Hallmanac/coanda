@@ -674,103 +674,27 @@ public sealed class FlowRunnerTests
             between.Current?.IsRecorded.Should().BeFalse("nothing is recorded for a step the stop cancelled");
         }
 
-        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
-        using var again = new DaemonClient(temp.Home);
-        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-
-        await second.StopAsync(None);
-    }
-
-    [Fact]
-    public async Task A_daemon_stop_after_the_judgments_session_is_recorded_leaves_that_session_alive_and_the_next_start_stops_it_before_launching_again()
-    {
-        using var temp = new TemporaryHome();
-        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
-        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Left running");
-
-        stalled.Open();
-        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None);
-        using var again = new DaemonClient(temp.Home);
-        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
-        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
-
-        stalled.Inner.Stops.Should().HaveCountGreaterThan(1);
-        stalled.Inner.Stops[0].Should().Be(issued, "the next start stops the session left alive before it launches another");
-        stalled.Inner.Spawns.Should().HaveCountGreaterThan(1);
-        stalled.Inner.Stops.Should().ContainSingle(handle => handle == issued);
-        (await stalled.ListAsync(None)).Should().NotContain(issued);
-
-        await second.StopAsync(None);
-    }
-
-    [Fact]
-    public async Task A_session_left_alive_that_will_not_stop_on_the_next_start_pauses_the_flow_without_launching_another()
-    {
-        using var temp = new TemporaryHome();
-        var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
-        (Guid flowId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Will not stop");
-
-        var stubborn = new GatedExecutor(stalled.Inner) { FailStops = true };
-        stubborn.Open();
-        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stubborn }, None);
+        // The fresh executor holds no session, so the launch's session is lost: the flow pauses
+        // rather than launch the agent again on a spawn it already used.
+        ScriptedExecutor fresh = Scripts.CleanBuildExecutor();
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = fresh }, None);
         using var again = new DaemonClient(temp.Home);
         FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
-
-        paused.PauseReason.Should().StartWith($"Step 'build' could not stop session {Ids.Short(issued.Id)} that agent 'build' was left running in");
+        paused.PauseReason.Should().StartWith("Step 'build' lost the session agent 'build' was launched in across a daemon restart")
+            .And.EndWith("so its usage was not observed.");
         paused.Lever.Should().Be(FlowLevers.PerformAgain("build"));
-        stubborn.Inner.Spawns.Should().ContainSingle("no second agent is launched beside one that would not stop");
-        stubborn.StopTokensCancelled.Should().Equal(false);
+        fresh.Spawns.Should().BeEmpty();
+
+        await Flowing.ResumeAsync(again, Project, flowId, "Perform it again.");
+        FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
+        ended.Steps.Select(s => s.Step).Should().Equal(CleanPath);
+        ended.Spawns.Should().Be(4, "the resume counts one more spawn for build");
 
         await second.StopAsync(None);
     }
 
-    /// <summary>
-    /// Starts a daemon on the gated executor, waits until the bound flow's judgment has recorded its
-    /// session, and stops the daemon, checking that the session was left alive and the flow names it.
-    /// </summary>
-    private static async Task<(Guid FlowId, SessionHandle Issued)> StopWithSessionLeftAsync(TemporaryHome temp, GatedExecutor stalled, string title)
-    {
-        Guid flowId;
-        Guid sessionId = Guid.Empty;
-        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None))
-        {
-            await RegisteredProjects.AddAsync(first, Project, None);
-            using var client = new DaemonClient(temp.Home);
-            FlowService flows = first.Services.GetRequiredService<FlowService>();
-            ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, title);
-            flowId = (await Flowing.BoundAsync(client, Project, parcel.Id)).Id;
-            await Flowing.UntilAsync(
-                async () =>
-                {
-                    Flow? flow = await flows.ShowAsync(Principal.LocalOwner, Project, flowId, None);
-                    sessionId = flow?.Current?.SessionId ?? Guid.Empty;
-                    return sessionId != Guid.Empty;
-                },
-                "the flow names its judgment's session");
-            await first.StopAsync(None);
-        }
-
-        SessionHandle issued = stalled.Inner.Spawns.Should().ContainSingle().Subject.Handle;
-        issued.Id.Should().Be(sessionId);
-        stalled.Inner.Stops.Should().BeEmpty("a daemon stop leaves a recorded session for a reattach");
-        stalled.StopTokensCancelled.Should().BeEmpty();
-        (await stalled.ListAsync(None)).Should().Equal(issued);
-
-        await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
-        {
-            Flow? between = await new FlowService(store, TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowId, None);
-            between.Should().NotBeNull();
-            between.Status.Should().Be(FlowStatus.Running, "a daemon stop is not a pause");
-            between.Current?.IsRecorded.Should().BeFalse();
-            between.Current?.SessionId.Should().Be(issued.Id);
-        }
-
-        return (flowId, issued);
-    }
-
     [Fact]
-    public async Task An_executor_that_cancels_its_own_collect_after_the_session_is_recorded_pauses_the_flow_and_stops_the_session_once()
+    public async Task An_executor_whose_collect_throws_a_task_cancellation_of_its_own_after_the_session_is_recorded_pauses_the_flow_and_stops_the_session_once()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { CollectsGiveUp = true };

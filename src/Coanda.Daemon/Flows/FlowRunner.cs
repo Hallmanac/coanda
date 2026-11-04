@@ -40,15 +40,18 @@ namespace Coanda.Daemon.Flows;
 /// of the runner's own: the service the daemon registers hands resumes to this runner, so the
 /// runner cannot also take that one without a cycle. A daemon stop cancels the step in progress
 /// and records no answer, result, or pause for it, leaving the flow live and unpaused so the next
-/// start performs the step again. A judgment whose session the flow already names keeps that
-/// session alive across the stop, for a reattach; one stopped before its session was recorded has
-/// the session stopped. Until a reattach path exists, the next start stops a session left that way
-/// before it launches the judgment again, so no two agents run in one flow's working directory. A step recorded before the stop but not yet routed is routed without
-/// being performed again. A person's pause or stop, once saved, ends the judgment in progress at
-/// once, its session stopped through the executor. A pause lets an action in progress run on; a stop
-/// cancels it, ending any command it runs, and the action records nothing. When a flow ends, or once
-/// its worker has returned from the step it was performing when it was stopped, the flow's worktree
-/// is removed; a removal that fails is logged, and the daemon's next start sweeps what is left. Every judgment
+/// start carries it on. A judgment whose session the flow already names keeps that session alive
+/// across the stop, and the next start reattaches it and records its answer without launching the
+/// agent again; one stopped before its session was recorded has the session stopped, and the next
+/// start, finding no session to reattach, pauses the flow rather than launch it again uncounted.
+/// The next start first stops every session the executor holds that no running flow waits on. A
+/// cancellation counts as a daemon stop only when the daemon's own token is cancelled. A step
+/// recorded before the stop but not yet routed is routed without being performed again. A
+/// person's pause or stop, once saved, ends the judgment in progress at once, its session stopped
+/// through the executor. A pause lets an action in progress run on; a stop cancels it, ending any
+/// command it runs, and the action records nothing. When a flow ends, or once its worker has
+/// returned from the step it was performing when it was stopped, the flow's worktree is removed; a
+/// removal that fails is logged, and the daemon's next start sweeps what is left. Every judgment
 /// that launched a session records what it spent: in its answer, in its pause, or, when neither
 /// was recorded (a person paused or stopped the flow, or its visit no longer expects the session),
 /// in a record of its usage alone. An answer or a pause from a session the visit no longer expects,
@@ -192,13 +195,56 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         }
     }
 
-    /// <summary>Requests an advance of every live flow on the node; a paused one is read and left as it is.</summary>
+    /// <summary>
+    /// Requests an advance of every live flow on the node; a paused one is read and left as it is.
+    /// First it stops every session the executor lists that no running flow is waiting on, so no
+    /// agent a daemon stop left behind runs on with nobody to collect it. A flow waits on a session
+    /// when its current judgment visit launched since it was last resumed, has no answer, and names
+    /// that session; its own advance reattaches it.
+    /// </summary>
     public async Task AdvanceLiveAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<(string Project, Guid FlowId)> live = await flows.ListLiveAsync(ScanPrincipal, cancellationToken);
+        await StopUnclaimedSessionsAsync(live, cancellationToken);
         foreach ((string project, Guid flowId) in live)
         {
             _ = RequestAdvance(project, flowId);
+        }
+    }
+
+    /// <summary>
+    /// Stops each session the executor lists that none of the <paramref name="live"/> flows is
+    /// running and waiting on. A stop that fails is logged, and the start goes on: the session is
+    /// one no flow will collect, and failing the start over it would strand every flow that can run.
+    /// </summary>
+    private async Task StopUnclaimedSessionsAsync(IReadOnlyList<(string Project, Guid FlowId)> live, CancellationToken cancellationToken)
+    {
+        var claimed = new HashSet<Guid>();
+        foreach ((string project, Guid flowId) in live)
+        {
+            Flow? flow = await flows.ShowAsync(PrincipalFor(flowId), project, flowId, cancellationToken);
+            if (flow is { Status: FlowStatus.Running, Current: { AwaitsLaunchedSession: true, SessionId: Guid session } })
+            {
+                claimed.Add(session);
+            }
+        }
+
+        IReadOnlyList<SessionHandle> held;
+        try
+        {
+            held = await executor.ListAsync(cancellationToken);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(failure, "Listing the executor's sessions failed, so none was stopped at the start.");
+            return;
+        }
+
+        foreach (SessionHandle unclaimed in held.Where(h => !claimed.Contains(h.Id)))
+        {
+            logger.LogInformation(
+                "Stopping session {Session} of agent '{Agent}', which no running flow is waiting on.", Ids.Short(unclaimed.Id), unclaimed.Agent);
+            await StopSessionAsync(unclaimed);
         }
     }
 
@@ -345,7 +391,9 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         Recording? recorded = current.IsRecorded
             ? (current.Answer ?? current.Result) is JsonElement held ? new Recording(flow, held) : null
             : step.IsJudgment
-                ? await JudgeAsync(principal, project, flow, contour, step, spawnsAgain, cancellationToken)
+                ? current.AwaitsLaunchedSession
+                    ? await ReattachAsync(principal, project, flow, step, current, cancellationToken)
+                    : await JudgeAsync(principal, project, flow, contour, step, spawnsAgain, cancellationToken)
                 : await ActAsync(principal, project, flow, contour, step, current.ResumedAt is not null, cancellationToken);
 
         // Routed against the flow as the recording left it, so a spawn counted on this pass is in the position.
@@ -354,10 +402,11 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Stops the session a daemon stop left alive on the visit about to be performed, before the
-    /// judgment launches another in the same working directory. The flow names that session until
-    /// the new launch is recorded, and nothing reattaches to it yet, so it is ended here rather than
-    /// left running with nobody holding it. A session the executor no longer holds (one a pause or
+    /// Stops the session a resumed visit still names, before the judgment launches another in the
+    /// same working directory: one whose stop failed when the visit paused, say. The flow names that
+    /// session until the new launch is recorded, and the resume means nobody will collect it, so it
+    /// is ended here rather than left running. A visit launched since its last resume never reaches
+    /// this, since it is reattached instead. A session the executor no longer holds (one a pause or
     /// an answer already stopped) is passed over. Returns false when the stop failed and the flow
     /// was paused instead, so no second agent runs beside one that would not stop.
     /// </summary>
@@ -500,7 +549,27 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             // environment is fixed when its process starts; it resolves only while this launch runs.
             string token = sessionTokens.Issue(new SessionBinding(project.Trim(), flow.Id, launch.Value));
             request = request with { Access = new SessionAccess(token, home.Path, project.Trim()) };
-            return await RunJudgmentAsync(principal, project, flow.Id, step, agent, published.ContentHash, request, ended.Token, cancellationToken);
+            var launched = new Launched(step.Name, agentName, published.ContentHash, agent.Model, budget.Ceiling);
+
+            // The session's id is recorded before its first collect, so a daemon stop after that
+            // leaves the session alive (the judgment does not stop it) and the flow names it; the
+            // next start reattaches it rather than launching again.
+            return await RunJudgmentAsync(
+                principal, project, flow.Id, step, launched, judgmentLimit,
+                (spend, bounded) => Judgment.RunAsync(
+                    executor,
+                    request,
+                    async (session, opening) =>
+                    {
+                        launched.Session = session;
+                        await flows.SessionOpenedAsync(principal, project, flow.Id, step.Name, session.Id, opening);
+                        launched.Recorded = true;
+                    },
+                    spend,
+                    cancellationToken,
+                    bounded),
+                ended.Token,
+                cancellationToken);
         }
         finally
         {
@@ -514,45 +583,98 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Runs the launched judgment, bounded by the daemon stop, the wall-clock limit, and
-    /// <paramref name="ended"/>, which a person's pause or stop cancels, and records its answer, or
-    /// pauses; null when it recorded no answer. What the judgment spent is recorded however it ends,
-    /// except at a daemon stop.
+    /// Performs a judgment visit a daemon restart found launched, unanswered, and not resumed since:
+    /// its agent is not launched again on the spawn it already used. When the executor still holds
+    /// the session the visit names, it is reattached, and its answer is collected, validated against
+    /// the step's answer schema, retried once on the same session if it is invalid, and recorded
+    /// with the agent hash and model spec the launch recorded, however the agent was published
+    /// since. Its wall-clock limit runs from the launch. Nothing is recorded for the reattach itself.
+    /// When the visit names no session, or the executor no longer holds it, the flow pauses instead,
+    /// and its resume performs the step again with one more spawn counted. Null when it recorded no answer.
+    /// </summary>
+    private async Task<Recording?> ReattachAsync(
+        Principal principal, string project, Flow flow, ContourStep step, FlowStepEntry current, CancellationToken cancellationToken)
+    {
+        SessionHandle? live;
+        try
+        {
+            live = current is { SessionId: Guid id, AgentHash: not null, Model: not null }
+                ? await executor.ReattachAsync(new SessionHandle(id, current.Performer), cancellationToken)
+                : null;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception failure)
+        {
+            logger.LogWarning(failure, "Reattaching the session of step '{Step}' on flow {Flow} failed.", step.Name, Ids.Short(flow.Id));
+            live = null;
+        }
+
+        if (live is null || current is not { SpawnedAt: DateTimeOffset spawnedAt, AgentHash: string agentHash, Model: ModelSpec model })
+        {
+            string which = current switch
+            {
+                { SessionId: Guid held, AgentHash: not null, Model: not null } => $"session {Ids.Short(held)}, which the executor no longer holds",
+                { SessionId: Guid held } => $"session {Ids.Short(held)}, whose launch recorded no agent hash and model spec to record its answer with",
+                _ => "a session the daemon stopped before it was recorded",
+            };
+            await PauseAsync(
+                principal, project, flow.Id,
+                $"Step '{step.Name}' lost the session agent '{current.Performer}' was launched in across a daemon restart ({which}), so its usage was not observed.",
+                FlowLevers.PerformAgain(step.Name),
+                cancellationToken);
+            return null;
+        }
+
+        var launched = new Launched(step.Name, current.Performer, agentHash, model, ceiling: null) { Session = live, Recorded = true };
+        string schema = step.AnswerSchema ?? string.Empty;
+        using var ended = new CancellationTokenSource();
+        Watch(flow.Id, ended);
+        try
+        {
+            return await RunJudgmentAsync(
+                principal, project, flow.Id, step, launched, judgmentLimit - (clock.GetUtcNow() - spawnedAt),
+                (spend, bounded) => Judgment.ReattachAsync(executor, live, schema, spend, cancellationToken, bounded),
+                ended.Token,
+                cancellationToken);
+        }
+        finally
+        {
+            Unwatch(flow.Id, ended);
+        }
+    }
+
+    /// <summary>
+    /// Runs the launched judgment through <paramref name="judge"/>, bounded by the daemon stop, the
+    /// wall-clock limit, of which <paramref name="limitLeft"/> is left, and <paramref name="ended"/>,
+    /// which a person's pause or stop cancels, and records its answer, or pauses; null when it
+    /// recorded no answer. What the judgment spent is recorded however it ends, except at a daemon stop.
     /// </summary>
     private async Task<Recording?> RunJudgmentAsync(
         Principal principal,
         string project,
         Guid flowId,
         ContourStep step,
-        AgentDefinition agent,
-        string agentHash,
-        JudgmentRequest request,
+        Launched launched,
+        TimeSpan limitLeft,
+        Func<JudgmentSpend, CancellationToken, Task<JudgmentOutcome>> judge,
         CancellationToken ended,
         CancellationToken cancellationToken)
     {
-        string agentName = step.Agent ?? string.Empty;
-        using var limit = new CancellationTokenSource(judgmentLimit, clock);
+        using var limit = new CancellationTokenSource(limitLeft > TimeSpan.Zero ? limitLeft : Timeout.InfiniteTimeSpan, clock);
+        if (limitLeft <= TimeSpan.Zero)
+        {
+            await limit.CancelAsync();
+        }
+
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limit.Token, ended);
         var spend = new JudgmentSpend();
-        var launched = new Launched(step.Name, agentName);
         JudgmentOutcome outcome;
         try
         {
-            // The session's id is recorded before its first collect, so a daemon stop after that
-            // leaves the session alive (the judgment does not stop it) and the flow names it; the
-            // next start stops it in StopLeftSessionAsync before launching again.
-            outcome = await Judgment.RunAsync(
-                executor,
-                request,
-                async (session, token) =>
-                {
-                    launched.Session = session;
-                    await flows.SessionOpenedAsync(principal, project, flowId, step.Name, session.Id, token);
-                    launched.Recorded = true;
-                },
-                spend,
-                cancellationToken,
-                bounded.Token);
+            outcome = await judge(spend, bounded.Token);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -570,7 +692,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         }
         catch (Exception failure) when (limit.IsCancellationRequested)
         {
-            // Judgment.RunAsync wraps the cancellation when stopping the session failed too; the limit is still the cause.
+            // The judgment wraps the cancellation when stopping the session failed too; the limit is still the cause.
             string stopped = failure switch
             {
                 OperationCanceledException => "so its session was stopped",
@@ -579,7 +701,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             };
             await PauseJudgmentAsync(
                 principal, project, flowId, launched,
-                $"Step '{step.Name}' ran past the wall-clock limit of {Durations.Describe(judgmentLimit)} for one judgment, {stopped}.{CostUnreported(spend, request)}",
+                $"Step '{step.Name}' ran past the wall-clock limit of {Durations.Describe(judgmentLimit)} for one judgment, {stopped}.{CostUnreported(spend, launched.Ceiling)}",
                 FlowLevers.PerformAgain(step.Name),
                 spend.Reported,
                 cancellationToken);
@@ -589,7 +711,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         {
             await PauseJudgmentAsync(
                 principal, project, flowId, launched,
-                $"Step '{step.Name}' got no judgment from agent '{agent.Name}': {failure.Message}{CostUnreported(spend, request)}",
+                $"Step '{step.Name}' got no judgment from agent '{launched.Agent}': {failure.Message}{CostUnreported(spend, launched.Ceiling)}",
                 FlowLevers.PerformAgain(step.Name),
                 spend.Reported,
                 cancellationToken);
@@ -606,7 +728,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
                     try
                     {
                         recorded = await flows.RecordAnswerAsync(
-                            principal, project, flowId, step.Name, agentName, answered.Session.Id, agentHash, agent.Model, answer, answered.Usage, cancellationToken);
+                            principal, project, flowId, step.Name, launched.Agent, answered.Session.Id, launched.AgentHash, launched.Model, answer, answered.Usage, cancellationToken);
                     }
                     catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
                     {
@@ -630,22 +752,34 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
     /// <summary>
     /// What a pause reason adds when the session reported usage for its attempt in progress without
-    /// its cost: that no cost is recorded for that attempt, and the cost ceiling it ran under, which
-    /// bounds what it may have spent. Nothing when every reported attempt carried its cost.
+    /// its cost: that no cost is recorded for that attempt, and, when this daemon launched it, the
+    /// cost ceiling it ran under, which bounds what it may have spent. Nothing when every reported
+    /// attempt carried its cost.
     /// </summary>
-    private static string CostUnreported(JudgmentSpend spend, JudgmentRequest request) => spend.CostUnreported
-        ? $" The session did not report the cost of its attempt in progress, so none is recorded for it; the spawn ran under a cost ceiling of {Dollars(request.Caps.CostCeilingUsd)}."
-        : string.Empty;
+    private static string CostUnreported(JudgmentSpend spend, decimal? ceiling) => (spend.CostUnreported, ceiling) switch
+    {
+        (false, _) => string.Empty,
+        (true, decimal known) => $" The session did not report the cost of its attempt in progress, so none is recorded for it; the spawn ran under a cost ceiling of {Dollars(known)}.",
+        (true, null) => " The session did not report the cost of its attempt in progress, so none is recorded for it.",
+    };
 
     /// <summary>
-    /// The judgment a flow's step launched: its step and agent, the session its spawn returned once
-    /// it has, and whether the flow recorded that session, which is when the visit expects it.
+    /// The judgment a flow's step launched: its step and agent, the agent hash and model spec its
+    /// answer is recorded with, the cost ceiling its spawn carried when this daemon launched it, the
+    /// session its spawn returned once it has, and whether the flow recorded that session, which is
+    /// when the visit expects it.
     /// </summary>
-    private sealed class Launched(string step, string agent)
+    private sealed class Launched(string step, string agent, string agentHash, ModelSpec model, decimal? ceiling)
     {
         public string Step { get; } = step;
 
         public string Agent { get; } = agent;
+
+        public string AgentHash { get; } = agentHash;
+
+        public ModelSpec Model { get; } = model;
+
+        public decimal? Ceiling { get; } = ceiling;
 
         public SessionHandle? Session { get; set; }
 
