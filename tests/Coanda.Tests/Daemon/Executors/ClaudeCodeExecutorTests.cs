@@ -488,6 +488,23 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task Stopping_a_session_killed_before_it_printed_a_message_reports_its_attempt_without_a_cost()
+    {
+        using var fake = new FakeClaude(new { result = "hang", child = true });
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, None);
+        await Until(() => fake.ChildPid is not null);
+
+        StopReport? report = await executor.StopAsync(handle, None);
+
+        report.Should().NotBeNull("the killed turn may already have been billed");
+        report?.CostReported.Should().BeFalse();
+        report?.Usage.Tokens.Should().Be(0);
+        report?.Usage.CostUsd.Should().Be(0m);
+        report?.Usage.Turns.Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_spawn_cancelled_while_its_prompt_is_written_ends_the_process_it_started()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
