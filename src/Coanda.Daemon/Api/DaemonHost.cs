@@ -47,6 +47,7 @@ public sealed class DaemonHost
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.JudgmentLimit, TimeSpan.Zero, nameof(options));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.GatesCommandLimit, TimeSpan.Zero, nameof(options));
         // Narrows what an earlier run left wider and creates the database owner-only, before the
         // check below or the store opens it.
         home.EnsureExists().EnsureDatabase();
@@ -90,7 +91,8 @@ public sealed class DaemonHost
             services.GetRequiredService<ProjectClones>(),
             services.GetRequiredService<ICommandRunner>(),
             services.GetRequiredService<NodeHome>(),
-            services.GetRequiredService<TimeProvider>()));
+            services.GetRequiredService<TimeProvider>(),
+            options.GatesCommandLimit));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunner>();
         builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());

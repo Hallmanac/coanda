@@ -15,6 +15,8 @@ public sealed record DaemonOptions
 {
     public static readonly TimeSpan DefaultJudgmentLimit = TimeSpan.FromMinutes(30);
 
+    public static readonly TimeSpan DefaultGatesCommandLimit = TimeSpan.FromMinutes(60);
+
     /// <summary>The executor judgments run through; null runs them through a scripted executor with no entries, so every judgment pauses.</summary>
     public IAgentExecutor? Executor { get; init; }
 
@@ -42,4 +44,10 @@ public sealed record DaemonOptions
 
     /// <summary>How long one judgment, its retry included, may run before its session is stopped and the flow pauses.</summary>
     public TimeSpan JudgmentLimit { get; init; } = DefaultJudgmentLimit;
+
+    /// <summary>
+    /// How long the gates step's build command, and then its test command, may each run before it is
+    /// ended and the step answers failed, so a command that never exits sends the work to its fix lap.
+    /// </summary>
+    public TimeSpan GatesCommandLimit { get; init; } = DefaultGatesCommandLimit;
 }

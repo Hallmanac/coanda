@@ -11,10 +11,11 @@ namespace Coanda.Daemon.Actions;
 /// platform's shell in the flow's work path, stopping at the first that exits nonzero. Both passing
 /// answers done; one failing, the shell's own exit for a command it cannot find included, answers
 /// failed with a <c>reason</c> naming the command and its exit code and carrying at most the last
-/// <see cref="QuotedLines"/> lines of its output, so the contour routes to its fix step. A shell that
-/// cannot be started, or a project with no record, pauses with the perform-again lever instead.
+/// <see cref="QuotedLines"/> lines of its output, so the contour routes to its fix step. A command
+/// still running after <paramref name="commandLimit"/> is ended and answers failed the same way. A
+/// shell that cannot be started, or a project with no record, pauses with the perform-again lever instead.
 /// </summary>
-public sealed class GatesAction(ProjectService projects, ICommandRunner runner, NodeHome home) : IFlowAction
+public sealed class GatesAction(ProjectService projects, ICommandRunner runner, NodeHome home, TimeSpan commandLimit) : IFlowAction
 {
     /// <summary>How many lines of a failing command's output its reason carries.</summary>
     public const int QuotedLines = 100;
@@ -37,7 +38,7 @@ public sealed class GatesAction(ProjectService projects, ICommandRunner runner, 
             CommandResult result;
             try
             {
-                result = await runner.RunAsync(CommandLine.Shell(command, workPath), cancellationToken);
+                result = await runner.RunAsync(CommandLine.Shell(command, workPath) with { Limit = commandLimit }, cancellationToken);
             }
             catch (CommandNotStartedException unstarted)
             {
@@ -48,19 +49,22 @@ public sealed class GatesAction(ProjectService projects, ICommandRunner runner, 
 
             if (!result.Succeeded)
             {
-                return ActionOutcome.FailedWith(Name, Reason(kind, command, result));
+                return ActionOutcome.FailedWith(Name, Reason(kind, command, result, commandLimit));
             }
         }
 
         return ActionOutcome.DoneWith(Name, ("build", project.Build), ("test", project.Test));
     }
 
-    private static string Reason(string kind, string command, CommandResult result)
+    private static string Reason(string kind, string command, CommandResult result, TimeSpan limit)
     {
         IReadOnlyList<string> lines = OutputText.LastLines(result.Combined, QuotedLines);
         string output = lines.Count == 0
             ? "It wrote no output."
             : $"The last {lines.Count} lines of its output:\n{string.Join('\n', lines)}";
-        return OutputText.Redact($"The {kind} command '{command}' exited with code {result.ExitCode}. {output}");
+        string ended = result.TimedOut
+            ? $"was still running after {Durations.Describe(limit)}, the limit for one gates command, and was ended"
+            : $"exited with code {result.ExitCode}";
+        return OutputText.Redact($"The {kind} command '{command}' {ended}. {output}");
     }
 }

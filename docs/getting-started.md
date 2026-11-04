@@ -15,7 +15,11 @@ stored as given, and nothing contacts it until a build flow needs a worktree. Ea
 works in a git worktree of the node's own clone of that remote, under the node home, on a branch
 named `coanda/<short parcel id>`, and its gates run the project's build and test commands there:
 `dotnet build` and `dotnet test` unless `coa project add` was given `--build <command>` or
-`--test <command>`, and `coa project show` prints the two the gates will run. The worktree is
+`--test <command>`, and `coa project show` prints the two the gates will run. Each of the two may
+run for an hour; one still running then is ended, with everything it started, and the gates step
+fails as it would for a nonzero exit, so the work goes to its fix lap. A project name that differs
+from a registered one only in letter case is refused, because the node keeps each project's clone
+and work in a directory named after it. The worktree is
 removed when the flow ends or is stopped; the branch stays in the clone. Without `--project`, a command works in the project that
 `COANDA_PROJECT` names, then in the one named after the current directory.
 

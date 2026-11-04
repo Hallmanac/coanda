@@ -174,6 +174,37 @@ public sealed class WorktreeActionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Every_git_command_runs_with_the_limit_for_one_git_command()
+    {
+        Done(await PerformAsync(Ids.New(), Ids.New()));
+
+        runner.Commands.Should().NotBeEmpty().And.OnlyContain(c => c.Program != "git" || c.Limit == Git.Limit);
+    }
+
+    [Fact]
+    public async Task A_fetch_ended_at_its_limit_throws_saying_it_was_ended_rather_than_naming_an_exit_code()
+    {
+        runner.On(c => c.IsGit("fetch"), CommandResult.LimitReached(string.Empty, "remote: Counting objects\n", "remote: Counting objects\n"));
+
+        GitCommandException failed = (await FluentActions.Awaiting(() => PerformAsync(Ids.New(), Ids.New()).AsTask())
+            .Should().ThrowAsync<GitCommandException>()).Subject.Single();
+
+        failed.Message.Should().Contain(" fetch ").And.Contain("was still running after 30 minutes and was ended").And.Contain("Counting objects");
+    }
+
+    [Fact]
+    public async Task A_git_command_whose_output_was_cut_short_throws_rather_than_being_read_in_part()
+    {
+        runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(string.Empty) with { Truncated = true });
+
+        GitCommandException failed = (await FluentActions.Awaiting(() => PerformAsync(Ids.New(), Ids.New()).AsTask())
+            .Should().ThrowAsync<GitCommandException>()).Subject.Single();
+
+        failed.Message.Should().Contain(" ls-tree ").And.Contain("wrote more output than the daemon keeps");
+        runner.GitCalls.Should().NotContain(c => c.StartsWith("worktree add", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_project_with_no_record_pauses_naming_the_step_and_the_project_and_runs_nothing()
     {
         ActionOutcome outcome = await action.PerformAsync(

@@ -17,6 +17,13 @@ public sealed record CommandLine(
     public string? VerbatimArguments { get; init; }
 
     /// <summary>
+    /// How long the command may run before the runner ends it, with every process it started that is
+    /// still its descendant, and answers <see cref="CommandResult.TimedOut"/>; null for no limit
+    /// beyond the caller's cancellation.
+    /// </summary>
+    public TimeSpan? Limit { get; init; }
+
+    /// <summary>
     /// The command line <paramref name="line"/> run through the platform's shell in
     /// <paramref name="workingDirectory"/>: <c>/bin/sh -c</c> on macOS and Linux, and on Windows
     /// <c>cmd.exe</c> with the verbatim argument string <c>/d /s /c "&lt;line&gt;"</c>, so the line

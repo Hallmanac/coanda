@@ -19,6 +19,7 @@ public sealed class GatesActionTests : IAsyncLifetime
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly Principal FlowPrincipal = new("flow:under-test", Role.Agent);
     private static readonly ContourStep Step = new() { Name = "gates", Action = SoftwareActions.Gates };
+    private static readonly TimeSpan Limit = TimeSpan.FromMinutes(45);
 
     private readonly TemporaryHome temp = new();
     private readonly ScriptedCommandRunner runner = new();
@@ -31,7 +32,7 @@ public sealed class GatesActionTests : IAsyncLifetime
         store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, None);
         projects = new ProjectService(store, TimeProvider.System);
-        action = new GatesAction(projects, runner, temp.Home);
+        action = new GatesAction(projects, runner, temp.Home, Limit);
     }
 
     public async Task DisposeAsync()
@@ -55,6 +56,26 @@ public sealed class GatesActionTests : IAsyncLifetime
         (runner.Commands[0].Program, runner.Commands[0].VerbatimArguments).Should().Be(OperatingSystem.IsWindows()
             ? ("cmd.exe", $"/d /s /c \"{ProjectDefaults.DefaultBuild}\"")
             : ("/bin/sh", null));
+    }
+
+    [Fact]
+    public async Task Each_command_is_run_with_the_limit_for_one_gates_command()
+    {
+        Result(await PerformAsync(Project, Ids.New()), "done");
+
+        runner.Commands.Should().HaveCount(2).And.OnlyContain(c => c.Limit == Limit);
+    }
+
+    [Fact]
+    public async Task A_test_command_ended_at_its_limit_answers_failed_saying_so_and_quoting_what_it_wrote()
+    {
+        runner.On(c => c.IsShell(ProjectDefaults.DefaultTest), CommandResult.LimitReached("Running 12 tests\n", string.Empty, "Running 12 tests\n"));
+
+        JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
+
+        result.GetProperty("reason").GetString().Should()
+            .StartWith("The test command 'dotnet test' was still running after 45 minutes, the limit for one gates command, and was ended.")
+            .And.Contain("Running 12 tests");
     }
 
     [Fact]

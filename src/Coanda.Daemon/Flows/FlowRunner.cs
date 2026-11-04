@@ -579,7 +579,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             };
             await PauseJudgmentAsync(
                 principal, project, flowId, launched,
-                $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, {stopped}.{CostUnreported(spend, request)}",
+                $"Step '{step.Name}' ran past the wall-clock limit of {Durations.Describe(judgmentLimit)} for one judgment, {stopped}.{CostUnreported(spend, request)}",
                 FlowLevers.PerformAgain(step.Name),
                 spend.Reported,
                 cancellationToken);
@@ -1004,11 +1004,6 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         using JsonDocument document = JsonDocument.Parse(answer);
         return document.RootElement.Clone();
     }
-
-    private static string Describe(TimeSpan limit) =>
-        limit >= TimeSpan.FromMinutes(1) && limit.Seconds == 0 && limit.Milliseconds == 0
-            ? $"{limit.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)} minutes"
-            : $"{limit.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture)} seconds";
 
     private sealed class Worker
     {
