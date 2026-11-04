@@ -1,10 +1,11 @@
-using System.Diagnostics;
+using System.ComponentModel;
 using System.Net.Http.Json;
 using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.Executors.ClaudeCode;
 using Coanda.Daemon.Store;
 
 namespace Coanda.Cli;
@@ -108,7 +109,11 @@ public sealed class DaemonClient : IDisposable
 
         PrepareToStart();
         DaemonInfo.Delete(Home);
-        StartDetached();
+
+        // Where the log and the output file stood before the start, so a report reads only what this start wrote.
+        long logStart = LengthOf(Home.LogPath);
+        long outputStart = LengthOf(Home.DaemonOutputPath);
+        using DetachedProcess daemon = StartDetached();
 
         DateTimeOffset deadline = DateTimeOffset.UtcNow + StartTimeout;
         while (DateTimeOffset.UtcNow < deadline)
@@ -118,6 +123,11 @@ public sealed class DaemonClient : IDisposable
             if (running is not null)
             {
                 return running;
+            }
+
+            if (daemon.HasExited)
+            {
+                throw new DomainException(ExitedBeforeReady(daemon.ExitCode, logStart, outputStart));
             }
         }
 
@@ -175,20 +185,80 @@ public sealed class DaemonClient : IDisposable
         _ = NodeConfiguration.Load(Home);
     }
 
-    private void StartDetached()
+    /// <summary>
+    /// Starts <c>coa daemon run --log-to-file</c> apart from this process: in a process group of its
+    /// own, without this process's console, reading the null device and printing to the home's
+    /// daemon output file, so it holds none of the caller's handles and outlives the caller's
+    /// process group and terminal. It gets the caller's whole environment with the home named in it.
+    /// </summary>
+    private DetachedProcess StartDetached()
     {
         string executable = Environment.ProcessPath ?? throw new InvalidOperationException("The CLI cannot find its own executable.");
-        var start = new ProcessStartInfo(executable)
+        Dictionary<string, string> environment = OperatingSystem.IsWindows()
+            ? new(StringComparer.OrdinalIgnoreCase)
+            : new(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry variable in Environment.GetEnvironmentVariables())
         {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = Home.Path,
+            if (variable is { Key: string name, Value: string value })
+            {
+                environment[name] = value;
+            }
+        }
+
+        environment[NodeHome.EnvironmentVariable] = Home.Path;
+        using var input = new FileStream(OperatingSystem.IsWindows() ? "NUL" : "/dev/null", FileMode.Open, FileAccess.Read, Inherited(FileShare.ReadWrite));
+        using FileStream output = OwnerOnly.Open(Home.DaemonOutputPath, FileMode.Append, FileAccess.Write, Inherited(FileShare.ReadWrite | FileShare.Delete));
+        try
+        {
+            return DetachedProcess.Start(
+                executable, ["daemon", "run", "--log-to-file"], environment, Home.Path, input.SafeFileHandle, output.SafeFileHandle, output.SafeFileHandle);
+        }
+        catch (Exception failure) when (failure is Win32Exception or IOException)
+        {
+            throw new DomainException($"The daemon could not be started from {executable}: {failure.Message}");
+        }
+    }
+
+    /// <summary>A handle a process is started with must be inheritable on Windows; elsewhere the spawn hands it over itself.</summary>
+    private static FileShare Inherited(FileShare share) => OperatingSystem.IsWindows() ? share | FileShare.Inheritable : share;
+
+    /// <summary>
+    /// The report of a daemon that exited before it answered: what it appended to its log and what
+    /// it printed outside it during this start, or, when it wrote neither, its exit code and the log's path.
+    /// </summary>
+    private string ExitedBeforeReady(int? exitCode, long logStart, long outputStart)
+    {
+        string exit = exitCode is { } code ? $" with code {code}" : string.Empty;
+        string logged = ReadFrom(Home.LogPath, logStart);
+        string printed = ReadFrom(Home.DaemonOutputPath, outputStart);
+        string intro = $"The daemon exited{exit} before it was ready.";
+        return (logged.Length > 0, printed.Length > 0) switch
+        {
+            (true, true) => $"{intro} It wrote this to its log at {Home.LogPath}:{Environment.NewLine}{logged}{Environment.NewLine}"
+                + $"It printed this outside its log, to {Home.DaemonOutputPath}:{Environment.NewLine}{printed}",
+            (true, false) => $"{intro} It wrote this to its log at {Home.LogPath}:{Environment.NewLine}{logged}",
+            (false, true) => $"{intro} It printed this outside its log, to {Home.DaemonOutputPath}:{Environment.NewLine}{printed}",
+            (false, false) => $"{intro} It wrote nothing to its log at {Home.LogPath} and printed nothing outside it.",
         };
-        start.ArgumentList.Add("daemon");
-        start.ArgumentList.Add("run");
-        start.ArgumentList.Add("--log-to-file");
-        start.Environment[NodeHome.EnvironmentVariable] = Home.Path;
-        Process.Start(start);
+    }
+
+    /// <summary>The length of the file at <paramref name="path"/>, or zero when there is no file there.</summary>
+    private static long LengthOf(string path) => new FileInfo(path) is { Exists: true } file ? file.Length : 0;
+
+    /// <summary>What the file at <paramref name="path"/> holds from <paramref name="offset"/> on, trimmed; empty when there is no file to read.</summary>
+    private static string ReadFrom(string path, long offset)
+    {
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            file.Seek(Math.Min(offset, file.Length), SeekOrigin.Begin);
+            using var reader = new StreamReader(file);
+            return reader.ReadToEnd().Trim();
+        }
+        catch (Exception unreadable) when (unreadable is IOException or UnauthorizedAccessException)
+        {
+            return string.Empty;
+        }
     }
 
     public async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
