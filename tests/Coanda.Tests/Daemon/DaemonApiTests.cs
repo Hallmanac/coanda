@@ -1,7 +1,13 @@
+using System.Net;
+using System.Net.Http.Json;
 using Coanda.Cli;
 using Coanda.Core;
+using Coanda.Core.Flows;
+using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Flows;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
 
@@ -52,5 +58,47 @@ public sealed class DaemonApiTests
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.Unauthorized);
 
         await daemon.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_move_or_close_of_a_parcel_a_live_flow_holds_is_refused_with_422_whatever_principal_the_request_carries()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, CancellationToken.None);
+        using var client = new DaemonClient(temp.Home);
+        FlowService flows = daemon.Services.GetRequiredService<FlowService>();
+
+        // A flow the service starts is not advanced, and refine binds no contour, so the flow stays live and alone.
+        ParcelView parcel = await client.PostAsync<ParcelView>(
+            "/parcels", new ParcelAddRequest("coanda", "task", "Held by a flow", null), CancellationToken.None);
+        Flow flow = await flows.StartAsync(Principal.LocalOwner, "coanda", parcel.Id, "build", CancellationToken.None);
+        ParcelView held = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
+        held.LiveFlowId.Should().Be(flow.Id);
+        string refusal = $"*held by flow {Ids.Short(flow.Id)}*(flow.stop)*";
+
+        using var http = new HttpClient { BaseAddress = new Uri(daemon.Info.BaseAddress) };
+        await RefusedAsync(http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), "brian", refusal + "before moving the parcel.");
+        await RefusedAsync(
+            http, daemon, "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "completed", "Done by hand."), "brian", refusal + "before closing the parcel.");
+        await RefusedAsync(
+            http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), FlowRunner.PrincipalFor(flow.Id).Id, refusal + "before moving the parcel.");
+
+        ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
+        after.Should().BeEquivalentTo(held, "every refusal leaves the parcel as it was");
+
+        await daemon.StopAsync(CancellationToken.None);
+    }
+
+    private static async Task RefusedAsync(HttpClient http, RunningDaemon daemon, string path, object body, string principal, string message)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body, body.GetType()) };
+        request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
+        request.Headers.Add(DaemonHost.PrincipalHeader, principal);
+
+        using HttpResponseMessage response = await http.SendAsync(request, CancellationToken.None);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        ErrorView? error = await response.Content.ReadFromJsonAsync<ErrorView>(CancellationToken.None);
+        error.Should().NotBeNull();
+        error.Error.Should().Match(message);
     }
 }
