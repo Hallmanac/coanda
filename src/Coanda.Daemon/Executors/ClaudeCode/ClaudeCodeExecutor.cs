@@ -277,8 +277,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     /// <summary>
     /// Returns the handle only for a session this process still holds and has not stopped. Reattach
-    /// across a restart is not implemented: the daemon's stop kills every session it holds, so a
-    /// handle from before a restart names a session that has already ended.
+    /// across a restart is not implemented. A clean stop of the daemon kills every session it holds,
+    /// so after one a handle from before the restart names a session that has already ended. After
+    /// an unclean exit (a crash, a kill signal, an out-of-memory kill) the <c>claude</c> process can
+    /// still be running, capped only by its spend limit, and nothing here finds or stops it, so the
+    /// flow's next judgment can start a second agent in the same work directory while it runs.
     /// </summary>
     public ValueTask<SessionHandle?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
