@@ -157,17 +157,27 @@ public static partial class ClaudeCodeInvocation
     public static IReadOnlyList<string> ResumeArguments(Guid sessionId, IReadOnlyList<string> session, decimal spendCap) =>
         Process("--resume", sessionId, session, spendCap);
 
+    /// <summary>The variable that lists the directories executables are looked up in.</summary>
+    public const string PathVariable = "PATH";
+
     /// <summary>
     /// The environment of every process of a session: the inherited one less every variable an
     /// enclosing Claude Code session set for itself, and, when the spawn carries a profile, less the
     /// credential variables too, with the profile's config directory set. With no profile nothing
-    /// credential-related is set or removed.
+    /// credential-related is set or removed. An inherited session token never reaches the session;
+    /// the <paramref name="access"/> the spawn carries sets its own token, the node home, and the
+    /// project. A <paramref name="coaDirectory"/>, when given, goes first on the PATH, whose name is
+    /// matched without regard to case on Windows.
     /// </summary>
-    public static IReadOnlyDictionary<string, string> Environment(IReadOnlyDictionary<string, string> inherited, CredentialProfile? profile)
+    public static IReadOnlyDictionary<string, string> Environment(
+        IReadOnlyDictionary<string, string> inherited,
+        CredentialProfile? profile,
+        SessionAccess? access = null,
+        string? coaDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(inherited);
         StringComparer names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-        var removed = new HashSet<string>(EnclosingSessionVariables, names);
+        var removed = new HashSet<string>([.. EnclosingSessionVariables, SessionAccess.TokenVariable], names);
         if (profile is not null)
         {
             removed.UnionWith(CredentialVariables);
@@ -185,6 +195,18 @@ public static partial class ClaudeCodeInvocation
         if (profile?.ConfigDirectory is { } directory)
         {
             environment[ConfigDirectoryVariable] = directory;
+        }
+
+        foreach ((string name, string value) in access?.Variables ?? new Dictionary<string, string>())
+        {
+            environment[name] = value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(coaDirectory))
+        {
+            environment[PathVariable] = environment.TryGetValue(PathVariable, out string? path) && path.Length > 0
+                ? coaDirectory + Path.PathSeparator + path
+                : coaDirectory;
         }
 
         return environment;

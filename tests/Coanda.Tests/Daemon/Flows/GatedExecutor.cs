@@ -73,14 +73,14 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
     public void Open() => gate.TrySetResult();
 
     public async ValueTask<SessionHandle> SpawnAsync(
-        AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, string answerSchema, CredentialProfile? credentialProfile, CancellationToken cancellationToken)
+        AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, string answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, CancellationToken cancellationToken)
     {
         if (Interlocked.Increment(ref spawnAttempts) <= FailingSpawns)
         {
             throw new InvalidOperationException($"Agent '{agent.Name}' could not be launched.");
         }
 
-        SessionHandle handle = await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, cancellationToken);
+        SessionHandle handle = await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, cancellationToken);
         spawned.TrySetResult();
         return handle;
     }

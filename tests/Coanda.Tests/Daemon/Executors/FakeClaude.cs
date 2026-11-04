@@ -57,8 +57,8 @@ public sealed class FakeClaude : IDisposable
         return environment;
     }
 
-    public ClaudeCodeExecutor Executor(NodeHome home, IReadOnlyDictionary<string, string>? environment = null) =>
-        new(Executable, home, environment ?? Environment());
+    public ClaudeCodeExecutor Executor(NodeHome home, IReadOnlyDictionary<string, string>? environment = null, string? coaDirectory = null) =>
+        new(Executable, home, environment ?? Environment(), coaDirectory);
 
     /// <summary>Replaces the script; each entry is serialized as the fake reads it.</summary>
     public void Script(params object[] entries) =>

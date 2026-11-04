@@ -20,7 +20,7 @@ public sealed class ScriptedExecutorTests
     });
 
     private static ValueTask<SessionHandle> Spawn(ScriptedExecutor executor, string context = "Step: build", CredentialProfile? profile = null) =>
-        executor.SpawnAsync(ShippedAgents.Build, context, "/work/tree", Caps, AnswerSchemas.Build, profile, CancellationToken.None);
+        executor.SpawnAsync(ShippedAgents.Build, context, "/work/tree", Caps, AnswerSchemas.Build, profile, null, CancellationToken.None);
 
     [Fact]
     public async Task Two_spawns_of_one_agent_receive_its_first_and_second_entries()
@@ -78,7 +78,7 @@ public sealed class ScriptedExecutorTests
         CancellationToken token = CancellationToken.None;
         ScriptedExecutor executor = Executor();
         SessionHandle handle = await executor.SpawnAsync(
-            ShippedAgents.ReviewerAdversarial, "context", "/work/tree", Caps, AnswerSchemas.Review, null, token);
+            ShippedAgents.ReviewerAdversarial, "context", "/work/tree", Caps, AnswerSchemas.Review, null, null, token);
 
         Func<Task> collect = async () => await executor.CollectAsync(handle, token);
 

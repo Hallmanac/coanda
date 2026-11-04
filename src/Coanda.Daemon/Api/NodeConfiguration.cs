@@ -90,8 +90,15 @@ public static class NodeConfiguration
         return new DaemonOptions { Executor = executor, Profiles = Profiles(home, path, file.Profiles) };
     }
 
+    /// <summary>
+    /// The directory of the <c>coa</c> executable hosting this daemon, which its sessions find first
+    /// on their PATH so they can run <c>coa</c> by name: the directory the host's assembly was loaded
+    /// from, where the <c>coa</c> executable sits beside it.
+    /// </summary>
+    public static string CoaDirectory => Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+
     private static ClaudeCodeExecutor ClaudeCodeOf(NodeHome home, string executable) =>
-        new(executable, home, Executors.ClaudeCode.ClaudeCodeExecutor.CurrentEnvironment());
+        new(executable, home, Executors.ClaudeCode.ClaudeCodeExecutor.CurrentEnvironment(), CoaDirectory);
 
     /// <summary>
     /// The claude executable to run: the default name when none is given, a bare name as given (it is

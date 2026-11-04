@@ -44,6 +44,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     private readonly NodeHome home;
     private readonly IReadOnlyDictionary<string, string> environment;
+    private readonly string? coaDirectory;
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, Session> sessions = [];
     private readonly HashSet<Guid> stopped = [];
@@ -51,7 +52,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// <param name="executable">The configured path of the claude executable, or a bare name looked up on the PATH.</param>
     /// <param name="home">The node home, which says where each flow's transcripts go.</param>
     /// <param name="environment">The environment a session's processes start from, before the adapter removes and sets what it does.</param>
-    public ClaudeCodeExecutor(string executable, NodeHome home, IReadOnlyDictionary<string, string> environment)
+    /// <param name="coaDirectory">
+    /// The directory that holds the <c>coa</c> executable, placed first on every session process's
+    /// PATH so a session can run <c>coa</c> by name; null leaves the PATH as inherited.
+    /// </param>
+    public ClaudeCodeExecutor(string executable, NodeHome home, IReadOnlyDictionary<string, string> environment, string? coaDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentNullException.ThrowIfNull(home);
@@ -59,6 +64,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         Executable = executable;
         this.home = home;
         this.environment = environment;
+        this.coaDirectory = string.IsNullOrWhiteSpace(coaDirectory) ? null : coaDirectory;
     }
 
     public string Executable { get; }
@@ -85,6 +91,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         SpawnCaps caps,
         string answerSchema,
         CredentialProfile? credentialProfile,
+        SessionAccess? access,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
@@ -92,7 +99,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         cancellationToken.ThrowIfCancellationRequested();
         ClaudeCodeInvocation.Require(agent);
         string prompt = ClaudeCodeInvocation.Prompt(context, answerSchema);
-        IReadOnlyDictionary<string, string> processEnvironment = ClaudeCodeInvocation.Environment(environment, credentialProfile);
+        IReadOnlyDictionary<string, string> processEnvironment = ClaudeCodeInvocation.Environment(environment, credentialProfile, access, coaDirectory);
         string executable = ClaudeExecutable.Resolve(Executable, processEnvironment);
         if (caps.CostCeilingUsd <= 0m)
         {
