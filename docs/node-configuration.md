@@ -132,10 +132,12 @@ empty). A relative word in a command is judged against each directory a `cd` or 
 the command may have moved the shell to, and against the directory the call runs in as well, unless
 the word's command is joined to the `cd` by `&&`; the destination of a `cd` is judged too, and a bare
 `cd` goes to your home directory, which holds the node home. The guard refuses a call that depends on
-`$OLDPWD` or `cd -`, since it cannot know the shell's previous directory. A path with a wildcard is
-judged by the highest directory it may reach: the part before its first wildcard, climbed once for
-each `..` after it (including a `..` inside braces, and `.*` or `.?`, which some shells match to
-`..`) beyond the levels its other components descend. On Windows it also reads a Git Bash drive path such as
+`$OLDPWD` or `cd -`, since it cannot know the shell's previous directory. A word or a Glob pattern
+with braces is judged as each word its brace expansion gives, since a choice may climb, hold several
+components, or be an absolute path; one that expands to more than 256 words is refused. A path with a
+wildcard is judged by the highest directory it may reach: the part before its first wildcard, climbed
+once for each `..` after it (and each `.*` or `.?`, which some shells match to `..`) beyond the
+levels its other components descend, where `**` counts as descending none. On Windows it also reads a Git Bash drive path such as
 `/c/Users/me` as `C:\Users\me`. It resolves symbolic links before it compares, and on macOS and
 Windows it ignores case. A refused call reaches the session as an error saying why.
 
