@@ -26,6 +26,7 @@ CI builds and tests on ubuntu and windows for every push and pull request to mai
 - No null-forgiving `!` where a prior check guarantees non-null; no unused usings.
 - Outbound HTTP from the daemon goes through `IHttpClientFactory` typed clients registered in the service collection, never a client created per call.
 - Warnings are errors.
+- Tests assert with xUnit's built-in `Assert` and add no assertion library.
 
 ## Writing
 
