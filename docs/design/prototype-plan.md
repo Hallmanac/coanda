@@ -11,11 +11,11 @@ weeks, hard stop at four, that prove the store, the definitions-as-data loop lay
 and the second node. Everything after it is parity work in the order of section 8.
 
 Exit scenario. On the Mac, from a cold install of one binary, a project is registered on the coanda
-repository with nothing configured. An idea parcel goes through a flow of the discovery contour and
+repository with nothing configured. An idea parcel goes through a flow run of the discovery contour and
 derives a task parcel at refine with criteria. The build contour is read from the stored shipped
-definition, and a flow of it runs the task: worktree, build judgment, gates action, two review
+definition, and a flow run of it runs the task: worktree, build judgment, gates action, two review
 judgments, and a fix lap; it opens the pull request, moves the task to review, and ends with the
-outcome pr-opened. The merge contour follows that outcome: its flow performs the gated merge with
+outcome pr-opened. The merge contour follows that outcome: its flow run performs the gated merge with
 the head-commit guard, and the parcel closes with resolution completed. A second node joins by
 cloning the repository, verifies the hash chain, claims a parcel through hash arbitration, and runs
 the same contours. The window, launched from its stored recipe, rules on one pause. Every spawn has
@@ -42,7 +42,7 @@ then the coanda repository carries `decisions.md` rendered from the list in desi
 | Phase | Builds | Gate | Built by |
 |---|---|---|---|
 | 0 Skeleton | Repository, solution, build and test gate, CI on Mac and Windows runners, the binary, the Fisher store with tenancy, the registry with principals, the thin CLI that starts the daemon, a parcel aggregate with the two shipped types as data | A parcel is created and shown through `coa` and survives a daemon restart | One session from the hall9k project window, by hand |
-| 1 Definitions and interpreter | Parcel types, contours, agents as aggregates with draft and published and scopes and the fork-base field; the routing-only interpreter; triggers; typed outcomes with depth and budget caps; the scripted adapter; core actions | A flow of the shipped build contour runs end to end on canned answers with every cap enforced and refused at load without them | hall9k tasks dispatched on the Mac node |
+| 1 Definitions and interpreter | Parcel types, contours, agents as aggregates with draft and published and scopes and the fork-base field; the routing-only interpreter; triggers; typed outcomes with depth and budget caps; the scripted adapter; core actions | A flow run of the shipped build contour runs end to end on canned answers with every cap enforced and refused at load without them | hall9k tasks dispatched on the Mac node |
 | 2 Real sessions | Claude Code adapter with profiles, resume, reattach, rendered files, the software actions (worktree, gates, open PR, gated merge, rebase), measurement events | The build and merge contours land a merged PR on the coanda repository | hall9k tasks |
 | 3 Replication | Signed JSONL export and import by scope, the hash chain, verification on import, members and vouches and succession event shapes, arbitration, join, ledger home setting | The second node (the Windows machine, Brian's call on 2026-11-03 11:26 EST) clones, verifies, claims by arbitration, and builds | hall9k tasks; from this gate Coanda builds itself |
 | 4 Judgment | Discovery contour, review-on-assignment contour (one step), window recipe as a stored agent definition, courier push, measurement queries, migration of decisions and lessons | The exit scenario minus Windows | Coanda |

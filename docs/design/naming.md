@@ -68,7 +68,8 @@ Brian ruled on these on 2026-11-03, reading the phase 1 review: "model triple" w
   it.
 - flow: one execution of a contour on one parcel; it starts, has steps, may pause, and ends with an
   outcome or is stopped. It replaces "flight". `coa flow list`, `coa flow show <id>`, and
-  `coa contour start <contour> --parcel <id>`.
+  `coa contour start <contour> --parcel <id>`. Superseded by the 2026-11-04 entry on flow run at the
+  end of this file: one execution is now a flow run.
 - pause: what a flow does when it waits for a person, until an external event arrives, or because
   a cap or its budget is reached. A paused flow is live and is resumed or stopped. It replaces
   "park" and "parked", including the parcel types' parked state, which is now named paused.
@@ -80,3 +81,24 @@ The commands moved with the words: `coa flow start` became `coa contour start`, 
 `/contours` and `/flows`. A record written before the change does not carry over: its event names,
 documents, and the hashed content of its types and contours use the old words. The daemon refuses
 such a record without touching it and names the file; move the node home aside and start fresh.
+
+## Added 2026-11-04: flow run
+
+Brian ruled on this on 2026-11-04 in the concepts walk: one execution of a contour on a parcel is a
+flow run.
+
+- flow run: one execution of a contour on one parcel; it starts, has steps, may pause, and ends
+  with an outcome or is stopped. It is always the two words, never a bare "run". It replaces "flow"
+  in its sense of the execution. The CLI writes it `flow-run` (`coa flow-run list`,
+  `coa flow-run show <id>`), the API serves it under `/flow-runs`, the registry entries are
+  `flow-run.*`, and the code names it `FlowRun` (`FlowRunStarted`, `FlowRunPaused`,
+  `FlowRunResumed`, `FlowRunEnded`, `FlowRunStopped`, and `Parcel.LiveFlowRunId`). The trigger kind `flow-ended` became `flow-run-ended`, and the principal a
+  flow run acts as is `flow-run:<id>` rather than `flow:<id>`.
+
+The commands moved with the word: `coa flow list` and `coa flow show` became `coa flow-run list`
+and `coa flow-run show`, and the API moved from `/flows` to `/flow-runs`. `coa contour list` and
+`coa contour start` keep their names. A record in which a build from before
+this change started a flow holds that flow under the old event names (`flow_started` and its
+siblings), so the daemon refuses it without touching it and names the file; move the node home aside
+and start fresh. A record from that build that never started a flow holds nothing this change renamed,
+and the daemon reads it as it is.

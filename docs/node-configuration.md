@@ -28,12 +28,12 @@ The file is optional. Without it, the daemon runs every judgment on Claude Code,
 exists. There are two keys:
 
 - `claude-code` runs each judgment as a headless Claude Code session: a `claude` process in print
-  mode, started in the flow's work directory under the node home. `claudeExecutable` is optional
+  mode, started in the flow run's work directory under the node home. `claudeExecutable` is optional
   and names the executable to start. A bare name such as `claude` is looked up on the PATH of the
   daemon's environment when a judgment spawns; a path is used as given, and a relative one is
   resolved against the node home. Without it, the daemon starts `claude` from the PATH. On Windows,
   name the native `claude.exe`: a `.cmd` or `.bat` file is refused when a judgment spawns, because
-  it would run through a command interpreter, and the flow pauses naming the path.
+  it would run through a command interpreter, and the flow run pauses naming the path.
 - `scripted` runs a scripted executor with no entries, so every judgment pauses. It takes no
   `claudeExecutable`.
 
@@ -53,39 +53,39 @@ Before each spawn the daemon writes `.coanda/task.md` (the parcel record) and `.
 (the context the step carries) at the root of the work directory, and the session's persona as
 `.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the
 retry resumes the session, and never reads any of them back. Each session's
-stream output is kept as a transcript in `transcripts/<project>/<flow id>/` under the node home,
+stream output is kept as a transcript in `transcripts/<project>/<flow run id>/` under the node home,
 outside the work directory; a judgment that gives no valid answer after its one retry pauses with
 that transcript's path as its lever.
 
-Each session runs under a spend cap: what is left of the flow's budget, or of its chain's budget
+Each session runs under a spend cap: what is left of the flow run's budget, or of its chain's budget
 when that is smaller. Claude Code checks the cap between turns, so one turn can go past it. A
-session that ends with an error (its spend cap reached, or no login) is not retried; the flow pauses
-quoting the error, and what the session spent is still recorded on the flow.
+session that ends with an error (its spend cap reached, or no login) is not retried; the flow run pauses
+quoting the error, and what the session spent is still recorded on the flow run.
 
 Stopping the daemon does not end a Claude Code session it is running. Each session's process is
 started apart from the daemon: it reads its prompt from a file, writes its output straight into
 the transcript, and is in a process group of its own (on Windows, it has a hidden console of its
 own), so neither the daemon's exit nor an interrupt you type in the daemon's terminal reaches it.
 The daemon keeps a record of each running session in `sessions/` under the node home. When the
-daemon starts again, a flow whose judgment was running reattaches its session: the daemon collects
+daemon starts again, a flow run whose judgment was running reattaches its session: the daemon collects
 the session's answer, retrying it once if it is invalid, and records it with what the whole session
 spent, without launching the agent again. A session the daemon stopped during its retry is not
 retried a second time, and the turn before the retry counts toward what it spent. The judgment's
 wall-clock limit still runs from when its session was launched. A session that finished while the
 daemon was down is collected the same way, even when the limit has passed since: it ran no longer
 than it did, so its answer is recorded. Only a retry it would need is refused once the limit has
-passed, and the flow then pauses on the limit.
+passed, and the flow run then pauses on the limit.
 When the session cannot be found again (its process exited without an answer, its record could not
-be read, or the daemon stopped before it recorded the session), the flow pauses saying that the
-session was lost and its usage was not observed, and resuming the flow performs the step again with
+be read, or the daemon stopped before it recorded the session), the flow run pauses saying that the
+session was lost and its usage was not observed, and resuming the flow run performs the step again with
 a new session. A session lost during its retry is the exception to that last part: its record kept
 what the turn before the retry spent, and the pause records that usage. When reattaching a session
 fails outright, or its launch did not record the agent and model to record its answer with, the
-daemon stops the session before the flow pauses, so it does not go on running unobserved. A session
+daemon stops the session before the flow run pauses, so it does not go on running unobserved. A session
 whose record could not be read cannot be stopped this way, because nothing says which process is
 its own. At start, the
-daemon also stops every recorded session that no running flow is waiting on, and a session a
-flow was waiting on when you paused or stopped that flow before the daemon reattached it.
+daemon also stops every recorded session that no running flow run is waiting on, and a session a
+flow run was waiting on when you paused or stopped that flow run before the daemon reattached it.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
 for itself, so a daemon started from inside Claude Code runs its sessions as independent ones. It
@@ -99,10 +99,10 @@ of a session, the retry's included, starts with these variables set:
 
 | Variable | Holds |
 | --- | --- |
-| `COANDA_SESSION_TOKEN` | A session token issued for this flow and this launch of the judgment |
+| `COANDA_SESSION_TOKEN` | A session token issued for this flow run and this launch of the judgment |
 | `COANDA_HOME` | The node home of the daemon that spawned the session |
 | `COANDA_SESSION_HOME` | The same node home, naming the one daemon the session token belongs to |
-| `COANDA_PROJECT` | The flow's project, which `coa` uses when no `--project` is given |
+| `COANDA_PROJECT` | The flow run's project, which `coa` uses when no `--project` is given |
 
 The directory that holds the `coa` executable running the daemon goes first on the session's
 `PATH`, so the session runs `coa` by name. When `COANDA_SESSION_TOKEN` is set and `coa` is reaching
@@ -112,17 +112,17 @@ running. Pointed at any other node home (a session that sets `COANDA_HOME` to a 
 a test suite that starts its own daemon on a throwaway one), `coa` never sends the session token and
 works as it does outside a session, so the token only ever reaches the daemon that issued it.
 
-The token makes the call an Agent-role principal bound to its flow and its launch. Queries, parcel
-moves, and drafting a definition are open to it in any project, as they are to any agent. The flow
+The token makes the call an Agent-role principal bound to its flow run and its launch. Queries, parcel
+moves, and drafting a definition are open to it in any project, as they are to any agent. The flow run
 recording entries (a step, a launch, the session a launch returned, an answer, the usage a session
-reported, a result, a pause, an end) are open to it only on its own flow, and only while its launch
-is the one the flow expects. It can never start or follow a flow directly. A parcel move it makes
+reported, a result, a pause, an end) are open to it only on its own flow run, and only while its launch
+is the one the flow run expects. It can never start or follow a flow run directly. A parcel move it makes
 can still start one, as any parcel move can: moving a parcel into a state its type binds to a
-contour starts that contour's flow under the binding's principal, not the session's. The
-token resolves until the launch's answer is recorded, its flow pauses, stops, or ends, or the
+contour starts that contour's flow run under the binding's principal, not the session's. The
+token resolves until the launch's answer is recorded, its flow run pauses, stops, or ends, or the
 judgment launches again; after that it is refused like any token the daemon did not issue, even
-once the flow is resumed. The daemon keeps only the SHA-256 hash of each token, in its store, bound
-to the token's project, flow, and launch; the daemon never writes the token itself to disk.
+once the flow run is resumed. The daemon keeps only the SHA-256 hash of each token, in its store, bound
+to the token's project, flow run, and launch; the daemon never writes the token itself to disk.
 
 Because the binding is in the store, a token survives a daemon restart. When a restarted daemon
 reattaches a session, the token the session's running process was started with resolves again,
@@ -131,7 +131,7 @@ the same principal. The restarted daemon also issues the session a new token for
 and a process the reattached Claude Code session starts after the restart, such as its retry,
 carries that new token rather than the one its first process was given. Every token for a launch is
 removed from the store when its judgment ends, unless a daemon stop ended it, and the daemon's next
-start removes any token whose launch its flow no longer expects.
+start removes any token whose launch its flow run no longer expects.
 
 The token governs what a session's calls may record. It does not confine the session's process,
 which runs as your user and can read whatever you can; the tool guard below keeps the session's own
@@ -143,7 +143,7 @@ Every Claude Code session carries a tool guard: a pre-tool-use hook, run as `coa
 Claude Code calls before every Read, Edit, Write, Glob, Grep, and Bash call. It refuses the call when
 a path the call names is one of these directories, is inside one, or contains one:
 
-- the node home, so its token file, database, log, clones, and other flows' work directories;
+- the node home, so its token file, database, log, clones, and other flow runs' work directories;
 - the config directory of every credential profile in `node.json`;
 - the default Claude Code config directory: the `CLAUDE_CONFIG_DIR` the daemon inherited, or
   `~/.claude` when it inherited none, whatever profile the session runs under;
@@ -271,6 +271,6 @@ show` prints it, or says that none is set.
 The setting belongs to this node and is never part of what the project replicates. A judgment's spawn
 receives the profile with that name under the vendor of its agent's model spec. When the project
 names no profile, the spawn receives none. When it names one the configuration no longer holds under
-that vendor (because the file changed between starts), nothing is spawned and the flow pauses with a
+that vendor (because the file changed between starts), nothing is spawned and the flow run pauses with a
 reason naming the profile and the vendor; name a held profile with `coa project set-profile` and
-`coa flow resume` performs the step again.
+`coa flow-run resume` performs the step again.

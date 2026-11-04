@@ -11,7 +11,7 @@ coa parcel list --project try-coanda
 
 A project records the one repository its work acts on, its remote and its primary branch, so a
 parcel can be created only in a project that `coa project add` has registered. The remote is
-stored as given, and nothing contacts it until a build flow needs a worktree. Each build flow then
+stored as given, and nothing contacts it until a build flow run needs a worktree. Each build flow run then
 works in a git worktree of the node's own clone of that remote, under the node home, on a branch
 named `coanda/<short parcel id>`, and its gates run the project's build and test commands there:
 `dotnet build` and `dotnet test` unless `coa project add` was given `--build <command>` or
@@ -23,11 +23,11 @@ VBCSCompiler server that `dotnet build` leaves behind, for instance) is not ende
 running in the worktree. A project name that differs from a registered one only in letter case is
 refused, because the node keeps each project's clone and work in a directory named after it. The daemon keeps its own files under `.coanda/` at the
 worktree's root, so a commit that tracks `.coanda` in any letter case gets no worktree, and the
-flow pauses naming what it tracks there. The worktree is
-removed when the flow ends or is stopped; the branch stays in the clone. Without `--project`, a command works in the project that
+flow run pauses naming what it tracks there. The worktree is
+removed when the flow run ends or is stopped; the branch stays in the clone. Without `--project`, a command works in the project that
 `COANDA_PROJECT` names, then in the one named after the current directory.
 
-So `coa daemon run` (and the daemon `coa` starts for you) needs a few things before a build flow
+So `coa daemon run` (and the daemon `coa` starts for you) needs a few things before a build flow run
 reaches its worktree step, and a few more, described in the next paragraph, before it can finish: a
 github.com remote and a signed-in GitHub CLI on the daemon's PATH. Git 2.31 or later has to be on
 the daemon's PATH, along with whatever the project's build and test commands run (the .NET SDK for
@@ -37,9 +37,9 @@ an ssh remote, that means a key without a passphrase or one loaded in an ssh age
 reach. `GIT_SSH_COMMAND` also overrides any `core.sshCommand` or `GIT_SSH` you set, so a key named
 only there is not used; name it in `~/.ssh/config` instead, which still applies. For an https
 remote, a credential helper that already holds the credential works. When any of these is missing,
-the flow pauses at its worktree step and the pause quotes git's own error.
+the flow run pauses at its worktree step and the pause quotes git's own error.
 
-A build flow ends once its pull request is open. Its open-pr step pushes the flow's branch to the
+A build flow run ends once its pull request is open. Its open-pr step pushes the flow run's branch to the
 remote with git's own credentials, opens a pull request from it against the primary branch (or
 reuses the open one that already has that branch as its head), records it in the task's pull-request
 field, and moves the task to review; the merge is a contour of its own. So the remote has to be a
@@ -47,7 +47,7 @@ github.com repository, written as `https://github.com/<owner>/<repo>`,
 `git@github.com:<owner>/<repo>`, or `ssh://git@github.com/<owner>/<repo>` (with or without `.git`),
 and the GitHub CLI has to be on the daemon's PATH and signed in, because the daemon calls GitHub's
 API with the token `gh auth token --hostname github.com` prints. Running `gh auth login` and then
-`gh auth setup-git` covers both the token and the push. The worktree step fetches the flow's branch
+`gh auth setup-git` covers both the token and the push. The worktree step fetches the flow run's branch
 from the remote before it checks it out, so a branch someone updated there since the node last
 pushed it (a reviewer's "Update branch" or committed suggestion) is built on, and a branch deleted
 there is pushed again. When the node's branch and the remote's each have commits the other lacks,
@@ -55,16 +55,16 @@ and the remote's is still the commit coanda last pushed for the task, the branch
 the node's clone, as a rebase of your own leaves it, so the worktree step checks it out as it
 stands and the build's push replaces the remote's. When the remote's is any other commit, the
 worktree step pauses and names how to reconcile them by hand in the node's clone. A branch still
-checked out in the worktree of a flow that has ended or been stopped is taken over: the step waits
-for that flow to finish with it, removes its worktree, and checks the branch out for itself. The push is
+checked out in the worktree of a flow run that has ended or been stopped is taken over: the step waits
+for that flow run to finish with it, removes its worktree, and checks the branch out for itself. The push is
 guarded by a lease on what the node last fetched or pushed, so a branch someone else updates on the
-remote while a flow builds is never overwritten: the flow pauses instead, and the way out is to stop
-it and start a new flow on the parcel, whose worktree step fetches the remote's commits. Every other
+remote while a flow run builds is never overwritten: the flow run pauses instead, and the way out is to stop
+it and start a new flow run on the parcel, whose worktree step fetches the remote's commits. Every other
 failure (changes left in the worktree, a remote in another form, no token, a push or a request
-GitHub refuses) pauses the flow at its open-pr step with the reason, and a resume performs the step
+GitHub refuses) pauses the flow run at its open-pr step with the reason, and a resume performs the step
 again.
 
-When the build flow ends, the merge contour follows it on the same task with no step taken by hand.
+When the build flow run ends, the merge contour follows it on the same task with no step taken by hand.
 It inspects the pull request and merges it through GitHub's API, never through auto-merge, and only
 when the pull request is open against the primary branch, its head is the commit last pushed for
 the task (by the build, or by a later rebase lap, after which it is the rebased commit), that head
@@ -96,13 +96,13 @@ and the merge is still merged onto.
 
 A rebase that stops on a conflict is aborted, the branch and the remote are left as they were, and
 the merge pauses naming the files that conflict. Resolving a conflict is a code change, so it goes
-through build, whose gates and both reviews run on it. Stop the merge flow. Add a worktree of
+through build, whose gates and both reviews run on it. Stop the merge flow run. Add a worktree of
 `coanda/<short id>` from the node's clone, which the pause names, at a path of your own outside the
 daemon's work paths; the clone is bare, so this is where you work. There, fetch the primary branch
 and rebase the branch onto it, resolving the conflicts, without pushing. Remove that worktree, and
 move the task back to build. The build's worktree step checks out the branch you rebased, because
 the remote still holds the commit coanda last pushed, and the build gates, reviews, and pushes it,
-and a merge follows again. The rebase also pauses, asking you to stop the flow, when its worktree
+and a merge follows again. The rebase also pauses, asking you to stop the flow run, when its worktree
 has changes, when the branch holds a commit neither the build nor an earlier rebase pushed, or when
 someone else updated the branch on the remote.
 
@@ -110,17 +110,17 @@ The lifecycle needs no configuring. The software engineering lifecycle is instal
 
 Judgments run on Claude Code. With no configuration at all, the daemon runs each judgment as a
 headless session of the `claude` executable it finds on the PATH, under whatever login that
-executable already has, so install Claude Code and sign in to it before a flow reaches its first
+executable already has, so install Claude Code and sign in to it before a flow run reaches its first
 judgment. What a node runs its judgments with is configured once per node, in `node.json` in the
 node home: the executor (`claude-code`, with an optional path to the `claude` executable), and the
 credential profiles a project can name with `coa project set-profile`.
 [Node configuration](node-configuration.md) describes the file. A judgment's session can run `coa` itself, as a
-principal bound to its own flow; [how a session talks back](node-configuration.md#how-a-session-talks-back)
+principal bound to its own flow run; [how a session talks back](node-configuration.md#how-a-session-talks-back)
 names the variables it is given. The repository's Rider run
 configurations use `.coanda-dev` as their node home, and its checked-in `node.json` names the
 `scripted` executor, so a judgment run from them pauses at no cost instead of starting a Claude Code
 session; change that file to `claude-code` to run real sessions there. The worktree, gates, and
-open-pr steps are real even there: a build flow fetches from the project's remote, runs its build and
+open-pr steps are real even there: a build flow run fetches from the project's remote, runs its build and
 test commands, and pushes and opens its pull request on GitHub, so the prerequisites above apply to
 that home too. A flow run there pushes a real `coanda/<short id>` branch and opens a real pull request on
 the project's remote, and once the checks the project names pass, the merge that follows merges it,
@@ -128,5 +128,14 @@ so register a scratch repository in that home rather than one whose pull request
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
-flows also changed: `coa contour start <contour> --parcel <id>` starts a flow, and `coa flow list`
-and `coa flow show` read them. [The overview](overview.md#operating) has the full list.
+flow runs also changed: `coa contour start <contour> --parcel <id>` starts a flow run, and `coa flow-run list`
+and `coa flow-run show` read them. [The overview](overview.md#operating) has the full list.
+
+A build from 2026-11-04 on calls one execution of a contour a flow run. The commands that read
+them now sit under `coa flow-run` (`coa flow-run list` and `coa flow-run show`), and the API serves
+them under `/flow-runs`, so a script written against the earlier names needs the new ones;
+[the naming notes](design/naming.md#added-2026-11-04-flow-run) map the old names to these. A home in
+which an earlier build started a flow run is refused when the daemon starts, because the record of
+each flow run changed then. Move it aside (for example `mv ~/.coanda ~/.coanda.pre-flow-run`) and
+run the commands above again. A home written from 2026-11-03 on in which no flow run was ever
+started carries over as it is.

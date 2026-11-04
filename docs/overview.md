@@ -16,12 +16,12 @@ running.
   called closed with a resolution), its fields, and its bindings.
 - contour: the definition of an agentic loop: judgment steps (an agent) and action steps (something
   the daemon does), with transitions and caps.
-- flow: one execution of a contour on a parcel. A flow follows its contour. It pauses when it
+- flow run: one execution of a contour on a parcel. A flow run follows its contour. It pauses when it
   waits for a person or an external event, or when one of its caps (visits, spawns, depth) or its
-  budget is reached; a paused flow is resumed or stopped.
+  budget is reached; a paused flow run is resumed or stopped.
 - agent: a definition of a persona, a model spec (vendor, model, effort), tools, and answer schema that a judgment step spawns.
 - action: a deterministic step the daemon performs (worktree, gates, open PR, merge, timer, wait).
-- trigger: an event subscription that starts a flow of a contour.
+- trigger: an event subscription that starts a flow run of a contour.
 
 Two types ship installed: idea (open, discovery, paused, closed) and task (refine, build, review,
 paused, closed).
@@ -41,46 +41,49 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
   `coa parcel close <id>`
 - `coa contour list`, `coa contour start <contour> --parcel <id>`
-- `coa flow list --parcel <id>`, `coa flow show <id>`, `coa flow pause <id> --reason <why>`,
-  `coa flow stop <id> --reason <why>`, `coa flow resume <id>`
+- `coa flow-run list --parcel <id>`, `coa flow-run show <id>`, `coa flow-run pause <id> --reason <why>`,
+  `coa flow-run stop <id> --reason <why>`, `coa flow-run resume <id>`
 
-A parcel with a live flow, whether that flow is running or paused, is closed by nobody and moved
-only by that flow's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow
-that holds it; the flow has to end or be stopped first. `coa flow stop <id> --reason <why>` stops
-it and frees the parcel, and `coa flow resume <id>` sets a paused one going again instead. A
-contour that declares `closes` is the one way a flow closes its parcel: when a flow of it ends, the
-flow's end, the release of the parcel, and its close with that resolution are recorded together.
+A parcel with a live flow run, whether that flow run is running or paused, is closed by nobody and moved
+only by that flow run's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow run
+that holds it; the flow run has to end or be stopped first. `coa flow-run stop <id> --reason <why>` stops
+it and frees the parcel, and `coa flow-run resume <id>` sets a paused one going again instead. A
+contour that declares `closes` is the one way a flow run closes its parcel: when a flow run of it ends, the
+flow run's end, the release of the parcel, and its close with that resolution are recorded together.
 The shipped merge contour declares `closes` as completed, and so does any contour a project
 publishes with `closes` set, a contour that replaces the shipped merge included. When several
 contours follow the same end, they start one at a time in name order, except that the ones that
 declare `closes` start after every one that does not, so a closing follower never shuts the parcel
 on a follower still waiting to start.
-`coa flow pause <id> --reason <why>` pauses a running flow without freeing the parcel, and a resume
+`coa flow-run pause <id> --reason <why>` pauses a running flow run without freeing the parcel, and a resume
 then performs the step it was paused at again.
 
 The record lives at `~/.coanda/coanda.db`. Do not edit it by hand. The node's executor and
 credential profiles live in `~/.coanda/node.json`, described in
 [node configuration](node-configuration.md).
 
-A flow's judgments need Claude Code. With no `node.json`, the daemon runs each judgment as a real
+A flow run's judgments need Claude Code. With no `node.json`, the daemon runs each judgment as a real
 session of the `claude` executable on the PATH, under whatever login that executable already has,
 and that session's spend is billed to that login. Install Claude Code and sign in to it before a
-flow reaches its first judgment; without it, the judgment pauses saying why. To exercise flows
+flow run reaches its first judgment; without it, the judgment pauses saying why. To exercise flow runs
 with no sessions and no spend, write a `node.json` naming the `scripted` executor, under which
 every judgment pauses.
 
-A build flow's worktree and gates steps start real processes. The daemon needs git 2.31 or later
+A build flow run's worktree and gates steps start real processes. The daemon needs git 2.31 or later
 and the project's build and test tools on its PATH, and it has to reach the project's remote with
 no prompt: every git command runs with `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o
 BatchMode=yes`, so an ssh key needs no passphrase or has to be loaded in an agent, and a key named
 only in `core.sshCommand` is not used. The gates step ends a build or test command still running
 after an hour and fails, as it does for a nonzero exit. The open-pr step needs the project's remote
 to be a github.com repository in one of the forms getting started lists, and the GitHub CLI on the
-daemon's PATH and signed in. These steps are not simulated: a build flow pushes a real
+daemon's PATH and signed in. These steps are not simulated: a build flow run pushes a real
 `coanda/<short id>` branch and opens a real pull request on the project's remote.
 [Getting started](getting-started.md) has the details.
 
-A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
+A build from before 2026-11-03 used other words for contours, flow runs, and pauses, and other
 commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that
 older build wrote does not carry over, and the daemon refuses to start on it, naming the file. Move the old node home aside (for example
 `mv ~/.coanda ~/.coanda.pre-rename`) and start again; a fresh home is created on the first start.
+A build from before 2026-11-04 recorded each flow run under other names, so the daemon refuses a
+home in which such a build started one in the same way. A home that build wrote without starting a
+flow run holds nothing that changed, and the daemon reads it as it is.

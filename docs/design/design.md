@@ -8,13 +8,13 @@ Working name: Coanda (from the Coanda effect). Path command: `coa`.
 ## 1. The answer in one paragraph
 
 Coanda is a local-first work system whose product is contours: agentic loops a user composes from
-agents and actions, each followed by flows that triggers start and a daemon runs, acting on units of
+agents and actions, each followed by flow runs that triggers start and a daemon runs, acting on units of
 work called parcels that move through user-definable lifecycles. It ships with a software
 engineering lifecycle (ideas through discovery, tasks through refine, build, review, closed) that a
 new project gets with nothing configured. It replaces hall9k at parity and then goes past it,
 because hall9k's engines become data, its store becomes one SQLite file per node, its transport
 becomes one signed event stream per node, and its vocabulary is reduced to parcel, type, contour,
-flow, agent, action, trigger.
+flow run, agent, action, trigger.
 
 ## 2. What it is, and what it refuses
 
@@ -81,7 +81,7 @@ second-writer problem Fisher's guidance warns about and removes store and code g
 CLI, which becomes thin.
 
 Conditions carried from the Fisher evaluation: pin the Fisher version; async projections carry
-version constants; write ceremony (optimistic concurrency) only on the parcel, the flow,
+version constants; write ceremony (optimistic concurrency) only on the parcel, the flow run,
 and arbitration streams. hall9k uses none of the Marten features Fisher lacks (no compiled
 queries, no Newtonsoft, no child-collection LINQ, no bus); the 32 raw Postgres JSON path strings
 are rewritten.
@@ -134,9 +134,9 @@ pure pass-through or an encrypted store-and-forward buffer it cannot read is sti
 There are no locks or leases. Contention is settled by hash arbitration; the publish-and-fetch seam
 and the generation fence stay local to a node.
 
-## 7. Contours, flows, triggers, and the interpreter
+## 7. Contours, flow runs, triggers, and the interpreter
 
-A contour is a sequence of steps, and a flow is one execution of a contour on a parcel: the flow
+A contour is a sequence of steps, and a flow run is one execution of a contour on a parcel: the flow run
 follows the contour the way a Coanda flow follows the contour of a surface. A judgment step names an
 agent and an answer schema; the daemon spawns the agent and validates its answer. An action step
 names something only the daemon does: wait for a human, wait for an external event, timer, emit
@@ -145,32 +145,33 @@ merge, rebase (the software set). Each step has transitions: a table of answer f
 visited fewer than N times, go to step, else pause. Caps are mandatory per transition and per contour
 (budget, spawns); the daemon refuses to load a contour without them. hall9k's task run is one
 contour: build, three reviews, fix, two reviews, fix, until clean or capped. Its plan run is a
-second. Idea discovery is a third. A contour may be one step. A flow pauses when it waits for a
-person or an external event, or when a cap or its budget is reached; a paused flow is live and is
-resumed or stopped, and a stopped flow is final.
+second. Idea discovery is a third. A contour may be one step. A flow run pauses when it waits for a
+person or an external event, or when a cap or its budget is reached; a paused flow run is live and is
+resumed or stopped, and a stopped flow run is final.
 
 A trigger is an event subscription: an event kind plus equality filters, nothing more. A parcel
-entering a state on this node, a PR opened by a flow, a PR assigned to a person, a schedule tick, a
-manual start, another flow's typed outcome. A trigger starts a flow of the contour it names. A
+entering a state on this node, a PR opened by a flow run, a PR assigned to a person, a schedule tick, a
+manual start, another flow run's typed outcome. A trigger starts a flow run of the contour it names. A
 person may own a trigger (a subscription), which is what hall9k's personas become. If matching
 needs judgment, the contour starts with a judgment step that may answer "not for me".
 
 Contours compose: a contour declares a typed outcome (PR opened, report produced, parcels
-derived), and the next contour follows it, so a flow ending with that outcome starts a flow of the
+derived), and the next contour follows it, so a flow run ending with that outcome starts a flow run of the
 next contour on the same parcel, with a depth cap and a budget the chain shares.
 
 The interpreter is a pure function: given the contour, the position, and the answer just
-returned, it returns the next move (go to, pause, end). Every flow records the content hash of its
+returned, it returns the next move (go to, pause, end). Every flow run records the content hash of its
 contour and of each agent it ran, so "did the new review contour help" is a query.
 
-Brian ruled on these words on 2026-11-03: a contour is the stored definition; a flow is one
-execution of a contour on a parcel, and it pauses and is resumed or stopped; an agent runs on a
-model spec. naming.md records the words they replace, and "run" stays retired.
+Brian ruled on these words on 2026-11-03: a contour is the stored definition; one execution of a
+contour on a parcel pauses and is resumed or stopped; an agent runs on a model spec. Since the
+2026-11-04 ruling, that execution has been called a flow run, always the two words. naming.md
+records the words each ruling replaced, and a bare "run" stays retired.
 
 ## 8. Parcels and types
 
-A parcel is the unit of work a flow acts on and the place its state, record, and board row live; a
-pause and its lever live on the parcel's flow, and the paused state of the lifecycle is a person's
+A parcel is the unit of work a flow run acts on and the place its state, record, and board row live; a
+pause and its lever live on the parcel's flow run, and the paused state of the lifecycle is a person's
 pause of the parcel itself. A parcel has exactly one type and one state. A parcel type is a
 definition declaring the lifecycle (states, allowed moves, entry states, a paused state reachable
 from any live state, exactly one terminal state with a resolution set), the fields, and the
@@ -195,9 +196,9 @@ its ending act. QA is a contour that follows the build contour's pr-opened outco
 parcel, with its own depth cap and the chain's budget, and the merge contour follows QA's passing
 outcome where a project runs QA, or pr-opened where it does not, so the PR waits on QA by chaining.
 A contour bound to review starts only when a person moves the parcel there, never when the build
-flow's own step does, because a bound entry on a parcel with a live flow starts nothing and is never
-saved for later. A parcel with a live flow, running or paused, is closed by nobody and moved only
-by that flow's own steps; a person stops the flow (`coa flow stop`) before moving or closing the
+flow run's own step does, because a bound entry on a parcel with a live flow run starts nothing and is never
+saved for later. A parcel with a live flow run, running or paused, is closed by nobody and moved only
+by that flow run's own steps; a person stops the flow run (`coa flow-run stop`) before moving or closing the
 parcel. The words idea and task survive as type names; nobody relearns hall9k's vocabulary.
 Nothing software-specific (branch, worktree, gate, PR) leaks into the meta-model or the interpreter;
 those are fields of the software types and the software actions.
@@ -242,8 +243,8 @@ restart. An adapter per vendor renders an agent definition into the vendor's inv
 system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config, skills to
 tier paths, model spec to flags; caps passed natively where the vendor has them, with the daemon's
 timer authoritative. Every judgment ends in one JSON document validated against the step's schema;
-invalid or missing is retried once by resuming the same session, then the flow pauses with the
-transcript as the lever. The parcel keeps its state; its live flow is where the pause and the lever
+invalid or missing is retried once by resuming the same session, then the flow run pauses with the
+transcript as the lever. The parcel keeps its state; its live flow run is where the pause and the lever
 are found, and a resume performs the step again with a new spawn. hall9k's fifteen marker-line
 grammars do not exist.
 
@@ -254,10 +255,10 @@ spawned process, documented for multiple accounts) or an API key helper. Subscri
 cannot use bare mode; the Agent SDK may not use subscription logins at all, which confirms the CLI
 adapter as primary.
 
-Measurement on every spawn, recorded on the parcel's flow, in the judgment's answer event and in
+Measurement on every spawn, recorded on the parcel's flow run, in the judgment's answer event and in
 the pause event: contour hash, agent hash, model spec, tokens, cost, turns, duration, answer. A
 judgment whose answer or pause is not recorded still records what it spent, in a usage record that
-counts toward the flow's cost and changes nothing else: one a person's pause or stop ended, which
+counts toward the flow run's cost and changes nothing else: one a person's pause or stop ended, which
 stops its session at once, and one whose answer came from a session its visit no longer expects,
 because a resume came after its launch. Its usage is every attempt the executor returned plus what
 stopping the session reported for the attempt in progress.
@@ -271,14 +272,14 @@ One registry of commands, queries, and actions, each entry carrying a name, a ki
 and the roles allowed to call it. Every surface is a rendering of it, role-scoped.
 
 The window: an interactive session in the project home holding the owner principal, the operator's
-primary surface. It reads, rules, and starts; it never drives a lifecycle a flow is driving, and it
-spawns nothing itself (discovery, challenge, walks are contours whose flows the daemon runs). Its
+primary surface. It reads, rules, and starts; it never drives a lifecycle a flow run is driving, and it
+spawns nothing itself (discovery, challenge, walks are contours whose flow runs the daemon runs). Its
 recipe is a stored agent definition: a hand edit is a draft and a publish, a regeneration is a draft
 to diff. The courier is a trigger on feed events bound to a deliver-to-window action, pushing into
 the window's live session through the vendor's inbound channel, with the batching wait and the
 bypass list as binding parameters.
 
-The CLI, `coa`: noun-first (parcel, contour, flow, agent, project, node), thin, calls the daemon and
+The CLI, `coa`: noun-first (parcel, contour, flow run, agent, project, node), thin, calls the daemon and
 starts it when needed; verbs follow the registry. Sessions talk back through it, with their
 principal in a token the adapter places in the environment.
 

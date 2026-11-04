@@ -1,7 +1,7 @@
 # Coanda
 
 Local-first agentic work: you describe a piece of work, a daemon on your own machine runs the
-flow that builds, reviews, and ships it, and the record stays with you.
+flow run that builds, reviews, and ships it, and the record stays with you.
 
 Coanda is early and under construction. It replaces [Hall9k](https://github.com/Hallmanac/hall9k).
 
