@@ -196,8 +196,9 @@ outcome where a project runs QA, or pr-opened where it does not, so the PR waits
 A contour bound to review starts only when a person moves the parcel there, never when the build
 flow's own step does, because a bound entry on a parcel with a live flow starts nothing and is never
 saved for later. A parcel with a live flow, running or paused, is closed by nobody and moved only
-by that flow's own steps; a person stops the flow before moving or closing the parcel. The words
-idea and task survive as type names; nobody relearns hall9k's vocabulary.
+by that flow's own steps, and a flow moves only a parcel it holds; a person stops the flow
+(`coa flow stop`) before moving or closing the parcel. The words idea and task survive as type
+names; nobody relearns hall9k's vocabulary.
 Nothing software-specific (branch, worktree, gate, PR) leaks into the meta-model or the interpreter;
 those are fields of the software types and the software actions.
 

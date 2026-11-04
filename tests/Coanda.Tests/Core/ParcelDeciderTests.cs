@@ -105,6 +105,18 @@ public sealed class ParcelDeciderTests
     }
 
     [Fact]
+    public void A_flow_does_not_move_a_parcel_no_flow_holds()
+    {
+        Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.None, "coanda", "x", null, "brian", Now));
+        Guid stopped = Ids.New();
+
+        FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.None, parcel, "build", $"flow:{stopped}", Now, stopped))
+            .Should().Throw<DomainException>()
+            .WithMessage($"Parcel {Ids.Short(parcel.Id)} is held by no flow, so flow {Ids.Short(stopped)} does not move it*");
+        parcel.State.Should().Be("refine");
+    }
+
+    [Fact]
     public void A_parcel_of_another_type_is_refused_for_that_before_its_live_flow()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.None, "coanda", "x", null, "brian", Now));
