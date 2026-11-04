@@ -14,8 +14,9 @@ public static class DaemonEndpoints
         // Outside the token check: the CLI probes it before it has read the token.
         routes.MapGet("/health", () => Results.Ok(new { ok = true }));
 
-        routes.MapGet("/status", (NodeHome home) =>
+        routes.MapGet("/status", (HttpContext context, NodeHome home) =>
             {
+                CommandRegistry.Require("daemon.status", RequestPrincipal.PrincipalOf(context));
                 DaemonInfo? info = DaemonInfo.Load(home);
                 return info is null
                     ? Results.NotFound(new ErrorView("The daemon has not written its address yet."))
