@@ -17,7 +17,8 @@ public sealed class ProjectCommandTests
     {
         IReadOnlyList<(string Key, string Value)> rows = await AddThenShowAsync(new ProjectAddSettings { Name = "plain", Repo = "git@example.invalid:plain.git", Branch = "main" });
 
-        rows.Should().Contain(("Build", "dotnet build")).And.Contain(("Test", "dotnet test"));
+        Assert.Contains(("Build", "dotnet build"), rows);
+        Assert.Contains(("Test", "dotnet test"), rows);
     }
 
     [Fact]
@@ -28,7 +29,9 @@ public sealed class ProjectCommandTests
             Name = "custom", Repo = "git@example.invalid:custom.git", Branch = "main", Build = "make build [fast]", Test = "make test",
         });
 
-        rows.Should().Contain(("Build", "make build [[fast]]"), "the command is printed as text, not markup").And.Contain(("Test", "make test"));
+        // the command is printed as text, not markup
+        Assert.Contains(("Build", "make build [[fast]]"), rows);
+        Assert.Contains(("Test", "make test"), rows);
     }
 
     [Fact]
@@ -39,12 +42,13 @@ public sealed class ProjectCommandTests
             Name = "half", Repo = "git@example.invalid:half.git", Branch = "main", Test = "npm test",
         });
 
-        rows.Should().Contain(("Build", "dotnet build")).And.Contain(("Test", "npm test"));
+        Assert.Contains(("Build", "dotnet build"), rows);
+        Assert.Contains(("Test", "npm test"), rows);
     }
 
     [Theory]
-    [InlineData(" ", null, "Project 'blank' was given a blank build command*")]
-    [InlineData(null, "", "Project 'blank' was given a blank test command*")]
+    [InlineData(" ", null, "Project 'blank' was given a blank build command")]
+    [InlineData(null, "", "Project 'blank' was given a blank test command")]
     public async Task A_blank_build_or_test_command_is_refused_as_a_blank_remote_is(string? build, string? test, string refusal)
     {
         using var temp = new TemporaryHome();
@@ -52,10 +56,11 @@ public sealed class ProjectCommandTests
         using var client = new DaemonClient(temp.Home);
         var settings = new ProjectAddSettings { Name = "blank", Repo = "git@example.invalid:blank.git", Branch = "main", Build = build, Test = test };
 
-        await FluentActions.Awaiting(() => client.PostAsync<ProjectView>("/projects", settings.ToRequest(), None))
-            .Should().ThrowAsync<DomainException>().WithMessage(refusal);
-        await FluentActions.Awaiting(() => client.GetAsync<ProjectView>("/projects/blank", None))
-            .Should().ThrowAsync<DomainException>().WithMessage("Project 'blank' is not registered*", "nothing was recorded");
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ProjectView>("/projects", settings.ToRequest(), None));
+        Assert.StartsWith(refusal, refused.Message, StringComparison.Ordinal);
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<ProjectView>("/projects/blank", None));
+        // nothing was recorded
+        Assert.StartsWith("Project 'blank' is not registered", exception.Message, StringComparison.Ordinal);
 
         await daemon.StopAsync(None);
     }

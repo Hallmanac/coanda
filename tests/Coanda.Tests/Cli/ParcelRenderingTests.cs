@@ -10,16 +10,15 @@ public sealed class ParcelRenderingTests
     [Fact]
     public void Each_kind_of_value_is_built_from_its_own_options()
     {
-        new ParcelSetSettings { Id = "x", Field = "objective", Text = "Ship it." }.ToValue()
-            .Should().BeEquivalentTo(FieldValue.OfText("Ship it."));
-        new ParcelSetSettings { Id = "x", Field = "criteria", Items = ["one", "two"] }.ToValue()
-            .Should().BeEquivalentTo(FieldValue.OfItems("one", "two"));
-        new ParcelSetSettings { Id = "x", Field = "pull-request", Reference = "42" }.ToValue()
-            .Should().BeEquivalentTo(FieldValue.OfReference("42"));
-        new ParcelSetSettings { Id = "x", Field = "pull-request", Reference = "42", Url = "https://example.com/pull/42" }.ToValue()
-            .Should().BeEquivalentTo(FieldValue.OfReference("42", "https://example.com/pull/42"));
-        new ParcelSetSettings { Id = "x", Field = "objective", Text = "a", Items = ["b"] }.ToValue().Kind
-            .Should().BeNull("two shapes are sent as given, for the daemon to refuse");
+        Assert.Equivalent(FieldValue.OfText("Ship it."), new ParcelSetSettings { Id = "x", Field = "objective", Text = "Ship it." }.ToValue(), strict: true);
+        Assert.Equivalent(FieldValue.OfItems("one", "two"), new ParcelSetSettings { Id = "x", Field = "criteria", Items = ["one", "two"] }.ToValue(), strict: true);
+        Assert.Equivalent(FieldValue.OfReference("42"), new ParcelSetSettings { Id = "x", Field = "pull-request", Reference = "42" }.ToValue(), strict: true);
+        Assert.Equivalent(
+            FieldValue.OfReference("42", "https://example.com/pull/42"),
+            new ParcelSetSettings { Id = "x", Field = "pull-request", Reference = "42", Url = "https://example.com/pull/42" }.ToValue(),
+            strict: true);
+        // two shapes are sent as given, for the daemon to refuse
+        Assert.Null(new ParcelSetSettings { Id = "x", Field = "objective", Text = "a", Items = ["b"] }.ToValue().Kind);
     }
 
     [Fact]
@@ -32,8 +31,6 @@ public sealed class ParcelRenderingTests
                 new ParcelFieldView("criteria", FieldKinds.TextList, null),
             ]);
 
-        ParcelRendering.FieldRows(parcel).Should().BeEquivalentTo(
-            new[] { new[] { "objective", "Use [[bold]] as text" }, new[] { "criteria", "not set" } },
-            o => o.WithStrictOrdering());
+        Assert.Equal([["objective", "Use [[bold]] as text"], ["criteria", "not set"]], ParcelRendering.FieldRows(parcel));
     }
 }

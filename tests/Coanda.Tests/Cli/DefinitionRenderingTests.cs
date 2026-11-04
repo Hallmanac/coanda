@@ -13,7 +13,8 @@ public sealed class DefinitionRenderingTests
 
         string printed = Render(DefinitionRendering.TypeListColumns, DefinitionRendering.TypeListRow(type));
 
-        printed.Should().Contain("task[beta]").And.Contain("new, [paused]");
+        Assert.Contains("task[beta]", printed, StringComparison.Ordinal);
+        Assert.Contains("new, [paused]", printed, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -23,7 +24,7 @@ public sealed class DefinitionRenderingTests
 
         string printed = Render(DefinitionRendering.FlowListColumns, DefinitionRendering.FlowListRow(flow));
 
-        printed.Should().Contain("build[red]");
+        Assert.Contains("build[red]", printed, StringComparison.Ordinal);
     }
 
     private static string Render(string[] columns, string[] row)
