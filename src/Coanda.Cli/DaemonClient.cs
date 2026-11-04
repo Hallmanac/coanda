@@ -170,6 +170,15 @@ public sealed class DaemonClient : IDisposable
         return await ReadAsync<T>(response, cancellationToken);
     }
 
+    public async Task<T> PutAsync<T>(string path, object? body, CancellationToken cancellationToken)
+    {
+        DaemonInfo info = await EnsureRunningAsync(cancellationToken);
+        using HttpRequestMessage request = Request(HttpMethod.Put, info, path);
+        request.Content = JsonContent.Create(body ?? new { });
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
+        return await ReadAsync<T>(response, cancellationToken);
+    }
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         DaemonInfo? info = await FindRunningAsync(cancellationToken);

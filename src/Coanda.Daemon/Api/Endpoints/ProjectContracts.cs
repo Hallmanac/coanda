@@ -8,14 +8,26 @@ public sealed record ProjectAddRequest(string Name, string Remote, string Primar
 /// <summary>Names the credential profile of the running daemon's configuration that a project's judgments spawn with.</summary>
 public sealed record ProjectSetProfileRequest(string Project, string Profile);
 
+/// <summary>Replaces the checks a merge of the project's pull requests waits for with <see cref="Checks"/>, each recorded exactly as given.</summary>
+public sealed record ProjectRequiredChecksRequest(IReadOnlyList<string> Checks);
+
 /// <summary>
-/// A registered project; <see cref="Profile"/> is the credential profile it names on this node, or
+/// A registered project; <see cref="RequiredChecks"/> are the checks a merge of its pull requests
+/// waits for, empty until they are set; <see cref="Profile"/> is the credential profile it names on this node, or
 /// null when it names none, and <see cref="Build"/> and <see cref="Test"/> are the commands its gates
 /// run, the defaults included.
 /// </summary>
 public sealed record ProjectView(
-    string Name, string Remote, string PrimaryBranch, string RegisteredBy, DateTimeOffset RegisteredAt, string? Profile, string Build, string Test)
+    string Name,
+    string Remote,
+    string PrimaryBranch,
+    string RegisteredBy,
+    DateTimeOffset RegisteredAt,
+    string? Profile,
+    string Build,
+    string Test,
+    IReadOnlyList<string> RequiredChecks)
 {
     public static ProjectView From(Project project, string? profile) =>
-        new(project.Name, project.Remote, project.PrimaryBranch, project.RegisteredBy, project.RegisteredAt, profile, project.Build, project.Test);
+        new(project.Name, project.Remote, project.PrimaryBranch, project.RegisteredBy, project.RegisteredAt, profile, project.Build, project.Test, project.RequiredChecks);
 }

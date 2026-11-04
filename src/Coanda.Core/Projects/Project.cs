@@ -4,8 +4,9 @@ using Coanda.Core.Projects.Events;
 namespace Coanda.Core.Projects;
 
 /// <summary>
-/// A project's record: the repository its software actions act on, and the build and test commands
-/// its gates run there, which default to <see cref="DefaultBuild"/> and <see cref="DefaultTest"/>. It lives in the project's own
+/// A project's record: the repository its software actions act on, the build and test commands
+/// its gates run there, which default to <see cref="DefaultBuild"/> and <see cref="DefaultTest"/>,
+/// and the checks a merge waits for, which are none until they are set. It lives in the project's own
 /// tenant, one per project. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="ProjectDecider"/>. The store snapshots this class inline, so it is also the document
 /// a show or list query reads.
@@ -39,6 +40,13 @@ public sealed class Project
     [JsonInclude]
     public string? TestCommand { get; private set; }
 
+    /// <summary>
+    /// The checks a merge of the project's pull requests waits for, by check run name or commit status
+    /// context, exactly as they were set; empty until they are.
+    /// </summary>
+    [JsonInclude]
+    public IReadOnlyList<string> RequiredChecks { get; private set; } = [];
+
     /// <summary>The build command the gates run: the one named, or <see cref="DefaultBuild"/>.</summary>
     [JsonIgnore]
     public string Build => BuildCommand ?? DefaultBuild;
@@ -65,4 +73,6 @@ public sealed class Project
         BuildCommand = registered.BuildCommand;
         TestCommand = registered.TestCommand;
     }
+
+    public void Apply(ProjectRequiredChecksSet set) => RequiredChecks = [.. set.Checks];
 }

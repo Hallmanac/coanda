@@ -16,6 +16,12 @@ public static class ProjectEndpoints
     public static string PathOf(string name) =>
         $"/projects/{string.Join('/', name.Split('/').Select(Uri.EscapeDataString))}";
 
+    /// <summary>The segment after a project's path that names its required checks.</summary>
+    public const string RequiredChecksSegment = "required-checks";
+
+    /// <summary>The path that replaces the named project's required checks: its show path, then <see cref="RequiredChecksSegment"/>.</summary>
+    public static string RequiredChecksPathOf(string name) => $"{PathOf(name)}/{RequiredChecksSegment}";
+
     public static IEndpointRouteBuilder MapProjectEndpoints(this IEndpointRouteBuilder routes)
     {
         RouteGroupBuilder group = routes.MapGroup("/projects");
@@ -48,6 +54,23 @@ public static class ProjectEndpoints
                 return Results.Created(PathOf(project.Name), ProjectView.From(project, null));
             })
             .Produces<ProjectView>(StatusCodes.Status201Created);
+
+        // PUT /projects/{name}/required-checks. A project's name may hold a slash, and a catch-all
+        // segment must come last, so the route takes the rest of the path and the last segment is read off it.
+        group.MapPut("/{**path}", async (HttpContext context, ProjectService projects, string path, ProjectRequiredChecksRequest request, CancellationToken cancellationToken) =>
+            {
+                string suffix = $"/{RequiredChecksSegment}";
+                if (!path.EndsWith(suffix, StringComparison.Ordinal) || path.Length == suffix.Length)
+                {
+                    return Results.NotFound(new ErrorView($"PUT /projects/{path} names nothing; PUT /projects/<name>/{RequiredChecksSegment} replaces a project's required checks."));
+                }
+
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                Project project = await projects.SetRequiredChecksAsync(principal, path[..^suffix.Length], request.Checks, cancellationToken);
+                return Results.Ok(ProjectView.From(project, await projects.ProfileOfAsync(principal, project.Name, cancellationToken)));
+            })
+            .Produces<ProjectView>()
+            .Produces<ErrorView>(StatusCodes.Status404NotFound);
 
         // A fixed path with the project in the body, since the show route already takes the rest of /projects/.
         group.MapPost("/profile", async (HttpContext context, ProjectService projects, ProjectSetProfileRequest request, CancellationToken cancellationToken) =>
