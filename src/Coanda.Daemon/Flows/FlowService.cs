@@ -29,8 +29,9 @@ namespace Coanda.Daemon.Flows;
 /// The loser of a race fails the version check, its flow stream is never written, and it is
 /// refused with the rule. Ending and stopping append <see cref="ParcelFlowReleased"/> the same way.
 /// A resume hands the flow to the <see cref="IFlowAdvancer"/>, when the service has one, so a
-/// resumed flow advances with no further command; a pause or a stop tells it to end the judgment
-/// the flow is running, once the pause or stop is saved. Every write to an existing flow, its end
+/// resumed flow advances with no further command; a pause tells it to end the judgment the flow is
+/// running, and a stop to end the judgment or action it is running and remove its worktree, once the
+/// pause or stop is saved. Every write to an existing flow, its end
 /// and its stop among them, reads the flow again when another write landed between its read and
 /// its save, and decides again from what it read, so it refuses only with the rule that the flow
 /// as it now stands breaks. Beside the registry check, a principal resolved from a session token
@@ -236,8 +237,9 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
     }
 
     /// <summary>
-    /// Stops a live flow and, once the stop is saved, ends the judgment it was running. It needs no
-    /// contour, so a flow whose contour is no longer held can still be stopped.
+    /// Stops a live flow and, once the stop is saved, ends the judgment or action it was running and
+    /// has its worktree removed. It needs no contour, so a flow whose contour is no longer held can
+    /// still be stopped.
     /// </summary>
     public async Task<Flow> StopAsync(Principal principal, string project, Guid flowId, string reason, CancellationToken cancellationToken)
     {
@@ -262,7 +264,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             FlowOrParcelChanged(flowId),
             cancellationToken);
 
-        advancer?.EndJudgment(stopped.Id);
+        advancer?.Stopped(tenant, stopped.Id);
         return stopped;
     }
 
