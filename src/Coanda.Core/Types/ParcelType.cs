@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Coanda.Core.Types;
 
@@ -28,7 +29,8 @@ public sealed record ParcelType
     /// <summary>The gates that must pass before a move the move table holds, or before a close from a live state.</summary>
     public IReadOnlyList<GateBinding> GateBindings { get; init; } = [];
 
-    /// <summary>Content hash of the definition, recorded on every parcel created under it.</summary>
+    /// <summary>Content hash of the definition, recorded on every parcel created under it; computed, so never written into content.</summary>
+    [JsonIgnore]
     public string Hash => ComputeHash();
 
     public bool IsState(string state) => States.Contains(state, StringComparer.Ordinal);
