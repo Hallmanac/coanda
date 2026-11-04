@@ -1,21 +1,21 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 
-namespace Coanda.Core.Contours;
+namespace Coanda.Core.Flows;
 
 /// <summary>
-/// Decides a flow run's next move from a contour, a position, and the last answer alone, as a pure
+/// Decides a flow run's next move from a flow, a position, and the last answer alone, as a pure
 /// function: it reads no clock, store, file, or network, changes nothing it is given, and returns
 /// equal moves for equal inputs. It routes on an answer field equalling a value and on visit
-/// counts, and never computes. It assumes a contour that has already passed validation.
+/// counts, and never computes. It assumes a flow that has already passed validation.
 /// </summary>
 public static class Interpreter
 {
-    /// <summary>The position of a flow run that has just entered the contour's first step.</summary>
-    public static FlowRunPosition Start(Contour contour)
+    /// <summary>The position of a flow run that has just entered the flow's first step.</summary>
+    public static FlowRunPosition Start(Flow flow)
     {
-        ContourStep first = contour.First
-            ?? throw new DomainException($"Contour '{contour.Name}' has no steps, so a flow run has nowhere to start.");
+        FlowStep first = flow.First
+            ?? throw new DomainException($"Flow '{flow.Name}' has no steps, so a flow run has nowhere to start.");
         return Enter(first, ImmutableDictionary.Create<string, int>(StringComparer.Ordinal), spawns: 0);
     }
 
@@ -23,11 +23,11 @@ public static class Interpreter
     /// The position after <paramref name="move"/>: one more visit to the step entered, and one more
     /// spawn when that step is a judgment.
     /// </summary>
-    public static FlowRunPosition Apply(Contour contour, FlowRunPosition position, FlowRunMove.GoTo move)
+    public static FlowRunPosition Apply(Flow flow, FlowRunPosition position, FlowRunMove.GoTo move)
     {
-        _ = Current(contour, position);
-        ContourStep next = contour.Step(move.Step)
-            ?? throw new DomainException($"Contour '{contour.Name}' has no step '{move.Step}' to go to.");
+        _ = Current(flow, position);
+        FlowStep next = flow.Step(move.Step)
+            ?? throw new DomainException($"Flow '{flow.Name}' has no step '{move.Step}' to go to.");
         return Enter(next, position.Visits, position.Spawns);
     }
 
@@ -37,11 +37,11 @@ public static class Interpreter
     /// step's visit count, the current visit included, is no greater than its visit cap. Anything
     /// else pauses with a reason naming the step.
     /// </summary>
-    public static FlowRunMove Decide(Contour contour, FlowRunPosition position, JsonDocument answer)
+    public static FlowRunMove Decide(Flow flow, FlowRunPosition position, JsonDocument answer)
     {
-        ContourStep step = Current(contour, position);
+        FlowStep step = Current(flow, position);
         JsonElement root = answer.RootElement;
-        ContourTransition? considered = root.ValueKind == JsonValueKind.Object
+        FlowTransition? considered = root.ValueKind == JsonValueKind.Object
             ? step.Transitions.FirstOrDefault(transition => Matches(root, transition))
             : null;
         int visits = position.VisitsTo(step.Name);
@@ -52,10 +52,10 @@ public static class Interpreter
                 $"Step '{step.Name}' has no transition for that answer; no field and value in its table match it."),
             _ when !Allows(considered, visits) => new FlowRunMove.Pause(
                 $"Step '{step.Name}' reached the visit cap of {considered.VisitCap} on its transition to '{considered.Target}'."),
-            { Target: Contour.End } => new FlowRunMove.End(contour.Outcome),
-            { Target: Contour.Pause } => new FlowRunMove.Pause(
+            { Target: Flow.End } => new FlowRunMove.End(flow.Outcome),
+            { Target: Flow.Pause } => new FlowRunMove.Pause(
                 $"Step '{step.Name}' pauses on its answer, as its transition table says."),
-            _ => GoTo(contour, position, considered.Target),
+            _ => GoTo(flow, position, considered.Target),
         };
     }
 
@@ -65,32 +65,32 @@ public static class Interpreter
     /// applies, whatever its answer or target. When none could, entering the step again can only
     /// pause on a visit cap.
     /// </summary>
-    public static bool CanFireAtNextVisit(ContourStep step, int visits) =>
+    public static bool CanFireAtNextVisit(FlowStep step, int visits) =>
         step.Transitions.Any(transition => Allows(transition, visits + 1));
 
     /// <summary>A transition fires at a visit count no greater than its visit cap.</summary>
-    private static bool Allows(ContourTransition transition, int visits) => visits <= transition.VisitCap;
+    private static bool Allows(FlowTransition transition, int visits) => visits <= transition.VisitCap;
 
-    private static FlowRunMove GoTo(Contour contour, FlowRunPosition position, string target)
+    private static FlowRunMove GoTo(Flow flow, FlowRunPosition position, string target)
     {
-        bool spawns = contour.Step(target) is { IsJudgment: true };
-        return spawns && position.Spawns >= contour.SpawnCap
+        bool spawns = flow.Step(target) is { IsJudgment: true };
+        return spawns && position.Spawns >= flow.SpawnCap
             ? new FlowRunMove.Pause(
-                $"Contour '{contour.Name}' reached its spawn cap of {contour.SpawnCap}; going to judgment step '{target}' would spawn another agent.")
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; going to judgment step '{target}' would spawn another agent.")
             : new FlowRunMove.GoTo(target);
     }
 
-    private static ContourStep Current(Contour contour, FlowRunPosition position) =>
-        contour.Step(position.Step)
-            ?? throw new DomainException($"Contour '{contour.Name}' has no step '{position.Step}'; the position's current step must be one of its steps.");
+    private static FlowStep Current(Flow flow, FlowRunPosition position) =>
+        flow.Step(position.Step)
+            ?? throw new DomainException($"Flow '{flow.Name}' has no step '{position.Step}'; the position's current step must be one of its steps.");
 
-    private static FlowRunPosition Enter(ContourStep step, ImmutableDictionary<string, int> visits, int spawns) =>
+    private static FlowRunPosition Enter(FlowStep step, ImmutableDictionary<string, int> visits, int spawns) =>
         new(
             step.Name,
             visits.SetItem(step.Name, visits.GetValueOrDefault(step.Name) + 1),
             step.IsJudgment ? spawns + 1 : spawns);
 
-    private static bool Matches(JsonElement answer, ContourTransition transition) =>
+    private static bool Matches(JsonElement answer, FlowTransition transition) =>
         answer.TryGetProperty(transition.Field, out JsonElement value) && Equal(value, transition.Value);
 
     /// <summary>

@@ -1,15 +1,15 @@
 namespace Coanda.Core.FlowRuns.Events;
 
 /// <summary>
-/// A flow run began on a parcel and entered its contour's first step. The step's kind and the agent or
-/// action it names ride on the event, so replay counts the first spawn without the contour.
+/// A flow run began on a parcel and entered its flow's first step. The step's kind and the agent or
+/// action it names ride on the event, so replay counts the first spawn without the flow.
 /// </summary>
 public sealed record FlowRunStarted(
     Guid FlowRunId,
     Guid ParcelId,
-    string ContourName,
-    int ContourVersion,
-    string ContourHash,
+    string FlowName,
+    int FlowVersion,
+    string FlowHash,
     string StartedBy,
     string FirstStep,
     StepKind FirstStepKind,

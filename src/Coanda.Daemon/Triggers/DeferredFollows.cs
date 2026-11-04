@@ -16,8 +16,8 @@ public sealed class DeferredFollows
 }
 
 /// <summary>
-/// A follow waiting to start: the ended flow run it follows, the contour that follows it, and whether
-/// that contour closes the parcel when it ends, which makes it wait behind every follow that does
+/// A follow waiting to start: the ended flow run it follows, the flow that follows it, and whether
+/// that flow closes the parcel when it ends, which makes it wait behind every follow that does
 /// not. A follow recorded before the flag existed reads as not closing.
 /// </summary>
-public sealed record PendingFollow(Guid ParentFlowRunId, string Contour, bool Closes = false);
+public sealed record PendingFollow(Guid ParentFlowRunId, string Flow, bool Closes = false);

@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using ProjectDefaults = Coanda.Core.Projects.Project;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
@@ -18,7 +18,7 @@ public sealed class GatesActionTests : IAsyncLifetime
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
-    private static readonly ContourStep Step = new() { Name = "gates", Action = SoftwareActions.Gates };
+    private static readonly FlowStep Step = new() { Name = "gates", Action = SoftwareActions.Gates };
     private static readonly TimeSpan Limit = TimeSpan.FromMinutes(45);
 
     private readonly TemporaryHome temp = new();
@@ -157,7 +157,7 @@ public sealed class GatesActionTests : IAsyncLifetime
     }
 
     private ValueTask<ActionOutcome> PerformAsync(string project, Guid flowRunId) =>
-        action.PerformAsync(new ActionRequest(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedContours.Build, Step, Resumed: false), None);
+        action.PerformAsync(new ActionRequest(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
 
     private static JsonElement Result(ActionOutcome outcome, string verdict)
     {

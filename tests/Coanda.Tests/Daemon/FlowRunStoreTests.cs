@@ -70,8 +70,8 @@ public sealed class FlowRunStoreTests
 
         FlowRunView shown = await client.GetAsync<FlowRunView>($"/flow-runs/{flowRunId}?project={Project}", CancellationToken.None);
         shown.ParcelId.Should().Be(parcelId);
-        shown.ContourName.Should().Be("build");
-        shown.ContourHash.Should().Be(ShippedContours.Build.Hash);
+        shown.FlowName.Should().Be("build");
+        shown.FlowHash.Should().Be(ShippedFlows.Build.Hash);
         shown.Status.Should().Be("paused");
         shown.CurrentStep.Should().Be("build");
         shown.Steps.Select(s => s.Step).Should().Equal("worktree", "build");
@@ -145,7 +145,7 @@ public sealed class FlowRunStoreTests
 
         Parcel parcel = await parcels.AddAsync(Owner, Project, "task", "End it", null, none);
         FlowRun flowRun = await flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none);
-        FlowRun ended = await flowRuns.EndAsync(Owner, Project, flowRun.Id, ShippedContours.Build.Outcome, none);
+        FlowRun ended = await flowRuns.EndAsync(Owner, Project, flowRun.Id, ShippedFlows.Build.Outcome, none);
 
         ended.Status.Should().Be(FlowRunStatus.Ended);
         Parcel? after = await parcels.ShowAsync(Owner, Project, parcel.Id, none);
@@ -193,7 +193,7 @@ public sealed class FlowRunStoreTests
         var agent = new Principal("build-session", Role.Agent);
         var member = new Principal("teammate", Role.Member);
 
-        // A contour binding's start acts in the Agent role, so starting is open to it as well as to people.
+        // A flow binding's start acts in the Agent role, so starting is open to it as well as to people.
         await flowRuns.StartAsync(member, Project, bySomeone.Id, "build", none);
         FlowRun flowRun = await flowRuns.StartAsync(agent, Project, parcel.Id, "build", none);
         await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareActions.Worktree, Json("""{"verdict":"done"}"""), none);
@@ -211,7 +211,7 @@ public sealed class FlowRunStoreTests
     }
 
     [Fact]
-    public async Task Flow_run_show_prints_the_contour_the_parcel_the_status_each_step_and_the_pause()
+    public async Task Flow_run_show_prints_the_flow_the_parcel_the_status_each_step_and_the_pause()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
@@ -227,7 +227,7 @@ public sealed class FlowRunStoreTests
         FlowRunView view = await FlowRunLookup.FindAsync(client, Project, Ids.Short(flowRun.Id), none);
         IReadOnlyList<string> lines = FlowRunRendering.Show(view);
 
-        lines.Should().Contain($"Contour build v1 ({ShippedContours.Build.Hash})");
+        lines.Should().Contain($"Flow    build v1 ({ShippedFlows.Build.Hash})");
         lines.Should().Contain($"Parcel  {parcel.Id}");
         lines.Should().Contain("Status  paused");
         lines.Should().Contain("Reason  The build agent asked a question.");

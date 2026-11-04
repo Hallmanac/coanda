@@ -12,10 +12,10 @@ public sealed class ParcelTypeFieldTests
     private static readonly IReadOnlySet<string> Gates = GateSet.Shipped.Names;
 
     [Fact]
-    public void The_shipped_idea_hashes_as_it_did_before_fields_existed()
+    public void The_shipped_idea_declares_no_field_and_hashes_to_a_literal()
     {
         ShippedTypes.Idea.Fields.Should().BeEmpty();
-        ShippedTypes.Idea.Hash.Should().Be("2494543b0e6fbb54", "the idea declares no field, so its hash is the one it had at the branch base");
+        ShippedTypes.Idea.Hash.Should().Be("a2a63418ca1bf319", "the idea declares no field, so its hash covers its states, transitions, and flow bindings alone");
     }
 
     [Fact]

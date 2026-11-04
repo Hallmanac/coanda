@@ -7,8 +7,8 @@ namespace Coanda.Core.Software;
 /// The software engineering lifecycle, installed by default: an idea goes through discovery and
 /// either carries forward or derives tasks and closes as split; a task goes refine, build, review,
 /// closed. Both are ordinary <see cref="ParcelType"/> data with no privileges a user's type lacks.
-/// Entering discovery starts the discovery contour and entering build starts the build contour; no other
-/// state carries a contour. A task declares an objective and criteria, required to leave refine,
+/// Entering discovery starts the discovery flow and entering build starts the build flow; no other
+/// state carries a flow. A task declares an objective and criteria, required to leave refine,
 /// non-goals, required to leave no state, and a pull request, required to leave build; it binds the
 /// required-fields gate to the moves out of refine and out of build. The idea declares no field and
 /// binds no gate.
@@ -30,7 +30,7 @@ public static class ShippedTypes
         {
             ["open"] = ["discovery"],
         },
-        ContourBindings = [new ContourBinding("discovery", "discovery")],
+        FlowBindings = [new FlowBinding("discovery", "discovery")],
     };
 
     public static readonly ParcelType Task = new()
@@ -54,7 +54,7 @@ public static class ShippedTypes
             new FieldDeclaration { Name = "non-goals", Kind = FieldKinds.TextList },
             new FieldDeclaration { Name = "pull-request", Kind = FieldKinds.Reference, RequiredToLeave = ["build"] },
         ],
-        ContourBindings = [new ContourBinding("build", "build")],
+        FlowBindings = [new FlowBinding("build", "build")],
         GateBindings =
         [
             new GateBinding("refine", "build", RequiredFieldsGate.GateName),

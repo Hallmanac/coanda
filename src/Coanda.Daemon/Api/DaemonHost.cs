@@ -6,7 +6,7 @@ using Coanda.Daemon.Actions;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
 using Coanda.Daemon.Commands;
-using Coanda.Daemon.Contours;
+using Coanda.Daemon.Flows;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
@@ -72,7 +72,7 @@ public sealed class DaemonHost
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.
         builder.Services.AddSingleton(new GateSet([.. GateSet.ShippedGates, .. options.Gates]));
-        // Contours are validated against the actions the daemon registered, not a catalog of their own.
+        // Flows are validated against the actions the daemon registered, not a catalog of their own.
         builder.Services.AddSingleton(services => new DefinitionService(
             services.GetRequiredService<IDocumentStore>(),
             services.GetRequiredService<TimeProvider>(),
@@ -81,7 +81,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
-        builder.Services.AddSingleton<ContourService>();
+        builder.Services.AddSingleton<FlowService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
         builder.Services.AddSingleton(new FlowRunAdvancerOptions(options.JudgmentLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
@@ -123,7 +123,7 @@ public sealed class DaemonHost
 
         app.MapDaemonEndpoints();
         app.MapTypeEndpoints();
-        app.MapContourEndpoints();
+        app.MapFlowEndpoints();
         app.MapAgentEndpoints();
         app.MapFlowRunEndpoints();
         app.MapProjectEndpoints();

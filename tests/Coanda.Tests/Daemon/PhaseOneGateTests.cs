@@ -6,7 +6,7 @@ using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Daemon.Api;
@@ -21,7 +21,7 @@ using Fisher;
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
-/// The phase 1 gate of the prototype plan (section 3): a flow run of the shipped build contour runs end
+/// The phase 1 gate of the prototype plan (section 3): a flow run of the shipped build flow runs end
 /// to end on canned answers with every cap enforced and refused at load without them. Every test
 /// runs on a throwaway node home with a <see cref="ScriptedExecutor"/>, and none touches a network or a repository.
 /// </summary>
@@ -36,10 +36,10 @@ public sealed class PhaseOneGateTests
     private static ScriptedExecutor Executor(params (string Agent, ScriptEntry[] Entries)[] script) =>
         new(script.ToDictionary(s => s.Agent, s => (IReadOnlyList<ScriptEntry>)s.Entries));
 
-    // 1. The clean path, with no contour start, and the stop at review without a pull request.
+    // 1. The clean path, with no flow start, and the stop at review without a pull request.
 
     [Fact]
-    public async Task A_task_moved_to_build_runs_the_shipped_build_contour_to_its_end_recording_every_hash_and_measurement()
+    public async Task A_task_moved_to_build_runs_the_shipped_build_flow_to_its_end_recording_every_hash_and_measurement()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Scripts.CleanBuildExecutor();
@@ -55,11 +55,11 @@ public sealed class PhaseOneGateTests
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         flowRun.Outcome.Should().Be("pr-opened");
-        flowRun.ContourHash.Should().Be(ShippedContours.Build.Hash);
+        flowRun.FlowHash.Should().Be(ShippedFlows.Build.Hash);
 
         // The merge follows the build's end with no step taken by hand, merges the head open-pr recorded, and closes the task.
         FlowRunView merge = await FlowRunDriver.MergedAsync(client, Project, parcel.Id, flowRun.Id);
-        merge.ContourHash.Should().Be(ShippedContours.Merge.Hash);
+        merge.FlowHash.Should().Be(ShippedFlows.Merge.Hash);
         merge.Outcome.Should().Be("merged");
         merge.ParentFlowRunId.Should().Be(flowRun.Id);
         merge.Depth.Should().Be(1);
@@ -99,18 +99,18 @@ public sealed class PhaseOneGateTests
     }
 
     [Fact]
-    public async Task A_flow_run_of_a_build_contour_with_no_open_pr_step_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
+    public async Task A_flow_run_of_a_build_flow_with_no_open_pr_step_on_a_task_with_no_pull_request_pauses_at_its_move_to_review_quoting_the_gate()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour withoutOpenPr = await Publishing.ContourAsync(daemon, Project, WithoutOpenPr(ShippedContours.Build));
+        Flow withoutOpenPr = await Publishing.FlowAsync(daemon, Project, WithoutOpenPr(ShippedFlows.Build));
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        paused.ContourHash.Should().Be(withoutOpenPr.Hash);
+        paused.FlowHash.Should().Be(withoutOpenPr.Hash);
         paused.Steps.Select(s => s.Step).Should().NotContain("open-pr");
         paused.CurrentStep.Should().Be("move-to-review");
         paused.PauseReason.Should().Be(
@@ -121,8 +121,8 @@ public sealed class PhaseOneGateTests
         await daemon.StopAsync(None);
     }
 
-    /// <summary>The build contour with its open-pr step taken out: a clean conformance review goes straight to the move to review.</summary>
-    private static Contour WithoutOpenPr(Contour build) => build with
+    /// <summary>The build flow with its open-pr step taken out: a clean conformance review goes straight to the move to review.</summary>
+    private static Flow WithoutOpenPr(Flow build) => build with
     {
         Steps =
         [
@@ -151,7 +151,7 @@ public sealed class PhaseOneGateTests
         ("fix", [.. Enumerable.Range(1, 6).Select(n => Costing("done", 0.5m, n))]));
 
     [Fact]
-    public async Task A_review_that_is_never_clean_pauses_a_flow_run_of_the_shipped_build_contour_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
+    public async Task A_review_that_is_never_clean_pauses_a_flow_run_of_the_shipped_build_flow_on_the_cap_it_reaches_first_the_review_to_fix_visit_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
@@ -164,28 +164,28 @@ public sealed class PhaseOneGateTests
 
         paused.PauseReason.Should().Be("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.");
         paused.Lever.Should().NotBeNullOrWhiteSpace();
-        paused.Spawns.Should().BeLessThan(ShippedContours.Build.SpawnCap, "the visit cap binds before the spawn cap");
-        paused.Cost.Should().BeLessThan(ShippedContours.Build.Budget);
+        paused.Spawns.Should().BeLessThan(ShippedFlows.Build.SpawnCap, "the visit cap binds before the spawn cap");
+        paused.Cost.Should().BeLessThan(ShippedFlows.Build.Budget);
         executor.Spawns.Should().HaveCount(paused.Spawns);
 
         await daemon.StopAsync(None);
     }
 
     [Fact]
-    public async Task A_project_copy_of_the_build_contour_whose_spawn_cap_binds_first_pauses_on_the_same_script_naming_the_spawn_cap()
+    public async Task A_project_copy_of_the_build_flow_whose_spawn_cap_binds_first_pauses_on_the_same_script_naming_the_spawn_cap()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = NeverClean();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour copy = await Publishing.ContourAsync(daemon, Project, ShippedContours.Build with { SpawnCap = 4 });
+        Flow copy = await Publishing.FlowAsync(daemon, Project, ShippedFlows.Build with { SpawnCap = 4 });
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
 
-        paused.ContourHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
-        paused.PauseReason.Should().Be("Contour 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
+        paused.FlowHash.Should().Be(copy.Hash, "the project's copy is what resolution returns for the binding");
+        paused.PauseReason.Should().Be("Flow 'build' reached its spawn cap of 4; going to judgment step 'fix' would spawn another agent.");
         paused.Lever.Should().NotBeNullOrWhiteSpace();
         paused.Steps.Count(s => s.Step == "adversarial-review").Should().BeLessThan(4, "the visit cap of 3 was never reached");
         executor.Spawns.Should().HaveCount(4);
@@ -196,14 +196,14 @@ public sealed class PhaseOneGateTests
     // 4. The depth cap on composition.
 
     [Fact]
-    public async Task A_contour_following_its_own_outcome_chains_to_its_depth_cap_and_pauses_the_next_link_before_any_step_even_when_resumed()
+    public async Task A_flow_following_its_own_outcome_chains_to_its_depth_cap_and_pauses_the_next_link_before_any_step_even_when_resumed()
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(("reviewer-adversarial", [.. Enumerable.Range(1, 5).Select(n => Costing("clean", 0.1m, n))]));
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour loop = await Publishing.ContourAsync(daemon, Project, Reviewing("loop", "looped", 5m, new ContourFollow { Outcome = "looped", Contour = "loop", DepthCap = 2 }));
+        Flow loop = await Publishing.FlowAsync(daemon, Project, Reviewing("loop", "looped", 5m, new FlowFollow { Outcome = "looped", Flow = "loop", DepthCap = 2 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Round and round", null), None);
 
         FlowRunView root = await FlowRunDriver.StartAsync(client, Project, parcel.Id, loop.Name);
@@ -216,7 +216,7 @@ public sealed class PhaseOneGateTests
         flowRuns.Should().OnlyContain(f => f.RootFlowRunId == root.Id);
         capped.ParentFlowRunId.Should().Be(flowRuns[2].Id);
         capped.PauseReason.Should().Be(
-            $"Flow run {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of contour 'loop'; a flow run deeper than its follow's depth cap performs no step.");
+            $"Flow run {Ids.Short(capped.Id)} is at depth 3 of its chain, past the depth cap of 2 on the follow of flow 'loop'; a flow run deeper than its follow's depth cap performs no step.");
         capped.Lever.Should().Be(FlowRunLevers.DepthCapReached("loop"));
         FlowRunStepView first = capped.Steps.Should().ContainSingle().Subject;
         first.Answer.Should().BeNull();
@@ -241,7 +241,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(
-            ("build", [Costing("done", ShippedContours.Build.Budget, 1)]),
+            ("build", [Costing("done", ShippedFlows.Build.Budget, 1)]),
             ("reviewer-adversarial", [Costing("clean", 0.1m, 2)]),
             ("reviewer-conformance", [Costing("clean", 0.1m, 3)]));
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
@@ -253,7 +253,7 @@ public sealed class PhaseOneGateTests
 
         paused.CurrentStep.Should().Be("adversarial-review");
         paused.PauseReason.Should().Be(
-            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow run performs no judgment once its recorded cost reaches its contour's budget.");
+            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flow run performs no judgment once its recorded cost reaches its flow's budget.");
         paused.Lever.Should().Be(FlowRunLevers.BudgetReached());
         paused.Steps[^1].Answer.Should().BeNull();
         executor.Spawns.Select(s => s.Agent).Should().Equal("build");
@@ -269,18 +269,18 @@ public sealed class PhaseOneGateTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour seed = await Publishing.ContourAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
-        await Publishing.ContourAsync(daemon, Project, Reviewing("grow", "grown", 5m, new ContourFollow { Outcome = "grown", DepthCap = 5 }));
+        Flow seed = await Publishing.FlowAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
+        await Publishing.FlowAsync(daemon, Project, Reviewing("grow", "grown", 5m, new FlowFollow { Outcome = "grown", DepthCap = 5 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Shared purse", null), None);
 
         FlowRunView root = await FlowRunDriver.StartAsync(client, Project, parcel.Id, seed.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await AtDepthAsync(client, parcel.Id, 2)).Id, "paused");
 
         List<FlowRunView> flowRuns = await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id);
-        flowRuns.Select(f => (f.ContourName, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
+        flowRuns.Select(f => (f.FlowName, f.Status)).Should().Equal(("seed", "ended"), ("grow", "ended"), ("grow", "paused"));
         flowRuns.Should().OnlyContain(f => f.Cost < 1m, "each flow run stays under its own budget");
         paused.PauseReason.Should().Be(
-            $"The chain of flow run {Ids.Short(paused.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flow runs, which reaches the budget of $1.00 of contour 'seed' that its root flow run follows; a chain performs no judgment once its recorded cost reaches that budget.");
+            $"The chain of flow run {Ids.Short(paused.Id)}, rooted at flow run {Ids.Short(root.Id)}, has recorded a cost of $1.20 across its flow runs, which reaches the budget of $1.00 of flow 'seed' that its root flow run follows; a chain performs no judgment once its recorded cost reaches that budget.");
         paused.Lever.Should().Be(FlowRunLevers.BudgetReached());
         executor.Spawns.Should().HaveCount(2);
 
@@ -313,7 +313,7 @@ public sealed class PhaseOneGateTests
         FlowRunView again = await PausedAfterAsync(client, paused.Id, resumed.UpdatedAt);
 
         again.PauseReason.Should().Be(
-            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of contour 'build'; a flow run performs no judgment once its recorded cost reaches its contour's budget.");
+            $"Flow run {Ids.Short(paused.Id)} has recorded a cost of $25.00, which reaches the budget of $25.00 of flow 'build'; a flow run performs no judgment once its recorded cost reaches its flow's budget.");
         again.Steps.Count(s => s.Step == "build").Should().Be(1);
         executor.Spawns.Should().ContainSingle("a resume of a spent flow run spawns nothing");
 
@@ -324,54 +324,54 @@ public sealed class PhaseOneGateTests
 
     public static TheoryData<string, string, string> Uncapped => new()
     {
-        { "the budget removed", Without(ShippedContours.Build, contour => contour.Remove("Budget")), "Contour 'build' needs a budget greater than zero; every contour declares one." },
-        { "the spawn cap removed", Without(ShippedContours.Build, contour => contour.Remove("SpawnCap")), "Contour 'build' needs a spawn cap greater than zero; every contour declares one." },
+        { "the budget removed", Without(ShippedFlows.Build, flow => flow.Remove("Budget")), "Flow 'build' needs a budget greater than zero; every flow declares one." },
+        { "the spawn cap removed", Without(ShippedFlows.Build, flow => flow.Remove("SpawnCap")), "Flow 'build' needs a spawn cap greater than zero; every flow declares one." },
         {
             "one transition's visit cap removed",
-            Without(ShippedContours.Build, contour => Transition(contour, "adversarial-review", "not-clean").Remove("VisitCap")),
-            "The transition of step 'adversarial-review' in contour 'build' on 'verdict' needs a visit cap greater than zero; every transition declares one."
+            Without(ShippedFlows.Build, flow => Transition(flow, "adversarial-review", "not-clean").Remove("VisitCap")),
+            "The transition of step 'adversarial-review' in flow 'build' on 'verdict' needs a visit cap greater than zero; every transition declares one."
         },
         {
             "a follow with no depth cap",
-            Without(ShippedContours.Build with { Name = "after-build", Follow = new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 } }, contour => contour["Follow"]?.AsObject().Remove("DepthCap")),
-            "Contour 'after-build' follows an outcome, so its follow needs a depth cap greater than zero; every composition declares one."
+            Without(ShippedFlows.Build with { Name = "after-build", Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 } }, flow => flow["Follow"]?.AsObject().Remove("DepthCap")),
+            "Flow 'after-build' follows an outcome, so its follow needs a depth cap greater than zero; every composition declares one."
         },
     };
 
     [Theory]
     [MemberData(nameof(Uncapped))]
-    public async Task A_contour_drafted_without_a_cap_is_refused_quoting_the_rule_and_appends_no_event(string missing, string content, string rule)
+    public async Task A_flow_drafted_without_a_cap_is_refused_quoting_the_rule_and_appends_no_event(string missing, string content, string rule)
     {
         missing.Should().NotBeNullOrEmpty();
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
-        Contour read = Contour.FromJson(content);
+        Flow read = Flow.FromJson(content);
         long before = await store.Database.FetchHighestEventSequenceNumber(None);
 
         await FluentActions.Awaiting(() => definitions.DraftAsync(
-                Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, read.Name, content, read.Hash, null, None))
+                Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, read.Name, content, read.Hash, null, None))
             .Should().ThrowAsync<DomainException>().WithMessage(rule);
 
         (await store.Database.FetchHighestEventSequenceNumber(None)).Should().Be(before, "a refused draft records nothing");
     }
 
-    /// <summary>The contour's canonical content with something taken out of it, as a person editing the file might leave it.</summary>
-    private static string Without(Contour contour, Action<JsonObject> remove)
+    /// <summary>The flow's canonical content with something taken out of it, as a person editing the file might leave it.</summary>
+    private static string Without(Flow flow, Action<JsonObject> remove)
     {
-        JsonObject content = JsonNode.Parse(Contour.CanonicalJson(contour))?.AsObject()
-            ?? throw new InvalidOperationException("A contour's canonical content is a JSON object.");
+        JsonObject content = JsonNode.Parse(Flow.CanonicalJson(flow))?.AsObject()
+            ?? throw new InvalidOperationException("A flow's canonical content is a JSON object.");
         remove(content);
         return content.ToJsonString();
     }
 
-    private static JsonObject Transition(JsonObject contour, string step, string verdict) =>
-        contour["Steps"]?.AsArray().Single(s => (string?)s?["Name"] == step)?["Transitions"]?.AsArray()
+    private static JsonObject Transition(JsonObject flow, string step, string verdict) =>
+        flow["Steps"]?.AsArray().Single(s => (string?)s?["Name"] == step)?["Transitions"]?.AsArray()
             .Single(t => (string?)t?["Value"] == verdict)?.AsObject()
-        ?? throw new InvalidOperationException($"The contour has no transition of '{step}' on '{verdict}'.");
+        ?? throw new InvalidOperationException($"The flow has no transition of '{step}' on '{verdict}'.");
 
-    /// <summary>A contour of one adversarial review that ends on either verdict.</summary>
-    private static Contour Reviewing(string name, string outcome, decimal budget, ContourFollow? follow) => new()
+    /// <summary>A flow of one adversarial review that ends on either verdict.</summary>
+    private static Flow Reviewing(string name, string outcome, decimal budget, FlowFollow? follow) => new()
     {
         Name = name,
         Accepts = ["task"],
@@ -381,15 +381,15 @@ public sealed class PhaseOneGateTests
         Follow = follow,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "review",
                 Agent = "reviewer-adversarial",
                 AnswerSchema = "review",
                 Transitions =
                 [
-                    new ContourTransition { Field = "verdict", Value = ContourValue.Of("clean"), VisitCap = 1, Target = Contour.End },
-                    new ContourTransition { Field = "verdict", Value = ContourValue.Of("not-clean"), VisitCap = 1, Target = Contour.End },
+                    new FlowTransition { Field = "verdict", Value = FlowValue.Of("clean"), VisitCap = 1, Target = Flow.End },
+                    new FlowTransition { Field = "verdict", Value = FlowValue.Of("not-clean"), VisitCap = 1, Target = Flow.End },
                 ],
             },
         ],

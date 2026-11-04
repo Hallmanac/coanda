@@ -10,7 +10,7 @@ using Coanda.Tests.Daemon.Commands;
 namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
-/// The shipped build contour's fix step is spawned with the latest gates result and review findings
+/// The shipped build flow's fix step is spawned with the latest gates result and review findings
 /// recorded on its flow run, so it acts on what routed it there, and with nothing older.
 /// </summary>
 public sealed class FixContextFlowRunTests

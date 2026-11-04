@@ -1,4 +1,4 @@
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Triggers;
@@ -10,8 +10,8 @@ namespace Coanda.Core.Triggers;
 /// </summary>
 public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, string> Filters)
 {
-    /// <summary>The trigger a contour binding is: a parcel of the type entering the bound state.</summary>
-    public static Trigger ForBinding(ParcelType type, ContourBinding binding) => new(
+    /// <summary>The trigger a flow binding is: a parcel of the type entering the bound state.</summary>
+    public static Trigger ForBinding(ParcelType type, FlowBinding binding) => new(
         TriggerEvent.ParcelEnteredKind,
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -20,17 +20,17 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
         });
 
     /// <summary>
-    /// The trigger a follow is: a flow run ending with the followed outcome, from the followed contour
-    /// when the follow names one. Like every filter, each compares for exact equality; the contour's
+    /// The trigger a follow is: a flow run ending with the followed outcome, from the followed flow
+    /// when the follow names one. Like every filter, each compares for exact equality; the flow's
     /// name is folded as <see cref="TriggerEvent.FlowRunEnded"/> folds it, so any spelling of the
-    /// followed contour's name matches it.
+    /// followed flow's name matches it.
     /// </summary>
-    public static Trigger ForFollow(ContourFollow follow)
+    public static Trigger ForFollow(FlowFollow follow)
     {
         var filters = new Dictionary<string, string>(StringComparer.Ordinal) { [TriggerEvent.OutcomeField] = follow.Outcome };
-        if (follow.Contour is not null)
+        if (follow.Flow is not null)
         {
-            filters[TriggerEvent.ContourField] = TriggerEvent.ContourKey(follow.Contour);
+            filters[TriggerEvent.FlowField] = TriggerEvent.FlowKey(follow.Flow);
         }
 
         return new Trigger(TriggerEvent.FlowRunEndedKind, filters);

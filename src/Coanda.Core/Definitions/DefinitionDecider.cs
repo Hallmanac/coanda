@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Types;
 
@@ -19,7 +19,7 @@ public static class DefinitionDecider
     /// version already recorded for the same kind, scope, and name (and project, in project
     /// scope), or 0 when there is none. <paramref name="knownGates"/> is every gate name the
     /// daemon runs, which a parcel type's gate bindings are validated against; the shipped gate set's when null.
-    /// <paramref name="knownActions"/> is every action name the daemon registered, which a contour's
+    /// <paramref name="knownActions"/> is every action name the daemon registered, which a flow's
     /// action steps are validated against; none when null. The decider holds no catalog of either.
     /// <paramref name="shippedVersions"/> is the name and version of every shipped definition of
     /// <paramref name="kind"/>, which a fork base must name one of; none when null.
@@ -81,7 +81,7 @@ public static class DefinitionDecider
     /// <summary>
     /// Seeds a shipped definition: the drafted and published events together, in shipped scope.
     /// The only road into that scope. A shipped parcel type is validated against the shipped gate
-    /// set, the gates every daemon runs, so it binds only those. A shipped contour is validated against
+    /// set, the gates every daemon runs, so it binds only those. A shipped flow is validated against
     /// <paramref name="knownActions"/>, the action names the daemon registered; none when null.
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published) Seed(
@@ -146,8 +146,8 @@ public static class DefinitionDecider
             case DefinitionKind.ParcelType:
                 RequireParcelType(trimmedName, content, contentHash, knownGates);
                 break;
-            case DefinitionKind.Contour:
-                RequireContour(trimmedName, content, contentHash, knownActions);
+            case DefinitionKind.Flow:
+                RequireFlow(trimmedName, content, contentHash, knownActions);
                 break;
             case DefinitionKind.Agent:
                 RequireAgent(trimmedName, content, contentHash);
@@ -175,20 +175,20 @@ public static class DefinitionDecider
         }
     }
 
-    private static void RequireContour(string name, string content, string contentHash, IReadOnlySet<string> knownActions)
+    private static void RequireFlow(string name, string content, string contentHash, IReadOnlySet<string> knownActions)
     {
-        Contour contour = Contour.FromJson(content);
-        contour.Validate(knownActions);
+        Flow flow = Flow.FromJson(content);
+        flow.Validate(knownActions);
 
-        if (!string.Equals(contour.Name, name, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(flow.Name, name, StringComparison.OrdinalIgnoreCase))
         {
-            throw new DomainException($"A contour definition is named for its contour; '{name}' holds the contour '{contour.Name}'.");
+            throw new DomainException($"A flow definition is named for its flow; '{name}' holds the flow '{flow.Name}'.");
         }
 
-        if (!string.Equals(contour.Hash, contentHash, StringComparison.Ordinal))
+        if (!string.Equals(flow.Hash, contentHash, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"The content hash '{contentHash}' differs from the contour's hash '{contour.Hash}'.");
+                $"The content hash '{contentHash}' differs from the flow's hash '{flow.Hash}'.");
         }
     }
 
@@ -212,7 +212,7 @@ public static class DefinitionDecider
     private static string Describe(DefinitionKind kind) => kind switch
     {
         DefinitionKind.ParcelType => "parcel type",
-        DefinitionKind.Contour => "contour",
+        DefinitionKind.Flow => "flow",
         _ => "agent",
     };
 

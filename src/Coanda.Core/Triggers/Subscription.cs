@@ -6,7 +6,7 @@ namespace Coanda.Core.Triggers;
 
 /// <summary>
 /// A person's trigger in a project: the external events it matches, the parcel it creates for each,
-/// and the contour it starts there. A record a person holds, not a definition: it has no draft,
+/// and the flow it starts there. A record a person holds, not a definition: it has no draft,
 /// publish, scope, or fork. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="TriggerDecider"/>. The store snapshots this class inline, so it is also the document
 /// the trigger loop reads.
@@ -26,7 +26,7 @@ public sealed class Subscription
     [JsonInclude]
     public string TitleField { get; private set; } = string.Empty;
     [JsonInclude]
-    public string Contour { get; private set; } = string.Empty;
+    public string Flow { get; private set; } = string.Empty;
     [JsonInclude]
     public string RecordedBy { get; private set; } = string.Empty;
     [JsonInclude]
@@ -56,7 +56,7 @@ public sealed class Subscription
         Filters = new Dictionary<string, string>(recorded.Filters, StringComparer.Ordinal);
         ParcelType = recorded.ParcelType;
         TitleField = recorded.TitleField;
-        Contour = recorded.Contour;
+        Flow = recorded.Flow;
         RecordedBy = recorded.RecordedBy;
         RecordedByRole = recorded.RecordedByRole;
         RecordedAt = recorded.RecordedAt;

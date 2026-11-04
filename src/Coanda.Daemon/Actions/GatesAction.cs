@@ -11,7 +11,7 @@ namespace Coanda.Daemon.Actions;
 /// platform's shell in the flow run's work path, stopping at the first that exits nonzero. Both passing
 /// answers done; one failing, the shell's own exit for a command it cannot find included, answers
 /// failed with a <c>reason</c> naming the command and its exit code and carrying at most the last
-/// <see cref="QuotedLines"/> lines of its output, so the contour routes to its fix step. A command
+/// <see cref="QuotedLines"/> lines of its output, so the flow routes to its fix step. A command
 /// still running after <paramref name="commandLimit"/> is ended and answers failed the same way. A
 /// shell that cannot be started, or a project with no record, pauses with the perform-again lever instead.
 /// </summary>

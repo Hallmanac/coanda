@@ -4,7 +4,7 @@ using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Software;
@@ -14,24 +14,24 @@ namespace Coanda.Tests.Core;
 public sealed class FlowRunChainTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
-    private static readonly Contour Build = ShippedContours.Build;
+    private static readonly Flow Build = ShippedFlows.Build;
     private static readonly ModelSpec Model = new("anthropic", "claude-opus-5-5", "high");
 
-    private static readonly Contour Follower = new()
+    private static readonly Flow Follower = new()
     {
         Name = "after-build",
         Accepts = ["task"],
         Outcome = "followed",
         Budget = 1m,
         SpawnCap = 1,
-        Follow = new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 3 },
+        Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 3 },
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "look",
                 Action = SoftwareActions.Worktree,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     };
@@ -78,7 +78,7 @@ public sealed class FlowRunChainTests
         child.ParcelId.Should().Be(parcel.Id);
         attached.FlowRunId.Should().Be(child.Id);
 
-        Contour again = Follower with { Follow = new ContourFollow { Outcome = "followed", DepthCap = 3 } };
+        Flow again = Follower with { Follow = new FlowFollow { Outcome = "followed", DepthCap = 3 } };
         (FlowRunEnded ended, ParcelFlowRunReleased released) = FlowRunDecider.End(Follower, child, Follower.Outcome, "follow:x", Now);
         child.Apply(ended);
         parcel.Apply(attached);
@@ -108,15 +108,15 @@ public sealed class FlowRunChainTests
     }
 
     [Fact]
-    public void A_follow_by_a_contour_that_declares_none_or_follows_another_outcome_is_refused()
+    public void A_follow_by_a_flow_that_declares_none_or_follows_another_outcome_is_refused()
     {
         (FlowRun parent, Parcel parcel) = EndedBuild();
 
         FluentActions.Invoking(() => FlowRunDecider.Follow(Follower with { Follow = null }, 1, parcel, parent, "follow:x", Now))
-            .Should().Throw<DomainException>().WithMessage("Contour 'after-build' declares no follow, so no flow run's end starts it.");
+            .Should().Throw<DomainException>().WithMessage("Flow 'after-build' declares no follow, so no flow run's end starts it.");
         FluentActions.Invoking(() => FlowRunDecider.Follow(
-                Follower with { Follow = new ContourFollow { Outcome = "pr-opened", Contour = "discovery", DepthCap = 1 } }, 1, parcel, parent, "follow:x", Now))
-            .Should().Throw<DomainException>().WithMessage("Contour 'after-build' follows the outcome 'pr-opened' of contour 'discovery'; flow run * of contour 'build' ended with 'pr-opened'.");
+                Follower with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 } }, 1, parcel, parent, "follow:x", Now))
+            .Should().Throw<DomainException>().WithMessage("Flow 'after-build' follows the outcome 'pr-opened' of flow 'discovery'; flow run * of flow 'build' ended with 'pr-opened'.");
     }
 
     [Fact]
@@ -145,10 +145,10 @@ public sealed class FlowRunChainTests
     }
 
     [Fact]
-    public void A_follow_names_the_contour_it_follows_in_any_spelling()
+    public void A_follow_names_the_flow_it_follows_in_any_spelling()
     {
         (FlowRun parent, Parcel parcel) = EndedBuild();
-        Contour spelled = Follower with { Follow = new ContourFollow { Outcome = "pr-opened", Contour = "Build", DepthCap = 3 } };
+        Flow spelled = Follower with { Follow = new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 3 } };
 
         FlowRun child = FlowRun.Create(FlowRunDecider.Follow(spelled, 1, parcel, parent, "follow:x", Now).Started);
 

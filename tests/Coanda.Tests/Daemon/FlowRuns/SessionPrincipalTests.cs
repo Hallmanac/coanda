@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Coanda.Cli;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Registry;
@@ -523,8 +523,8 @@ public sealed class SessionPrincipalTests
     private static ScriptedExecutor BuildScript(params ScriptEntry[] entries) =>
         new(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = entries });
 
-    private static Task<Contour> PublishSingleAsync(RunningDaemon daemon, string project) =>
-        Publishing.ContourAsync(daemon, project, new Contour
+    private static Task<Flow> PublishSingleAsync(RunningDaemon daemon, string project) =>
+        Publishing.FlowAsync(daemon, project, new Flow
         {
             Name = Single,
             Accepts = ["task"],
@@ -533,12 +533,12 @@ public sealed class SessionPrincipalTests
             SpawnCap = 3,
             Steps =
             [
-                new ContourStep
+                new FlowStep
                 {
                     Name = "build",
                     Agent = "build",
                     AnswerSchema = "build",
-                    Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                    Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                 },
             ],
         });

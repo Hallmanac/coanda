@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
@@ -21,7 +21,7 @@ namespace Coanda.Tests.Daemon.Actions;
 /// <summary>
 /// The rebase action against the scripted command runner's model of the node's clone: the commands
 /// it runs and their order, what it leaves the branch, the worktree, and the remote holding, and
-/// each pause. The flow run it runs on is a one-step open-pr contour whose result the test records by
+/// each pause. The flow run it runs on is a one-step open-pr flow whose result the test records by
 /// hand, so the recorded head is that result's.
 /// </summary>
 public sealed class RebaseActionTests : IAsyncLifetime
@@ -31,10 +31,10 @@ public sealed class RebaseActionTests : IAsyncLifetime
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private static readonly CancellationToken None = CancellationToken.None;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
-    private static readonly ContourStep Step = new() { Name = "rebase", Action = SoftwareActions.Rebase };
+    private static readonly FlowStep Step = new() { Name = "rebase", Action = SoftwareActions.Rebase };
 
-    /// <summary>A contour whose one step is open-pr, so a flow run of it can hold a recorded open-pr result.</summary>
-    private static readonly Contour Recorder = new()
+    /// <summary>A flow whose one step is open-pr, so a flow run of it can hold a recorded open-pr result.</summary>
+    private static readonly Flow Recorder = new()
     {
         Name = "recorder",
         Accepts = ["task"],
@@ -43,11 +43,11 @@ public sealed class RebaseActionTests : IAsyncLifetime
         SpawnCap = 1,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "open-pr",
                 Action = SoftwareActions.OpenPr,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("opened"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("opened"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     };
@@ -71,8 +71,8 @@ public sealed class RebaseActionTests : IAsyncLifetime
         flowRuns = new FlowRunService(store, TimeProvider.System);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
         Definition draft = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, Recorder.Name,
-            Contour.CanonicalJson(Recorder), Recorder.Hash, null, None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, Recorder.Name,
+            Flow.CanonicalJson(Recorder), Recorder.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         action = new RebaseAction(
             new ProjectService(store, TimeProvider.System),

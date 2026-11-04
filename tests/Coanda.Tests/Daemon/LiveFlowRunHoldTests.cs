@@ -1,5 +1,5 @@
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
@@ -104,12 +104,12 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
     public async Task The_holding_flow_runs_own_move_parcel_step_moves_the_parcel()
     {
         (Parcel parcel, FlowRun flowRun) = await HeldAtBuildAsync();
-        ContourStep step = ShippedContours.Build.Step("move-to-review")
-            ?? throw new InvalidOperationException("The build contour has no move-to-review step.");
+        FlowStep step = ShippedFlows.Build.Step("move-to-review")
+            ?? throw new InvalidOperationException("The build flow has no move-to-review step.");
         var action = new MoveParcelAction(parcels);
 
         ActionOutcome outcome = await action.PerformAsync(
-            new ActionRequest(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedContours.Build, step, Resumed: false),
+            new ActionRequest(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
             None);
 
         outcome.Should().BeOfType<ActionOutcome.Done>();

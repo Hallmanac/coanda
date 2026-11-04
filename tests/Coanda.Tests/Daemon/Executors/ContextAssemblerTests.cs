@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Software;
@@ -16,7 +16,7 @@ public sealed class ContextAssemblerTests
     private static Parcel TaskParcel() => Parcel.Create(new ParcelCreated(
         ParcelId, "coanda", "task", "0123456789abcdef", "build", "Teach the daemon to reach agents", "brian", DateTimeOffset.UnixEpoch));
 
-    private static readonly ContourStep Step = new() { Name = "review-adversarial", Agent = "persona-probe", AnswerSchema = AnswerSchemas.Review };
+    private static readonly FlowStep Step = new() { Name = "review-adversarial", Agent = "persona-probe", AnswerSchema = AnswerSchemas.Review };
 
     [Fact]
     public void The_body_labels_the_parcel_and_the_step_in_order_and_holds_nothing_else()
@@ -53,7 +53,7 @@ public sealed class ContextAssemblerTests
 
     private static readonly string[] FixedLabels = ["Parcel:", "Project:", "Type:", "State:", "Title:", "Step:"];
 
-    private static readonly ContourStep Briefed = Step with { Fields = ["criteria", "objective", "non-goals", "pull-request", "estimate"] };
+    private static readonly FlowStep Briefed = Step with { Fields = ["criteria", "objective", "non-goals", "pull-request", "estimate"] };
 
     private static Parcel With(Parcel parcel, string field, FieldValue value)
     {
@@ -124,7 +124,7 @@ public sealed class ContextAssemblerTests
     [Fact]
     public void A_field_whose_name_matches_a_fixed_label_still_begins_its_line_with_the_field_label()
     {
-        ContourStep step = Step with { Fields = ["Title", "State", "Step"] };
+        FlowStep step = Step with { Fields = ["Title", "State", "Step"] };
 
         string[] lines = ContextAssembler.Assemble(TaskParcel(), step, []).Split('\n');
 
@@ -147,9 +147,9 @@ public sealed class ContextAssemblerTests
         RecordedAt = answer is null && result is null ? null : Recorded.AddMinutes(minutes),
     };
 
-    private static ContourSource From(string step) => new() { Step = step };
+    private static FlowSource From(string step) => new() { Step = step };
 
-    private static readonly ContourStep Fixing = Step with
+    private static readonly FlowStep Fixing = Step with
     {
         Name = "fix",
         Fields = ["objective"],

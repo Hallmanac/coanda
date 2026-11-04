@@ -46,7 +46,7 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
-    public async Task A_matching_external_event_creates_the_subscriptions_parcel_and_a_flow_run_of_its_contour_runs_once_per_event_across_a_restart()
+    public async Task A_matching_external_event_creates_the_subscriptions_parcel_and_a_flow_run_of_its_flow_runs_once_per_event_across_a_restart()
     {
         using var temp = new TemporaryHome();
         ParcelView first;
@@ -69,7 +69,7 @@ public sealed class SubscriptionTests
             first.CreatedBy.Should().Be(Teammate.Id, "the subscription acts as the principal that recorded it");
 
             FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, first.Id);
-            bound.ContourName.Should().Be("review-on-assignment");
+            bound.FlowName.Should().Be("review-on-assignment");
             bound.StartedBy.Should().Be(Teammate.Id);
             (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("report-produced");
 

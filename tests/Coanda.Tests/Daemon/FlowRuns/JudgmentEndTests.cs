@@ -2,7 +2,7 @@ using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
@@ -220,10 +220,10 @@ public sealed class JudgmentEndTests
     private static ScriptedExecutor BuildScript(params ScriptEntry[] entries) =>
         new(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = entries });
 
-    /// <summary>Publishes a contour of one judgment that may spawn twice, and starts it through the API on a new task.</summary>
+    /// <summary>Publishes a flow of one judgment that may spawn twice, and starts it through the API on a new task.</summary>
     private static async Task<FlowRunView> StartSingleAsync(RunningDaemon daemon, DaemonClient client, string title)
     {
-        Contour single = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow single = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "one-judgment",
             Accepts = ["task"],
@@ -232,12 +232,12 @@ public sealed class JudgmentEndTests
             SpawnCap = 2,
             Steps =
             [
-                new ContourStep
+                new FlowStep
                 {
                     Name = "build",
                     Agent = "build",
                     AnswerSchema = "build",
-                    Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                    Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                 },
             ],
         });

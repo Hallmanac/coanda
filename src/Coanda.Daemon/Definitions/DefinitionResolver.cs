@@ -43,7 +43,7 @@ public sealed class DefinitionResolver(IDocumentStore store)
 
     /// <summary>
     /// The definition of the kind, in this project, owner, or shipped scope, whose content hash a
-    /// record kept: a parcel its type's, a flow run its contour's. A version retired since is still
+    /// record kept: a parcel its type's, a flow run its flow's. A version retired since is still
     /// returned, so a record keeps the rules it began under; a draft never is, as nothing began
     /// under one. Null when no held definition has that hash.
     /// </summary>

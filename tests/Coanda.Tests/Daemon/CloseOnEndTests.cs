@@ -1,5 +1,5 @@
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
@@ -15,7 +15,7 @@ using JasperFx.Events;
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
-/// A contour that declares a closing resolution closes its parcel at a flow run's end, in the same save
+/// A flow that declares a closing resolution closes its parcel at a flow run's end, in the same save
 /// as the end and the release, or records none of the three.
 /// </summary>
 public sealed class CloseOnEndTests : IAsyncLifetime
@@ -45,7 +45,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_end_of_a_flow_run_whose_contour_closes_its_parcel_records_the_end_the_release_and_the_close_together()
+    public async Task The_end_of_a_flow_run_whose_flow_closes_its_parcel_records_the_end_the_release_and_the_close_together()
     {
         (Parcel parcel, FlowRun flowRun) = await StartedAsync(Closing("completed"));
 
@@ -59,7 +59,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
         ParcelClosed recorded = events[^1].Data.Should().BeOfType<ParcelClosed>().Subject;
         events[^2].Data.Should().BeOfType<ParcelFlowRunReleased>().Which.FlowRunId.Should().Be(flowRun.Id);
         recorded.ClosedBy.Should().Be($"flow-run:{flowRun.Id}", "the flow run's own principal closes the parcel");
-        recorded.Reason.Should().Be($"Flow run {Ids.Short(flowRun.Id)} of contour 'closer' reached its end, and the contour closes its parcel as 'completed'.");
+        recorded.Reason.Should().Be($"Flow run {Ids.Short(flowRun.Id)} of flow 'closer' reached its end, and the flow closes its parcel as 'completed'.");
         (await flowRuns.ShowAsync(Principal.LocalOwner, Project, flowRun.Id, None))?.Status.Should().Be(FlowRunStatus.Ended);
     }
 
@@ -71,7 +71,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
 
         await FluentActions.Awaiting(() => flowRuns.EndAsync(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, "closed-it", None))
             .Should().ThrowAsync<DomainException>()
-            .WithMessage($"Flow run {Ids.Short(flowRun.Id)} of contour 'closer' reached its end, but its parcel could not be closed as 'split', so neither the end nor the close was recorded: Parcel type 'task' closes with one of completed, abandoned, superseded, duplicate, not 'split'.");
+            .WithMessage($"Flow run {Ids.Short(flowRun.Id)} of flow 'closer' reached its end, but its parcel could not be closed as 'split', so neither the end nor the close was recorded: Parcel type 'task' closes with one of completed, abandoned, superseded, duplicate, not 'split'.");
 
         (await EventsAsync(parcel.Id)).Should().HaveCount(before);
         Parcel open = await ShowAsync(parcel.Id);
@@ -81,7 +81,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_end_of_a_flow_run_whose_contour_declares_no_resolution_leaves_its_parcel_open()
+    public async Task The_end_of_a_flow_run_whose_flow_declares_no_resolution_leaves_its_parcel_open()
     {
         (Parcel parcel, FlowRun flowRun) = await StartedAsync(Closing("completed") with { Name = "leaver", Closes = null });
 
@@ -104,7 +104,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
             .Should().ThrowAsync<DomainException>().WithMessage("'parcel.close' is not open to the Agent role.");
     }
 
-    private static Contour Closing(string resolution) => new()
+    private static Flow Closing(string resolution) => new()
     {
         Name = "closer",
         Accepts = ["task"],
@@ -114,23 +114,23 @@ public sealed class CloseOnEndTests : IAsyncLifetime
         Closes = resolution,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "wait",
                 Action = CoreActions.Timer,
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     };
 
-    private async Task<(Parcel Parcel, FlowRun FlowRun)> StartedAsync(Contour contour)
+    private async Task<(Parcel Parcel, FlowRun FlowRun)> StartedAsync(Flow flow)
     {
         Definition draft = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, Project, contour.Name,
-            Contour.CanonicalJson(contour), contour.Hash, null, None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, Project, flow.Name,
+            Flow.CanonicalJson(flow), flow.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Close me at the end", null, None);
-        FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, contour.Name, None);
+        FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, flow.Name, None);
         return (parcel, flowRun);
     }
 

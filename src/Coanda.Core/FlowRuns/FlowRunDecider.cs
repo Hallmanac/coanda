@@ -2,7 +2,7 @@ using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns.Events;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Types;
@@ -10,7 +10,7 @@ using Coanda.Core.Types;
 namespace Coanda.Core.FlowRuns;
 
 /// <summary>
-/// The rules of a flow run's record, as pure decisions: given the contour, the flow run (or the parcel, to
+/// The rules of a flow run's record, as pure decisions: given the flow, the flow run (or the parcel, to
 /// start one), and an intent, either the events that record it or a <see cref="DomainException"/>
 /// quoting the rule. A flow run is live while it runs or is paused, and a parcel has at most one live
 /// flow run; starting, ending, and stopping therefore also decide the parcel event that records it.
@@ -18,17 +18,17 @@ namespace Coanda.Core.FlowRuns;
 public static class FlowRunDecider
 {
     public static (FlowRunStarted Started, ParcelFlowRunAttached Attached) Start(
-        Contour contour, int contourVersion, Parcel parcel, string startedBy, DateTimeOffset now)
+        Flow flow, int flowVersion, Parcel parcel, string startedBy, DateTimeOffset now)
     {
         if (parcel.IsClosed)
         {
             throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is closed ({parcel.Resolution}); a flow run starts only on an open parcel.");
         }
 
-        if (!contour.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)))
+        if (!flow.Accepts.Any(type => DefinitionResolution.SameName(type, parcel.TypeName)))
         {
             throw new DomainException(
-                $"Contour '{contour.Name}' accepts parcels of type {string.Join(", ", contour.Accepts)}, not '{parcel.TypeName}'.");
+                $"Flow '{flow.Name}' accepts parcels of type {string.Join(", ", flow.Accepts)}, not '{parcel.TypeName}'.");
         }
 
         if (parcel.LiveFlowRunId is Guid live)
@@ -37,24 +37,24 @@ public static class FlowRunDecider
                 $"A parcel has at most one live flow run; parcel {Ids.Short(parcel.Id)} already has flow run {Ids.Short(live)}, which must end or be stopped first.");
         }
 
-        ContourStep first = contour.First
-            ?? throw new DomainException($"Contour '{contour.Name}' has no steps, so a flow run has nowhere to start.");
+        FlowStep first = flow.First
+            ?? throw new DomainException($"Flow '{flow.Name}' has no steps, so a flow run has nowhere to start.");
         Guid flowRunId = Ids.New();
         var started = new FlowRunStarted(
-            flowRunId, parcel.Id, contour.Name, contourVersion, contour.Hash, startedBy, first.Name, KindOf(first), PerformerOf(first), now);
+            flowRunId, parcel.Id, flow.Name, flowVersion, flow.Hash, startedBy, first.Name, KindOf(first), PerformerOf(first), now);
         return (started, new ParcelFlowRunAttached(parcel.Id, flowRunId, now));
     }
 
     /// <summary>
-    /// Starts the next link of a chain: a flow run of a contour whose follow matches the ended
+    /// Starts the next link of a chain: a flow run of a flow whose follow matches the ended
     /// <paramref name="parent"/>, on the parent's parcel, recording the parent, the chain's root,
     /// and a depth one greater than the parent's. Every rule of <see cref="Start"/> holds too.
     /// </summary>
     public static (FlowRunStarted Started, ParcelFlowRunAttached Attached) Follow(
-        Contour contour, int contourVersion, Parcel parcel, FlowRun parent, string startedBy, DateTimeOffset now)
+        Flow flow, int flowVersion, Parcel parcel, FlowRun parent, string startedBy, DateTimeOffset now)
     {
-        ContourFollow follow = contour.Follow
-            ?? throw new DomainException($"Contour '{contour.Name}' declares no follow, so no flow run's end starts it.");
+        FlowFollow follow = flow.Follow
+            ?? throw new DomainException($"Flow '{flow.Name}' declares no follow, so no flow run's end starts it.");
 
         if (parent.Status != FlowRunStatus.Ended)
         {
@@ -69,24 +69,24 @@ public static class FlowRunDecider
         }
 
         bool outcomeMatches = string.Equals(parent.Outcome, follow.Outcome, StringComparison.Ordinal);
-        bool contourMatches = follow.Contour is null || DefinitionResolution.SameName(parent.ContourName, follow.Contour);
-        if (!outcomeMatches || !contourMatches)
+        bool flowMatches = follow.Flow is null || DefinitionResolution.SameName(parent.FlowName, follow.Flow);
+        if (!outcomeMatches || !flowMatches)
         {
             throw new DomainException(
-                $"Contour '{contour.Name}' follows the outcome '{follow.Outcome}'{(follow.Contour is null ? string.Empty : $" of contour '{follow.Contour}'")}; flow run {Ids.Short(parent.Id)} of contour '{parent.ContourName}' ended with '{parent.Outcome}'.");
+                $"Flow '{flow.Name}' follows the outcome '{follow.Outcome}'{(follow.Flow is null ? string.Empty : $" of flow '{follow.Flow}'")}; flow run {Ids.Short(parent.Id)} of flow '{parent.FlowName}' ended with '{parent.Outcome}'.");
         }
 
-        (FlowRunStarted started, ParcelFlowRunAttached attached) = Start(contour, contourVersion, parcel, startedBy, now);
+        (FlowRunStarted started, ParcelFlowRunAttached attached) = Start(flow, flowVersion, parcel, startedBy, now);
         return (started with { ParentFlowRunId = parent.Id, RootFlowRunId = parent.RootFlowRunId, Depth = parent.Depth + 1 }, attached);
     }
 
-    public static StepStarted StartStep(Contour contour, FlowRun flowRun, string step, DateTimeOffset now)
+    public static StepStarted StartStep(Flow flow, FlowRun flowRun, string step, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "start a step");
 
-        ContourStep entered = contour.Step(step)
-            ?? throw new DomainException($"Contour '{contour.Name}' has no step '{step}'; a flow run enters only a step its contour has.");
+        FlowStep entered = flow.Step(step)
+            ?? throw new DomainException($"Flow '{flow.Name}' has no step '{step}'; a flow run enters only a step its flow has.");
         return new StepStarted(flowRun.Id, entered.Name, KindOf(entered), PerformerOf(entered), now);
     }
 
@@ -96,7 +96,7 @@ public static class FlowRunDecider
     /// returned, with no resume since that launch.
     /// </summary>
     public static JudgmentAnswered Answer(
-        Contour contour,
+        Flow flow,
         FlowRun flowRun,
         string step,
         string agent,
@@ -107,7 +107,7 @@ public static class FlowRunDecider
         Measurement measurement,
         DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "record an answer");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "an answer");
 
@@ -140,11 +140,11 @@ public static class FlowRunDecider
     /// <summary>
     /// Counts one more spawn for a resumed judgment step whose visit paused without an answer, which
     /// is performed again on the same visit and adds no visit. It is counted once per resume, and
-    /// never past the contour's spawn cap; a visit's first spawn is counted when the step is entered.
+    /// never past the flow's spawn cap; a visit's first spawn is counted when the step is entered.
     /// </summary>
-    public static JudgmentRespawned Respawn(Contour contour, FlowRun flowRun, string step, DateTimeOffset now)
+    public static JudgmentRespawned Respawn(Flow flow, FlowRun flowRun, string step, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "spawn its judgment again");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a spawn");
 
@@ -171,10 +171,10 @@ public static class FlowRunDecider
                 $"Step '{current.Step}' has not launched its agent on the spawn it last counted; a resume uses that spawn before it counts another.");
         }
 
-        if (flowRun.Spawns >= contour.SpawnCap)
+        if (flowRun.Spawns >= flow.SpawnCap)
         {
             throw new DomainException(
-                $"Contour '{contour.Name}' reached its spawn cap of {contour.SpawnCap}; performing judgment step '{current.Step}' again would spawn another agent.");
+                $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; performing judgment step '{current.Step}' again would spawn another agent.");
         }
 
         return new JudgmentRespawned(flowRun.Id, current.Step, current.Performer, now);
@@ -185,9 +185,9 @@ public static class FlowRunDecider
     /// is <paramref name="agentHash"/> on the model spec <paramref name="model"/>, on the spawn its
     /// visit last counted. A restart that launches the same visit again records it again, counting nothing.
     /// </summary>
-    public static JudgmentSpawned Spawn(Contour contour, FlowRun flowRun, string step, string agentHash, ModelSpec model, DateTimeOffset now)
+    public static JudgmentSpawned Spawn(Flow flow, FlowRun flowRun, string step, string agentHash, ModelSpec model, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "launch its judgment");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a launch");
 
@@ -214,9 +214,9 @@ public static class FlowRunDecider
     /// once per launch: a launch must be recorded first, and a later launch or a resume's counted
     /// spawn clears the session it held.
     /// </summary>
-    public static JudgmentSessionOpened OpenSession(Contour contour, FlowRun flowRun, string step, Guid sessionId, DateTimeOffset now)
+    public static JudgmentSessionOpened OpenSession(Flow flow, FlowRun flowRun, string step, Guid sessionId, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "record its judgment's session");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a session");
 
@@ -242,9 +242,9 @@ public static class FlowRunDecider
             : new JudgmentSessionOpened(flowRun.Id, current.Step, sessionId, now);
     }
 
-    public static ActionCompleted Complete(Contour contour, FlowRun flowRun, string step, string action, JsonElement result, DateTimeOffset now)
+    public static ActionCompleted Complete(Flow flow, FlowRun flowRun, string step, string action, JsonElement result, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "record a result");
         FlowRunStepEntry current = RequireCurrent(flowRun, step, "a result");
 
@@ -268,9 +268,9 @@ public static class FlowRunDecider
     /// it changes nothing but the flow run's cost.
     /// </summary>
     public static JudgmentUsageRecorded RecordUsage(
-        Contour contour, FlowRun flowRun, string step, string agent, Guid sessionId, Measurement usage, DateTimeOffset now)
+        Flow flow, FlowRun flowRun, string step, string agent, Guid sessionId, Measurement usage, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
 
         if (flowRun.Status is not (FlowRunStatus.Running or FlowRunStatus.Paused or FlowRunStatus.Stopped))
         {
@@ -313,7 +313,7 @@ public static class FlowRunDecider
     /// must still expect that session, as it must for an answer.
     /// </summary>
     public static FlowRunPaused Pause(
-        Contour contour,
+        Flow flow,
         FlowRun flowRun,
         string reason,
         string lever,
@@ -322,7 +322,7 @@ public static class FlowRunDecider
         Measurement? usage = null,
         Guid? session = null)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "pause it");
 
         if (session is Guid sessionId)
@@ -350,9 +350,9 @@ public static class FlowRunDecider
         return new FlowRunPaused(flowRun.Id, reason.Trim(), lever.Trim(), pausedBy, now, usage);
     }
 
-    public static FlowRunResumed Resume(Contour contour, FlowRun flowRun, string? note, string resumedBy, DateTimeOffset now)
+    public static FlowRunResumed Resume(Flow flow, FlowRun flowRun, string? note, string resumedBy, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
 
         if (flowRun.Status != FlowRunStatus.Paused)
         {
@@ -363,30 +363,30 @@ public static class FlowRunDecider
     }
 
     public static (FlowRunEnded Ended, ParcelFlowRunReleased Released) End(
-        Contour contour, FlowRun flowRun, string outcome, string endedBy, DateTimeOffset now)
+        Flow flow, FlowRun flowRun, string outcome, string endedBy, DateTimeOffset now)
     {
-        RequireContour(contour, flowRun);
+        RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "end it");
 
-        if (!string.Equals(outcome, contour.Outcome, StringComparison.Ordinal))
+        if (!string.Equals(outcome, flow.Outcome, StringComparison.Ordinal))
         {
-            throw new DomainException($"Contour '{contour.Name}' ends with its declared outcome '{contour.Outcome}', not '{outcome}'.");
+            throw new DomainException($"Flow '{flow.Name}' ends with its declared outcome '{flow.Outcome}', not '{outcome}'.");
         }
 
         return (new FlowRunEnded(flowRun.Id, outcome, endedBy, now), new ParcelFlowRunReleased(flowRun.ParcelId, flowRun.Id, now));
     }
 
     /// <summary>
-    /// The close a flow run's end records beside its release when its contour declares a closing
+    /// The close a flow run's end records beside its release when its flow declares a closing
     /// resolution, or null when it declares none. It is decided against <paramref name="released"/>,
     /// the parcel as the end's release leaves it, by every rule of <see cref="ParcelDecider.Close"/>,
     /// the gates the type binds to a close among them; <paramref name="closedBy"/> is the flow run's own
-    /// principal, and the reason names the flow run and its contour. A refusal quotes the close's rule.
+    /// principal, and the reason names the flow run and its flow. A refusal quotes the close's rule.
     /// </summary>
     public static ParcelClosed? CloseOnEnd(
-        Contour contour, FlowRun flowRun, ParcelType type, GateSet gates, Parcel released, string closedBy, DateTimeOffset now)
+        Flow flow, FlowRun flowRun, ParcelType type, GateSet gates, Parcel released, string closedBy, DateTimeOffset now)
     {
-        if (contour.Closes is not { } resolution)
+        if (flow.Closes is not { } resolution)
         {
             return null;
         }
@@ -398,7 +398,7 @@ public static class FlowRunDecider
         }
 
         string reason =
-            $"Flow run {Ids.Short(flowRun.Id)} of contour '{contour.Name}' reached its end, and the contour closes its parcel as '{resolution}'.";
+            $"Flow run {Ids.Short(flowRun.Id)} of flow '{flow.Name}' reached its end, and the flow closes its parcel as '{resolution}'.";
         try
         {
             return ParcelDecider.Close(type, gates, released, resolution, reason, closedBy, now);
@@ -406,7 +406,7 @@ public static class FlowRunDecider
         catch (DomainException refused)
         {
             throw new DomainException(
-                $"Flow run {Ids.Short(flowRun.Id)} of contour '{contour.Name}' reached its end, but its parcel could not be closed as '{resolution}', so neither the end nor the close was recorded: {refused.Message}");
+                $"Flow run {Ids.Short(flowRun.Id)} of flow '{flow.Name}' reached its end, but its parcel could not be closed as '{resolution}', so neither the end nor the close was recorded: {refused.Message}");
         }
     }
 
@@ -452,12 +452,12 @@ public static class FlowRunDecider
             $"Step '{current.Step}' {expected}; {what} from session {Ids.Short(sessionId)} is not recorded on this visit.");
     }
 
-    private static void RequireContour(Contour contour, FlowRun flowRun)
+    private static void RequireFlow(Flow flow, FlowRun flowRun)
     {
-        if (!string.Equals(contour.Hash, flowRun.ContourHash, StringComparison.Ordinal))
+        if (!string.Equals(flow.Hash, flowRun.FlowHash, StringComparison.Ordinal))
         {
             throw new DomainException(
-                $"Flow run {Ids.Short(flowRun.Id)} runs '{flowRun.ContourName}@{flowRun.ContourHash}', not '{contour.Name}@{contour.Hash}'; a flow run keeps the contour it started under.");
+                $"Flow run {Ids.Short(flowRun.Id)} runs '{flowRun.FlowName}@{flowRun.FlowHash}', not '{flow.Name}@{flow.Hash}'; a flow run keeps the flow it started under.");
         }
     }
 
@@ -499,7 +499,7 @@ public static class FlowRunDecider
         _ => $"is {status}",
     };
 
-    private static StepKind KindOf(ContourStep step) => step.IsJudgment ? StepKind.Judgment : StepKind.Action;
+    private static StepKind KindOf(FlowStep step) => step.IsJudgment ? StepKind.Judgment : StepKind.Action;
 
-    private static string PerformerOf(ContourStep step) => (step.IsJudgment ? step.Agent : step.Action) ?? string.Empty;
+    private static string PerformerOf(FlowStep step) => (step.IsJudgment ? step.Agent : step.Action) ?? string.Empty;
 }

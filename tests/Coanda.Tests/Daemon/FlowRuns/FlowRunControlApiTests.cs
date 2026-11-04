@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Coanda.Cli;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
@@ -29,7 +29,7 @@ public sealed class FlowRunControlApiTests
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         using HttpClient http = Http(daemon);
-        Contour single = await Publishing.ContourAsync(daemon, Project, new Contour
+        Flow single = await Publishing.FlowAsync(daemon, Project, new Flow
         {
             Name = "one-judgment",
             Accepts = ["task"],
@@ -38,12 +38,12 @@ public sealed class FlowRunControlApiTests
             SpawnCap = 2,
             Steps =
             [
-                new ContourStep
+                new FlowStep
                 {
                     Name = "build",
                     Agent = "build",
                     AnswerSchema = "build",
-                    Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                    Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
                 },
             ],
         });

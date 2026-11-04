@@ -1,6 +1,6 @@
 using Coanda.Cli;
 using Coanda.Core.Agents;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Software;
 using Coanda.Daemon.Api;
@@ -27,7 +27,7 @@ public sealed class SpawnInputsTests
 
         await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        decimal budget = ShippedContours.Build.Budget;
+        decimal budget = ShippedFlows.Build.Budget;
         executor.Spawns.Select(s => s.Caps.CostCeilingUsd).Should().Equal(
             budget,
             budget - Scripts.Usage(1).CostUsd,
@@ -47,8 +47,8 @@ public sealed class SpawnInputsTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Contour seed = await Publishing.ContourAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
-        await Publishing.ContourAsync(daemon, Project, Reviewing("grow", "grown-again", 5m, new ContourFollow { Outcome = "grown", DepthCap = 1 }));
+        Flow seed = await Publishing.FlowAsync(daemon, Project, Reviewing("seed", "grown", 1m, follow: null));
+        await Publishing.FlowAsync(daemon, Project, Reviewing("grow", "grown-again", 5m, new FlowFollow { Outcome = "grown", DepthCap = 1 }));
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Shared purse", null), None);
 
         await FlowRunDriver.StartAsync(client, Project, parcel.Id, seed.Name);
@@ -58,7 +58,7 @@ public sealed class SpawnInputsTests
 
         executor.Spawns.Select(s => s.Caps.CostCeilingUsd).Should().Equal(
             [1m, 0.4m],
-            "the follower's own budget leaves $5.00, and its chain, rooted at a $1.00 contour that already spent $0.60, leaves $0.40");
+            "the follower's own budget leaves $5.00, and its chain, rooted at a $1.00 flow that already spent $0.60, leaves $0.40");
 
         await daemon.StopAsync(None);
     }
@@ -132,8 +132,8 @@ public sealed class SpawnInputsTests
         $"/transcripts/{ordinal}.jsonl",
         new Measurement(100 * ordinal, cost, 1, TimeSpan.FromSeconds(ordinal)));
 
-    /// <summary>A contour of one adversarial review that ends on either verdict.</summary>
-    private static Contour Reviewing(string name, string outcome, decimal budget, ContourFollow? follow) => new()
+    /// <summary>A flow of one adversarial review that ends on either verdict.</summary>
+    private static Flow Reviewing(string name, string outcome, decimal budget, FlowFollow? follow) => new()
     {
         Name = name,
         Accepts = ["task"],
@@ -143,15 +143,15 @@ public sealed class SpawnInputsTests
         Follow = follow,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "review",
                 Agent = "reviewer-adversarial",
                 AnswerSchema = "review",
                 Transitions =
                 [
-                    new ContourTransition { Field = "verdict", Value = ContourValue.Of("clean"), VisitCap = 1, Target = Contour.End },
-                    new ContourTransition { Field = "verdict", Value = ContourValue.Of("not-clean"), VisitCap = 1, Target = Contour.End },
+                    new FlowTransition { Field = "verdict", Value = FlowValue.Of("clean"), VisitCap = 1, Target = Flow.End },
+                    new FlowTransition { Field = "verdict", Value = FlowValue.Of("not-clean"), VisitCap = 1, Target = Flow.End },
                 ],
             },
         ],

@@ -19,9 +19,9 @@ public sealed class TriggerDeciderTests
         Dictionary<string, string>? filters = null,
         string parcelType = "task",
         string titleField = "title",
-        string contour = "review-on-assignment") =>
+        string flow = "review-on-assignment") =>
         TriggerDecider.RecordSubscription(
-            "alpha", new Trigger(kind, filters ?? new Dictionary<string, string> { ["assignee"] = "brian" }), parcelType, titleField, contour, Member, Now);
+            "alpha", new Trigger(kind, filters ?? new Dictionary<string, string> { ["assignee"] = "brian" }), parcelType, titleField, flow, Member, Now);
 
     [Fact]
     public void An_external_event_records_its_kind_and_fields()
@@ -51,7 +51,7 @@ public sealed class TriggerDeciderTests
 
     [Fact]
     public void An_external_event_of_the_flow_run_ended_kind_is_refused() =>
-        FluentActions.Invoking(() => Record("flow-run-ended", new Dictionary<string, string> { ["contour"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }))
+        FluentActions.Invoking(() => Record("flow-run-ended", new Dictionary<string, string> { ["flow"] = "build", ["outcome"] = "pr-opened", ["type"] = "task" }))
             .Should().Throw<DomainException>().WithMessage("The kind 'flow-run-ended' is what a flow run's own end reads as; an external event cannot use it.");
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class TriggerDeciderTests
         subscription.Trigger.Filters.Should().BeEquivalentTo(new Dictionary<string, string> { ["assignee"] = "brian" });
         subscription.ParcelType.Should().Be("task");
         subscription.TitleField.Should().Be("title");
-        subscription.Contour.Should().Be("review-on-assignment");
+        subscription.Flow.Should().Be("review-on-assignment");
         subscription.Principal.Should().Be(Member);
     }
 
@@ -104,7 +104,7 @@ public sealed class TriggerDeciderTests
             .Should().Throw<DomainException>().WithMessage("A subscription names the event field whose value titles the parcel it creates; none was given.");
 
     [Fact]
-    public void A_subscription_with_no_contour_is_refused() =>
-        FluentActions.Invoking(() => Subscribe(contour: ""))
-            .Should().Throw<DomainException>().WithMessage("A subscription names the contour it starts on the parcel it creates; none was given.");
+    public void A_subscription_with_no_flow_is_refused() =>
+        FluentActions.Invoking(() => Subscribe(flow: ""))
+            .Should().Throw<DomainException>().WithMessage("A subscription names the flow it starts on the parcel it creates; none was given.");
 }

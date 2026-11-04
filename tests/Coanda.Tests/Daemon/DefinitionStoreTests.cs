@@ -130,7 +130,7 @@ public sealed class DefinitionStoreTests
         }
 
         // A shipped definition of another kind is not a fork base for a parcel type.
-        await definitions.SeedAsync(ShippedDefinitions.Contours, CancellationToken.None);
+        await definitions.SeedAsync(ShippedDefinitions.Flows, CancellationToken.None);
         await FluentActions.Awaiting(() => definitions.DraftParcelTypeAsync(
                 Principal.LocalOwner, scope, project, QaTask, new ForkBase("build", 1), CancellationToken.None))
             .Should().ThrowAsync<DomainException>().WithMessage("The fork base 'build' version 1*");

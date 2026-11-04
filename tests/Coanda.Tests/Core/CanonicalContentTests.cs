@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Software;
 using Coanda.Core.Types;
 
@@ -12,15 +12,15 @@ public sealed class CanonicalContentTests
     private static readonly string[] Derived = ["IsJudgment", "IsAction", "Hash", "First"];
 
     [Fact]
-    public void A_shipped_contours_canonical_json_holds_no_derived_property()
+    public void A_shipped_flows_canonical_json_holds_no_derived_property()
     {
-        foreach (Contour contour in ShippedContours.All)
+        foreach (Flow flow in ShippedFlows.All)
         {
-            string content = Contour.CanonicalJson(contour);
+            string content = Flow.CanonicalJson(flow);
 
             foreach (string property in Derived)
             {
-                PropertyNames(content).Should().NotContain(property, $"contour '{contour.Name}' writes only what it declares");
+                PropertyNames(content).Should().NotContain(property, $"flow '{flow.Name}' writes only what it declares");
             }
         }
     }
@@ -35,10 +35,10 @@ public sealed class CanonicalContentTests
     }
 
     [Fact]
-    public void A_contour_stored_with_the_derived_step_properties_still_reads_as_before()
+    public void A_flow_stored_with_the_derived_step_properties_still_reads_as_before()
     {
-        Contour shipped = ShippedContours.Build;
-        JsonNode node = JsonNode.Parse(Contour.CanonicalJson(shipped)) ?? throw new InvalidOperationException("The contour wrote no content.");
+        Flow shipped = ShippedFlows.Build;
+        JsonNode node = JsonNode.Parse(Flow.CanonicalJson(shipped)) ?? throw new InvalidOperationException("The flow wrote no content.");
         foreach (JsonObject step in node["Steps"]?.AsArray().OfType<JsonObject>() ?? [])
         {
             step["IsJudgment"] = !string.IsNullOrWhiteSpace((string?)step["Agent"]);
@@ -48,7 +48,7 @@ public sealed class CanonicalContentTests
         string stored = node.ToJsonString();
         PropertyNames(stored).Should().Contain(["IsJudgment", "IsAction"]);
 
-        Contour read = Contour.FromJson(stored);
+        Flow read = Flow.FromJson(stored);
 
         read.Hash.Should().Be(shipped.Hash);
         read.Steps.Select(s => (s.Name, s.IsJudgment, s.IsAction))

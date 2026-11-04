@@ -1,6 +1,6 @@
 using Coanda.Cli;
 using Coanda.Core.Agents;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Registry;
@@ -246,7 +246,7 @@ public sealed class ClaudeCodeFlowRunTests
         return daemon;
     }
 
-    private static Task<Contour> PublishAsync(RunningDaemon daemon, string agent) => Publishing.ContourAsync(daemon, Project, new Contour
+    private static Task<Flow> PublishAsync(RunningDaemon daemon, string agent) => Publishing.FlowAsync(daemon, Project, new Flow
     {
         Name = $"judge-with-{agent}",
         Accepts = ["task"],
@@ -255,12 +255,12 @@ public sealed class ClaudeCodeFlowRunTests
         SpawnCap = 2,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "build",
                 Agent = agent,
                 AnswerSchema = "build",
-                Transitions = [new ContourTransition { Field = "verdict", Value = ContourValue.Of("done"), VisitCap = 1, Target = Contour.End }],
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
     });

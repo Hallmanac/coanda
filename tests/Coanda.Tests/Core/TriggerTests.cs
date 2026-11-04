@@ -1,4 +1,4 @@
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Software;
 using Coanda.Core.Triggers;
 
@@ -43,42 +43,42 @@ public sealed class TriggerTests
         entered.Kind.Should().Be("parcel-entered");
         entered.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["type"] = "task", ["state"] = "build" });
 
-        Trigger binding = Trigger.ForBinding(ShippedTypes.Task, ShippedTypes.Task.ContourBindings[0]);
+        Trigger binding = Trigger.ForBinding(ShippedTypes.Task, ShippedTypes.Task.FlowBindings[0]);
         binding.Matches(entered).Should().BeTrue();
         binding.Matches(TriggerEvent.ParcelEntered("task", "review")).Should().BeFalse();
         binding.Matches(TriggerEvent.ParcelEntered("idea", "build")).Should().BeFalse();
     }
 
     [Fact]
-    public void A_follow_matches_a_flow_run_end_with_its_outcome_and_its_contour_when_it_names_one()
+    public void A_follow_matches_a_flow_run_end_with_its_outcome_and_its_flow_when_it_names_one()
     {
         TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
         ended.Kind.Should().Be("flow-run-ended");
-        ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["contour"] = TriggerEvent.ContourKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" });
+        ended.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["flow"] = TriggerEvent.FlowKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" });
 
-        Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
-        Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended).Should().BeTrue("a follow naming no contour takes the outcome from any contour");
-        Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "discovery", DepthCap = 1 }).Matches(ended).Should().BeFalse();
-        Trigger.ForFollow(new ContourFollow { Outcome = "report-produced", DepthCap = 1 }).Matches(ended).Should().BeFalse();
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended).Should().BeTrue("a follow naming no flow takes the outcome from any flow");
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "discovery", DepthCap = 1 }).Matches(ended).Should().BeFalse();
+        Trigger.ForFollow(new FlowFollow { Outcome = "report-produced", DepthCap = 1 }).Matches(ended).Should().BeFalse();
     }
 
     [Fact]
-    public void A_follow_names_its_contour_in_any_spelling_as_contour_names_compare_without_case()
+    public void A_follow_names_its_flow_in_any_spelling_as_flow_names_compare_without_case()
     {
         TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
 
-        Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "Build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
-        Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 1 })
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 1 }).Matches(ended).Should().BeTrue();
+        Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 })
             .Matches(TriggerEvent.FlowRunEnded("BUILD", "pr-opened", "task")).Should().BeTrue();
-        Trigger.ForFollow(new ContourFollow { Outcome = "PR-Opened", Contour = "build", DepthCap = 1 }).Matches(ended)
+        Trigger.ForFollow(new FlowFollow { Outcome = "PR-Opened", Flow = "build", DepthCap = 1 }).Matches(ended)
             .Should().BeFalse("an outcome is a typed value and compares exactly");
     }
 
     [Fact]
     public void A_follow_never_matches_an_event_of_another_kind_carrying_the_same_fields()
     {
-        Trigger follow = Trigger.ForFollow(new ContourFollow { Outcome = "pr-opened", DepthCap = 1 });
+        Trigger follow = Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 });
 
-        follow.Matches(Event("pr-merged", ("contour", "build"), ("outcome", "pr-opened"), ("type", "task"))).Should().BeFalse();
+        follow.Matches(Event("pr-merged", ("flow", "build"), ("outcome", "pr-opened"), ("type", "task"))).Should().BeFalse();
     }
 }

@@ -1,19 +1,19 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 
 namespace Coanda.Tests.Core;
 
 public sealed class InterpreterTests
 {
-    private static ContourTransition On(string field, JsonElement value, string target, int cap = 5) =>
+    private static FlowTransition On(string field, JsonElement value, string target, int cap = 5) =>
         new() { Field = field, Value = value, VisitCap = cap, Target = target };
 
-    private static ContourTransition On(string verdict, string target, int cap = 5) => On("verdict", ContourValue.Of(verdict), target, cap);
+    private static FlowTransition On(string verdict, string target, int cap = 5) => On("verdict", FlowValue.Of(verdict), target, cap);
 
-    // A made-up contour: an action that starts it and a judgment, with a spawn cap of two.
-    private static readonly Contour Sample = new()
+    // A made-up flow: an action that starts it and a judgment, with a spawn cap of two.
+    private static readonly Flow Sample = new()
     {
         Name = "sample",
         Accepts = ["thing"],
@@ -22,7 +22,7 @@ public sealed class InterpreterTests
         SpawnCap = 2,
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "act",
                 Action = "do-thing",
@@ -30,18 +30,18 @@ public sealed class InterpreterTests
                 [
                     On("done", "judge"),
                     On("again", "act", cap: 1),
-                    On("flag", ContourValue.Of(true), Contour.End),
-                    On("count", ContourValue.Of(2), "judge"),
+                    On("flag", FlowValue.Of(true), Flow.End),
+                    On("count", FlowValue.Of(2), "judge"),
                     On("twice", "judge", cap: 1),
-                    On("twice", Contour.End),
+                    On("twice", Flow.End),
                 ],
             },
-            new ContourStep
+            new FlowStep
             {
                 Name = "judge",
                 Agent = "an-agent",
                 AnswerSchema = "a-schema",
-                Transitions = [On("done", Contour.End), On("blocked", Contour.Pause), On("more", "judge"), On("act", "act")],
+                Transitions = [On("done", Flow.End), On("blocked", Flow.Pause), On("more", "judge"), On("act", "act")],
             },
         ],
     };
@@ -84,7 +84,7 @@ public sealed class InterpreterTests
         FlowRunPosition position = Interpreter.Apply(Sample, Interpreter.Start(Sample), new FlowRunMove.GoTo("judge"));
         FlowRunPosition copy = position with { Visits = position.Visits.ToImmutableDictionary() };
         string hash = Sample.Hash;
-        string json = Contour.CanonicalJson(Sample);
+        string json = Flow.CanonicalJson(Sample);
 
         FlowRunMove first = Decide(position, """{"verdict":"more"}""");
         FlowRunMove second = Decide(copy, """{"verdict":"more"}""");
@@ -96,11 +96,11 @@ public sealed class InterpreterTests
         position.VisitsTo("judge").Should().Be(1);
         position.Spawns.Should().Be(1);
         Sample.Hash.Should().Be(hash);
-        Contour.CanonicalJson(Sample).Should().Be(json);
+        Flow.CanonicalJson(Sample).Should().Be(json);
     }
 
     [Fact]
-    public void Decide_and_apply_refuse_a_position_at_a_step_the_contour_does_not_have()
+    public void Decide_and_apply_refuse_a_position_at_a_step_the_flow_does_not_have()
     {
         FlowRunPosition lost = At("nowhere");
 
@@ -173,7 +173,7 @@ public sealed class InterpreterTests
     }
 
     [Fact]
-    public void A_transition_to_pause_pauses_naming_the_step_and_one_to_end_ends_with_the_contour_outcome()
+    public void A_transition_to_pause_pauses_naming_the_step_and_one_to_end_ends_with_the_flow_outcome()
     {
         FlowRunPosition judging = At("judge");
 
@@ -199,7 +199,7 @@ public sealed class InterpreterTests
     [Fact]
     public void A_step_can_fire_at_its_next_visit_while_any_transition_out_of_it_has_a_cap_no_smaller_than_that_visit()
     {
-        ContourStep act = Sample.Step("act") ?? throw new InvalidOperationException("The sample has an act step.");
+        FlowStep act = Sample.Step("act") ?? throw new InvalidOperationException("The sample has an act step.");
 
         Interpreter.CanFireAtNextVisit(act, 4).Should().BeTrue("the transitions capped at 5 allow a fifth visit");
         Interpreter.CanFireAtNextVisit(act, 5).Should().BeFalse("no transition out of the step allows a sixth visit");

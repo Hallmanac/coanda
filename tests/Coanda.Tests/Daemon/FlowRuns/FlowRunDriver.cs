@@ -11,7 +11,7 @@ public static class FlowRunDriver
     /// <summary>
     /// Adds a task, sets the objective and criteria its move out of refine requires and, when
     /// <paramref name="pullRequest"/> is true, the pull request its move out of build requires, and
-    /// moves it to build. The shipped build contour's open-pr step records the pull request itself,
+    /// moves it to build. The shipped build flow's open-pr step records the pull request itself,
     /// so only a test that moves the task out of build some other way asks for it.
     /// </summary>
     public static async Task<ParcelView> TaskAtBuildAsync(DaemonClient client, string project, string title, bool pullRequest = false)
@@ -22,7 +22,7 @@ public static class FlowRunDriver
     }
 
     /// <summary>
-    /// Waits for the flow run a contour binding starts on the parcel, failing if none appears or more than one does.
+    /// Waits for the flow run a flow binding starts on the parcel, failing if none appears or more than one does.
     /// A follower of that flow run is not a second bound flow run: a fast flow run can end and start its follower
     /// between two reads, so only the flow runs with no parent count.
     /// </summary>
@@ -50,8 +50,8 @@ public static class FlowRunDriver
     public static Task<List<FlowRunView>> OfParcelAsync(DaemonClient client, string project, Guid parcelId) =>
         client.GetAsync<List<FlowRunView>>($"/flow-runs?project={project}&parcel={parcelId}", CancellationToken.None);
 
-    public static Task<FlowRunView> StartAsync(DaemonClient client, string project, Guid parcelId, string contour) =>
-        client.PostAsync<FlowRunView>("/flow-runs", new FlowRunStartRequest(project, parcelId, contour), CancellationToken.None);
+    public static Task<FlowRunView> StartAsync(DaemonClient client, string project, Guid parcelId, string flow) =>
+        client.PostAsync<FlowRunView>("/flow-runs", new FlowRunStartRequest(project, parcelId, flow), CancellationToken.None);
 
     public static Task<FlowRunView> PauseAsync(DaemonClient client, string project, Guid flowRunId, string reason) =>
         client.PostAsync<FlowRunView>($"/flow-runs/{flowRunId}/pause", new FlowRunPauseRequest(project, reason), CancellationToken.None);
@@ -85,23 +85,23 @@ public static class FlowRunDriver
         return flowRun;
     }
 
-    /// <summary>Waits for the flow run of <paramref name="contour"/> that the end of <paramref name="parentId"/> starts on the parcel.</summary>
-    public static async Task<FlowRunView> FollowerAsync(DaemonClient client, string project, Guid parcelId, Guid parentId, string contour)
+    /// <summary>Waits for the flow run of <paramref name="flow"/> that the end of <paramref name="parentId"/> starts on the parcel.</summary>
+    public static async Task<FlowRunView> FollowerAsync(DaemonClient client, string project, Guid parcelId, Guid parentId, string flow)
     {
         FlowRunView? follower = null;
         await UntilAsync(
             async () =>
             {
                 List<FlowRunView> flowRuns = await OfParcelAsync(client, project, parcelId);
-                follower = flowRuns.SingleOrDefault(f => f.ParentFlowRunId == parentId && f.ContourName == contour);
+                follower = flowRuns.SingleOrDefault(f => f.ParentFlowRunId == parentId && f.FlowName == flow);
                 return follower is not null;
             },
-            $"a flow run of '{contour}' follows flow run {parentId}");
+            $"a flow run of '{flow}' follows flow run {parentId}");
         return follower ?? throw new InvalidOperationException("The wait ended with no follower.");
     }
 
     /// <summary>
-    /// Waits for the shipped merge contour's flow run that follows the build flow run <paramref name="buildId"/>
+    /// Waits for the shipped merge flow's flow run that follows the build flow run <paramref name="buildId"/>
     /// to end, which merges the pull request and closes the task, and returns it.
     /// </summary>
     public static async Task<FlowRunView> MergedAsync(DaemonClient client, string project, Guid parcelId, Guid buildId)

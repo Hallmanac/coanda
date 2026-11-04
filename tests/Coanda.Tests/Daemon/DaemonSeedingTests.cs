@@ -1,7 +1,7 @@
 using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Definitions;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
 using Coanda.Core.Types;
@@ -89,11 +89,11 @@ public sealed class DaemonSeedingTests
         });
     }
 
-    private static async Task<List<ContourView>> ContoursAsync(DaemonClient client, string project) =>
-        await client.GetAsync<List<ContourView>>($"/contours?project={Uri.EscapeDataString(project)}", CancellationToken.None);
+    private static async Task<List<FlowView>> FlowsAsync(DaemonClient client, string project) =>
+        await client.GetAsync<List<FlowView>>($"/flows?project={Uri.EscapeDataString(project)}", CancellationToken.None);
 
     [Fact]
-    public async Task Starting_the_daemon_seeds_the_four_shipped_contours_as_published_shipped_scope_definitions_and_a_second_start_appends_nothing()
+    public async Task Starting_the_daemon_seeds_the_four_shipped_flows_as_published_shipped_scope_definitions_and_a_second_start_appends_nothing()
     {
         using var temp = new TemporaryHome();
 
@@ -105,10 +105,10 @@ public sealed class DaemonSeedingTests
         {
             await using IQuerySession session = store.QuerySession(Tenants.Node);
             IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
-            List<Definition> contours = [.. all.Where(d => d.Kind == DefinitionKind.Contour)];
-            contours.Select(d => (d.Name, d.ContentHash)).Should().BeEquivalentTo(ShippedContours.All.Select(f => (f.Name, f.Hash)));
-            contours.Should().OnlyContain(d => d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1);
-            contours.Should().OnlyContain(d => Contour.FromJson(d.Content).Hash == d.ContentHash);
+            List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
+            flows.Select(d => (d.Name, d.ContentHash)).Should().BeEquivalentTo(ShippedFlows.All.Select(f => (f.Name, f.Hash)));
+            flows.Should().OnlyContain(d => d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1);
+            flows.Should().OnlyContain(d => Flow.FromJson(d.Content).Hash == d.ContentHash);
         }
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
@@ -116,60 +116,60 @@ public sealed class DaemonSeedingTests
     }
 
     [Fact]
-    public async Task The_contour_list_endpoint_returns_exactly_the_four_shipped_contours_on_a_fresh_node_home()
+    public async Task The_flow_list_endpoint_returns_exactly_the_four_shipped_flows_on_a_fresh_node_home()
     {
         using var temp = new TemporaryHome();
 
         await RunAndStopAsync(temp.Home, async client =>
         {
-            List<ContourView> contours = await ContoursAsync(client, "alpha");
+            List<FlowView> flows = await FlowsAsync(client, "alpha");
 
-            contours.Select(f => (f.Name, f.Version, f.Hash)).Should().Equal(
-                ShippedContours.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)));
-            contours.Select(f => f.Name).Should().BeEquivalentTo("build", "merge", "discovery", "review-on-assignment");
+            flows.Select(f => (f.Name, f.Version, f.Hash)).Should().Equal(
+                ShippedFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)));
+            flows.Select(f => f.Name).Should().BeEquivalentTo("build", "merge", "discovery", "review-on-assignment");
 
-            await FluentActions.Awaiting(() => client.GetAsync<List<ContourView>>("/contours?project=_node", CancellationToken.None))
+            await FluentActions.Awaiting(() => client.GetAsync<List<FlowView>>("/flows?project=_node", CancellationToken.None))
                 .Should().ThrowAsync<DomainException>().WithMessage("*reserved for node-level records*");
         });
     }
 
     [Fact]
-    public async Task A_project_contour_overrides_the_shipped_one_in_that_project_only()
+    public async Task A_project_flow_overrides_the_shipped_one_in_that_project_only()
     {
         using var temp = new TemporaryHome();
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        Contour quick = ShippedContours.ReviewOnAssignment with { Budget = 1m };
+        Flow quick = ShippedFlows.ReviewOnAssignment with { Budget = 1m };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
             Definition draft = await definitions.DraftAsync(
-                Principal.LocalOwner, DefinitionKind.Contour, DefinitionScope.Project, "alpha",
-                quick.Name, Contour.CanonicalJson(quick), quick.Hash, null, CancellationToken.None);
+                Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, "alpha",
+                quick.Name, Flow.CanonicalJson(quick), quick.Hash, null, CancellationToken.None);
             await definitions.PublishAsync(Principal.LocalOwner, "alpha", draft.Id, CancellationToken.None);
         }
 
         await RunAndStopAsync(temp.Home, async client =>
         {
-            (await ContoursAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(quick.Hash);
-            (await ContoursAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(ShippedContours.ReviewOnAssignment.Hash);
+            (await FlowsAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(quick.Hash);
+            (await FlowsAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash.Should().Be(ShippedFlows.ReviewOnAssignment.Hash);
         });
     }
 
     [Fact]
-    public void The_contour_list_query_is_open_to_every_role()
+    public void The_flow_list_query_is_open_to_every_role()
     {
         foreach (Role role in Enum.GetValues<Role>())
         {
-            CommandRegistry.Require("contour.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
+            CommandRegistry.Require("flow.list", new Principal("someone", role)).Kind.Should().Be(EntryKind.Query);
         }
     }
 
     [Fact]
-    public async Task Seeding_a_store_that_holds_the_earlier_shipped_contours_publishes_the_merge_contour_beside_them()
+    public async Task Seeding_a_store_that_holds_the_earlier_shipped_flows_publishes_the_merge_flow_beside_them()
     {
         using var temp = new TemporaryHome();
-        ShippedDefinition[] earlier = [.. ShippedContours.All.Where(c => c.Name != "merge").Select(ShippedDefinition.FromContour)];
+        ShippedDefinition[] earlier = [.. ShippedFlows.All.Where(c => c.Name != "merge").Select(ShippedDefinition.FromFlow)];
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [.. ShippedDefinitions.ParcelTypes, .. earlier]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
 
@@ -177,78 +177,78 @@ public sealed class DaemonSeedingTests
 
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
-        List<Definition> contours = [.. all.Where(d => d.Kind == DefinitionKind.Contour)];
-        contours.Select(d => (d.Name, d.VersionNumber, d.ContentHash)).Should().BeEquivalentTo(
-            ShippedContours.All.Select(c => (c.Name, 1, c.Hash)), "the merge contour is published as its first version and the others are left as they were");
-        contours.Should().OnlyContain(d => d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Shipped);
+        List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
+        flows.Select(d => (d.Name, d.VersionNumber, d.ContentHash)).Should().BeEquivalentTo(
+            ShippedFlows.All.Select(c => (c.Name, 1, c.Hash)), "the merge flow is published as its first version and the others are left as they were");
+        flows.Should().OnlyContain(d => d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Shipped);
     }
 
     [Fact]
-    public async Task The_build_contours_new_hash_seeds_as_the_next_version_of_the_one_without_field_declarations()
+    public async Task The_build_flows_new_hash_seeds_as_the_next_version_of_the_one_without_field_declarations()
     {
         using var temp = new TemporaryHome();
-        Contour previous = PreviousContours.BuildWithGatedMerge;
-        Contour before = previous with { Steps = [.. previous.Steps.Select(s => s with { Fields = [] })] };
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(before)]);
+        Flow previous = PreviousFlows.BuildWithGatedMerge;
+        Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Fields = [] })] };
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
-        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
+        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
         build.VersionNumber.Should().Be(2);
-        build.ContentHash.Should().Be(ShippedContours.Build.Hash);
+        build.ContentHash.Should().Be(ShippedFlows.Build.Hash);
     }
 
     [Fact]
-    public async Task The_build_contours_new_hash_seeds_as_the_next_version_of_the_one_without_source_declarations()
+    public async Task The_build_flows_new_hash_seeds_as_the_next_version_of_the_one_without_source_declarations()
     {
         using var temp = new TemporaryHome();
-        Contour previous = PreviousContours.BuildWithGatedMerge;
-        Contour before = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
+        Flow previous = PreviousFlows.BuildWithGatedMerge;
+        Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
         before.Hash.Should().NotBe(previous.Hash);
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(before)]);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
-        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
+        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
         build.VersionNumber.Should().Be(2);
-        build.ContentHash.Should().Be(ShippedContours.Build.Hash);
+        build.ContentHash.Should().Be(ShippedFlows.Build.Hash);
     }
 
     [Fact]
-    public async Task Seeding_a_store_that_holds_the_build_contour_of_the_gated_merge_publishes_the_one_ending_at_the_open_pull_request_as_the_next_version()
+    public async Task Seeding_a_store_that_holds_the_build_flow_of_the_gated_merge_publishes_the_one_ending_at_the_open_pull_request_as_the_next_version()
     {
         using var temp = new TemporaryHome();
-        Contour previous = PreviousContours.BuildWithGatedMerge;
-        Contour beforeSources = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(beforeSources)]);
+        Flow previous = PreviousFlows.BuildWithGatedMerge;
+        Flow beforeSources = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(beforeSources)]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
-        await definitions.SeedAsync([ShippedDefinition.FromContour(previous)], CancellationToken.None);
+        await definitions.SeedAsync([ShippedDefinition.FromFlow(previous)], CancellationToken.None);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
-        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
+        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
         build.VersionNumber.Should().Be(3);
         build.Status.Should().Be(DefinitionStatus.Published);
-        build.ContentHash.Should().Be(ShippedContours.Build.Hash).And.NotBe(previous.Hash);
-        Contour.FromJson(build.Content).Steps.Should().NotContain(s => s.Name == "gated-merge");
+        build.ContentHash.Should().Be(ShippedFlows.Build.Hash).And.NotBe(previous.Hash);
+        Flow.FromJson(build.Content).Steps.Should().NotContain(s => s.Name == "gated-merge");
     }
 
     [Fact]
-    public async Task Seeding_a_store_that_holds_the_merge_contour_before_its_rebase_lap_publishes_the_new_one_as_its_next_version()
+    public async Task Seeding_a_store_that_holds_the_merge_flow_before_its_rebase_lap_publishes_the_new_one_as_its_next_version()
     {
         using var temp = new TemporaryHome();
-        Contour previous = PreviousContours.MergeWithoutRebase;
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(previous)]);
+        Flow previous = PreviousFlows.MergeWithoutRebase;
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(previous)]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
-        Definition merge = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "merge");
+        Definition merge = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "merge");
         merge.VersionNumber.Should().Be(2);
         merge.Status.Should().Be(DefinitionStatus.Published);
-        merge.ContentHash.Should().Be(ShippedContours.Merge.Hash).And.NotBe(previous.Hash);
-        Contour.FromJson(merge.Content).Steps.Select(s => s.Name).Should().Equal("gated-merge", "wait-for-checks", "worktree", "rebase");
+        merge.ContentHash.Should().Be(ShippedFlows.Merge.Hash).And.NotBe(previous.Hash);
+        Flow.FromJson(merge.Content).Steps.Select(s => s.Name).Should().Equal("gated-merge", "wait-for-checks", "worktree", "rebase");
     }
 }

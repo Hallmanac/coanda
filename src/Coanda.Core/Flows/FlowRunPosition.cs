@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Coanda.Core.Contours;
+namespace Coanda.Core.Flows;
 
 /// <summary>
 /// Where a flow run stands: the current step, how many times each step has been entered (the current

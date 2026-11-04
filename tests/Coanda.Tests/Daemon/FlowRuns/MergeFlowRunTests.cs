@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Cli;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
@@ -24,10 +24,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
-/// The merge contour as the daemon runs it after a build: its waiting lap, its rebase lap, a close
-/// its parcel's gate refuses and the resume that then closes it, and a project whose QA contour sits
-/// between the build and its own merge. A lap test runs a project contour of the shipped merge's
-/// shape with a timer of a few milliseconds and smaller caps; the shipped contour's twenty-minute
+/// The merge flow as the daemon runs it after a build: its waiting lap, its rebase lap, a close
+/// its parcel's gate refuses and the resume that then closes it, and a project whose QA flow sits
+/// between the build and its own merge. A lap test runs a project flow of the shipped merge's
+/// shape with a timer of a few milliseconds and smaller caps; the shipped flow's twenty-minute
 /// floor and its rebase lap's route and caps are checked from its data.
 /// </summary>
 public sealed class MergeFlowRunTests
@@ -37,85 +37,85 @@ public sealed class MergeFlowRunTests
     private const int RebaseLaps = 2;
     private static readonly CancellationToken None = CancellationToken.None;
 
-    /// <summary>The shipped merge contour's shape with a short timer: <see cref="LapCap"/> laps, and a merged cap five above it.</summary>
-    private static readonly Contour QuickLap = ShippedContours.Merge with
+    /// <summary>The shipped merge flow's shape with a short timer: <see cref="LapCap"/> laps, and a merged cap five above it.</summary>
+    private static readonly Flow QuickLap = ShippedFlows.Merge with
     {
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "gated-merge",
                 Action = SoftwareActions.GatedMerge,
-                Transitions = [On("merged", Contour.End, LapCap + 5), On("pending", "wait-for-checks", LapCap)],
+                Transitions = [On("merged", Flow.End, LapCap + 5), On("pending", "wait-for-checks", LapCap)],
             },
-            new ContourStep
+            new FlowStep
             {
                 Name = "wait-for-checks",
                 Action = CoreActions.Timer,
-                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = ContourValue.Of(0.01) },
+                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(0.01) },
                 Transitions = [On("done", "gated-merge", LapCap)],
             },
         ],
     };
 
     /// <summary>
-    /// The shipped merge contour's shape, rebase lap included, with a short timer: six inspections,
+    /// The shipped merge flow's shape, rebase lap included, with a short timer: six inspections,
     /// <see cref="RebaseLaps"/> rebases, and a merged cap five above the pending cap.
     /// </summary>
-    private static readonly Contour QuickRebaseLap = ShippedContours.Merge with
+    private static readonly Flow QuickRebaseLap = ShippedFlows.Merge with
     {
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "gated-merge",
                 Action = SoftwareActions.GatedMerge,
-                Transitions = [On("merged", Contour.End, 11), On("pending", "wait-for-checks", 6), On("behind", "worktree", 6)],
+                Transitions = [On("merged", Flow.End, 11), On("pending", "wait-for-checks", 6), On("behind", "worktree", 6)],
             },
-            new ContourStep
+            new FlowStep
             {
                 Name = "wait-for-checks",
                 Action = CoreActions.Timer,
-                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = ContourValue.Of(0.01) },
+                Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(0.01) },
                 Transitions = [On("done", "gated-merge", 6)],
             },
-            new ContourStep { Name = "worktree", Action = SoftwareActions.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
-            new ContourStep { Name = "rebase", Action = SoftwareActions.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
+            new FlowStep { Name = "worktree", Action = SoftwareActions.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
+            new FlowStep { Name = "rebase", Action = SoftwareActions.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
         ],
     };
 
     /// <summary>The commit the scripted runner's rebase makes of the build's pushed head onto the primary branch.</summary>
     private static readonly string Rebased = ScriptedCommandRunner.RebasedOnto(ScriptedCommandRunner.PrimaryHead, ScriptedCommandRunner.PrimaryHead);
 
-    /// <summary>A QA contour that follows the build's pull request: one review that ends on clean and pauses on not-clean.</summary>
-    private static readonly Contour Qa = new()
+    /// <summary>A QA flow that follows the build's pull request: one review that ends on clean and pauses on not-clean.</summary>
+    private static readonly Flow Qa = new()
     {
         Name = "qa",
         Accepts = ["task"],
         Outcome = "qa-passed",
         Budget = 2m,
         SpawnCap = 1,
-        Follow = new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = 3 },
+        Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 3 },
         Steps =
         [
-            new ContourStep
+            new FlowStep
             {
                 Name = "qa",
                 Agent = ShippedAgents.ReviewerAdversarial.Name,
                 AnswerSchema = "review",
-                Transitions = [On("clean", Contour.End, 1), On("not-clean", Contour.Pause, 1)],
+                Transitions = [On("clean", Flow.End, 1), On("not-clean", Flow.Pause, 1)],
             },
         ],
     };
 
     /// <summary>The project's own merge, named as the shipped one so it replaces it there, following QA's outcome rather than the build's.</summary>
-    private static readonly Contour MergeAfterQa = ShippedContours.Merge with
+    private static readonly Flow MergeAfterQa = ShippedFlows.Merge with
     {
-        Follow = new ContourFollow { Outcome = "qa-passed", Contour = "qa", DepthCap = 3 },
+        Follow = new FlowFollow { Outcome = "qa-passed", Flow = "qa", DepthCap = 3 },
     };
 
-    private static ContourTransition On(string verdict, string target, int cap) =>
-        new() { Field = "verdict", Value = ContourValue.Of(verdict), VisitCap = cap, Target = target };
+    private static FlowTransition On(string verdict, string target, int cap) =>
+        new() { Field = "verdict", Value = FlowValue.Of(verdict), VisitCap = cap, Target = target };
 
     [Fact]
     public async Task A_merge_waits_through_its_lap_while_checks_run_and_merges_once_they_pass()
@@ -290,7 +290,7 @@ public sealed class MergeFlowRunTests
         await harness.Client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, build.ParcelId, "build"), None);
         FlowRunView rebuild = await FlowRunDriver.UntilAsync(
             harness.Client, Project,
-            (await WaitForAsync(harness, build.ParcelId, f => f.ContourName == "build" && f.Id != build.Id)).Id,
+            (await WaitForAsync(harness, build.ParcelId, f => f.FlowName == "build" && f.Id != build.Id)).Id,
             "ended");
 
         rebuild.RootFlowRunId.Should().Be(rebuild.Id, "a move back to build starts a fresh chain");
@@ -315,7 +315,7 @@ public sealed class MergeFlowRunTests
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Closed only when released", "paused");
 
         merge.PauseReason.Should().StartWith("Flow run could not go on from step 'gated-merge': ")
-            .And.Contain($"of contour 'merge' reached its end, but its parcel could not be closed as 'completed'")
+            .And.Contain($"of flow 'merge' reached its end, but its parcel could not be closed as 'completed'")
             .And.Contain($"The gate '{HoldingGate.GateName}' refused the move from 'review' to 'closed': {HoldingGate.Reason}");
         merge.Lever.Should().Be(FlowRunLevers.PerformAgain("gated-merge"));
         ParcelView held = await harness.ParcelAsync(build.ParcelId);
@@ -335,7 +335,7 @@ public sealed class MergeFlowRunTests
     }
 
     [Fact]
-    public async Task In_a_project_whose_qa_contour_follows_the_build_the_merge_follows_qa_and_merges_only_after_qa_ended()
+    public async Task In_a_project_whose_qa_flow_follows_the_build_the_merge_follows_qa_and_merges_only_after_qa_ended()
     {
         var github = new FakeGitHub();
         DateTimeOffset? mergedAt = null;
@@ -347,8 +347,8 @@ public sealed class MergeFlowRunTests
         github.On(r => r.IsPullRequestRead, r => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, merged: mergedAt is not null)));
         var executor = new GatedExecutor(QaScript("clean")) { FreeCollects = 3 };
         await using Harness harness = await Harness.StartAsync(github, project: null, executor: executor);
-        await Publishing.ContourAsync(harness.Daemon, Project, Qa);
-        await Publishing.ContourAsync(harness.Daemon, Project, MergeAfterQa);
+        await Publishing.FlowAsync(harness.Daemon, Project, Qa);
+        await Publishing.FlowAsync(harness.Daemon, Project, MergeAfterQa);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(harness.Client, Project, "QA first");
         FlowRunView build = await FlowRunDriver.BoundAsync(harness.Client, Project, parcel.Id);
         await FlowRunDriver.UntilAsync(harness.Client, Project, build.Id, "ended");
@@ -356,7 +356,7 @@ public sealed class MergeFlowRunTests
         // QA holds its review open: the build's end started QA alone, and nothing has asked GitHub to merge.
         await executor.Holding.WaitAsync(TimeSpan.FromSeconds(15));
         FlowRunView qa = await FlowRunDriver.FollowerAsync(harness.Client, Project, parcel.Id, build.Id, Qa.Name);
-        (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", "qa");
+        (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName).Should().Equal("build", "qa");
         github.Requests.Should().NotContain(r => r.IsMerge || r.IsPullRequestRead);
 
         executor.Open();
@@ -364,10 +364,10 @@ public sealed class MergeFlowRunTests
         FlowRunView merge = await FlowRunDriver.FollowerAsync(harness.Client, Project, parcel.Id, qa.Id, "merge");
         merge = await FlowRunDriver.UntilAsync(harness.Client, Project, merge.Id, "ended");
 
-        merge.ContourHash.Should().Be(MergeAfterQa.Hash, "the project's own merge replaces the shipped one by name");
+        merge.FlowHash.Should().Be(MergeAfterQa.Hash, "the project's own merge replaces the shipped one by name");
         merge.Depth.Should().Be(2);
         merge.RootFlowRunId.Should().Be(build.Id);
-        (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.ContourName).Should().Equal("build", "qa", "merge");
+        (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName).Should().Equal("build", "qa", "merge");
         github.Requests.Should().ContainSingle(r => r.IsMerge);
         mergedAt.Should().NotBeNull().And.BeOnOrAfter(qa.UpdatedAt, "the merge request was made after the QA flow run ended");
         await harness.ExpectClosedAsync(parcel.Id, merge.Id);
@@ -378,8 +378,8 @@ public sealed class MergeFlowRunTests
     {
         var github = new FakeGitHub();
         await using Harness harness = await Harness.StartAsync(github, project: null, executor: QaScript("not-clean"));
-        await Publishing.ContourAsync(harness.Daemon, Project, Qa);
-        await Publishing.ContourAsync(harness.Daemon, Project, MergeAfterQa);
+        await Publishing.FlowAsync(harness.Daemon, Project, Qa);
+        await Publishing.FlowAsync(harness.Daemon, Project, MergeAfterQa);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(harness.Client, Project, "QA fails");
         FlowRunView build = await FlowRunDriver.BoundAsync(harness.Client, Project, parcel.Id);
         await FlowRunDriver.UntilAsync(harness.Client, Project, build.Id, "ended");
@@ -397,8 +397,8 @@ public sealed class MergeFlowRunTests
         var github = new FakeGitHub();
         var executor = new GatedExecutor(QaScript("clean")) { FreeCollects = 3 };
         await using Harness harness = await Harness.StartAsync(github, project: null, executor: executor);
-        await Publishing.ContourAsync(harness.Daemon, Project, Qa);
-        await Publishing.ContourAsync(harness.Daemon, Project, MergeAfterQa);
+        await Publishing.FlowAsync(harness.Daemon, Project, Qa);
+        await Publishing.FlowAsync(harness.Daemon, Project, MergeAfterQa);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(harness.Client, Project, "QA stopped");
         FlowRunView build = await FlowRunDriver.BoundAsync(harness.Client, Project, parcel.Id);
         await FlowRunDriver.UntilAsync(harness.Client, Project, build.Id, "ended");
@@ -545,7 +545,7 @@ public sealed class MergeFlowRunTests
         public DaemonClient Client { get; }
 
         public static async Task<Harness> StartAsync(
-            FakeGitHub github, Contour? project, IGate? gate = null, IAgentExecutor? executor = null, ScriptedCommandRunner? runner = null)
+            FakeGitHub github, Flow? project, IGate? gate = null, IAgentExecutor? executor = null, ScriptedCommandRunner? runner = null)
         {
             var temp = new TemporaryHome();
             RunningDaemon daemon = await Daemons.StartAsync(
@@ -561,7 +561,7 @@ public sealed class MergeFlowRunTests
             await RegisteredProjects.AddAsync(daemon, Project, None);
             if (project is not null)
             {
-                await Publishing.ContourAsync(daemon, Project, project);
+                await Publishing.FlowAsync(daemon, Project, project);
             }
 
             return new Harness(temp, daemon, github);
@@ -591,14 +591,14 @@ public sealed class MergeFlowRunTests
         public Task<ParcelView> ParcelAsync(Guid parcelId) =>
             Client.GetAsync<ParcelView>($"/parcels/{parcelId}?project={Project}", None);
 
-        /// <summary>The task closed as completed, released, by the merge flow run's own principal, with a reason naming the flow run and its contour.</summary>
+        /// <summary>The task closed as completed, released, by the merge flow run's own principal, with a reason naming the flow run and its flow.</summary>
         public async Task ExpectClosedAsync(Guid parcelId, Guid mergeId)
         {
             ParcelView parcel = await ParcelAsync(parcelId);
             parcel.State.Should().Be("closed");
             parcel.Resolution.Should().Be("completed");
             parcel.LiveFlowRunId.Should().BeNull();
-            parcel.CloseReason.Should().Contain($"of contour 'merge' reached its end");
+            parcel.CloseReason.Should().Contain($"of flow 'merge' reached its end");
 
             await using IQuerySession session = Daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Project);
             IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: None);
@@ -619,7 +619,7 @@ public sealed class MergeFlowRunTests
             ParcelView later = await FlowRunDriver.TaskAtBuildAsync(Client, Project, "A later task");
             await FlowRunDriver.BoundAsync(Client, Project, later.Id);
 
-            (await FlowRunDriver.OfParcelAsync(Client, Project, parcelId)).Select(f => f.ContourName).Should().Equal(flowRuns);
+            (await FlowRunDriver.OfParcelAsync(Client, Project, parcelId)).Select(f => f.FlowName).Should().Equal(flowRuns);
             GitHub.Requests.Should().NotContain(r => r.IsMerge);
             ParcelView parcel = await ParcelAsync(parcelId);
             parcel.State.Should().Be("review");

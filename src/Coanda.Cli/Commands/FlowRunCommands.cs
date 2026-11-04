@@ -134,27 +134,27 @@ public sealed class FlowRunResumeCommand : AsyncCommand<FlowRunResumeSettings>
     }
 }
 
-public sealed class ContourStartSettings : ProjectSettings
+public sealed class FlowStartSettings : ProjectSettings
 {
-    [CommandArgument(0, "<CONTOUR>")]
-    [Description("The published contour to start, by name.")]
-    public required string Contour { get; init; }
+    [CommandArgument(0, "<FLOW>")]
+    [Description("The published flow to start, by name.")]
+    public required string Flow { get; init; }
 
     [CommandOption("--parcel <ID>")]
     [Description("The parcel to start it on: its id or the short form coa parcel show accepts.")]
     public required string Parcel { get; init; }
 }
 
-public sealed class ContourStartCommand : AsyncCommand<ContourStartSettings>
+public sealed class FlowStartCommand : AsyncCommand<FlowStartSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, ContourStartSettings settings, CancellationToken cancellationToken)
+    protected override async Task<int> ExecuteAsync(CommandContext context, FlowStartSettings settings, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
         string project = settings.ResolveProject();
         ParcelView parcel = await ParcelLookup.FindAsync(client, project, settings.Parcel, cancellationToken);
         FlowRunView flowRun = await client.PostAsync<FlowRunView>(
-            "/flow-runs", new FlowRunStartRequest(project, parcel.Id, settings.Contour), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Started flow run {Ids.Short(flowRun.Id)} of {flowRun.ContourName} on parcel {Ids.Short(parcel.Id)}.");
+            "/flow-runs", new FlowRunStartRequest(project, parcel.Id, settings.Flow), cancellationToken);
+        AnsiConsole.MarkupLineInterpolated($"Started flow run {Ids.Short(flowRun.Id)} of {flowRun.FlowName} on parcel {Ids.Short(parcel.Id)}.");
         return 0;
     }
 }

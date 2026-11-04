@@ -1,46 +1,46 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Coanda.Core.Definitions;
-using Coanda.Core.Contours;
+using Coanda.Core.Flows;
 using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
-public sealed class ShippedContoursTests
+public sealed class ShippedFlowsTests
 {
     /// <summary>
     /// Routes the way the interpreter will, with equality only: the first transition of the step
     /// whose field equals the value. Test scaffolding only; the interpreter is a later task.
     /// </summary>
-    private static string Next(Contour contour, string step, string verdict)
+    private static string Next(Flow flow, string step, string verdict)
     {
-        ContourStep from = contour.Step(step) ?? throw new InvalidOperationException($"No step '{step}'.");
+        FlowStep from = flow.Step(step) ?? throw new InvalidOperationException($"No step '{step}'.");
         return from.Transitions
             .Single(t => t.Field == "verdict" && t.Value.GetString() == verdict)
             .Target;
     }
 
-    private static List<string> Walk(Contour contour, Func<ContourStep, string> answer)
+    private static List<string> Walk(Flow flow, Func<FlowStep, string> answer)
     {
         List<string> visited = [];
-        string at = contour.First!.Name;
-        while (at != Contour.End)
+        string at = flow.First!.Name;
+        while (at != Flow.End)
         {
             visited.Add(at);
-            ContourStep step = contour.Step(at)!;
-            at = Next(contour, at, answer(step));
+            FlowStep step = flow.Step(at)!;
+            at = Next(flow, at, answer(step));
         }
 
         return visited;
     }
 
     [Fact]
-    public void The_four_shipped_contours_pass_validation_with_the_known_action_names()
+    public void The_four_shipped_flows_pass_validation_with_the_known_action_names()
     {
-        ShippedContours.All.Select(f => f.Name).Should().Equal("build", "merge", "discovery", "review-on-assignment");
-        foreach (Contour contour in ShippedContours.All)
+        ShippedFlows.All.Select(f => f.Name).Should().Equal("build", "merge", "discovery", "review-on-assignment");
+        foreach (Flow flow in ShippedFlows.All)
         {
-            contour.Validate(ShippedActions.Names);
+            flow.Validate(ShippedActions.Names);
         }
     }
 
@@ -55,7 +55,7 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_shipped_contours_accept_types_that_ship_and_declare_their_outcomes()
+    public void The_shipped_flows_accept_types_that_ship_and_declare_their_outcomes()
     {
         (string Name, string Accepts, string Outcome)[] expected =
         [
@@ -67,23 +67,23 @@ public sealed class ShippedContoursTests
 
         foreach ((string name, string accepts, string outcome) in expected)
         {
-            Contour contour = ShippedContours.Find(name)!;
-            contour.Accepts.Should().Equal(accepts);
-            contour.Outcome.Should().Be(outcome);
+            Flow flow = ShippedFlows.Find(name)!;
+            flow.Accepts.Should().Equal(accepts);
+            flow.Outcome.Should().Be(outcome);
             ShippedTypes.Find(accepts).Should().NotBeNull();
         }
     }
 
     [Fact]
-    public void No_shipped_contour_holds_an_emit_outcome_step()
+    public void No_shipped_flow_holds_an_emit_outcome_step()
     {
-        ShippedContours.All.SelectMany(f => f.Steps).Should().NotContain(s => s.Action == CoreActions.EmitOutcome);
+        ShippedFlows.All.SelectMany(f => f.Steps).Should().NotContain(s => s.Action == CoreActions.EmitOutcome);
     }
 
     [Fact]
-    public void The_build_contour_on_done_and_clean_visits_the_steps_in_order_and_reaches_end()
+    public void The_build_flow_on_done_and_clean_visits_the_steps_in_order_and_reaches_end()
     {
-        Contour build = ShippedContours.Build;
+        Flow build = ShippedFlows.Build;
 
         List<string> visited = Walk(build, step => step.Name switch
         {
@@ -94,20 +94,20 @@ public sealed class ShippedContoursTests
 
         List<string> actions = [.. visited.Select(name => build.Step(name)!.Action ?? build.Step(name)!.Agent!)];
         actions.Should().Equal("worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel");
-        build.Steps.Should().NotContain(s => s.Action == SoftwareActions.GatedMerge, "the merge is a contour of its own that follows pr-opened");
+        build.Steps.Should().NotContain(s => s.Action == SoftwareActions.GatedMerge, "the merge is a flow of its own that follows pr-opened");
         build.First!.Name.Should().Be("worktree");
         build.Steps.Count(s => s.Action == CoreActions.MoveParcel).Should().Be(1);
 
-        ContourStep move = build.Step(visited[^1])!;
+        FlowStep move = build.Step(visited[^1])!;
         move.Arguments.Should().ContainSingle().Which.Key.Should().Be("state");
         move.Arguments["state"].GetString().Should().Be("review");
         ShippedTypes.Task.AllowsMove("build", "review").Should().BeTrue();
     }
 
     [Fact]
-    public void In_the_build_contour_not_clean_from_either_review_and_failed_from_gates_lead_to_fix_and_fix_done_returns_to_gates()
+    public void In_the_build_flow_not_clean_from_either_review_and_failed_from_gates_lead_to_fix_and_fix_done_returns_to_gates()
     {
-        Contour build = ShippedContours.Build;
+        Flow build = ShippedFlows.Build;
 
         Next(build, "adversarial-review", "not-clean").Should().Be("fix");
         Next(build, "conformance-review", "not-clean").Should().Be("fix");
@@ -117,21 +117,21 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void In_the_build_contour_blocked_answers_pause()
+    public void In_the_build_flow_blocked_answers_pause()
     {
-        Next(ShippedContours.Build, "build", "blocked").Should().Be(Contour.Pause);
-        Next(ShippedContours.Build, "fix", "blocked").Should().Be(Contour.Pause);
+        Next(ShippedFlows.Build, "build", "blocked").Should().Be(Flow.Pause);
+        Next(ShippedFlows.Build, "fix", "blocked").Should().Be(Flow.Pause);
     }
 
     [Fact]
     public void Review_to_fix_transitions_cap_at_three_and_every_other_build_transition_at_five()
     {
-        Contour build = ShippedContours.Build;
+        Flow build = ShippedFlows.Build;
         var reviews = new HashSet<string> { "adversarial-review", "conformance-review" };
 
-        foreach (ContourStep step in build.Steps)
+        foreach (FlowStep step in build.Steps)
         {
-            foreach (ContourTransition transition in step.Transitions)
+            foreach (FlowTransition transition in step.Transitions)
             {
                 int expected = reviews.Contains(step.Name) && transition.Target == "fix" ? 3 : 5;
                 transition.VisitCap.Should().Be(expected, $"{step.Name} on {transition.Value} goes to {transition.Target}");
@@ -140,9 +140,9 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_build_contour_names_the_agents_and_schemas_the_agent_definitions_seed()
+    public void The_build_flow_names_the_agents_and_schemas_the_agent_definitions_seed()
     {
-        ShippedContours.Build.Steps.Where(s => s.IsJudgment).Select(s => (s.Name, s.Agent, s.AnswerSchema)).Should().Equal(
+        ShippedFlows.Build.Steps.Where(s => s.IsJudgment).Select(s => (s.Name, s.Agent, s.AnswerSchema)).Should().Equal(
             ("build", "build", "build"),
             ("adversarial-review", "reviewer-adversarial", "review"),
             ("conformance-review", "reviewer-conformance", "review"),
@@ -150,45 +150,45 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_discovery_contour_has_one_judgment_that_derives_or_carries_forward()
+    public void The_discovery_flow_has_one_judgment_that_derives_or_carries_forward()
     {
-        Contour discovery = ShippedContours.Discovery;
+        Flow discovery = ShippedFlows.Discovery;
 
         discovery.Steps.Count(s => s.IsJudgment).Should().Be(1);
-        ContourStep judgment = discovery.First!;
+        FlowStep judgment = discovery.First!;
         judgment.Agent.Should().Be("discovery");
         judgment.AnswerSchema.Should().Be("discovery");
 
         string derive = Next(discovery, judgment.Name, "derive");
         discovery.Step(derive)!.Action.Should().Be(CoreActions.DeriveParcels);
-        Next(discovery, derive, "done").Should().Be(Contour.End);
-        Next(discovery, judgment.Name, "carry-forward").Should().Be(Contour.End);
+        Next(discovery, derive, "done").Should().Be(Flow.End);
+        Next(discovery, judgment.Name, "carry-forward").Should().Be(Flow.End);
     }
 
     [Fact]
-    public void The_merge_contour_follows_the_builds_pr_opened_and_closes_its_task_as_completed()
+    public void The_merge_flow_follows_the_builds_pr_opened_and_closes_its_task_as_completed()
     {
-        Contour merge = ShippedContours.Merge;
+        Flow merge = ShippedFlows.Merge;
 
-        merge.Follow.Should().BeEquivalentTo(new ContourFollow { Outcome = "pr-opened", Contour = "build", DepthCap = merge.Follow!.DepthCap });
+        merge.Follow.Should().BeEquivalentTo(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = merge.Follow!.DepthCap });
         merge.Follow.DepthCap.Should().BePositive();
         merge.Closes.Should().Be("completed");
         ShippedTypes.Task.IsResolution(merge.Closes!).Should().BeTrue();
         merge.Steps.SelectMany(s => s.Transitions).Should().OnlyContain(t => t.VisitCap > 0);
         merge.First!.Action.Should().Be(SoftwareActions.GatedMerge);
-        Next(merge, "gated-merge", "merged").Should().Be(Contour.End);
+        Next(merge, "gated-merge", "merged").Should().Be(Flow.End);
     }
 
     [Fact]
-    public void The_merge_contours_lap_waits_at_least_twenty_minutes_with_its_rebase_laps_taken_out_before_it_pauses_and_a_late_merge_still_ends()
+    public void The_merge_flows_lap_waits_at_least_twenty_minutes_with_its_rebase_laps_taken_out_before_it_pauses_and_a_late_merge_still_ends()
     {
-        Contour merge = ShippedContours.Merge;
-        ContourStep gated = merge.Step("gated-merge")!;
-        ContourTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
-        ContourTransition merged = gated.Transitions.Single(t => t.Value.GetString() == "merged");
-        ContourStep timer = merge.Step(pending.Target)!;
-        ContourTransition back = timer.Transitions.Should().ContainSingle().Subject;
-        ContourTransition rebaseLaps = RebaseLapCap(merge);
+        Flow merge = ShippedFlows.Merge;
+        FlowStep gated = merge.Step("gated-merge")!;
+        FlowTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
+        FlowTransition merged = gated.Transitions.Single(t => t.Value.GetString() == "merged");
+        FlowStep timer = merge.Step(pending.Target)!;
+        FlowTransition back = timer.Transitions.Should().ContainSingle().Subject;
+        FlowTransition rebaseLaps = RebaseLapCap(merge);
 
         timer.Action.Should().Be(CoreActions.Timer);
         back.Target.Should().Be("gated-merge");
@@ -200,16 +200,16 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_merge_contour_routes_a_behind_head_through_a_worktree_and_a_rebase_back_to_the_timer_with_no_judgment()
+    public void The_merge_flow_routes_a_behind_head_through_a_worktree_and_a_rebase_back_to_the_timer_with_no_judgment()
     {
-        Contour merge = ShippedContours.Merge;
-        ContourStep gated = merge.Step("gated-merge")!;
-        ContourTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
-        ContourTransition behind = gated.Transitions.Single(t => t.Value.GetString() == "behind");
-        ContourStep worktree = merge.Step(behind.Target)!;
-        ContourTransition checkedOut = worktree.Transitions.Should().ContainSingle().Subject;
-        ContourStep rebase = merge.Step(checkedOut.Target)!;
-        ContourTransition rebased = rebase.Transitions.Should().ContainSingle().Subject;
+        Flow merge = ShippedFlows.Merge;
+        FlowStep gated = merge.Step("gated-merge")!;
+        FlowTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
+        FlowTransition behind = gated.Transitions.Single(t => t.Value.GetString() == "behind");
+        FlowStep worktree = merge.Step(behind.Target)!;
+        FlowTransition checkedOut = worktree.Transitions.Should().ContainSingle().Subject;
+        FlowStep rebase = merge.Step(checkedOut.Target)!;
+        FlowTransition rebased = rebase.Transitions.Should().ContainSingle().Subject;
 
         worktree.Action.Should().Be(SoftwareActions.Worktree);
         checkedOut.Value.GetString().Should().Be("done");
@@ -223,9 +223,9 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_merge_contours_rebase_laps_pause_on_the_worktree_steps_cap_once_spent_before_the_rebase()
+    public void The_merge_flows_rebase_laps_pause_on_the_worktree_steps_cap_once_spent_before_the_rebase()
     {
-        Contour merge = ShippedContours.Merge;
+        Flow merge = ShippedFlows.Merge;
         int laps = RebaseLapCap(merge).VisitCap;
         FlowRunPosition position = Interpreter.Start(merge);
         using JsonDocument behind = JsonDocument.Parse("""{"verdict":"behind"}""");
@@ -252,25 +252,25 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_build_discovery_and_review_on_assignment_contours_hash_as_they_did_before_the_rebase_lap()
+    public void The_build_discovery_and_review_on_assignment_flows_hash_as_they_did_before_the_rebase_lap()
     {
-        ShippedContours.Build.Hash.Should().Be("b04d6a7f9787b3ba");
-        ShippedContours.Discovery.Hash.Should().Be("d7e57364f965bce0");
-        ShippedContours.ReviewOnAssignment.Hash.Should().Be("895e023427d7e4a3");
+        ShippedFlows.Build.Hash.Should().Be("b04d6a7f9787b3ba");
+        ShippedFlows.Discovery.Hash.Should().Be("d7e57364f965bce0");
+        ShippedFlows.ReviewOnAssignment.Hash.Should().Be("895e023427d7e4a3");
     }
 
     /// <summary>The visit cap on the merge's worktree step's transition to the rebase, which bounds the rebase laps.</summary>
-    private static ContourTransition RebaseLapCap(Contour merge)
+    private static FlowTransition RebaseLapCap(Flow merge)
     {
-        ContourTransition behind = merge.Step("gated-merge")!.Transitions.Single(t => t.Value.GetString() == "behind");
+        FlowTransition behind = merge.Step("gated-merge")!.Transitions.Single(t => t.Value.GetString() == "behind");
         return merge.Step(behind.Target)!.Transitions.Should().ContainSingle().Subject;
     }
 
     [Fact]
-    public void The_merge_contours_pending_cap_pauses_the_flow_run_once_spent_rather_than_waiting_again()
+    public void The_merge_flows_pending_cap_pauses_the_flow_run_once_spent_rather_than_waiting_again()
     {
-        Contour merge = ShippedContours.Merge;
-        int cap = ShippedContours.MergePendingCap;
+        Flow merge = ShippedFlows.Merge;
+        int cap = ShippedFlows.MergePendingCap;
         FlowRunPosition position = Interpreter.Start(merge);
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
@@ -294,13 +294,13 @@ public sealed class ShippedContoursTests
     [Fact]
     public void A_merge_on_the_hundredth_resume_after_the_lap_pauses_still_ends_the_flow_run()
     {
-        Contour merge = ShippedContours.Merge;
-        int visits = ShippedContours.MergePendingCap + ShippedContours.MergeResumes;
+        Flow merge = ShippedFlows.Merge;
+        int visits = ShippedFlows.MergePendingCap + ShippedFlows.MergeResumes;
         FlowRunPosition position = new(
             "gated-merge",
             ImmutableDictionary.Create<string, int>(StringComparer.Ordinal)
                 .SetItem("gated-merge", visits)
-                .SetItem("wait-for-checks", ShippedContours.MergePendingCap),
+                .SetItem("wait-for-checks", ShippedFlows.MergePendingCap),
             0);
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
@@ -311,33 +311,33 @@ public sealed class ShippedContoursTests
     }
 
     [Fact]
-    public void The_review_on_assignment_contour_is_one_judgment_whose_answers_both_end()
+    public void The_review_on_assignment_flow_is_one_judgment_whose_answers_both_end()
     {
-        Contour review = ShippedContours.ReviewOnAssignment;
+        Flow review = ShippedFlows.ReviewOnAssignment;
 
         review.Steps.Should().ContainSingle();
-        ContourStep step = review.First!;
+        FlowStep step = review.First!;
         step.Agent.Should().Be("reviewer-adversarial");
         step.AnswerSchema.Should().Be("review");
-        Next(review, step.Name, "clean").Should().Be(Contour.End);
-        Next(review, step.Name, "not-clean").Should().Be(Contour.End);
+        Next(review, step.Name, "clean").Should().Be(Flow.End);
+        Next(review, step.Name, "not-clean").Should().Be(Flow.End);
     }
 
     [Fact]
-    public void Every_shipped_contour_declares_a_budget_and_a_spawn_cap_and_hashes_distinctly()
+    public void Every_shipped_flow_declares_a_budget_and_a_spawn_cap_and_hashes_distinctly()
     {
-        ShippedContours.All.Should().OnlyContain(f => f.Budget > 0 && f.SpawnCap > 0);
-        ShippedContours.All.Select(f => f.Hash).Distinct().Should().HaveCount(4);
-        ShippedDefinitions.Contours.Select(d => d.ContentHash).Should().Equal(ShippedContours.All.Select(f => f.Hash));
+        ShippedFlows.All.Should().OnlyContain(f => f.Budget > 0 && f.SpawnCap > 0);
+        ShippedFlows.All.Select(f => f.Hash).Distinct().Should().HaveCount(4);
+        ShippedDefinitions.Flows.Select(d => d.ContentHash).Should().Equal(ShippedFlows.All.Select(f => f.Hash));
     }
 
     [Fact]
-    public void The_shipped_content_reads_back_to_the_same_contour()
+    public void The_shipped_content_reads_back_to_the_same_flow()
     {
-        foreach (ShippedDefinition shipped in ShippedDefinitions.Contours)
+        foreach (ShippedDefinition shipped in ShippedDefinitions.Flows)
         {
-            shipped.Kind.Should().Be(DefinitionKind.Contour);
-            Contour.FromJson(shipped.Content).Hash.Should().Be(shipped.ContentHash);
+            shipped.Kind.Should().Be(DefinitionKind.Flow);
+            Flow.FromJson(shipped.Content).Hash.Should().Be(shipped.ContentHash);
         }
     }
 }
