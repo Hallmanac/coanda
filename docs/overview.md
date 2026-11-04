@@ -47,9 +47,11 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 A parcel with a live flow, whether that flow is running or paused, is closed by nobody and moved
 only by that flow's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow
 that holds it; the flow has to end or be stopped first. `coa flow stop <id> --reason <why>` stops
-it and frees the parcel, and `coa flow resume <id>` sets a paused one going again instead. The
-one close made on a flow's behalf is the merge contour's own: the flow's end, the release of the
-task, and its close as completed are recorded together.
+it and frees the parcel, and `coa flow resume <id>` sets a paused one going again instead. A
+contour that declares `closes` is the one way a flow closes its parcel: when a flow of it ends, the
+flow's end, the release of the parcel, and its close with that resolution are recorded together.
+The shipped merge contour declares `closes` as completed, and so does any contour a project
+publishes with `closes` set, a contour that replaces the shipped merge included.
 `coa flow pause <id> --reason <why>` pauses a running flow without freeing the parcel, and a resume
 then performs the step it was paused at again.
 
