@@ -11,6 +11,7 @@ using Coanda.Daemon.Actions;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Projects;
 using Fisher;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -55,10 +56,12 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     public static readonly Principal ScanPrincipal = new("coanda-runner", Role.Agent);
 
     private readonly FlowService flows;
+    private readonly ProjectService projects;
     private readonly ParcelService parcels;
     private readonly DefinitionService definitions;
     private readonly FlowActions actions;
     private readonly IAgentExecutor executor;
+    private readonly CredentialProfiles profiles;
     private readonly NodeHome home;
     private readonly TimeProvider clock;
     private readonly TimeSpan judgmentLimit;
@@ -70,20 +73,24 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
     public FlowRunner(
         IDocumentStore store,
+        ProjectService projects,
         ParcelService parcels,
         DefinitionService definitions,
         FlowActions actions,
         IAgentExecutor executor,
+        CredentialProfiles profiles,
         NodeHome home,
         TimeProvider clock,
         FlowRunnerOptions options,
         ILogger<FlowRunner> logger)
     {
         flows = new FlowService(store, clock);
+        this.projects = projects;
         this.parcels = parcels;
         this.definitions = definitions;
         this.actions = actions;
         this.executor = executor;
+        this.profiles = profiles;
         this.home = home;
         this.clock = clock;
         judgmentLimit = options.JudgmentLimit;
@@ -336,8 +343,9 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// without an answer, so one more spawn is counted on that visit once the budget checks have
     /// passed. The launch itself is recorded just before the agent runs, with the agent's hash and
     /// model spec, so a pause after the count and before the launch (an agent that does not resolve,
-    /// a parcel that does not load) leaves that spawn unused, and the next resume uses it rather than
-    /// counting another. The session the spawn returns is recorded before its first collect.
+    /// a credential profile the project names that the node does not hold, a parcel that does not
+    /// load) leaves that spawn unused, and the next resume uses it rather than counting another. The
+    /// session the spawn returns is recorded before its first collect.
     /// </summary>
     private async Task<Recording?> JudgeAsync(
         Principal principal, string project, Flow flow, Contour contour, ContourStep step, bool spawnsAgain, CancellationToken cancellationToken)
@@ -372,6 +380,20 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         }
 
         AgentDefinition agent = AgentDefinition.FromJson(published.Content);
+        string? named = await projects.ProfileOfAsync(principal, project, cancellationToken);
+        CredentialProfile? profile = named is null
+            ? null
+            : profiles.Find(agent.Model.Vendor, named);
+        if (named is not null && profile is null)
+        {
+            await PauseAsync(
+                principal, project, flow.Id,
+                $"Project '{project}' names the credential profile '{named}', which the node configuration loaded at start holds no entry for under the vendor '{agent.Model.Vendor}' of agent '{agent.Name}'.",
+                FlowLevers.PerformAgain(step.Name),
+                cancellationToken);
+            return null;
+        }
+
         Parcel parcel = await parcels.ShowAsync(principal, project, flow.ParcelId, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(flow.ParcelId)} in project '{project}'.");
         var request = new JudgmentRequest(
@@ -380,7 +402,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             home.FlowWorkPath(project, flow.Id),
             new SpawnCaps(contour.Budget, judgmentLimit),
             step.AnswerSchema ?? string.Empty,
-            CredentialProfile: null);
+            profile);
 
         // Watched before the launch is recorded, so a person's pause or stop saved after that record
         // ends the judgment even before its spawn returns, and one saved before it refuses the record.
