@@ -10,7 +10,7 @@ namespace Coanda.Tests.Daemon.Flows;
 /// token each stop received was already cancelled, and can fail its first spawns, give up its
 /// collects on its own, let its first collects pass the gate, hold a collect past its token's
 /// cancellation, report a usage for an attempt in progress when its session is stopped, and call a
-/// test back before each stop.
+/// test back before each reattach and each stop.
 /// </summary>
 public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 {
@@ -52,6 +52,9 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     /// <summary>Whether what a stop reports for an attempt in progress holds its cost; when not, the usage is tokens and turns alone.</summary>
     public bool InProgressCostReported { get; init; } = true;
+
+    /// <summary>Called with each reattach's handle before the reattach is made, so a test can write between a read and the reattach.</summary>
+    public Func<SessionHandle, Task>? BeforeReattach { get; init; }
 
     /// <summary>Called with each stop's handle before the stop is made, so a test can read what was recorded by then.</summary>
     public Func<SessionHandle, Task>? BeforeStop { get; init; }
@@ -165,6 +168,13 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 
     public ValueTask<IReadOnlyList<SessionHandle>> ListAsync(CancellationToken cancellationToken) => inner.ListAsync(cancellationToken);
 
-    public ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken) =>
-        inner.ReattachAsync(handle, cancellationToken);
+    public async ValueTask<ReattachedSession?> ReattachAsync(SessionHandle handle, CancellationToken cancellationToken)
+    {
+        if (BeforeReattach is { } before)
+        {
+            await before(handle);
+        }
+
+        return await inner.ReattachAsync(handle, cancellationToken);
+    }
 }
