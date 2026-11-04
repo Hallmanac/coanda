@@ -33,7 +33,10 @@ namespace Coanda.Daemon.Flows;
 /// the flow is running, once the pause or stop is saved. Every write to an existing flow, its end
 /// and its stop among them, reads the flow again when another write landed between its read and
 /// its save, and decides again from what it read, so it refuses only with the rule that the flow
-/// as it now stands breaks.
+/// as it now stands breaks. Beside the registry check, a principal resolved from a session token
+/// (<see cref="Principal.Session"/>) records only on the flow it is bound to, in that flow's project,
+/// while that flow, as the write fetched it, still expects its launch, and starts no flow; every
+/// other principal, the runner's and the trigger loop's among them, passes that check untouched.
 /// </remarks>
 public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowAdvancer? advancer = null)
 {
@@ -45,6 +48,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
     public async Task<Flow> StartAsync(Principal principal, string project, Guid parcelId, string contourName, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow.start", principal);
+        RefuseSessionStart(principal);
         string tenant = Tenants.RequireProject(project);
         Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Contour, contourName, cancellationToken)
             ?? throw new DomainException($"'{contourName}' is not a published contour of project '{tenant}'; coa contour list names the ones that are.");
@@ -71,6 +75,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
         Principal principal, string project, Guid parentFlowId, string contourName, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow.start", principal);
+        RefuseSessionStart(principal);
         string tenant = Tenants.RequireProject(project);
         Definition published = await definitions.ResolveAsync(tenant, DefinitionKind.Contour, contourName, cancellationToken)
             ?? throw new DomainException($"'{contourName}' is not a published contour of project '{tenant}'; coa contour list names the ones that are.");
@@ -209,6 +214,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
     {
         CommandRegistry.Require("flow.end", principal);
         string tenant = Tenants.RequireProject(project);
+        RequireBoundFlow(principal, tenant, flowId);
 
         return DecidingAgainAsync(
             async token =>
@@ -216,6 +222,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
                 await using IDocumentSession session = store.LightweightSession(tenant);
                 var flowStream = await session.Events.FetchForWriting<Flow>(flowId, token);
                 Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
+                RequireBoundLaunch(principal, flow);
                 Contour contour = await RequireStartedUnderContourAsync(tenant, flow, token);
                 (FlowEnded ended, ParcelFlowReleased released) = FlowDecider.End(contour, flow, outcome, principal.Id, clock.GetUtcNow());
                 flowStream.AppendOne(ended);
@@ -236,6 +243,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
     {
         CommandRegistry.Require("flow.stop", principal);
         string tenant = Tenants.RequireProject(project);
+        RequireBoundFlow(principal, tenant, flowId);
 
         Flow stopped = await DecidingAgainAsync(
             async token =>
@@ -243,6 +251,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
                 await using IDocumentSession session = store.LightweightSession(tenant);
                 var flowStream = await session.Events.FetchForWriting<Flow>(flowId, token);
                 Flow flow = flowStream.Aggregate ?? throw FlowNotFound(flowId, tenant);
+                RequireBoundLaunch(principal, flow);
                 (FlowStopped recorded, ParcelFlowReleased released) = FlowDecider.Stop(flow, reason, principal.Id, clock.GetUtcNow());
                 flowStream.AppendOne(recorded);
                 await ReleaseAsync(session, flow, released, token);
@@ -323,6 +332,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
     {
         CommandRegistry.Require(entry, principal);
         string tenant = Tenants.RequireProject(project);
+        RequireBoundFlow(principal, tenant, flowId);
 
         return await DecidingAgainAsync(
             async token =>
@@ -330,6 +340,7 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
                 await using IDocumentSession session = store.LightweightSession(tenant);
                 var stream = await session.Events.FetchForWriting<Flow>(flowId, token);
                 Flow flow = stream.Aggregate ?? throw FlowNotFound(flowId, tenant);
+                RequireBoundLaunch(principal, flow);
                 Contour contour = await RequireStartedUnderContourAsync(tenant, flow, token);
                 TEvent recorded = decide(contour, flow);
                 stream.AppendOne(recorded);
@@ -341,6 +352,47 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             $"Flow {Ids.Short(flowId)} kept changing while this was being recorded, so nothing was. Read the flow again and retry.",
             cancellationToken);
     }
+
+    /// <summary>
+    /// A session principal never starts a flow, by a start or a follow, since a flow it starts is
+    /// never the one it is bound to. Every other principal, the trigger loop's among them, passes.
+    /// </summary>
+    private static void RefuseSessionStart(Principal principal)
+    {
+        if (principal.Session is { } bound)
+        {
+            throw new DomainException($"{BoundRule(bound)}; a flow it starts is never its own, so it starts none.");
+        }
+    }
+
+    /// <summary>
+    /// A session principal writes only to the flow it is bound to, in that flow's project; checked
+    /// before the flow is read. Every other principal passes.
+    /// </summary>
+    private static void RequireBoundFlow(Principal principal, string tenant, Guid flowId)
+    {
+        if (principal.Session is { } bound
+            && (!string.Equals(bound.Project, tenant, StringComparison.Ordinal) || bound.FlowId != flowId))
+        {
+            throw new DomainException($"{BoundRule(bound)}; flow {Ids.Short(flowId)} in project '{tenant}' is not that flow.");
+        }
+    }
+
+    /// <summary>
+    /// A session principal writes only while the flow, as this write fetched it, still expects the
+    /// launch it is bound to; so a call whose token resolved before its launch ended records nothing
+    /// once it has. Every other principal passes.
+    /// </summary>
+    private static void RequireBoundLaunch(Principal principal, Flow flow)
+    {
+        if (principal.Session is { } bound && !flow.ExpectsLaunch(bound.LaunchId))
+        {
+            throw new DomainException($"{BoundRule(bound)}; that launch has ended, so it records nothing more.");
+        }
+    }
+
+    private static string BoundRule(SessionBinding bound) =>
+        $"A session's principal records only on flow {Ids.Short(bound.FlowId)} in project '{bound.Project}', the flow it is bound to, while its launch {Ids.Short(bound.LaunchId)} runs";
 
     /// <summary>
     /// Reads, decides, and saves through <paramref name="attempt"/>, and when another write landed on
