@@ -56,6 +56,16 @@ public static partial class ShellWords
                 // A backslash before a line end joins the two lines into one, as a shell does.
                 i += continuation;
             }
+            else if ((c == '&' && RedirectionAt(command, i - 1)) || (c == '|' && RedirectionAt(command, i - 1) && command[i - 1] == '>'))
+            {
+                // The & of >& and <&, and the | of >|, belong to the redirection before them: the
+                // word after is its descriptor or file, and the command goes on.
+            }
+            else if (c == '&' && i + 1 < command.Length && command[i + 1] == '>')
+            {
+                // &> and &>> redirect both outputs, and the command goes on; the > comes next.
+                EndWord();
+            }
             else if (c is '\n' or '\r' || CommandOperators.Contains(c, StringComparison.Ordinal))
             {
                 EndWord();
@@ -121,6 +131,23 @@ public static partial class ShellWords
         EndWord();
         EndCommand(string.Empty);
         return commands;
+
+        // Whether a redirection is at this position: a < or a > with no backslash escaping it.
+        static bool RedirectionAt(string text, int at)
+        {
+            if (at < 0 || !Redirections.Contains(text[at], StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            int backslashes = 0;
+            while (at - backslashes - 1 >= 0 && text[at - backslashes - 1] == '\\')
+            {
+                backslashes++;
+            }
+
+            return backslashes % 2 == 0;
+        }
 
         static int LineEndAt(string text, int at) => text.AsSpan(at) switch
         {
