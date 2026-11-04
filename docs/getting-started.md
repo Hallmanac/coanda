@@ -22,7 +22,10 @@ executable already has, so install Claude Code and sign in to it before a flow r
 judgment. What a node runs its judgments with is configured once per node, in `node.json` in the
 node home: the executor (`claude-code`, with an optional path to the `claude` executable), and the
 credential profiles a project can name with `coa project set-profile`.
-[Node configuration](node-configuration.md) describes the file.
+[Node configuration](node-configuration.md) describes the file. The repository's Rider run
+configurations use `.coanda-dev` as their node home, and its checked-in `node.json` names the
+`scripted` executor, so a judgment run from them pauses at no cost instead of starting a Claude Code
+session; change that file to `claude-code` to run real sessions there.
 
 If you ran a build from before 2026-11-03, its record does not carry over, and the daemon says so
 when it starts. Move `~/.coanda` aside and run the commands above again. The commands that drive
