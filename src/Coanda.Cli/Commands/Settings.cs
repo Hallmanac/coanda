@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Coanda.Daemon.Executors;
 using Spectre.Console.Cli;
 
 namespace Coanda.Cli.Commands;
@@ -16,7 +17,7 @@ public class ProjectSettings : CommandSettings
             return Project;
         }
 
-        string? fromEnvironment = Environment.GetEnvironmentVariable("COANDA_PROJECT");
+        string? fromEnvironment = Environment.GetEnvironmentVariable(SessionAccess.ProjectVariable);
         return string.IsNullOrWhiteSpace(fromEnvironment)
             ? new DirectoryInfo(Directory.GetCurrentDirectory()).Name
             : fromEnvironment;

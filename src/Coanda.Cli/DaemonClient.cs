@@ -3,22 +3,43 @@ using System.Net.Http.Json;
 using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Executors;
 using Coanda.Daemon.Store;
 
 namespace Coanda.Cli;
 
 /// <summary>
 /// The CLI's only way to the record: the daemon's loopback API. Starts the daemon when it is not
-/// running, so a user never has to.
+/// running, so a user never has to. Inside a judgment's session, where the session token variable
+/// is set, every call presents that token instead of the daemon token, and a daemon that does not
+/// answer is never started: the one that started the session is the only one that resolves it.
 /// </summary>
-public sealed class DaemonClient(NodeHome home) : IDisposable
+public sealed class DaemonClient : IDisposable
 {
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
 
     // One client for the process, so a long-running command never exhausts sockets by making one per call.
     private static readonly HttpClient Http = new();
 
-    public NodeHome Home { get; } = home;
+    private readonly string? sessionToken;
+
+    /// <summary>A client for <paramref name="home"/> that presents the session token the environment holds, if any.</summary>
+    public DaemonClient(NodeHome home)
+        : this(home, Environment.GetEnvironmentVariable(SessionAccess.TokenVariable))
+    {
+    }
+
+    /// <summary>
+    /// A client for <paramref name="home"/> that presents <paramref name="sessionToken"/> when one is
+    /// given, whatever the environment holds, and the daemon token when it is null or blank.
+    /// </summary>
+    public DaemonClient(NodeHome home, string? sessionToken)
+    {
+        Home = home;
+        this.sessionToken = string.IsNullOrWhiteSpace(sessionToken) ? null : sessionToken;
+    }
+
+    public NodeHome Home { get; }
 
     public async Task<DaemonInfo?> FindRunningAsync(CancellationToken cancellationToken)
     {
@@ -45,6 +66,12 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
         if (running is not null)
         {
             return running;
+        }
+
+        if (sessionToken is not null)
+        {
+            throw new DomainException(
+                $"The daemon that started this session is not running for the node home {Home.Path}, so nothing was done; a session's token works only with that daemon, and a new one is not started from inside a session.");
         }
 
         PrepareToStart();
@@ -126,10 +153,10 @@ public sealed class DaemonClient(NodeHome home) : IDisposable
         response.EnsureSuccessStatusCode();
     }
 
-    private static HttpRequestMessage Request(HttpMethod method, DaemonInfo info, string path)
+    private HttpRequestMessage Request(HttpMethod method, DaemonInfo info, string path)
     {
         var request = new HttpRequestMessage(method, $"{info.BaseAddress}{path}");
-        request.Headers.Add(DaemonHost.TokenHeader, info.Token);
+        request.Headers.Add(DaemonHost.TokenHeader, sessionToken ?? info.Token);
         request.Headers.Add(DaemonHost.PrincipalHeader, Environment.UserName);
         return request;
     }
