@@ -10,7 +10,7 @@ namespace Coanda.Tests.Daemon.Flows;
 /// token each stop received was already cancelled, and can fail its first spawns, give up its
 /// collects on its own, let its first collects pass the gate, hold a collect past its token's
 /// cancellation, report a usage for an attempt in progress when its session is stopped, and call a
-/// test back before each listing, each reattach, and each stop.
+/// test back before each spawn, each listing, each reattach, and each stop.
 /// </summary>
 public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
 {
@@ -53,6 +53,9 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
     /// <summary>Whether what a stop reports for an attempt in progress holds its cost; when not, the usage is tokens and turns alone.</summary>
     public bool InProgressCostReported { get; init; } = true;
 
+    /// <summary>Called with each spawn's session access before the session is started, so a test can read what was stored by then.</summary>
+    public Func<SessionAccess?, Task>? BeforeSpawn { get; init; }
+
     /// <summary>Called with each reattach's handle before the reattach is made, so a test can write between a read and the reattach.</summary>
     public Func<SessionHandle, Task>? BeforeReattach { get; init; }
 
@@ -91,6 +94,11 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
         if (Interlocked.Increment(ref spawnAttempts) <= FailingSpawns)
         {
             throw new InvalidOperationException($"Agent '{agent.Name}' could not be launched.");
+        }
+
+        if (BeforeSpawn is { } before)
+        {
+            await before(access);
         }
 
         SessionHandle handle = await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, cancellationToken);
