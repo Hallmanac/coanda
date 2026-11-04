@@ -9,11 +9,12 @@ public static class Flowing
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
 
     /// <summary>
-    /// Adds a task, sets the objective and criteria its move out of refine requires and, unless
-    /// <paramref name="pullRequest"/> is false, the pull request its move out of build requires, and
-    /// moves it to build.
+    /// Adds a task, sets the objective and criteria its move out of refine requires and, when
+    /// <paramref name="pullRequest"/> is true, the pull request its move out of build requires, and
+    /// moves it to build. The shipped build contour's open-pr step records the pull request itself,
+    /// so only a test that moves the task out of build some other way asks for it.
     /// </summary>
-    public static async Task<ParcelView> TaskAtBuildAsync(DaemonClient client, string project, string title, bool pullRequest = true)
+    public static async Task<ParcelView> TaskAtBuildAsync(DaemonClient client, string project, string title, bool pullRequest = false)
     {
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(project, "task", title, null), CancellationToken.None);
         await client.BriefAsync(project, parcel.Id, pullRequest, CancellationToken.None);

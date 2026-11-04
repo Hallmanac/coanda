@@ -94,7 +94,9 @@ public sealed class DaemonHost
             services.GetRequiredService<ICommandRunner>(),
             services.GetRequiredService<NodeHome>(),
             services.GetRequiredService<TimeProvider>(),
-            options.GatesCommandLimit));
+            options.GatesCommandLimit,
+            // A typed client is resolved for each use, so it never holds a handler past its rotation.
+            () => services.GetRequiredService<GitHubClient>()));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunner>();
         builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());

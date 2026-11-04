@@ -20,6 +20,26 @@ public abstract record Checkout
     public sealed record Refused(string Reason) : Checkout;
 }
 
+/// <summary>What pushing a flow's branch came to: pushed at a head, or not pushed, for one of three reasons.</summary>
+public abstract record Push
+{
+    private Push()
+    {
+    }
+
+    /// <summary>The remote's branch holds <paramref name="Head"/>, and so does the clone's remote-tracking ref for it.</summary>
+    public sealed record Pushed(string Head) : Push;
+
+    /// <summary>Nothing was pushed, because the worktree holds the changes <paramref name="Changes"/> lists, which git status reports.</summary>
+    public sealed record Unclean(IReadOnlyList<string> Changes) : Push;
+
+    /// <summary>Git refused the push because the remote's branch did not hold what the lease expected: someone else updated it.</summary>
+    public sealed record Stale(string Reason) : Push;
+
+    /// <summary>The push failed or was rejected for <paramref name="Reason"/>, which quotes git with any URL's user information removed.</summary>
+    public sealed record Failed(string Reason) : Push;
+}
+
 /// <summary>
 /// The node's clones of its projects' repositories and the flows' worktrees cut from them. A clone
 /// is bare, made the first time any flow in the project needs it, with the project's remote named
@@ -138,6 +158,49 @@ public sealed class ProjectClones(NodeHome home, ICommandRunner runner, ILogger<
 
         await git.RunAsync(Git.Against(clone, "worktree", "add", "--quiet", workPath, branch), cancellationToken);
         return new Checkout.Ready(branch, tip);
+    }
+
+    /// <summary>The remote-tracking ref the clone keeps for <paramref name="branch"/> on <see cref="Git.Remote"/>.</summary>
+    public static string TrackingRefOf(string branch) => $"refs/remotes/{Git.Remote}/{branch}";
+
+    /// <summary>
+    /// Pushes the parcel's branch to the project's remote, after making sure the flow's worktree has
+    /// no changes git status reports. The push names its lease explicitly, expecting the remote's
+    /// branch to hold what the clone's remote-tracking ref for it holds, or not to exist when the
+    /// clone holds no such ref, and once it succeeds that ref is set to the pushed commit, so the
+    /// next push on the branch expects it. A failing git command other than the push throws
+    /// <see cref="GitCommandException"/>.
+    /// </summary>
+    public async Task<Push> PushAsync(Project project, Guid parcelId, Guid flowId, CancellationToken cancellationToken)
+    {
+        string clone = home.ProjectClonePath(project.Name);
+        string workPath = home.FlowWorkPath(project.Name, flowId);
+        string branch = BranchOf(parcelId);
+        string reference = $"refs/heads/{branch}";
+        string tracking = TrackingRefOf(branch);
+
+        using Held held = await LockAsync(clone, cancellationToken);
+        string status = await git.RunAsync(Git.In(workPath, "status", "--porcelain", "--untracked-files=all"), cancellationToken);
+        string[] changes = [.. Lines(status).Select(l => l.Length > 3 ? l[3..] : l)];
+        if (changes.Length > 0)
+        {
+            return new Push.Unclean(changes);
+        }
+
+        string head = (await git.RunAsync(Git.Against(clone, "rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"), cancellationToken)).Trim();
+        string expect = (await git.RunAsync(Git.Against(clone, "for-each-ref", "--format=%(objectname)", tracking), cancellationToken)).Trim();
+        CommandLine push = Git.Against(clone, "push", $"--force-with-lease={reference}:{expect}", Git.Remote, $"{head}:{reference}");
+        CommandResult pushed = await git.TryRunAsync(push, cancellationToken);
+        if (!pushed.Succeeded)
+        {
+            string reason = new GitCommandException(push, pushed).Message;
+            return pushed.StandardError.Contains("(stale info)", StringComparison.Ordinal)
+                ? new Push.Stale(reason)
+                : new Push.Failed(reason);
+        }
+
+        await git.RunAsync(Git.Against(clone, "update-ref", tracking, head), cancellationToken);
+        return new Push.Pushed(head);
     }
 
     /// <summary>

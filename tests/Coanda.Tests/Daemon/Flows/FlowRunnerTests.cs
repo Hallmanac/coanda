@@ -26,7 +26,7 @@ public sealed class FlowRunnerTests
 
     private static readonly string[] CleanPath =
     [
-        "worktree", "build", "gates", "adversarial-review", "conformance-review", "open-pr", "gated-merge", "move-to-review",
+        "worktree", "build", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review",
     ];
 
     [Fact]

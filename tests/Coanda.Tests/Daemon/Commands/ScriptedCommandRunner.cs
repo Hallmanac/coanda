@@ -6,15 +6,20 @@ namespace Coanda.Tests.Daemon.Commands;
 /// <summary>
 /// A command runner that records every command and runs nothing. A test can script the answer to
 /// any command; every other command is answered by a small model of the git state the commands
-/// would leave (the branches, configuration, and worktrees of each clone), so by default the
-/// worktree step takes its first-run path and answers done, the gates pass, and a worktree the
-/// step added is listed until a removal removes it. Answering a clone command (<c>git init</c>)
+/// would leave (the branches, remote-tracking refs, configuration, and worktrees of each clone), so
+/// by default the worktree step takes its first-run path and answers done, the gates pass, a
+/// worktree the step added is listed until a removal removes it, and the open-pr step reads
+/// <see cref="GitHubToken"/>, finds the worktree clean, and pushes, which sets nothing on the model
+/// but the remote-tracking ref the step updates itself. Answering a clone command (<c>git init</c>)
 /// with success creates the empty directory it names and nothing else.
 /// </summary>
 public sealed class ScriptedCommandRunner : ICommandRunner
 {
     /// <summary>The commit the model's fetch of a primary branch brings.</summary>
     public const string PrimaryHead = "0123456789abcdef0123456789abcdef01234567";
+
+    /// <summary>The token the model's <c>gh auth token</c> prints.</summary>
+    public const string GitHubToken = "gho_scriptedTokenNoRecordHolds0123456789";
 
     private readonly Lock gate = new();
     private readonly List<CommandLine> commands = [];
@@ -87,6 +92,24 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         }
     }
 
+    /// <summary>Sets a remote-tracking ref of the modelled clone, as an earlier push or fetch would have left it.</summary>
+    public void SetTrackingRef(string clone, string reference, string head)
+    {
+        lock (gate)
+        {
+            CloneAt(clone).TrackingRefs[reference] = head;
+        }
+    }
+
+    /// <summary>The commit a remote-tracking ref of the modelled clone holds, or null when it holds none.</summary>
+    public string? TrackingRef(string clone, string reference)
+    {
+        lock (gate)
+        {
+            return CloneAt(clone).TrackingRefs.GetValueOrDefault(reference);
+        }
+    }
+
     /// <summary>The configuration value of the modelled clone, or null when it has none.</summary>
     public string? Config(string clone, string key)
     {
@@ -121,6 +144,11 @@ public sealed class ScriptedCommandRunner : ICommandRunner
 
     private CommandResult Model(CommandLine command)
     {
+        if (command is { Program: "gh", Arguments: ["auth", "token", ..] })
+        {
+            return Ok(GitHubToken + "\n");
+        }
+
         if (command.Program != "git")
         {
             return Ok();
@@ -146,6 +174,8 @@ public sealed class ScriptedCommandRunner : ICommandRunner
             {
                 case ["rev-parse", "--is-bare-repository"]:
                     return Ok("true\n");
+                case ["rev-parse", "--verify", "--quiet", string named] when named.StartsWith("refs/heads/", StringComparison.Ordinal) && named.EndsWith("^{commit}", StringComparison.Ordinal):
+                    return Ok(clone.Branches.GetValueOrDefault(named["refs/heads/".Length..^"^{commit}".Length], PrimaryHead) + "\n");
                 case ["rev-parse", "--verify", ..]:
                     return Ok(PrimaryHead + "\n");
                 case ["worktree", "list", "--porcelain"]:
@@ -159,8 +189,13 @@ public sealed class ScriptedCommandRunner : ICommandRunner
                 case ["worktree", "prune"]:
                     clone.Worktrees.RemoveAll(w => w.Extra.Any(l => l.StartsWith("prunable", StringComparison.Ordinal)) || w.Extra.Contains("locked initializing") && !Directory.Exists(w.Path));
                     return Ok();
-                case ["for-each-ref", _, string reference]:
+                case ["for-each-ref", _, string reference] when reference.StartsWith("refs/heads/", StringComparison.Ordinal):
                     return Ok(clone.Branches.TryGetValue(reference["refs/heads/".Length..], out string? tip) ? tip + "\n" : string.Empty);
+                case ["for-each-ref", _, string reference]:
+                    return Ok(clone.TrackingRefs.TryGetValue(reference, out string? tracked) ? tracked + "\n" : string.Empty);
+                case ["update-ref", string reference, string head]:
+                    clone.TrackingRefs[reference] = head;
+                    return Ok();
                 case ["config", "--get", "--default", _, string key]:
                     return Ok(clone.Config.TryGetValue(key, out string? held) ? held + "\n" : "\n");
                 case ["config", string key, string value]:
@@ -194,6 +229,8 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         public Dictionary<string, string> Branches { get; } = new(StringComparer.Ordinal);
 
         public Dictionary<string, string> Config { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, string> TrackingRefs { get; } = new(StringComparer.Ordinal);
 
         public List<Worktree> Worktrees { get; } = [];
 

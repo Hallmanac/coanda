@@ -12,6 +12,7 @@ using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
 using Coanda.Tests.Daemon.Commands;
+using Coanda.Tests.Daemon.GitHub;
 using Fisher;
 using JasperFx.Events;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -28,6 +29,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     private IDocumentStore store = null!;
     private ParcelService parcels = null!;
     private readonly ScriptedCommandRunner runner = new();
+    private readonly FakeGitHub github = new();
     private FlowActions actions = null!;
 
     public async Task InitializeAsync()
@@ -37,7 +39,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
         parcels = new ParcelService(store, TimeProvider.System);
         var projects = new ProjectService(store, TimeProvider.System);
         var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
-        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit);
+        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit, github.Client);
     }
 
     public async Task DisposeAsync()
@@ -161,9 +163,23 @@ public sealed class FlowActionsTests : IAsyncLifetime
         runner.ShellLines.Should().Equal(Coanda.Core.Projects.Project.DefaultBuild, Coanda.Core.Projects.Project.DefaultTest);
     }
 
+    [Fact]
+    public async Task Open_pr_answers_opened_with_the_pull_requests_number_and_url_and_the_head_it_pushed()
+    {
+        Parcel parcel = await TaskAtAsync("build");
+
+        JsonElement result = (await PerformAsync(Step(SoftwareActions.OpenPr), parcel.Id)).Should().BeOfType<ActionOutcome.Done>().Subject.Result;
+
+        result.GetProperty("verdict").GetString().Should().Be(OpenPrAction.OpenedVerdict);
+        result.GetProperty("action").GetString().Should().Be(SoftwareActions.OpenPr);
+        result.GetProperty("number").GetInt32().Should().Be(FakeGitHub.Number);
+        result.GetProperty("url").GetString().Should().Be(FakeGitHub.Url);
+        result.GetProperty("head").GetString().Should().Be(ScriptedCommandRunner.PrimaryHead);
+        result.TryGetProperty("placeholder", out _).Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(CoreActions.DeriveParcels)]
-    [InlineData(SoftwareActions.OpenPr)]
     [InlineData(SoftwareActions.GatedMerge)]
     [InlineData(SoftwareActions.Rebase)]
     public async Task A_placeholder_answers_done_naming_itself_as_a_placeholder(string action)

@@ -44,7 +44,7 @@ public sealed class WorktreeFlowTests
         FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         flow.Steps.Select(s => s.Step).Should().Equal(
-            "worktree", "build", "gates", "fix", "gates", "adversarial-review", "conformance-review", "open-pr", "gated-merge", "move-to-review");
+            "worktree", "build", "gates", "fix", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review");
         flow.Steps[2].Result.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("failed");
         flow.Steps[2].Result.GetValueOrDefault().GetProperty("reason").GetString().Should()
             .Be("The build command 'dotnet build' exited with code 1. The last 1 lines of its output:\nerror CS0103");

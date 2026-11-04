@@ -8,12 +8,13 @@ namespace Coanda.Tests.Daemon;
 
 /// <summary>
 /// Registers the projects a test creates parcels in, since a parcel is created only in a
-/// registered project. The remote and the branch are placeholders: only the worktree step reads
-/// them, and every test runs it on the scripted command runner, which contacts nothing.
+/// registered project. The remote and the branch are placeholders: only the worktree and open-pr
+/// steps read them, and every test runs those on the scripted command runner and a fake GitHub,
+/// which contact nothing. The remote is in a github.com form, so open-pr reads it.
 /// </summary>
 public static class RegisteredProjects
 {
-    public const string Remote = "https://example.invalid/repo.git";
+    public const string Remote = "https://github.com/example/repo.git";
     public const string Branch = "main";
 
     /// <summary>Registers <paramref name="project"/> in a store opened without the daemon.</summary>

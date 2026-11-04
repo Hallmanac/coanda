@@ -6,8 +6,11 @@ namespace Coanda.Core.Software;
 /// <summary>
 /// The contours the binary carries: build, discovery, and review on assignment. Each is ordinary
 /// <see cref="Contour"/> data with no privileges a user's contour lacks. Every answer and
-/// every action result routes on a string field named <c>verdict</c>; an action answers
-/// <c>done</c> on success, and gates may also answer <c>failed</c>. A flow's outcome is the one
+/// every action result routes on a string field named <c>verdict</c>. The worktree and gates actions
+/// and move-parcel answer <c>done</c> on success, gates answers <c>failed</c> when the build or tests
+/// fail, and open-pr answers <c>opened</c> once its pull request is open. The build contour ends
+/// there: it opens the pull request, moves the task to review, and ends with the outcome
+/// <c>pr-opened</c>, and the merge is a contour of its own that follows. A flow's outcome is the one
 /// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
 /// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
 /// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
@@ -43,8 +46,7 @@ public static class ShippedContours
                 On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
             Judgment("conformance-review", "reviewer-conformance", "review",
                 On("clean", "open-pr"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
-            Action("open-pr", SoftwareActions.OpenPr, On("done", "gated-merge")),
-            Action("gated-merge", SoftwareActions.GatedMerge, On("done", "move-to-review")),
+            Action("open-pr", SoftwareActions.OpenPr, On("opened", "move-to-review")),
             new ContourStep
             {
                 Name = "move-to-review",

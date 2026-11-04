@@ -13,6 +13,8 @@ using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events.Documents;
 
+using Coanda.Tests.Core;
+
 namespace Coanda.Tests.Daemon;
 
 public sealed class DaemonSeedingTests
@@ -168,7 +170,8 @@ public sealed class DaemonSeedingTests
     public async Task The_build_contours_new_hash_seeds_as_the_next_version_of_the_one_without_field_declarations()
     {
         using var temp = new TemporaryHome();
-        Contour before = ShippedContours.Build with { Steps = [.. ShippedContours.Build.Steps.Select(s => s with { Fields = [] })] };
+        Contour previous = PreviousContours.BuildWithGatedMerge;
+        Contour before = previous with { Steps = [.. previous.Steps.Select(s => s with { Fields = [] })] };
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
 
@@ -183,8 +186,9 @@ public sealed class DaemonSeedingTests
     public async Task The_build_contours_new_hash_seeds_as_the_next_version_of_the_one_without_source_declarations()
     {
         using var temp = new TemporaryHome();
-        Contour before = ShippedContours.Build with { Steps = [.. ShippedContours.Build.Steps.Select(s => s with { Sources = [] })] };
-        before.Hash.Should().NotBe(ShippedContours.Build.Hash);
+        Contour previous = PreviousContours.BuildWithGatedMerge;
+        Contour before = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
+        before.Hash.Should().NotBe(previous.Hash);
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
 
@@ -193,5 +197,24 @@ public sealed class DaemonSeedingTests
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
         build.VersionNumber.Should().Be(2);
         build.ContentHash.Should().Be(ShippedContours.Build.Hash);
+    }
+
+    [Fact]
+    public async Task Seeding_a_store_that_holds_the_build_contour_of_the_gated_merge_publishes_the_one_ending_at_the_open_pull_request_as_the_next_version()
+    {
+        using var temp = new TemporaryHome();
+        Contour previous = PreviousContours.BuildWithGatedMerge;
+        Contour beforeSources = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromContour(beforeSources)]);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
+        await definitions.SeedAsync([ShippedDefinition.FromContour(previous)], CancellationToken.None);
+
+        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+
+        Definition build = seeded.Single(d => d.Kind == DefinitionKind.Contour && d.Name == "build");
+        build.VersionNumber.Should().Be(3);
+        build.Status.Should().Be(DefinitionStatus.Published);
+        build.ContentHash.Should().Be(ShippedContours.Build.Hash).And.NotBe(previous.Hash);
+        Contour.FromJson(build.Content).Steps.Should().NotContain(s => s.Name == "gated-merge");
     }
 }

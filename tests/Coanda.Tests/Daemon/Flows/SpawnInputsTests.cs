@@ -71,7 +71,7 @@ public sealed class SpawnInputsTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Render the record");
+        ParcelView parcel = await Flowing.TaskAtBuildAsync(client, Project, "Render the record", pullRequest: true);
 
         FlowView flow = await Flowing.UntilAsync(client, Project, (await Flowing.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 

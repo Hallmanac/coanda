@@ -18,6 +18,13 @@ public static class FlowLevers
     public static string DepthCapReached(string contour) =>
         $"Stop the flow; it is past the depth cap of contour '{contour}''s follow, so a resume pauses it again.";
 
+    /// <summary>
+    /// Names the way out of a flow whose push someone else's update of the branch on the remote
+    /// refused: a resume pushes with the same lease and is refused the same way.
+    /// </summary>
+    public static string RemoteBranchMoved(string step) =>
+        $"Stop the flow; someone else updated its branch on the remote, so performing step '{step}' again would push with the same lease and be refused the same way.";
+
     /// <summary>Names the way out of a flow whose budget, or its chain's, is spent: a resume pauses it again.</summary>
     public static string BudgetReached() =>
         "Stop the flow; its budget is spent, so a resume pauses it again before any judgment.";

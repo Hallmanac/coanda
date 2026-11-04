@@ -57,7 +57,7 @@ public sealed class FixContextFlowTests
 
         flow.Steps.Select(s => s.Step).Should().Equal(
             "worktree", "build", "gates", "adversarial-review", "fix", "gates", "adversarial-review", "fix",
-            "gates", "adversarial-review", "conformance-review", "open-pr", "gated-merge", "move-to-review");
+            "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review");
         string[][] fixes = [.. executor.Spawns.Where(s => s.Agent == "fix").Select(s => s.Context.Split('\n'))];
         fixes.Should().HaveCount(2);
 
