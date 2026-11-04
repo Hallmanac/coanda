@@ -12,5 +12,7 @@ TestResults/
 # OS
 .DS_Store
 
-# Local node home for the Rider run configurations
-.coanda-dev/
+# Local node home for the Rider run configurations; only its node.json, which keeps the dev home on
+# the scripted executor so no run configuration starts a billed Claude Code session, is tracked.
+.coanda-dev/*
+!.coanda-dev/node.json
