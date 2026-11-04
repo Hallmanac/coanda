@@ -72,11 +72,15 @@ the session's answer, retrying it once if it is invalid, and records it with wha
 spent, without launching the agent again. A session the daemon stopped during its retry is not
 retried a second time, and the turn before the retry counts toward what it spent. The judgment's
 wall-clock limit still runs from when its session was launched. A session that finished while the daemon was down is collected the same way.
-When the session cannot be found again (its process exited without an answer, or the daemon stopped
-before it recorded the session), the flow pauses saying that the session was lost and its usage was
-not observed, and resuming the flow performs the step again with a new session. A session whose
-record the daemon could not read back is stopped before the flow pauses, so it does not go on
-running unobserved. At start, the
+When the session cannot be found again (its process exited without an answer, its record could not
+be read, or the daemon stopped before it recorded the session), the flow pauses saying that the
+session was lost and its usage was not observed, and resuming the flow performs the step again with
+a new session. A session lost during its retry is the exception to that last part: its record kept
+what the turn before the retry spent, and the pause records that usage. When reattaching a session
+fails outright, or its launch did not record the agent and model to record its answer with, the
+daemon stops the session before the flow pauses, so it does not go on running unobserved. A session
+whose record could not be read cannot be stopped this way, because nothing says which process is
+its own. At start, the
 daemon also stops every recorded session that no running flow is waiting on.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
