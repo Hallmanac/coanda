@@ -7,6 +7,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Fisher;
+using JasperFx;
 using JasperFx.Events.Documents;
 
 namespace Coanda.Daemon.Parcels;
@@ -64,7 +65,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelMoved moved = ParcelDecider.Move(type, gates, parcel, to, principal.Id, clock.GetUtcNow(), forFlow);
         stream.AppendOne(moved);
-        await session.SaveChangesAsync(cancellationToken);
+        await SaveGuardedAsync(session, parcelId, cancellationToken);
 
         parcel.Apply(moved);
         return parcel;
@@ -83,7 +84,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelFieldSet set = ParcelDecider.SetField(type, parcel, field, value, principal.Id, clock.GetUtcNow());
         stream.AppendOne(set);
-        await session.SaveChangesAsync(cancellationToken);
+        await SaveGuardedAsync(session, parcelId, cancellationToken);
 
         parcel.Apply(set);
         return parcel;
@@ -100,7 +101,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelClosed closed = ParcelDecider.Close(type, gates, parcel, resolution, reason, principal.Id, clock.GetUtcNow());
         stream.AppendOne(closed);
-        await session.SaveChangesAsync(cancellationToken);
+        await SaveGuardedAsync(session, parcelId, cancellationToken);
 
         parcel.Apply(closed);
         return parcel;
@@ -197,6 +198,23 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         ParcelType? type = await definitions.ResolveParcelTypeByHashAsync(project, parcel.TypeHash, cancellationToken);
         return type
             ?? throw new DomainException($"The '{parcel.TypeName}' type version {parcel.TypeHash} that parcel {Ids.Short(parcel.Id)} was created under is no longer held.");
+    }
+
+    /// <summary>
+    /// Saves a write to an existing parcel, turning a failed version check (another write, a flow's
+    /// attach say, reached the parcel's stream after this one read it) into a refusal.
+    /// </summary>
+    private static async Task SaveGuardedAsync(IDocumentSession session, Guid parcelId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await session.SaveChangesAsync(cancellationToken);
+        }
+        catch (ConcurrencyException)
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcelId)} changed while this change was being recorded, so nothing was. Read it again and retry.");
+        }
     }
 
     private static DomainException NotFound(Guid parcelId, string project) =>
