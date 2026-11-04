@@ -43,6 +43,20 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task A_project_whose_name_differs_from_a_registered_one_only_in_letter_case_is_refused_and_not_recorded()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var projects = new ProjectService(store, TimeProvider.System);
+        await projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", "main", None);
+
+        await FluentActions.Awaiting(() => projects.AddAsync(Owner, "Coanda", "https://example.invalid/b.git", "main", None))
+            .Should().ThrowAsync<DomainException>().WithMessage("Project 'Coanda' differs from the registered project 'coanda' only in letter case*");
+
+        (await projects.ListAsync(Owner, None)).Select(p => p.Name).Should().Equal("coanda");
+    }
+
+    [Fact]
     public async Task The_list_holds_every_project_on_the_node_ordered_by_name_with_ordinal_comparison()
     {
         using var temp = new TemporaryHome();

@@ -50,8 +50,9 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
         try
         {
             Project? existing = await FindAsync(store, tenant, cancellationToken);
+            IReadOnlyList<string> registeredNames = existing is null ? await NamesAsync(store, cancellationToken) : [];
             ProjectRegistered registered = ProjectDecider.Register(
-                tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow(), buildCommand, testCommand);
+                tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow(), buildCommand, testCommand, registeredNames);
 
             await using IDocumentSession session = store.LightweightSession(tenant);
             session.Events.StartStream<Project>(registered.ProjectId, registered);
@@ -133,6 +134,14 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Project> projects = await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
         return [.. projects.OrderBy(p => p.Name, StringComparer.Ordinal)];
+    }
+
+    /// <summary>The name of every project registered on the node, read without a registry check.</summary>
+    private static async Task<IReadOnlyList<string>> NamesAsync(IDocumentStore store, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(Tenants.Node);
+        IReadOnlyList<Project> projects = await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
+        return [.. projects.Select(p => p.Name)];
     }
 
     /// <summary>
