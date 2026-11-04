@@ -4,6 +4,7 @@ using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Flows;
 using Coanda.Core.Software;
+using Coanda.Daemon.Api;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Executors.ClaudeCode;
 
@@ -505,29 +506,26 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task The_daemons_stop_kills_every_session_in_progress_and_lets_each_go_so_no_process_outlives_it()
+    public async Task The_daemons_stop_leaves_a_session_in_progress_running_for_a_reattach()
     {
         using var fake = new FakeClaude(new { result = "hang", child = true });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+        RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = executor }, None);
         SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, None);
         await Until(() => fake.ChildPid is not null);
         int parent = fake.Starts.Single().Pid;
         int child = fake.ChildPid ?? 0;
-        Task<CollectedAnswer> collecting = executor.CollectAsync(handle, None).AsTask();
 
-        await new ExecutorShutdown(executor).StopAsync(None);
+        await daemon.StopAsync(None);
+        await daemon.DisposeAsync();
 
-        Running(parent).Should().BeFalse();
-        await Until(() => !Running(child));
-        await FluentActions.Awaiting(() => collecting).Should().ThrowAsync<InvalidOperationException>().WithMessage("*without a result*");
-        (await executor.ListAsync(None)).Should().BeEmpty();
-        (await executor.ReattachAsync(handle, None)).Should().BeNull();
-        (await executor.StopAsync(handle, None)).Should().BeNull("stopping a session the daemon's stop already ended succeeds");
-        await FluentActions.Awaiting(() => executor.CollectAsync(handle, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage($"Session {handle.Id} has been stopped.");
-        await FluentActions.Awaiting(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, None).AsTask())
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("The daemon is stopping*");
-        fake.Starts.Should().ContainSingle();
+        Running(parent).Should().BeTrue("the daemon's stop does not end a session's process");
+        Running(child).Should().BeTrue();
+        (await executor.ListAsync(None)).Should().Equal(handle);
+        (await executor.ReattachAsync(handle, None)).Should().Be(handle);
+
+        await executor.StopAsync(handle, None);
+        await Until(() => !Running(parent) && !Running(child));
     }
 
     [Fact]

@@ -62,9 +62,13 @@ when that is smaller. Claude Code checks the cap between turns, so one turn can 
 session that ends with an error (its spend cap reached, or no login) is not retried; the flow pauses
 quoting the error, and what the session spent is still recorded on the flow.
 
-Stopping the daemon ends every Claude Code session it is running, together with whatever each
-session started. The step that was in progress records nothing and is performed again, in a new
-session, at the next start; what the ended session spent before the stop is not recorded.
+Stopping the daemon does not end a Claude Code session it is running: the session runs on, under
+its spend cap, but its output no longer reaches the transcript. The step that was in progress
+records nothing and is performed again at the next start. The daemon cannot yet reattach to a
+session across a restart, so that next start runs a new session in the same work directory while
+the old one may still be running, and what the old one spends is not recorded. To avoid that, pause
+a flow whose judgment is running before you stop the daemon; a pause ends the session and records
+what it spent.
 
 The daemon removes from a session's environment the variables an enclosing Claude Code session sets
 for itself, so a daemon started from inside Claude Code runs its sessions as independent ones.
