@@ -259,6 +259,84 @@ public sealed class ToolGuardTests : IDisposable
         Allowed(Guard(Call("Bash", new { command = "true && cd a/b/c && (ls ../..; cat ../x)" })));
     }
 
+    [Fact]
+    public void A_popd_or_a_pushd_rotating_the_stack_leaves_the_next_command_judged_from_every_directory_the_shell_has_been_in()
+    {
+        Directory.CreateDirectory(Path.Combine(work, "src", "x", "y", "z"));
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "mkdir -p src/x/y/z && pushd src/x/y/z && popd && cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "pushd src/x/y/z && pushd +1 && cat ../../../daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "pushd src/x/y/z && pushd && cat ../../../daemon.json" })));
+        Allowed(Guard(Call("Bash", new { command = "pushd src/x/y/z && ls ../.. && popd && ls src" })));
+    }
+
+    [Theory]
+    [InlineData("cd src/x/y/z && builtin cd ../../.. && cat ../../../daemon.json")]
+    [InlineData("cd src/x/y/z && command cd ../../.. && cat ../../../daemon.json")]
+    [InlineData("cd src/x/y/z && command -p cd ../../.. && cat ../../../daemon.json")]
+    [InlineData("cd src/x/y/z && \\cd ../../.. && cat ../../../daemon.json")]
+    public void A_cd_behind_a_wrapper_or_a_backslash_is_still_read_as_a_cd(string command)
+    {
+        Directory.CreateDirectory(Path.Combine(work, "src", "x", "y", "z"));
+
+        RefusedInNodeHome(Guard(Call("Bash", new { command })));
+    }
+
+    [Theory]
+    [InlineData("if true; then cd; fi; cat .claude/settings.json")]
+    [InlineData("{ cd; cat .claude/settings.json; }")]
+    [InlineData("! cd && cat .claude/settings.json")]
+    [InlineData("for d in a; do cd; done; cat .claude/settings.json")]
+    [InlineData("builtin cd && cat .claude/settings.json")]
+    [InlineData("eval \"cd; cat .claude/settings.json\"")]
+    public void A_bare_cd_behind_a_shell_keyword_is_judged_as_the_home_directory_it_goes_to(string command) =>
+        RefusedInConfig(Guard(Call("Bash", new { command }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Fact]
+    public void Command_v_cd_only_prints_and_is_not_read_as_a_cd() =>
+        Allowed(Guard(Call("Bash", new { command = "command -v cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Fact]
+    public void A_cd_given_two_directories_which_zsh_reads_as_a_replacement_is_refused() =>
+        RefusedUnknowable(Guard(Call("Bash", new { command = "cd alpha . && cat daemon.json" })));
+
+    [Theory]
+    [InlineData("cat ~/ho\\me/daemon.json")]
+    [InlineData("cat ~/\\home/daemon.json")]
+    [InlineData("cat ~/ho\\\nme/daemon.json")]
+    public void A_shell_word_with_backslashes_is_judged_as_the_shell_reads_it(string command) =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command }), environment: Environment(("HOME", root))));
+
+    [Fact]
+    public void A_tilde_naming_a_user_or_the_previous_directory_is_refused_and_one_naming_the_current_directory_is_judged_there()
+    {
+        RefusedUnknowable(Guard(Call("Bash", new { command = "cat ~someone/.coanda/daemon.json" })));
+        RefusedUnknowable(Guard(Call("Read", new { file_path = "~someone/.coanda/daemon.json" })));
+        RefusedUnknowable(Guard(Call("Bash", new { command = "cat ~-/daemon.json" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "ls ~+/.." })));
+        Allowed(Guard(Call("Bash", new { command = "ls ~+/src" })));
+    }
+
+    [Fact]
+    public void With_no_inherited_config_directory_the_global_config_file_beside_the_default_one_is_refused()
+    {
+        string user = Path.Combine(root, "user");
+        File.WriteAllText(Path.Combine(user, ".claude.json"), "{}");
+        // HOME for the shell's ~, USERPROFILE for where the CLI keeps its global config on Windows.
+        IReadOnlyDictionary<string, string> environment = Environment(("HOME", user), ("USERPROFILE", user));
+        environment = environment.Where(pair => pair.Key != "CLAUDE_CONFIG_DIR").ToDictionary(pair => pair.Key, pair => pair.Value);
+        foreach (CredentialProfile? profile in new[] { null, directoryProfile, helperProfile })
+        {
+            IReadOnlyList<string> arguments = ClaudeCodeInvocation.Guard(home, work, profile, environment, [directoryProfile.ConfigDirectory!, otherProfile.ConfigDirectory!]).Arguments;
+
+            RefusedInConfig(ToolGuard.Run(arguments, new StringReader(Call("Read", new { file_path = Path.Combine(user, ".claude.json") })), environment));
+            RefusedInConfig(ToolGuard.Run(arguments, new StringReader(Call("Edit", new { file_path = Path.Combine(user, ".claude.json.backup") })), environment));
+            RefusedInConfig(ToolGuard.Run(arguments, new StringReader(Call("Bash", new { command = "cat ~/.claude.json" })), environment));
+        }
+
+        ClaudeCodeInvocation.DefaultConfigFiles(Environment()).Should().BeEmpty("with CLAUDE_CONFIG_DIR set, the global config lives inside that directory");
+    }
+
     [Theory]
     [InlineData("cat */../../../daemon.json")]
     [InlineData("cat src/*/../../../../daemon.json")]

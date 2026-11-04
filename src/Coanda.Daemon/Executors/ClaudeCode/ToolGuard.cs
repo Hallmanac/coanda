@@ -33,9 +33,14 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// first <c>=</c> of a word that holds one. A relative word is judged against each directory a
 /// <c>cd</c> or <c>pushd</c> earlier in the command may have moved to, and also the one it was in
 /// before unless the word's command is joined to the <c>cd</c> by <c>&amp;&amp;</c>, and a
-/// <c>cd</c>'s destination is itself a path the call names. <c>$PWD</c> is the directory the
-/// shell is in at that point; a call that depends on <c>$OLDPWD</c> or <c>cd -</c>, which nothing the guard
-/// receives names, is refused. A Bash word or a Glob pattern holding braces is judged as each word
+/// <c>cd</c>'s destination is itself a path the call names. A <c>popd</c>, or a <c>pushd</c> that
+/// rotates the directory stack, may return the shell to any directory it has been in, so a word after
+/// one is judged against all of them. A <c>cd</c> is recognised behind shell keywords and the
+/// wrappers <c>builtin</c>, <c>command</c>, and <c>eval</c>, and every word is judged both as written and with its
+/// backslashes removed. <c>$PWD</c> is the directory the
+/// shell is in at that point; a call that depends on <c>$OLDPWD</c>, <c>cd -</c>, <c>~-</c>, a
+/// <c>~NAME</c> lookup, or zsh's two-directory <c>cd</c>, which nothing the guard receives names, is
+/// refused. A Bash word or a Glob pattern holding braces is judged as each word
 /// its brace expansion gives (<see cref="ShellWords.Braces"/>), and one giving too many is refused. A
 /// path holding a wildcard is judged by the highest directory it may reach
 /// (<see cref="ShellWords.HighestReach"/>). Files a
@@ -144,7 +149,14 @@ public static class ToolGuard
 
         return ToolGuardOutcome.Allowed;
 
-        string Expanded(string text) => ShellWords.Expand(text, Value, home);
+        string Expanded(string text) => ShellWords.Expand(text, Value, home, UserHome);
+
+        // A shell looks ~NAME up as a user's home or, in zsh, a named directory, neither of which the hook receives.
+        string UserHome(string name)
+        {
+            unknowable ??= $"~{name}, a directory the shell looks up by name";
+            return string.Empty;
+        }
 
         // A shell, and the Glob tool, expand a word's braces before anything else, so each word a
         // brace makes is expanded and judged on its own.
@@ -203,6 +215,9 @@ public static class ToolGuard
         {
             List<Named> paths = [];
             List<Level> levels = [new(atCwd, [])];
+
+            // Every directory the shell may have been in, which is all a popd may return to.
+            List<string> visited = [cwd];
             foreach (ShellCommand next in ShellWords.Commands(command))
             {
                 while (levels.Count > next.Depth + 1)
@@ -227,7 +242,7 @@ public static class ToolGuard
                     string[] texts = equals >= 0
                         ? [word, word[(equals + 1)..]]
                         : [word];
-                    foreach (string text in texts)
+                    foreach (string text in Unescaped(texts))
                     {
                         foreach (string expanded in ExpandedAt(text, at))
                         {
@@ -243,12 +258,19 @@ public static class ToolGuard
                 {
                     case null:
                         break;
-                    case "-":
+                    case { Kind: DirectoryMoveKind.Unknown }:
+                        unknowable ??= "a cd with two directories, which zsh reads as a replacement in the name of the directory the shell is in";
+                        break;
+                    case { Kind: DirectoryMoveKind.To, Destination: "-" }:
                         unknowable ??= "cd -, which returns to the shell's previous directory";
                         break;
-                    case { } destination:
+                    case { Kind: DirectoryMoveKind.Back }:
+                        // A popd, or a pushd that rotates the stack, may return to any directory the shell has been in.
+                        levels[^1] = levels[^1] with { Bases = Union(at, visited) };
+                        break;
+                    case { Kind: DirectoryMoveKind.To, Destination: { } destination }:
                         List<string> moved = [];
-                        foreach (string expanded in ExpandedAt(destination, at))
+                        foreach (string expanded in Unescaped([destination]).SelectMany(text => ExpandedAt(text, at)))
                         {
                             paths.Add(new(expanded, at));
                             moved.AddRange(
@@ -256,6 +278,8 @@ public static class ToolGuard
                                 from directory in at
                                 select GuardPath.Resolve(reading, directory));
                         }
+
+                        visited = [.. Union(visited, moved)];
 
                         // A cd that starts a list or follows && and is followed by && moves the shell for
                         // the rest of that && chain; the directories it left come back when the chain ends.
@@ -276,6 +300,11 @@ public static class ToolGuard
                 pwd = directory;
                 return ExpandedWords(text);
             }).Distinct(StringComparer.Ordinal)];
+
+        // A word as written and as a shell reads it with its backslashes removed; the guard does not
+        // track quotes, inside which a backslash may stand for itself, so it judges both.
+        static IReadOnlyList<string> Unescaped(IReadOnlyList<string> texts) =>
+            [.. texts.Concat(texts.Select(ShellWords.Unescape)).Distinct(StringComparer.Ordinal)];
 
         static IReadOnlyList<string> Union(IReadOnlyList<string> first, IReadOnlyList<string> second) =>
             [.. first.Concat(second).Distinct(GuardPath.Comparer)];
@@ -381,7 +410,7 @@ public static class ToolGuard
             }
 
             return configs.FirstOrDefault(config => Reaches(path, config)) is { } reached
-                ? $"coa refused this call: the path '{path}' is in a Claude Code config directory ({reached}) or contains it, and a session may reach only its own conversation's directory there."
+                ? $"coa refused this call: the path '{path}' is in a Claude Code config directory or file ({reached}) or contains it, and a session may reach only its own conversation's directory there."
                 : null;
         }
 

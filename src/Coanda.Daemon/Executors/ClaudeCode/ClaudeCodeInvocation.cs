@@ -47,6 +47,14 @@ public static partial class ClaudeCodeInvocation
     /// <summary>The CLI's own config directory under the user's home when <see cref="ConfigDirectoryVariable"/> is unset.</summary>
     public const string DefaultConfigDirectoryName = ".claude";
 
+    /// <summary>
+    /// The files the CLI keeps beside <see cref="DefaultConfigDirectoryName"/> in the user's home when
+    /// <see cref="ConfigDirectoryVariable"/> is unset: its global config, which holds the account, the
+    /// user's MCP servers, and any stored API key, and that file's backup. With the variable set they
+    /// live inside the config directory instead.
+    /// </summary>
+    public static IReadOnlyList<string> DefaultConfigFileNames { get; } = [".claude.json", ".claude.json.backup"];
+
     /// <summary>The one mapping from the vendor-neutral tool catalog to Claude Code's own tools.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> Tools { get; } = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
     {
@@ -175,16 +183,37 @@ public static partial class ClaudeCodeInvocation
             return Path.GetFullPath(configured, Path.GetFullPath(workingDirectory));
         }
 
-        string home = inherited.TryGetValue(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME", out string? given) && !string.IsNullOrWhiteSpace(given)
+        return Path.GetFullPath(Path.Combine(InheritedHome(inherited), DefaultConfigDirectoryName));
+    }
+
+    /// <summary>
+    /// The config files a session's CLI keeps outside any config directory: each of
+    /// <see cref="DefaultConfigFileNames"/> under the inherited home directory when the daemon inherited
+    /// no <see cref="ConfigDirectoryVariable"/>, and none when it did.
+    /// </summary>
+    public static IReadOnlyList<string> DefaultConfigFiles(IReadOnlyDictionary<string, string> inherited)
+    {
+        ArgumentNullException.ThrowIfNull(inherited);
+        if (inherited.TryGetValue(ConfigDirectoryVariable, out string? configured) && !string.IsNullOrWhiteSpace(configured))
+        {
+            return [];
+        }
+
+        string home = InheritedHome(inherited);
+        return [.. DefaultConfigFileNames.Select(name => Path.GetFullPath(Path.Combine(home, name)))];
+    }
+
+    /// <summary>The home directory the CLI reads its default config from: <c>USERPROFILE</c> on Windows, <c>HOME</c> elsewhere, or the user's profile directory as .NET finds it.</summary>
+    private static string InheritedHome(IReadOnlyDictionary<string, string> inherited) =>
+        inherited.TryGetValue(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME", out string? given) && !string.IsNullOrWhiteSpace(given)
             ? given
             : System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
-        return Path.GetFullPath(Path.Combine(home, DefaultConfigDirectoryName));
-    }
 
     /// <summary>
     /// The rules of a session's tool guard: the node home, the session's work directory, the config
     /// directory it runs under (its profile's, or the default one), and every other config directory
-    /// it may not reach: the default one, whatever profile the spawn carries, and each of
+    /// it may not reach: the default one, whatever profile the spawn carries, the files the CLI keeps
+    /// beside the default one in the home directory (<see cref="DefaultConfigFiles"/>), and each of
     /// <paramref name="profileDirectories"/>, the config directories of the node's profiles.
     /// </summary>
     public static ToolGuardRules Guard(
@@ -202,6 +231,7 @@ public static partial class ClaudeCodeInvocation
             ? Path.GetFullPath(own)
             : defaultDirectory;
         IReadOnlyList<string> others = [.. new[] { defaultDirectory }
+            .Concat(DefaultConfigFiles(inherited))
             .Concat(profileDirectories.Select(d => Path.GetFullPath(d)))
             .Where(d => !string.Equals(d, session, StringComparison.Ordinal))
             .Distinct(StringComparer.Ordinal)];
