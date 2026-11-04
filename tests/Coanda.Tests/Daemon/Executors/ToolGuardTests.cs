@@ -342,6 +342,12 @@ public sealed class ToolGuardTests : IDisposable
     [Theory]
     [InlineData("grep x ${CDPATH:=../../..}; cd alpha; cat daemon.json")]
     [InlineData("git log $((CDPATH=1)); cd alpha")]
+    [InlineData("(( CDPATH = 1 )); cd alpha")]
+    [InlineData("git log $(( CDPATH = 1 )); cd alpha")]
+    [InlineData("echo $(( CDPATH += 1 )); cd alpha")]
+    [InlineData("git log $[ CDPATH = 1 ]; cd alpha")]
+    [InlineData("git log ${a[ CDPATH = 1 ]}; cd alpha")]
+    [InlineData("ls *(e: CDPATH = 1 :); cd alpha")]
     [InlineData("echo CDPATH=../../.. >x; cd alpha")]
     [InlineData("eval grep x\\; setopt autocd; ../../..; cat daemon.json")]
     [InlineData("f() { eval \"$@\"; }; f setopt autocd; ../../..; cat daemon.json")]
@@ -359,6 +365,7 @@ public sealed class ToolGuardTests : IDisposable
     [InlineData("git commit -m \"Refuse a command that may change where a cd goes through CDPATH or a shell option\"")]
     [InlineData("cat <<EOF > notes.md\nAUTO_CD and PUSHD_TO_HOME\nEOF")]
     [InlineData("dotnet test --filter set -T")]
+    [InlineData("(( n = 1 )); grep -rn CDPATH src")]
     public void A_program_s_argument_that_only_mentions_cdpath_or_an_option_is_allowed(string command) =>
         Allowed(Guard(Call("Bash", new { command })));
 

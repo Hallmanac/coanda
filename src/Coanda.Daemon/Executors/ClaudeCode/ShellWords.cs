@@ -302,10 +302,12 @@ public static partial class ShellWords
     /// without naming it. Each word is read with its quotes and backslashes removed.
     /// <para>
     /// Only the shell sets its own variables and options, so a word that merely mentions one of those
-    /// names is let through when it is the name or an argument, with no <c>$</c> or backtick in it, of a program
-    /// the shell starts: a command whose name is written out plainly and is not a shell builtin or
-    /// keyword, not behind an <c>eval</c>, which would run the arguments as shell, on a line that
-    /// <paramref name="definesCommands"/> says defines no function or alias that name could call. So
+    /// names is let through when it is the name or an argument of a program the shell starts: a
+    /// command whose name is written out plainly and is not a shell builtin or keyword, not behind an
+    /// <c>eval</c>, which would run the arguments as shell, not opened by a <c>(</c>, which may be the
+    /// inside of an arithmetic <c>((</c> or <c>$((</c>, and with no <c>$</c> or backtick in any of its
+    /// words, on a line that <paramref name="definesCommands"/> says defines no function or alias that
+    /// name could call. So
     /// <c>grep -rn CDPATH src</c> and a <c>git commit -m</c> that mentions it are allowed, while a word
     /// before the command's name (an assignment), a word holding an expansion (which may assign, as
     /// <c>${CDPATH:=x}</c> does), and any word of a builtin are still refused.
@@ -315,15 +317,21 @@ public static partial class ShellWords
     {
         ArgumentNullException.ThrowIfNull(command);
         int name = NameAt(command.Words);
+        // A command opened by a ( may be the inside of an arithmetic (( or $((, a subshell, a process
+        // substitution, or a zsh glob qualifier, any of which the shell evaluates itself; and a command
+        // with a $ anywhere in it may hold an arithmetic $[ or a subscript that assigns, split across
+        // words. Neither is read as a program.
         bool program = !definesCommands
+            && command.Before != "("
             && name < command.Words.Count
             && IsProgram(Plain(command.Words[name]))
-            && !command.Words.Take(name).Any(word => Plain(word) == "eval");
+            && !command.Words.Take(name).Any(word => Plain(word) == "eval")
+            && !command.Words.Any(word => Plain(word).IndexOfAny(['$', '`']) >= 0);
         bool setter = false;
         for (int i = 0; i < command.Words.Count; i++)
         {
             string plain = Plain(command.Words[i]);
-            bool mention = program && i >= name && plain.IndexOfAny(['$', '`']) < 0;
+            bool mention = program && i >= name;
             string folded = plain.Replace("_", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
             if (!mention && folded.Contains("cdpath", StringComparison.Ordinal))
             {
