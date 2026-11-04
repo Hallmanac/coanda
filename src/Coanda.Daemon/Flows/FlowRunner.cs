@@ -7,6 +7,7 @@ using Coanda.Core.Flows;
 using Coanda.Core.Contours;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
+using Coanda.Core.Types;
 using Coanda.Daemon.Actions;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
@@ -355,8 +356,8 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             return null;
         }
 
-        string? spent = await BudgetSpentAsync(principal, project, flow, contour, cancellationToken);
-        if (spent is not null)
+        Budget budget = await BudgetAsync(principal, project, flow, contour, cancellationToken);
+        if (budget.Spent is { } spent)
         {
             await PauseAsync(principal, project, flow.Id, spent, FlowLevers.BudgetReached(), cancellationToken);
             return null;
@@ -396,11 +397,29 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
         Parcel parcel = await parcels.ShowAsync(principal, project, flow.ParcelId, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(flow.ParcelId)} in project '{project}'.");
+        ParcelType type = await parcels.TypeVersionAsync(principal, project, parcel.TypeHash, cancellationToken)
+            ?? throw new DomainException($"Parcel {Ids.Short(parcel.Id)} names a version of type '{parcel.TypeName}' that project '{project}' does not hold.");
+        string context = ContextAssembler.Assemble(parcel, step);
+        string workingDirectory = home.FlowWorkPath(project, flow.Id);
+        try
+        {
+            SessionFiles.WriteInputs(workingDirectory, parcel, type, context);
+        }
+        catch (Exception unwritable) when (unwritable is IOException or UnauthorizedAccessException)
+        {
+            await PauseAsync(
+                principal, project, flow.Id,
+                $"Step '{step.Name}' could not write its session's files into {workingDirectory}: {unwritable.Message}",
+                FlowLevers.PerformAgain(step.Name),
+                cancellationToken);
+            return null;
+        }
+
         var request = new JudgmentRequest(
             agent,
-            ContextAssembler.Assemble(parcel, step),
-            home.FlowWorkPath(project, flow.Id),
-            new SpawnCaps(contour.Budget, judgmentLimit),
+            context,
+            workingDirectory,
+            new SpawnCaps(budget.Ceiling, judgmentLimit),
             step.AnswerSchema ?? string.Empty,
             profile);
 
@@ -485,7 +504,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             };
             await PauseJudgmentAsync(
                 principal, project, flowId, launched,
-                $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, {stopped}.",
+                $"Step '{step.Name}' ran past the wall-clock limit of {Describe(judgmentLimit)} for one judgment, {stopped}.{CostUnreported(spend, request)}",
                 FlowLevers.PerformAgain(step.Name),
                 spend.Reported,
                 cancellationToken);
@@ -495,7 +514,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         {
             await PauseJudgmentAsync(
                 principal, project, flowId, launched,
-                $"Step '{step.Name}' got no judgment from agent '{agent.Name}': {failure.Message}",
+                $"Step '{step.Name}' got no judgment from agent '{agent.Name}': {failure.Message}{CostUnreported(spend, request)}",
                 FlowLevers.PerformAgain(step.Name),
                 spend.Reported,
                 cancellationToken);
@@ -533,6 +552,15 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             await StopSessionAsync(outcome.Session);
         }
     }
+
+    /// <summary>
+    /// What a pause reason adds when the session reported usage for its attempt in progress without
+    /// its cost: that no cost is recorded for that attempt, and the cost ceiling it ran under, which
+    /// bounds what it may have spent. Nothing when every reported attempt carried its cost.
+    /// </summary>
+    private static string CostUnreported(JudgmentSpend spend, JudgmentRequest request) => spend.CostUnreported
+        ? $" The session did not report the cost of its attempt in progress, so none is recorded for it; the spawn ran under a cost ceiling of {Dollars(request.Caps.CostCeilingUsd)}."
+        : string.Empty;
 
     /// <summary>
     /// The judgment a flow's step launched: its step and agent, the session its spawn returned once
@@ -672,23 +700,35 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     }
 
     /// <summary>
-    /// The reason a judgment may not be performed because a budget is spent, or null when none is:
-    /// the flow's own recorded cost against its contour's budget, then the recorded cost of every
-    /// flow of its chain against the budget of the contour its root flow runs. The chain is summed
-    /// by reading its flows, which all run on this flow's parcel.
+    /// What is left of the budgets a judgment is performed under. <see cref="Spent"/> is the reason a
+    /// judgment may not be performed because a budget is spent, or null when none is;
+    /// <see cref="Ceiling"/> is the cost ceiling its spawn carries otherwise.
     /// </summary>
-    private async Task<string?> BudgetSpentAsync(
+    private readonly record struct Budget(string? Spent, decimal Ceiling);
+
+    /// <summary>
+    /// The budgets a judgment is performed under: the flow's own recorded cost against its contour's
+    /// budget, then, for a flow with a parent, the recorded cost of every flow of its chain against
+    /// the budget of the contour its root flow runs. Either reached is the reason no judgment is
+    /// performed; otherwise the ceiling is the smaller of the two remainders. The chain is summed by
+    /// reading its flows, which all run on this flow's parcel.
+    /// </summary>
+    private async Task<Budget> BudgetAsync(
         Principal principal, string project, Flow flow, Contour contour, CancellationToken cancellationToken)
     {
         if (flow.Cost >= contour.Budget)
         {
-            return $"Flow {Ids.Short(flow.Id)} has recorded a cost of {Dollars(flow.Cost)}, which reaches the budget of {Dollars(contour.Budget)} of contour '{contour.Name}'; a flow performs no judgment once its recorded cost reaches its contour's budget.";
+            return new Budget(
+                $"Flow {Ids.Short(flow.Id)} has recorded a cost of {Dollars(flow.Cost)}, which reaches the budget of {Dollars(contour.Budget)} of contour '{contour.Name}'; a flow performs no judgment once its recorded cost reaches its contour's budget.",
+                0m);
         }
+
+        decimal flowRemainder = contour.Budget - flow.Cost;
 
         // A flow with no parent is its own chain, already held to its own contour's budget above.
         if (flow.ParentFlowId is null)
         {
-            return null;
+            return new Budget(null, flowRemainder);
         }
 
         IReadOnlyList<Flow> chain = await flows.ChainOfAsync(principal, project, flow, cancellationToken);
@@ -697,8 +737,10 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         Contour rootContour = await flows.ContourOfAsync(principal, project, root, cancellationToken);
         decimal chainCost = chain.Sum(f => f.Cost);
         return chainCost >= rootContour.Budget
-            ? $"The chain of flow {Ids.Short(flow.Id)}, rooted at flow {Ids.Short(root.Id)}, has recorded a cost of {Dollars(chainCost)} across its flows, which reaches the budget of {Dollars(rootContour.Budget)} of contour '{rootContour.Name}' that its root flow runs; a chain performs no judgment once its recorded cost reaches that budget."
-            : null;
+            ? new Budget(
+                $"The chain of flow {Ids.Short(flow.Id)}, rooted at flow {Ids.Short(root.Id)}, has recorded a cost of {Dollars(chainCost)} across its flows, which reaches the budget of {Dollars(rootContour.Budget)} of contour '{rootContour.Name}' that its root flow runs; a chain performs no judgment once its recorded cost reaches that budget.",
+                0m)
+            : new Budget(null, Math.Min(flowRemainder, rootContour.Budget - chainCost));
     }
 
     private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
