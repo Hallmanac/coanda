@@ -39,7 +39,8 @@ public sealed class FlowActionsTests : IAsyncLifetime
         parcels = new ParcelService(store, TimeProvider.System);
         var projects = new ProjectService(store, TimeProvider.System);
         var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
-        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit, github.Client);
+        actions = FlowActions.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit, github.Client,
+            new FlowService(store, TimeProvider.System));
     }
 
     public async Task DisposeAsync()
@@ -180,7 +181,6 @@ public sealed class FlowActionsTests : IAsyncLifetime
 
     [Theory]
     [InlineData(CoreActions.DeriveParcels)]
-    [InlineData(SoftwareActions.GatedMerge)]
     [InlineData(SoftwareActions.Rebase)]
     public async Task A_placeholder_answers_done_naming_itself_as_a_placeholder(string action)
     {

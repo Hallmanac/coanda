@@ -34,9 +34,12 @@ public sealed class FlowActions
     /// <summary>
     /// The actions the daemon ships: every name in the core catalog and the software catalog. The
     /// worktree, gates, and open-pr actions run their commands through <paramref name="runner"/>, the
-    /// gates action ending each of its commands after <paramref name="gatesCommandLimit"/>, and open-pr
-    /// reaches GitHub through the client <paramref name="github"/> gives it for each performance;
-    /// derive-parcels, gated-merge, and rebase are still placeholders.
+    /// gates action ending each of its commands after <paramref name="gatesCommandLimit"/>; open-pr and
+    /// gated-merge read their token through it too and reach GitHub through the client
+    /// <paramref name="github"/> gives them for each performance, and gated-merge reads the head open-pr
+    /// recorded from the flow's chain through <paramref name="flows"/>, a service of its own, since the
+    /// daemon's own flow service hands resumes to the runner that performs these actions. Derive-parcels and rebase are
+    /// still placeholders.
     /// </summary>
     public static FlowActions Shipped(
         ParcelService parcels,
@@ -46,7 +49,8 @@ public sealed class FlowActions
         NodeHome home,
         TimeProvider clock,
         TimeSpan gatesCommandLimit,
-        Func<GitHubClient> github) => new(
+        Func<GitHubClient> github,
+        FlowService flows) => new(
     [
         new MoveParcelAction(parcels),
         new TimerAction(clock),
@@ -57,8 +61,9 @@ public sealed class FlowActions
         new WorktreeAction(projects, clones),
         new GatesAction(projects, runner, home, gatesCommandLimit),
         new OpenPrAction(parcels, projects, clones, new GitHubToken(runner, home), github),
+        new GatedMergeAction(parcels, projects, flows, new GitHubToken(runner, home), github),
         .. SoftwareActions.All
-            .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates or SoftwareActions.OpenPr))
+            .Where(name => name is not (SoftwareActions.Worktree or SoftwareActions.Gates or SoftwareActions.OpenPr or SoftwareActions.GatedMerge))
             .Select(name => new PlaceholderAction(name)),
     ]);
 

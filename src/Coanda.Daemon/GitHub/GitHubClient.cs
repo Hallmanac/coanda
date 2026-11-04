@@ -82,6 +82,104 @@ public sealed class GitHubClient
         return opened.ToPullRequest();
     }
 
+    /// <summary>How many entries a listing asks GitHub for on each page, the most it gives.</summary>
+    private const int PageSize = 100;
+
+    /// <summary>The pull request numbered <paramref name="number"/> in <paramref name="repository"/>, as a merge inspects it.</summary>
+    public async Task<GitHubPullRequestState> PullRequestAsync(GitHubRepository repository, int number, string token, CancellationToken cancellationToken)
+    {
+        string path = $"{PathOf(repository)}/pulls/{number}";
+        PullRequestStateDocument document = await GetAsync<PullRequestStateDocument>(path, token, cancellationToken);
+        return new GitHubPullRequestState(
+            document.Number,
+            document.State ?? string.Empty,
+            document.Merged ?? false,
+            document.MergeCommitSha,
+            document.Mergeable,
+            document.Base?.Ref ?? string.Empty,
+            document.Head?.Sha ?? string.Empty);
+    }
+
+    /// <summary>How many commits <paramref name="head"/> is behind <paramref name="baseBranch"/> by, as GitHub's comparison of the two reports.</summary>
+    public async Task<int> BehindByAsync(GitHubRepository repository, string baseBranch, string head, string token, CancellationToken cancellationToken)
+    {
+        // The commits are paged and not read; only the counts are.
+        string path = $"{PathOf(repository)}/compare/{EscapeRef(baseBranch)}...{EscapeRef(head)}?per_page=1";
+        CompareDocument document = await GetAsync<CompareDocument>(path, token, cancellationToken);
+        return document.BehindBy ?? throw new HttpRequestException($"GitHub answered GET {path} with no behind_by count.");
+    }
+
+    /// <summary>Every check run GitHub reports on the commit <paramref name="sha"/>, every page read.</summary>
+    public async Task<IReadOnlyList<GitHubCheckRun>> CheckRunsAsync(GitHubRepository repository, string sha, string token, CancellationToken cancellationToken)
+    {
+        List<GitHubCheckRun> runs = [];
+        for (int page = 1; ; page++)
+        {
+            string path = $"{PathOf(repository)}/commits/{EscapeRef(sha)}/check-runs?per_page={PageSize}&page={page}";
+            CheckRunsDocument document = await GetAsync<CheckRunsDocument>(path, token, cancellationToken);
+            IReadOnlyList<CheckRunDocument> listed = document.CheckRuns ?? [];
+            runs.AddRange(listed.Select(r => new GitHubCheckRun(r.Id, r.Name ?? string.Empty, r.Status ?? string.Empty, r.Conclusion)));
+            if (listed.Count < PageSize || runs.Count >= document.TotalCount)
+            {
+                return runs;
+            }
+        }
+    }
+
+    /// <summary>Every commit status posted on the commit <paramref name="sha"/>, every page read.</summary>
+    public async Task<IReadOnlyList<GitHubCommitStatus>> StatusesAsync(GitHubRepository repository, string sha, string token, CancellationToken cancellationToken)
+    {
+        List<GitHubCommitStatus> statuses = [];
+        for (int page = 1; ; page++)
+        {
+            string path = $"{PathOf(repository)}/commits/{EscapeRef(sha)}/statuses?per_page={PageSize}&page={page}";
+            List<StatusDocument> listed = await GetAsync<List<StatusDocument>>(path, token, cancellationToken);
+            statuses.AddRange(listed.Select(s => new GitHubCommitStatus(s.Id, s.Context ?? string.Empty, s.State ?? string.Empty)));
+            if (listed.Count < PageSize)
+            {
+                return statuses;
+            }
+        }
+    }
+
+    /// <summary>The merge methods <paramref name="repository"/> allows; a method GitHub does not report is not allowed.</summary>
+    public async Task<GitHubMergeMethods> MergeMethodsAsync(GitHubRepository repository, string token, CancellationToken cancellationToken)
+    {
+        RepositoryDocument document = await GetAsync<RepositoryDocument>(PathOf(repository), token, cancellationToken);
+        return new GitHubMergeMethods(document.AllowMergeCommit ?? false, document.AllowSquashMerge ?? false, document.AllowRebaseMerge ?? false);
+    }
+
+    /// <summary>
+    /// Merges the pull request numbered <paramref name="number"/> by <paramref name="method"/>, only while
+    /// its head is <paramref name="expectedHead"/>, and returns the commit GitHub reports for the merge.
+    /// </summary>
+    public async Task<string> MergeAsync(
+        GitHubRepository repository, int number, string expectedHead, string method, string token, CancellationToken cancellationToken)
+    {
+        string path = $"{PathOf(repository)}/pulls/{number}/merge";
+        using HttpRequestMessage request = Request(HttpMethod.Put, path, token);
+        request.Content = JsonContent.Create(new MergeRequest(expectedHead, method));
+        using HttpResponseMessage response = await http.SendAsync(request, cancellationToken);
+        await ThrowIfRefusedAsync(request.Method, path, response, cancellationToken);
+        MergeDocument merged = await response.Content.ReadFromJsonAsync<MergeDocument>(cancellationToken)
+            ?? throw new HttpRequestException($"GitHub answered PUT {path} with nothing.");
+        return merged is { Merged: true, Sha: { Length: > 0 } sha }
+            ? sha
+            : throw new HttpRequestException($"GitHub answered PUT {path} without reporting a merge: {merged.Message ?? "it gave no message."}");
+    }
+
+    private async Task<T> GetAsync<T>(string path, string token, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = Request(HttpMethod.Get, path, token);
+        using HttpResponseMessage response = await http.SendAsync(request, cancellationToken);
+        await ThrowIfRefusedAsync(request.Method, path, response, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken)
+            ?? throw new HttpRequestException($"GitHub answered GET {path} with nothing.");
+    }
+
+    /// <summary>A branch name or commit id as path text: each segment escaped, the slashes between them kept.</summary>
+    private static string EscapeRef(string reference) => string.Join('/', reference.Split('/').Select(Uri.EscapeDataString));
+
     private static string PathOf(GitHubRepository repository) =>
         $"repos/{Uri.EscapeDataString(repository.Owner)}/{Uri.EscapeDataString(repository.Name)}";
 
@@ -133,6 +231,50 @@ public sealed class GitHubClient
         [property: JsonPropertyName("body")] string Body);
 
     private sealed record HeadDocument([property: JsonPropertyName("ref")] string? Ref);
+
+    private sealed record MergeRequest(
+        [property: JsonPropertyName("sha")] string Sha,
+        [property: JsonPropertyName("merge_method")] string MergeMethod);
+
+    private sealed record BranchDocument(
+        [property: JsonPropertyName("ref")] string? Ref,
+        [property: JsonPropertyName("sha")] string? Sha);
+
+    private sealed record PullRequestStateDocument(
+        [property: JsonPropertyName("number")] int Number,
+        [property: JsonPropertyName("state")] string? State,
+        [property: JsonPropertyName("merged")] bool? Merged,
+        [property: JsonPropertyName("merge_commit_sha")] string? MergeCommitSha,
+        [property: JsonPropertyName("mergeable")] bool? Mergeable,
+        [property: JsonPropertyName("base")] BranchDocument? Base,
+        [property: JsonPropertyName("head")] BranchDocument? Head);
+
+    private sealed record CompareDocument([property: JsonPropertyName("behind_by")] int? BehindBy);
+
+    private sealed record CheckRunDocument(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("status")] string? Status,
+        [property: JsonPropertyName("conclusion")] string? Conclusion);
+
+    private sealed record CheckRunsDocument(
+        [property: JsonPropertyName("total_count")] int TotalCount,
+        [property: JsonPropertyName("check_runs")] List<CheckRunDocument>? CheckRuns);
+
+    private sealed record StatusDocument(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("context")] string? Context,
+        [property: JsonPropertyName("state")] string? State);
+
+    private sealed record RepositoryDocument(
+        [property: JsonPropertyName("allow_merge_commit")] bool? AllowMergeCommit,
+        [property: JsonPropertyName("allow_squash_merge")] bool? AllowSquashMerge,
+        [property: JsonPropertyName("allow_rebase_merge")] bool? AllowRebaseMerge);
+
+    private sealed record MergeDocument(
+        [property: JsonPropertyName("sha")] string? Sha,
+        [property: JsonPropertyName("merged")] bool? Merged,
+        [property: JsonPropertyName("message")] string? Message);
 
     private sealed record PullRequestDocument(
         [property: JsonPropertyName("number")] int Number,

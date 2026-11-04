@@ -96,7 +96,9 @@ public sealed class DaemonHost
             services.GetRequiredService<TimeProvider>(),
             options.GatesCommandLimit,
             // A typed client is resolved for each use, so it never holds a handler past its rotation.
-            () => services.GetRequiredService<GitHubClient>()));
+            () => services.GetRequiredService<GitHubClient>(),
+            // Its own flow service, which only reads: the registered one depends on the runner, which depends on these actions.
+            new FlowService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>())));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunner>();
         builder.Services.AddSingleton<IFlowAdvancer>(services => services.GetRequiredService<FlowRunner>());
