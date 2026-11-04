@@ -19,6 +19,7 @@ public static class Program
 {
     public const string ControlVariable = "FAKE_CLAUDE_DIR";
     public const string ChildFlag = "--fake-child";
+    public const string WritingChildFlag = "--fake-writing-child";
     public const string IgnoreInputVariable = "FAKE_CLAUDE_IGNORE_INPUT";
     public const string CommandFlag = "--fake-command";
 
@@ -31,6 +32,12 @@ public static class Program
             File.WriteAllText(pidFile, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Thread.Sleep(TimeSpan.FromSeconds(120));
             return 0;
+        }
+
+        if (args is [WritingChildFlag, string writerPidFile])
+        {
+            File.WriteAllText(writerPidFile, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return KeepWriting();
         }
 
         if (args is [CommandFlag, .. string[] command])
@@ -65,7 +72,8 @@ public static class Program
     /// exits with the code; <c>stdin</c> reads its standard input to the end and prints how many
     /// characters it held; <c>args ...</c> prints each argument it was given in brackets, one a line;
     /// <c>leave-child &lt;pid file&gt;</c> starts a child that shares its output and outlives it, then
-    /// exits; <c>hold &lt;pid file&gt;</c> writes its own pid beside the file, with <c>.parent</c> added
+    /// exits; <c>leave-writer &lt;pid file&gt;</c> does the same with a child that writes a line to the
+    /// shared output every 20 milliseconds until a write fails or two minutes pass; <c>hold &lt;pid file&gt;</c> writes its own pid beside the file, with <c>.parent</c> added
     /// to its name, starts such a child, and then waits two minutes. The child writes its pid to the file.
     /// </summary>
     private static int Command(string[] command)
@@ -91,6 +99,10 @@ public static class Program
                 StartChild(pidFile);
                 Console.Out.WriteLine("parent exits");
                 return 0;
+            case ["leave-writer", string pidFile]:
+                StartChild(pidFile, WritingChildFlag);
+                Console.Out.WriteLine("parent exits");
+                return 0;
             case ["hold", string pidFile]:
                 File.WriteAllText(pidFile + ".parent", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 StartChild(pidFile);
@@ -105,19 +117,45 @@ public static class Program
     }
 
     /// <summary>Starts a child that inherits this process's standard handles, and waits for it to write its pid.</summary>
-    private static void StartChild(string pidFile)
+    private static void StartChild(string pidFile, string flag = ChildFlag)
     {
         var child = new ProcessStartInfo(Environment.ProcessPath ?? throw new InvalidOperationException("No process path."))
         {
             UseShellExecute = false,
         };
-        child.ArgumentList.Add(ChildFlag);
+        child.ArgumentList.Add(flag);
         child.ArgumentList.Add(pidFile);
         Process.Start(child);
         for (int waited = 0; waited < 200 && !File.Exists(pidFile); waited++)
         {
             Thread.Sleep(50);
         }
+    }
+
+    /// <summary>
+    /// Writes to standard output until the reader of it goes away, then exits. It writes to the
+    /// descriptor directly, because the console's own stream ignores a broken pipe; that makes it
+    /// a Unix-only mode.
+    /// </summary>
+    private static int KeepWriting()
+    {
+        Stopwatch elapsed = Stopwatch.StartNew();
+        byte[] line = "still writing\n"u8.ToArray();
+        try
+        {
+            using var output = new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle(1, ownsHandle: false), FileAccess.Write, bufferSize: 0);
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(120))
+            {
+                output.Write(line);
+                Thread.Sleep(20);
+            }
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+
+        return 0;
     }
 
     /// <summary>Appends this start's record and returns how many starts came before it.</summary>

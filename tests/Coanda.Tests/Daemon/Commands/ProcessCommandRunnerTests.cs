@@ -87,6 +87,26 @@ public sealed class ProcessCommandRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_runner_lets_go_of_the_output_a_child_still_writes_to_once_it_returns()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // The fake's writing child is Unix-only; see its leave-writer mode.
+            return;
+        }
+
+        string pidFile = Path.Combine(scratch, "writer.pid");
+
+        CommandResult result = await runner.RunAsync(Fake("leave-writer", pidFile), CancellationToken.None).WaitAsync(Patience);
+        int child = Pid(pidFile);
+        started.Add(child);
+
+        result.ExitCode.Should().Be(0);
+        result.StandardOutput.Should().Contain("parent exits");
+        await UntilAsync(() => !Running(child));
+    }
+
+    [Fact]
     public async Task Cancelling_ends_the_fake_and_the_child_it_started()
     {
         string pidFile = Path.Combine(scratch, "child.pid");
