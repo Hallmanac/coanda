@@ -296,9 +296,47 @@ public sealed class ToolGuardTests : IDisposable
     public void Command_v_cd_only_prints_and_is_not_read_as_a_cd() =>
         Allowed(Guard(Call("Bash", new { command = "command -v cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
 
+    [Theory]
+    [InlineData("cd alpha . && cat daemon.json")]
+    [InlineData("cd alpha b>x && cat daemon.json")]
+    [InlineData("cd alpha 12>x && cat daemon.json")]
+    [InlineData("cd alpha >(true) && cat daemon.json")]
+    [InlineData("cd alpha \"#x\" && cat daemon.json")]
+    [InlineData("cd alpha \" #x\" && cat daemon.json")]
+    [InlineData("cd alpha \" >x\" && cat daemon.json")]
+    [InlineData("cd alpha '\"' \" >x\" && cat daemon.json")]
+    [InlineData("cd alpha ${x:- #} && cat daemon.json")]
+    [InlineData("ls (#i)x; cd alpha . && cat daemon.json")]
+    [InlineData("cd alpha \\#x && cat daemon.json")]
+    public void A_cd_given_two_directories_which_zsh_reads_as_a_replacement_is_refused(string command) =>
+        RefusedUnknowable(Guard(Call("Bash", new { command })));
+
+    [Theory]
+    [InlineData("cd src >/dev/null && cat a.cs")]
+    [InlineData("cd src 2>/dev/null || true")]
+    [InlineData("cd src 2>&1 && cat a.cs")]
+    [InlineData("cd src >>log.txt 2>>err.txt && cat a.cs")]
+    [InlineData("cd src </dev/null && cat a.cs")]
+    [InlineData("cd src # enter the source directory\ncat a.cs")]
+    [InlineData("cd src # one; two && three\ncat a.cs")]
+    [InlineData("cd src >#log && cat a.cs")]
+    public void A_redirection_or_a_comment_after_a_cd_is_not_a_second_directory(string command) =>
+        Allowed(Guard(Call("Bash", new { command })));
+
+    [Theory]
+    [InlineData("cd src/x/y 2>/dev/null && cat ../../../../../../daemon.json")]
+    [InlineData("cd >/dev/null src/x/y && cat ../../../../../../daemon.json")]
+    [InlineData("2>/dev/null cd src/x/y && cat ../../../../../../daemon.json")]
+    public void A_cd_with_a_redirection_still_moves_the_shell_to_its_directory(string command) =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command })));
+
     [Fact]
-    public void A_cd_given_two_directories_which_zsh_reads_as_a_replacement_is_refused() =>
-        RefusedUnknowable(Guard(Call("Bash", new { command = "cd alpha . && cat daemon.json" })));
+    public void A_cd_after_a_zsh_glob_flag_is_still_read_as_a_cd() =>
+        RefusedInConfig(Guard(Call("Bash", new { command = "ls (#i)x; cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+
+    [Fact]
+    public void A_bare_cd_followed_by_a_comment_goes_to_the_home_directory() =>
+        RefusedInConfig(Guard(Call("Bash", new { command = "cd # go home\ncat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
 
     [Theory]
     [InlineData("cat ~/ho\\me/daemon.json")]

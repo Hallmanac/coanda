@@ -254,7 +254,7 @@ public static class ToolGuard
                     }
                 }
 
-                switch (ShellWords.DirectoryChange(next.Words))
+                switch (ShellWords.DirectoryChange(next))
                 {
                     case null:
                         break;

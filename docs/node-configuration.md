@@ -142,7 +142,10 @@ during the command. Every word is judged both as written and with its backslashe
 shell reads it outside quotes. The guard refuses a call that depends on `$OLDPWD`, `cd -`, or `~-`,
 since it cannot know the shell's previous directory; on a `~NAME` lookup, since it cannot know
 another user's home or a zsh named directory; and on zsh's two-argument `cd OLD NEW`, which replaces
-part of the current directory's name. A word or a Glob pattern
+part of the current directory's name. A redirection's words and a comment's are not read as a
+`cd`'s directory, so `cd src 2>/dev/null` and `cd src # enter it` move the shell to `src`, except
+in a command holding a quote, a backslash, or `${`, where the guard cannot tell them from arguments
+and counts every word. A word or a Glob pattern
 with braces is judged as each word its brace expansion gives, since a choice may climb, hold several
 components, or be an absolute path; one that expands to more than 256 words is refused. A path with a
 wildcard is judged by the highest directory it may reach: the part before its first wildcard, climbed
