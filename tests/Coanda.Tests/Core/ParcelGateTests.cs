@@ -137,4 +137,25 @@ public sealed class ParcelGateTests
             .Should().Throw<DomainException>()
             .WithMessage("The gate 'stand-in' bound to the move to 'closed' is not a gate this daemon runs, so the move is refused.");
     }
+
+    [Fact]
+    public void A_move_or_close_of_a_parcel_a_live_flow_holds_is_refused_before_any_gate_runs()
+    {
+        var gate = new StandInGate();
+        var gates = new GateSet([gate]);
+        Parcel parcel = Create("ready work", gates);
+        Guid flow = Ids.New();
+        parcel.Apply(new ParcelFlowAttached(parcel.Id, flow, Now));
+
+        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
+            .Should().Throw<DomainException>().WithMessage($"*held by flow {Ids.Short(flow)}*");
+        FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", $"flow:{flow}", Now, Ids.New()))
+            .Should().Throw<DomainException>().WithMessage($"*held by flow {Ids.Short(flow)}*");
+        FluentActions.Invoking(() => ParcelDecider.Close(Gated, gates, parcel, "completed", "done", "brian", Now))
+            .Should().Throw<DomainException>().WithMessage($"*held by flow {Ids.Short(flow)}*");
+        gate.Checks.Should().BeEmpty("the live-flow refusal comes before any gate");
+
+        ParcelDecider.Move(Gated, gates, parcel, "build", $"flow:{flow}", Now, flow).ToState.Should().Be("build");
+        gate.Checks.Should().Equal(("refine", "build"));
+    }
 }
