@@ -10,7 +10,8 @@ namespace Coanda.Core.Software;
 /// <c>done</c> on success, and gates may also answer <c>failed</c>. A flow's outcome is the one
 /// its contour declares, carried when it reaches end, so no shipped contour holds an emit-outcome step.
 /// The build contour's judgments declare the task's objective, criteria, and non-goals, so each
-/// agent it spawns is briefed with them.
+/// agent it spawns is briefed with them, and its fix step declares the gates and both reviews as
+/// sources, so it is handed the latest result and findings that routed it there.
 /// </summary>
 public static class ShippedContours
 {
@@ -21,6 +22,10 @@ public static class ShippedContours
 
     /// <summary>The task fields the build contour's judgments carry in their context: what to build, how it is judged, and what is out of scope.</summary>
     private static readonly IReadOnlyList<string> Brief = ["objective", "criteria", "non-goals"];
+
+    /// <summary>The steps whose latest recordings the fix step's context carries: the gates result and both reviews' findings it acts on.</summary>
+    private static readonly IReadOnlyList<ContourSource> FixSources =
+        [new() { Step = "gates" }, new() { Step = "adversarial-review" }, new() { Step = "conformance-review" }];
 
     public static readonly Contour Build = new()
     {
@@ -47,7 +52,7 @@ public static class ShippedContours
                 Arguments = new Dictionary<string, JsonElement> { ["state"] = ContourValue.Of("review") },
                 Transitions = [On("done", Contour.End)],
             },
-            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Contour.Pause)) with { Fields = Brief },
+            Judgment("fix", "fix", "fix", On("done", "gates"), On("blocked", Contour.Pause)) with { Fields = Brief, Sources = FixSources },
         ],
     };
 

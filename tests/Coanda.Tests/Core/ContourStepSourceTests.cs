@@ -155,4 +155,14 @@ public sealed class ContourStepSourceTests
         string[] hashes = [With([]).Hash, declared.Hash, With([From("check"), From("act")]).Hash, With([From("act")]).Hash];
         hashes.Should().OnlyHaveUniqueItems("the sources and their order are part of the hash");
     }
+
+    [Fact]
+    public void The_shipped_build_contours_fix_step_reads_the_gates_and_both_reviews_and_no_other_shipped_step_declares_a_source()
+    {
+        ShippedContours.Build.Step("fix")?.Sources.Select(s => s.Step).Should().Equal("gates", "adversarial-review", "conformance-review");
+
+        ShippedContours.All.SelectMany(c => c.Steps.Where(s => !(c == ShippedContours.Build && s.Name == "fix")))
+            .Should().OnlyContain(s => s.Sources.Count == 0);
+        ShippedContours.Build.Validate(ShippedActions.Names);
+    }
 }
