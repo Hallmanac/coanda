@@ -28,6 +28,9 @@ namespace Coanda.Daemon.Flows;
 /// Both checks run on every pass, so a resume of such a pause pauses again rather than overriding it.
 /// A resumed judgment step spawns another agent, so it pauses once the flow's spawns reach its
 /// contour's spawn cap, whether the visit resumed had recorded an answer or paused without one.
+/// A resume of a visit that recorded performs the step again as a new visit, so it pauses before
+/// entering the step when every transition out of it has a visit cap below that visit; the
+/// spawn-cap check runs first, so it answers when both bind.
 /// </summary>
 /// <remarks>
 /// Every write is made as the flow's own principal, of the Agent role, through a flow service
@@ -230,6 +233,19 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         // again as a new visit; a recording with no resume since is routed, never performed again.
         if (current.IsRecorded && current.ResumedAt is not null)
         {
+            // A new visit no transition's visit cap allows would be performed only to pause on the
+            // same cap, so it pauses before the step is entered, spawned, or acted.
+            int visits = flow.Position.VisitsTo(step.Name);
+            if (!Interpreter.CanFireAtNextVisit(step, visits))
+            {
+                await PauseAsync(
+                    principal, project, flow.Id,
+                    $"Step '{step.Name}' has a visit count of {visits}, and every transition out of it has a visit cap below {visits + 1}; performing it again could only pause on a visit cap.",
+                    FlowLevers.VisitCapsSpent(step.Name),
+                    cancellationToken);
+                return false;
+            }
+
             await flows.StartStepAsync(principal, project, flow.Id, step.Name, cancellationToken);
             return true;
         }
