@@ -48,7 +48,7 @@ public sealed class TriggerLoopTests
         await using (RunningDaemon first = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None))
         {
             using var client = new DaemonClient(temp.Home);
-            parcel = await Flowing.TaskAtBuildAsync(client, Project, "Fly once");
+            parcel = await Flowing.TaskAtBuildAsync(client, Project, "Run once");
             FlowView bound = await Flowing.BoundAsync(client, Project, parcel.Id);
             bound.StartedBy.Should().StartWith("binding:task/build/build:entry:", "a binding starts as a principal naming the binding and the entry event");
             (await Flowing.UntilAsync(client, Project, bound.Id, "ended")).Outcome.Should().Be("pr-opened");
@@ -59,7 +59,7 @@ public sealed class TriggerLoopTests
         using var again = new DaemonClient(temp.Home);
 
         // The loop handles entries in order, so once a later entry has its flow, the earlier one was read again if it ever would be.
-        ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "Fly later");
+        ParcelView later = await Flowing.TaskAtBuildAsync(again, Project, "Run later");
         await Flowing.BoundAsync(again, Project, later.Id);
         (await Flowing.OfParcelAsync(again, Project, parcel.Id)).Should().ContainSingle();
 
