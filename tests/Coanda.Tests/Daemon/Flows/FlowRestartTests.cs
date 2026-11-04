@@ -56,9 +56,11 @@ public sealed class FlowRestartTests
             },
         };
         held.Open();
+
+        // Published while no daemon runs, so the second start's reattach meets the new version.
         AgentDefinition republished = ShippedAgents.Build with { Model = new ModelSpec("claude-code", "claude-republished", "low") };
+        await PublishAgentAsync(temp, republished);
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = held }, None);
-        await PublishAgentAsync(second, republished);
         using var again = new DaemonClient(temp.Home);
 
         FlowView ended = await Flowing.UntilAsync(again, Project, flowId, "ended");
@@ -82,6 +84,9 @@ public sealed class FlowRestartTests
             events.OfType<JudgmentRespawned>().Should().BeEmpty();
         }
 
+        Definition? resolved = await second.Services.GetRequiredService<DefinitionService>().ResolveAgentAsync(Principal.LocalOwner, Project, "build", None);
+        resolved?.ContentHash.Should().Be(republished.Hash, "the republished agent stood while the session was reattached");
+
         await second.StopAsync(None);
     }
 
@@ -99,7 +104,7 @@ public sealed class FlowRestartTests
 
         var answering = new GatedExecutor(stalled.Inner);
         answering.Open();
-        await using RunningDaemon second = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { Executor = answering }, None);
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = answering }, None);
         using var again = new DaemonClient(temp.Home);
         FlowView paused = await Flowing.UntilAsync(again, Project, flowId, "paused");
 
@@ -370,9 +375,10 @@ public sealed class FlowRestartTests
         return flow?.Current?.SpawnedAt ?? throw new InvalidOperationException("The flow's visit recorded no launch.");
     }
 
-    private static async Task PublishAgentAsync(RunningDaemon daemon, AgentDefinition agent)
+    private static async Task PublishAgentAsync(TemporaryHome temp, AgentDefinition agent)
     {
-        DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
+        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        var definitions = new DefinitionService(store, TimeProvider.System, actions: ShippedActions.Names);
         Definition draft = await definitions.DraftAsync(
             Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
