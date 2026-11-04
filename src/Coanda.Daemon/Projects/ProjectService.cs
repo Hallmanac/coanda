@@ -29,7 +29,19 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     /// <summary>The rule a command quotes when the project it names has no record.</summary>
     public static string Unregistered(string project) => ProjectDecider.Unregistered(project);
 
-    public async Task<Project> AddAsync(Principal principal, string name, string remote, string primaryBranch, CancellationToken cancellationToken)
+    /// <summary>Registers a project whose gates run <see cref="Project.DefaultBuild"/> and <see cref="Project.DefaultTest"/>.</summary>
+    public Task<Project> AddAsync(Principal principal, string name, string remote, string primaryBranch, CancellationToken cancellationToken) =>
+        AddAsync(principal, name, remote, primaryBranch, buildCommand: null, testCommand: null, cancellationToken);
+
+    /// <summary>Registers a project; a null build or test command leaves its gates on the default.</summary>
+    public async Task<Project> AddAsync(
+        Principal principal,
+        string name,
+        string remote,
+        string primaryBranch,
+        string? buildCommand,
+        string? testCommand,
+        CancellationToken cancellationToken)
     {
         CommandRegistry.Require("project.add", principal);
         string tenant = Tenants.RequireProject(name);
@@ -38,7 +50,8 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
         try
         {
             Project? existing = await FindAsync(store, tenant, cancellationToken);
-            ProjectRegistered registered = ProjectDecider.Register(tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow());
+            ProjectRegistered registered = ProjectDecider.Register(
+                tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow(), buildCommand, testCommand);
 
             await using IDocumentSession session = store.LightweightSession(tenant);
             session.Events.StartStream<Project>(registered.ProjectId, registered);

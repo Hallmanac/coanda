@@ -47,6 +47,39 @@ public sealed class ProjectDeciderTests
     }
 
     [Fact]
+    public void The_build_and_test_commands_are_recorded_as_given_and_default_to_dotnet_when_none_is_named()
+    {
+        Project named = Project.Create(ProjectDecider.Register("a", "https://example.invalid/a.git", "main", null, "brian", Now, "make", " make test "));
+        Project unnamed = Project.Create(ProjectDecider.Register("b", "https://example.invalid/b.git", "main", null, "brian", Now));
+
+        (named.BuildCommand, named.Build, named.TestCommand, named.Test).Should().Be(("make", "make", " make test ", " make test "));
+        (unnamed.BuildCommand, unnamed.Build, unnamed.TestCommand, unnamed.Test).Should().Be((null, "dotnet build", null, "dotnet test"));
+    }
+
+    [Theory]
+    [InlineData("", null, "*blank build command*")]
+    [InlineData("  ", null, "*blank build command*")]
+    [InlineData(null, "", "*blank test command*")]
+    [InlineData(null, " ", "*blank test command*")]
+    public void A_blank_build_or_test_command_is_refused(string? build, string? test, string rule)
+    {
+        FluentActions.Invoking(() => ProjectDecider.Register("coanda", "https://example.invalid/a.git", "main", null, "brian", Now, build, test))
+            .Should().Throw<DomainException>().WithMessage(rule);
+    }
+
+    [Fact]
+    public void A_registration_recorded_before_the_build_and_test_commands_existed_reads_back_with_the_defaults()
+    {
+        const string Recorded = """{"ProjectId":"01a1a29e-778a-7730-9f07-304d9ac0ffeb","Name":"old","Remote":"r","PrimaryBranch":"main","RegisteredBy":"brian","RegisteredAt":"2026-11-03T12:00:00+00:00"}""";
+
+        ProjectRegistered registered = System.Text.Json.JsonSerializer.Deserialize<ProjectRegistered>(Recorded)
+            ?? throw new InvalidOperationException("The recorded event did not read back.");
+
+        Project.Create(registered).Build.Should().Be(Project.DefaultBuild);
+        registered.TestCommand.Should().BeNull();
+    }
+
+    [Fact]
     public void A_blank_name_is_refused()
     {
         FluentActions.Invoking(() => ProjectDecider.Register(" ", "https://example.invalid/a.git", "main", null, "brian", Now))

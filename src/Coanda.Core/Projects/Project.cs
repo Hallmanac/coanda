@@ -4,13 +4,20 @@ using Coanda.Core.Projects.Events;
 namespace Coanda.Core.Projects;
 
 /// <summary>
-/// A project's record: the repository its software actions act on. It lives in the project's own
+/// A project's record: the repository its software actions act on, and the build and test commands
+/// its gates run there, which default to <see cref="DefaultBuild"/> and <see cref="DefaultTest"/>. It lives in the project's own
 /// tenant, one per project. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="ProjectDecider"/>. The store snapshots this class inline, so it is also the document
 /// a show or list query reads.
 /// </summary>
 public sealed class Project
 {
+    /// <summary>The build command a record that names none runs.</summary>
+    public const string DefaultBuild = "dotnet build";
+
+    /// <summary>The test command a record that names none runs.</summary>
+    public const string DefaultTest = "dotnet test";
+
     [JsonInclude]
     public Guid Id { get; private set; }
     [JsonInclude]
@@ -23,6 +30,22 @@ public sealed class Project
     public string RegisteredBy { get; private set; } = string.Empty;
     [JsonInclude]
     public DateTimeOffset RegisteredAt { get; private set; }
+
+    /// <summary>The build command the registration named, or null when it named none.</summary>
+    [JsonInclude]
+    public string? BuildCommand { get; private set; }
+
+    /// <summary>The test command the registration named, or null when it named none.</summary>
+    [JsonInclude]
+    public string? TestCommand { get; private set; }
+
+    /// <summary>The build command the gates run: the one named, or <see cref="DefaultBuild"/>.</summary>
+    [JsonIgnore]
+    public string Build => BuildCommand ?? DefaultBuild;
+
+    /// <summary>The test command the gates run: the one named, or <see cref="DefaultTest"/>.</summary>
+    [JsonIgnore]
+    public string Test => TestCommand ?? DefaultTest;
 
     public static Project Create(ProjectRegistered registered)
     {
@@ -39,5 +62,7 @@ public sealed class Project
         PrimaryBranch = registered.PrimaryBranch;
         RegisteredBy = registered.RegisteredBy;
         RegisteredAt = registered.RegisteredAt;
+        BuildCommand = registered.BuildCommand;
+        TestCommand = registered.TestCommand;
     }
 }
