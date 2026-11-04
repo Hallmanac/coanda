@@ -4,6 +4,7 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events.Documents;
@@ -12,10 +13,11 @@ namespace Coanda.Daemon.Parcels;
 
 /// <summary>
 /// The daemon's side of every parcel command and query: open a session for the project (the
-/// tenant), ask the decider, append, save. The registry check is the caller's first line. A new
-/// parcel's type is whatever <see cref="DefinitionResolver"/> resolves for its project; an existing
-/// parcel keeps the version whose hash it recorded. Every move runs the gates its type binds to
-/// it, from the daemon's gates, none when it is given none.
+/// tenant), ask the decider, append, save. The registry check is the caller's first line. A parcel
+/// is created only in a project that has a record. A new parcel's type is whatever
+/// <see cref="DefinitionResolver"/> resolves for its project; an existing parcel keeps the version
+/// whose hash it recorded. Every move runs the gates its type binds to it, from the daemon's gates,
+/// none when it is given none.
 /// </summary>
 public sealed class ParcelService(IDocumentStore store, TimeProvider clock, GateSet? gates = null)
 {
@@ -31,6 +33,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.add", principal);
         string tenant = Tenants.RequireProject(project);
+        await RequireRegisteredAsync(tenant, cancellationToken);
         ParcelType type = await RequireTypeAsync(tenant, typeName, cancellationToken);
         ParcelCreated created = ParcelDecider.Create(type, gates, tenant, title, state, principal.Id, clock.GetUtcNow(), origin);
 
@@ -139,6 +142,15 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("type.list", principal);
         return await definitions.ResolveParcelTypesAsync(Tenants.RequireProject(project), cancellationToken);
+    }
+
+    /// <summary>A parcel is created only in a registered project, so the software actions have a repository to act on.</summary>
+    private async Task RequireRegisteredAsync(string project, CancellationToken cancellationToken)
+    {
+        if (await ProjectService.FindAsync(store, project, cancellationToken) is null)
+        {
+            throw new DomainException(ProjectService.Unregistered(project));
+        }
     }
 
     private async Task<ParcelType> RequireTypeAsync(string project, string name, CancellationToken cancellationToken)
