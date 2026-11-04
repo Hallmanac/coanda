@@ -73,3 +73,10 @@ Brian ruled on these on 2026-11-03, reading the phase 1 review: "model triple" w
   a cap or its budget is reached. A paused flow is live and is resumed or stopped. It replaces
   "park" and "parked", including the parcel types' parked state, which is now named paused.
 - model spec: the vendor, model, and effort an agent runs on. It replaces "model triple".
+
+The commands moved with the words: `coa flow start` became `coa contour start`, `coa flow list`
+(the definitions) became `coa contour list`, and `coa flight list` and `coa flight show` became
+`coa flow list` and `coa flow show`. The API moved the same way, from `/flows` and `/flights` to
+`/contours` and `/flows`. A record written before the change does not carry over: its event names,
+documents, and the hashed content of its types and contours use the old words. The daemon refuses
+such a record without touching it and names the file; move the node home aside and start fresh.

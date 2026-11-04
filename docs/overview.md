@@ -33,6 +33,14 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 ## Operating
 
 - `coa daemon start` / `coa daemon stop` / `coa daemon status`
-- `coa parcel add`, `coa parcel list`, `coa parcel show <id>`
+- `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <state>`,
+  `coa parcel close <id>`
+- `coa contour list`, `coa contour start <contour> --parcel <id>`
+- `coa flow list --parcel <id>`, `coa flow show <id>`
 
 The record lives at `~/.coanda/coanda.db`. Do not edit it by hand.
+
+A build from before 2026-11-03 used other words for contours, flows, and pauses, and other
+commands for them; `docs/design/naming.md` maps the old commands to the ones above. The record that
+older build wrote does not carry over, and the daemon refuses to start on it, naming the file. Move the old node home aside (for example
+`mv ~/.coanda ~/.coanda.pre-rename`) and start again; a fresh home is created on the first start.
