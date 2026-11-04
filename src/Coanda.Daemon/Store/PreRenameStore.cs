@@ -4,11 +4,12 @@ using Microsoft.Data.Sqlite;
 namespace Coanda.Daemon.Store;
 
 /// <summary>
-/// Recognizes a node home that a build from before the 2026-11-03 vocabulary change (contour, flow,
-/// pause) wrote. Nothing carries that record over: its event names, its documents, and the hashed
-/// content of its types and contours all use the retired words, so this build would misread it or
-/// fail on it part way through. The daemon refuses such a home before touching it, and says how to
-/// start fresh.
+/// Recognizes a node home that a build from before one of the vocabulary changes wrote. The
+/// 2026-11-03 change (contour, flow, pause) renamed the event names, the documents, and the hashed
+/// content of types and contours; the 2026-11-04 change renamed one execution of a contour on a
+/// parcel from flow to flow run, and with it the events that execution records. Nothing carries
+/// either record over, so this build would misread it or fail on it part way through. The daemon
+/// refuses such a home before touching it, and says how to start fresh.
 /// </summary>
 public static class PreRenameStore
 {
@@ -29,7 +30,20 @@ public static class PreRenameStore
         """;
 
     /// <summary>
-    /// Throws when the home's record was written before the change. A home with no record yet, or
+    /// A record from before the flow run name holds an execution only under the retired event
+    /// names, the snake-cased names of the events as they were called then. A record that never
+    /// started one holds none of them, and nothing else it holds was renamed, so it passes.
+    /// </summary>
+    private const string RetiredFlowEventsQuery =
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM fi_events
+            WHERE type IN ('flow_started', 'flow_paused', 'flow_resumed', 'flow_ended', 'flow_stopped',
+                           'parcel_flow_attached', 'parcel_flow_released'))
+        """;
+
+    /// <summary>
+    /// Throws when the home's record was written before either change. A home with no record yet, or
     /// one this build wrote, passes. The record is opened read-only, so a refused home is left
     /// exactly as it was.
     /// </summary>
@@ -41,16 +55,24 @@ public static class PreRenameStore
             return;
         }
 
-        if (WrittenBeforeRename(home.DatabasePath))
+        if (Holds(home.DatabasePath, Query))
         {
             throw new DomainException(
                 $"The record at {home.DatabasePath} was written by a build from before contours, flows, and pauses "
                 + "had those names, and this build cannot read it. Move the node home aside (for example "
                 + $"'mv {home.Path} {home.Path}.pre-rename') and start again; a fresh home is created on the first start.");
         }
+
+        if (Holds(home.DatabasePath, RetiredFlowEventsQuery))
+        {
+            throw new DomainException(
+                $"The record at {home.DatabasePath} holds a flow started by a build from before the flow run name, "
+                + "and this build cannot read it. Move the node home aside (for example "
+                + $"'mv {home.Path} {home.Path}.pre-flow-run') and start again; a fresh home is created on the first start.");
+        }
     }
 
-    private static bool WrittenBeforeRename(string databasePath)
+    private static bool Holds(string databasePath, string query)
     {
         var builder = new SqliteConnectionStringBuilder
         {
@@ -69,7 +91,7 @@ public static class PreRenameStore
         }
 
         using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = Query;
+        command.CommandText = query;
         return command.ExecuteScalar() is 1L;
     }
 }
