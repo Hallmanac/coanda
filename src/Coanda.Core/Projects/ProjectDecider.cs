@@ -10,6 +10,10 @@ namespace Coanda.Core.Projects;
 /// </summary>
 public static class ProjectDecider
 {
+    /// <summary>The rule a command quotes when the project it names has no record.</summary>
+    public static string Unregistered(string project) =>
+        $"Project '{project}' is not registered; register it with coa project add {project} --repo <url> --branch <name>.";
+
     public static ProjectRegistered Register(
         string name, string remote, string primaryBranch, Project? existing, string registeredBy, DateTimeOffset now)
     {

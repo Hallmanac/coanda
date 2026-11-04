@@ -69,6 +69,7 @@ public sealed class DaemonHost
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<GateSet>(),
             services.GetRequiredService<FlowActions>().Names));
+        builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<ContourService>();
