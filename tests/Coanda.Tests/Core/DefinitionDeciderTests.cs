@@ -26,7 +26,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void Draft_records_every_field_and_the_next_version()
     {
-        ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
+        ParcelType fork = ShippedTypes.Task with { Stages = [.. ShippedTypes.Task.Stages, "qa"] };
         DefinitionDrafted drafted = DefinitionDecider.Draft(
             DefinitionKind.ParcelType, "task", DefinitionScope.Project, " alpha ", 2,
             ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, shippedVersions: [new ForkBase("task", 1)]);
@@ -49,7 +49,7 @@ public sealed class DefinitionDeciderTests
     [InlineData("build", 1)]
     public void A_fork_base_naming_no_shipped_definition_of_the_drafts_kind_is_refused_naming_it(string baseName, int baseVersion)
     {
-        ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
+        ParcelType fork = ShippedTypes.Task with { Stages = [.. ShippedTypes.Task.Stages, "qa"] };
         ForkBase[] shipped = [new("task", 1), new("idea", 1)];
 
         FluentActions.Invoking(() => DefinitionDecider.Draft(
@@ -62,7 +62,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_fork_base_is_refused_when_no_shipped_versions_are_given_and_matched_by_name_without_case()
     {
-        ParcelType fork = ShippedTypes.Task with { States = [.. ShippedTypes.Task.States, "qa"] };
+        ParcelType fork = ShippedTypes.Task with { Stages = [.. ShippedTypes.Task.Stages, "qa"] };
         string content = ParcelType.CanonicalJson(fork);
 
         FluentActions.Invoking(() => DefinitionDecider.Draft(
@@ -158,7 +158,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_parcel_type_whose_content_cannot_be_read_is_refused()
     {
-        foreach (string content in new[] { "not json", "{}", "null", """{"Name":"task","States":null}""" })
+        foreach (string content in new[] { "not json", "{}", "null", """{"Name":"task","Stages":null}""" })
         {
             FluentActions.Invoking(() => DefinitionDecider.Draft(
                     DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0, content, "abc", null, "brian", Now))
@@ -169,10 +169,10 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_parcel_type_that_fails_validation_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with { TerminalState = "finished" };
+        ParcelType broken = ShippedTypes.Task with { TerminalStage = "finished" };
 
         FluentActions.Invoking(() => DraftTask(broken))
-            .Should().Throw<DomainException>().WithMessage("*terminal state*");
+            .Should().Throw<DomainException>().WithMessage("*terminal stage*");
     }
 
     [Fact]

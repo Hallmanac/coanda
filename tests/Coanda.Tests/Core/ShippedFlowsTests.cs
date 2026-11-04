@@ -99,8 +99,8 @@ public sealed class ShippedFlowsTests
         build.Steps.Count(s => s.Action == CoreActions.MoveParcel).Should().Be(1);
 
         FlowStep move = build.Step(visited[^1])!;
-        move.Arguments.Should().ContainSingle().Which.Key.Should().Be("state");
-        move.Arguments["state"].GetString().Should().Be("review");
+        move.Arguments.Should().ContainSingle().Which.Key.Should().Be("stage");
+        move.Arguments["stage"].GetString().Should().Be("review");
         ShippedTypes.Task.AllowsMove("build", "review").Should().BeTrue();
     }
 
@@ -252,9 +252,9 @@ public sealed class ShippedFlowsTests
     }
 
     [Fact]
-    public void The_build_discovery_and_review_on_assignment_flows_hash_as_they_did_before_the_rebase_lap()
+    public void The_build_discovery_and_review_on_assignment_flows_hash_to_literals()
     {
-        ShippedFlows.Build.Hash.Should().Be("b04d6a7f9787b3ba");
+        ShippedFlows.Build.Hash.Should().Be("bb708fb3b6aa9401");
         ShippedFlows.Discovery.Hash.Should().Be("d7e57364f965bce0");
         ShippedFlows.ReviewOnAssignment.Hash.Should().Be("895e023427d7e4a3");
     }

@@ -93,12 +93,12 @@ public sealed class FlowStepFieldTests
     }
 
     [Fact]
-    public void The_build_flow_of_the_gated_merge_without_its_declarations_hashes_as_it_did_before_fields_existed()
+    public void The_build_flow_of_the_gated_merge_without_its_declarations_hashes_to_a_literal()
     {
         Flow declared = PreviousFlows.BuildWithGatedMerge;
         Flow undeclared = declared with { Steps = [.. declared.Steps.Select(s => s with { Fields = [], Sources = [] })] };
 
-        undeclared.Hash.Should().Be("dc6aa9adf2fb3c4f", "a flow none of whose steps declares fields hashes as before");
+        undeclared.Hash.Should().Be("518ab4488e642800", "a flow none of whose steps declares fields leaves fields out of its hash");
         declared.Hash.Should().NotBe(undeclared.Hash);
     }
 }

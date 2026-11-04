@@ -15,7 +15,7 @@ public sealed class ParcelTypeFieldTests
     public void The_shipped_idea_declares_no_field_and_hashes_to_a_literal()
     {
         ShippedTypes.Idea.Fields.Should().BeEmpty();
-        ShippedTypes.Idea.Hash.Should().Be("a2a63418ca1bf319", "the idea declares no field, so its hash covers its states, transitions, and flow bindings alone");
+        ShippedTypes.Idea.Hash.Should().Be("e6c4447a6bc6586d", "the idea declares no field, so its hash covers its stages, transitions, and flow bindings alone");
     }
 
     [Fact]
@@ -77,19 +77,19 @@ public sealed class ParcelTypeFieldTests
             "Field 'size' of parcel type 'task' is of the kind 'number'; a field's kind is one of text, text-list, reference."
         },
         {
-            "a state the type does not have",
+            "a stage the type does not have",
             [Text("objective", "shipping")],
-            "Field 'objective' of parcel type 'task' is required to leave 'shipping', which is not one of its live states; a field is required to leave only a state the type has, never its terminal or paused state."
+            "Field 'objective' of parcel type 'task' is required to leave 'shipping', which is not one of its live stages; a field is required to leave only a stage the type has, never its terminal or paused stage."
         },
         {
-            "the terminal state",
+            "the terminal stage",
             [Text("objective", "closed")],
-            "Field 'objective' of parcel type 'task' is required to leave 'closed', which is not one of its live states;*"
+            "Field 'objective' of parcel type 'task' is required to leave 'closed', which is not one of its live stages;*"
         },
         {
-            "the paused state",
+            "the paused stage",
             [Text("objective", "paused")],
-            "Field 'objective' of parcel type 'task' is required to leave 'paused', which is not one of its live states;*"
+            "Field 'objective' of parcel type 'task' is required to leave 'paused', which is not one of its live stages;*"
         },
     };
 
@@ -106,7 +106,7 @@ public sealed class ParcelTypeFieldTests
     [Theory]
     [InlineData("[null]", "Parcel type 'task' has a field that is null;*")]
     [InlineData("""[{"Name": "objective", "Kind": "text", "RequiredToLeave": [null]}]""", "*required to leave ''*")]
-    public void A_read_field_that_is_null_or_names_a_null_state_is_refused(string fields, string rule)
+    public void A_read_field_that_is_null_or_names_a_null_stage_is_refused(string fields, string rule)
     {
         JsonObject content = JsonNode.Parse(ParcelType.CanonicalJson(ShippedTypes.Task))?.AsObject()
             ?? throw new InvalidOperationException("A type's canonical content is a JSON object.");
@@ -126,7 +126,7 @@ public sealed class ParcelTypeFieldTests
     }
 
     [Fact]
-    public void A_type_that_declares_a_field_required_to_leave_a_state_with_a_move_out_not_bound_to_the_field_gate_is_refused_naming_the_field_and_the_move()
+    public void A_type_that_declares_a_field_required_to_leave_a_stage_with_a_move_out_not_bound_to_the_field_gate_is_refused_naming_the_field_and_the_move()
     {
         ParcelType unbound = ShippedTypes.Task with
         {
@@ -139,11 +139,11 @@ public sealed class ParcelTypeFieldTests
         };
 
         FluentActions.Invoking(() => unbound.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "Field 'objective' of parcel type 'task' is required to leave 'refine', and the move from 'refine' to 'review' is not bound to the 'required-fields' gate; every move the table holds out of a state a field is required to leave is bound to that gate.");
+            "Field 'objective' of parcel type 'task' is required to leave 'refine', and the move from 'refine' to 'review' is not bound to the 'required-fields' gate; every move the table holds out of a stage a field is required to leave is bound to that gate.");
     }
 
     [Fact]
-    public void A_table_entry_out_of_a_required_state_into_paused_or_closed_needs_no_field_gate_since_pausing_and_closing_are_never_refused_for_an_empty_field()
+    public void A_table_entry_out_of_a_required_stage_into_paused_or_closed_needs_no_field_gate_since_pausing_and_closing_are_never_refused_for_an_empty_field()
     {
         ParcelType pausesInTable = ShippedTypes.Task with
         {
@@ -159,11 +159,11 @@ public sealed class ParcelTypeFieldTests
     }
 
     [Fact]
-    public void A_type_with_a_state_some_field_is_required_to_enter_and_no_move_into_it_bound_to_the_field_gate_is_refused_naming_the_state_and_the_field()
+    public void A_type_with_a_stage_some_field_is_required_to_enter_and_no_move_into_it_bound_to_the_field_gate_is_refused_naming_the_stage_and_the_field()
     {
         ParcelType withQa = ShippedTypes.Task with
         {
-            States = [.. ShippedTypes.Task.States, "qa"],
+            Stages = [.. ShippedTypes.Task.Stages, "qa"],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -173,7 +173,7 @@ public sealed class ParcelTypeFieldTests
         };
 
         FluentActions.Invoking(() => withQa.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "State 'qa' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and no move the table holds into it is bound to the 'required-fields' gate, so a resume into it would check nothing; a state some field is required to enter has a move into it bound to that gate.");
+            "Stage 'qa' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and no move the table holds into it is bound to the 'required-fields' gate, so a resume into it would check nothing; a stage some field is required to enter has a move into it bound to that gate.");
 
         ParcelType guarded = withQa with
         {
@@ -184,11 +184,11 @@ public sealed class ParcelTypeFieldTests
     }
 
     [Fact]
-    public void A_field_is_required_to_enter_a_state_only_when_every_route_to_it_requires_it_and_never_for_a_state_no_route_reaches()
+    public void A_field_is_required_to_enter_a_stage_only_when_every_route_to_it_requires_it_and_never_for_a_stage_no_route_reaches()
     {
         ParcelType forked = ShippedTypes.Task with
         {
-            States = ["refine", "spike", "build", "review", "parked", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "spike", "build", "review", "parked", ShippedTypes.Paused, ShippedTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -196,20 +196,20 @@ public sealed class ParcelTypeFieldTests
                 ["build"] = ["review"],
                 ["review"] = ["build"],
             },
-            EntryStates = ["refine", "spike"],
+            EntryStages = ["refine", "spike"],
         };
 
-        forked.RequiredToEnter("build").Should().BeEmpty("a route from the spike entry state reaches build without leaving refine");
+        forked.RequiredToEnter("build").Should().BeEmpty("a route from the spike entry stage reaches build without leaving refine");
         forked.RequiredToEnter("review").Should().Equal("pull-request");
         forked.RequiredToEnter("parked").Should().BeEmpty("no route reaches it");
     }
 
     [Fact]
-    public void A_move_out_of_a_state_no_route_reaches_into_a_state_some_field_is_required_to_enter_is_refused_naming_both()
+    public void A_move_out_of_a_stage_no_route_reaches_into_a_stage_some_field_is_required_to_enter_is_refused_naming_both()
     {
         ParcelType parked = ShippedTypes.Task with
         {
-            States = ["refine", "build", "review", "parked", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "build", "review", "parked", ShippedTypes.Paused, ShippedTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -220,7 +220,7 @@ public sealed class ParcelTypeFieldTests
         };
 
         FluentActions.Invoking(() => parked.Validate(Gates)).Should().Throw<DomainException>().WithMessage(
-            "State 'review' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and the move the table holds into it from 'parked', a state no route from an entry state reaches, would carry a parcel resumed into 'parked' there without them; a move out of a state no route reaches goes only into a state that requires nothing to enter.");
+            "Stage 'review' of parcel type 'task' requires 'objective', 'criteria', 'pull-request' to enter, and the move the table holds into it from 'parked', a stage no route from an entry stage reaches, would carry a parcel resumed into 'parked' there without them; a move out of a stage no route reaches goes only into a stage that requires nothing to enter.");
 
         ParcelType intoRefine = parked with
         {

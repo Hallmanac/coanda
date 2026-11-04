@@ -10,11 +10,11 @@ public sealed class ParcelDeciderTests
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Create_starts_at_the_types_first_entry_state_and_records_the_type_hash()
+    public void Create_starts_at_the_types_first_entry_stage_and_records_the_type_hash()
     {
         ParcelCreated created = ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "  Try it  ", null, "brian", Now);
 
-        created.State.Should().Be("refine");
+        created.Stage.Should().Be("refine");
         created.TypeName.Should().Be("task");
         created.TypeHash.Should().Be(ShippedTypes.Task.Hash);
         created.Title.Should().Be("Try it");
@@ -22,7 +22,7 @@ public sealed class ParcelDeciderTests
     }
 
     [Fact]
-    public void Create_refuses_a_state_that_is_not_an_entry()
+    public void Create_refuses_a_stage_that_is_not_an_entry()
     {
         FluentActions.Invoking(() => ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", "review", "brian", Now))
             .Should().Throw<DomainException>().WithMessage("*cannot start at 'review'*");
@@ -35,14 +35,14 @@ public sealed class ParcelDeciderTests
 
         ParcelMoved moved = ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", "daemon", Now);
         parcel.Apply(moved);
-        parcel.State.Should().Be("build");
+        parcel.Stage.Should().Be("build");
 
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "refine", "daemon", Now))
             .Should().Throw<DomainException>().WithMessage("*does not allow a move from 'build' to 'refine'*");
     }
 
     [Fact]
-    public void Move_to_the_terminal_state_is_refused_in_favour_of_close()
+    public void Move_to_the_terminal_stage_is_refused_in_favour_of_close()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now));
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now))
@@ -60,7 +60,7 @@ public sealed class ParcelDeciderTests
         ParcelClosed closed = ParcelDecider.Close(ShippedTypes.Idea, GateSet.Shipped, parcel, "split", "Three tasks derived.", "brian", Now);
         parcel.Apply(closed);
         parcel.IsClosed.Should().BeTrue();
-        parcel.State.Should().Be("closed");
+        parcel.Stage.Should().Be("closed");
         parcel.Resolution.Should().Be("split");
 
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Idea, GateSet.Shipped, parcel, "discovery", "brian", Now))
@@ -68,14 +68,14 @@ public sealed class ParcelDeciderTests
     }
 
     [Fact]
-    public void Pause_and_resume_work_from_any_live_state()
+    public void Pause_and_resume_work_from_any_live_stage()
     {
         Parcel parcel = Parcel.Create(ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now)).Briefed(ShippedTypes.Task);
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", "daemon", Now));
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "paused", "daemon", Now));
-        parcel.State.Should().Be("paused");
+        parcel.Stage.Should().Be("paused");
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", "brian", Now));
-        parcel.State.Should().Be("review");
+        parcel.Stage.Should().Be("review");
     }
 
     [Fact]
@@ -89,14 +89,14 @@ public sealed class ParcelDeciderTests
         FluentActions.Invoking(() => ParcelDecider.Close(ShippedTypes.Task, GateSet.Shipped, parcel, "split", "", $"flow-run:{flowRun}", Now))
             .Should().Throw<DomainException>().WithMessage(refusal + " closing the parcel.", "the holding flow run does not close it either");
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "closed", "brian", Now))
-            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the terminal-state check");
+            .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the terminal-stage check");
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "nowhere", "brian", Now, Ids.New()))
             .Should().Throw<DomainException>().WithMessage(refusal + " moving the parcel.", "the live-flow-run check runs before the move table");
 
         FluentActions.Invoking(() => ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", $"flow-run:{flowRun}", Now, flowRun))
             .Should().Throw<DomainException>().WithMessage("*does not allow a move from 'refine' to 'review'*", "the holding flow run's move still follows the move table");
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "build", $"flow-run:{flowRun}", Now, flowRun));
-        parcel.State.Should().Be("build");
+        parcel.Stage.Should().Be("build");
 
         parcel.Apply(new ParcelFlowRunReleased(parcel.Id, flowRun, Now));
         parcel.Apply(ParcelDecider.Move(ShippedTypes.Task, GateSet.Shipped, parcel, "review", "brian", Now));

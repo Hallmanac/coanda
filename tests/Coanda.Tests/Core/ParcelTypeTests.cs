@@ -36,14 +36,14 @@ public sealed class ParcelTypeTests
         ShippedTypes.Task.AllowsMove(from, to).Should().Be(allowed);
 
     [Fact]
-    public void A_type_without_a_terminal_state_is_refused()
+    public void A_type_without_a_terminal_stage_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with { TerminalState = "finished" };
-        FluentActions.Invoking(() => broken.Validate(GateSet.Shipped.Names)).Should().Throw<DomainException>().WithMessage("*terminal state*");
+        ParcelType broken = ShippedTypes.Task with { TerminalStage = "finished" };
+        FluentActions.Invoking(() => broken.Validate(GateSet.Shipped.Names)).Should().Throw<DomainException>().WithMessage("*terminal stage*");
     }
 
     [Fact]
-    public void A_type_whose_move_names_an_unknown_state_is_refused()
+    public void A_type_whose_move_names_an_unknown_stage_is_refused()
     {
         ParcelType broken = ShippedTypes.Task with
         {

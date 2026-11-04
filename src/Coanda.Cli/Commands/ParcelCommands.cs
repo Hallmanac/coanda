@@ -18,9 +18,9 @@ public sealed class ParcelAddSettings : ProjectSettings
     [Description("What the parcel is, in a line.")]
     public required string Title { get; init; }
 
-    [CommandOption("--state <STATE>")]
-    [Description("An entry state of the type; defaults to the type's first entry state.")]
-    public string? State { get; init; }
+    [CommandOption("--stage <STAGE>")]
+    [Description("An entry stage of the type; defaults to the type's first entry stage.")]
+    public string? Stage { get; init; }
 }
 
 public sealed class ParcelAddCommand : AsyncCommand<ParcelAddSettings>
@@ -28,9 +28,9 @@ public sealed class ParcelAddCommand : AsyncCommand<ParcelAddSettings>
     protected override async Task<int> ExecuteAsync(CommandContext context, ParcelAddSettings settings, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
-        var request = new ParcelAddRequest(settings.ResolveProject(), settings.Type, settings.Title, settings.State);
+        var request = new ParcelAddRequest(settings.ResolveProject(), settings.Type, settings.Title, settings.Stage);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", request, cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Created {parcel.Type} parcel {Ids.Short(parcel.Id)} in {parcel.Project} at {parcel.State}: {parcel.Title}");
+        AnsiConsole.MarkupLineInterpolated($"Created {parcel.Type} parcel {Ids.Short(parcel.Id)} in {parcel.Project} at {parcel.Stage}: {parcel.Title}");
         return 0;
     }
 }
@@ -51,14 +51,14 @@ public sealed class ParcelListCommand : AsyncCommand<ParcelListSettings>
         List<ParcelView> parcels = await client.GetAsync<List<ParcelView>>($"/parcels?project={Uri.EscapeDataString(project)}", cancellationToken);
         IEnumerable<ParcelView> shown = settings.All ? parcels : parcels.Where(p => p.Resolution is null);
 
-        var table = new Table().AddColumns("Id", "Type", "State", "Title", "Updated");
+        var table = new Table().AddColumns("Id", "Type", "Stage", "Title", "Updated");
         foreach (ParcelView parcel in shown)
         {
-            string state = parcel.Resolution is null ? parcel.State : $"{parcel.State} ({parcel.Resolution})";
+            string stage = parcel.Resolution is null ? parcel.Stage : $"{parcel.Stage} ({parcel.Resolution})";
             table.AddRow(
                 Ids.Short(parcel.Id),
                 parcel.Type,
-                state,
+                stage,
                 Markup.Escape(parcel.Title),
                 parcel.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
         }
@@ -93,7 +93,7 @@ public sealed class ParcelShowCommand : AsyncCommand<ParcelIdSettings>
         table.AddRow("Id", parcel.Id.ToString());
         table.AddRow("Project", parcel.Project);
         table.AddRow("Type", $"{parcel.Type}@{parcel.TypeHash}");
-        table.AddRow("State", parcel.State);
+        table.AddRow("Stage", parcel.Stage);
         table.AddRow("Title", Markup.Escape(parcel.Title));
         table.AddRow("Created", $"{parcel.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm zzz} by {parcel.CreatedBy}");
         table.AddRow("Updated", parcel.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm zzz"));
@@ -115,8 +115,8 @@ public sealed class ParcelShowCommand : AsyncCommand<ParcelIdSettings>
 
 public sealed class ParcelMoveSettings : ParcelIdSettings
 {
-    [CommandArgument(1, "<STATE>")]
-    [Description("The state to move to; the parcel's type decides whether the move is allowed.")]
+    [CommandArgument(1, "<STAGE>")]
+    [Description("The stage to move to; the parcel's type decides whether the move is allowed.")]
     public required string To { get; init; }
 }
 
@@ -128,7 +128,7 @@ public sealed class ParcelMoveCommand : AsyncCommand<ParcelMoveSettings>
         string project = settings.ResolveProject();
         ParcelView found = await ParcelLookup.FindAsync(client, project, settings.Id, cancellationToken);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(project, found.Id, settings.To), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Moved {Ids.Short(parcel.Id)} from {found.State} to {parcel.State}.");
+        AnsiConsole.MarkupLineInterpolated($"Moved {Ids.Short(parcel.Id)} from {found.Stage} to {parcel.Stage}.");
         return 0;
     }
 }

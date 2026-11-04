@@ -13,7 +13,7 @@ namespace Coanda.Core.Parcels;
 public static class ParcelDecider
 {
     public static ParcelCreated Create(
-        ParcelType type, GateSet gates, string project, string title, string? entryState, string createdBy, DateTimeOffset now, string? origin = null)
+        ParcelType type, GateSet gates, string project, string title, string? entryStage, string createdBy, DateTimeOffset now, string? origin = null)
     {
         type.Validate(gates.Names);
 
@@ -27,14 +27,14 @@ public static class ParcelDecider
             throw new DomainException("A parcel needs a title.");
         }
 
-        string state = entryState ?? type.EntryStates[0];
-        if (!type.IsEntry(state))
+        string stage = entryStage ?? type.EntryStages[0];
+        if (!type.IsEntry(stage))
         {
             throw new DomainException(
-                $"Parcel type '{type.Name}' cannot start at '{state}'; its entry states are {string.Join(", ", type.EntryStates)}.");
+                $"Parcel type '{type.Name}' cannot start at '{stage}'; its entry stages are {string.Join(", ", type.EntryStages)}.");
         }
 
-        return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, state, title.Trim(), createdBy, now, origin);
+        return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, stage, title.Trim(), createdBy, now, origin);
     }
 
     /// <summary>
@@ -42,7 +42,7 @@ public static class ParcelDecider
     /// a move nobody's flow run makes; a parcel a live flow run holds is moved only on behalf of that flow run.
     /// </summary>
     public static ParcelMoved Move(
-        ParcelType type, GateSet gates, Parcel parcel, string toState, string movedBy, DateTimeOffset now, Guid? forFlowRun = null)
+        ParcelType type, GateSet gates, Parcel parcel, string toStage, string movedBy, DateTimeOffset now, Guid? forFlowRun = null)
     {
         RequireOpen(parcel);
         RequireType(type, parcel);
@@ -53,23 +53,23 @@ public static class ParcelDecider
                 $"Parcel {Ids.Short(parcel.Id)} is held by flow run {Ids.Short(live)}, and only that flow run moves it; stop flow run {Ids.Short(live)} (flow-run.stop) before moving the parcel.");
         }
 
-        if (type.IsTerminal(toState))
+        if (type.IsTerminal(toStage))
         {
-            throw new DomainException($"Closing a parcel takes a resolution; use close rather than a move to '{toState}'.");
+            throw new DomainException($"Closing a parcel takes a resolution; use close rather than a move to '{toStage}'.");
         }
 
-        if (!type.AllowsMove(parcel.State, toState))
+        if (!type.AllowsMove(parcel.Stage, toStage))
         {
             throw new DomainException(
-                $"Parcel type '{type.Name}' does not allow a move from '{parcel.State}' to '{toState}'.");
+                $"Parcel type '{type.Name}' does not allow a move from '{parcel.Stage}' to '{toStage}'.");
         }
 
-        foreach (GateBinding binding in type.GatesOn(parcel.State, toState))
+        foreach (GateBinding binding in type.GatesOn(parcel.Stage, toStage))
         {
-            RequirePasses(binding, gates, type, parcel, toState);
+            RequirePasses(binding, gates, type, parcel, toStage);
         }
 
-        return new ParcelMoved(parcel.Id, parcel.State, toState, movedBy, now);
+        return new ParcelMoved(parcel.Id, parcel.Stage, toStage, movedBy, now);
     }
 
     public static ParcelClosed Close(
@@ -95,12 +95,12 @@ public static class ParcelDecider
             throw new DomainException("Closing a parcel records why; give a reason.");
         }
 
-        foreach (GateBinding binding in type.GatesOn(parcel.State, type.TerminalState))
+        foreach (GateBinding binding in type.GatesOn(parcel.Stage, type.TerminalStage))
         {
-            RequirePasses(binding, gates, type, parcel, type.TerminalState);
+            RequirePasses(binding, gates, type, parcel, type.TerminalStage);
         }
 
-        return new ParcelClosed(parcel.Id, parcel.State, type.TerminalState, resolution, reason.Trim(), closedBy, now);
+        return new ParcelClosed(parcel.Id, parcel.Stage, type.TerminalStage, resolution, reason.Trim(), closedBy, now);
     }
 
     /// <summary>
@@ -163,17 +163,17 @@ public static class ParcelDecider
 
     /// <summary>
     /// Runs the gate the binding names on the move the binding stands for, which is the move being
-    /// made except out of the paused state, where it is the bound move into the same target.
+    /// made except out of the paused stage, where it is the bound move into the same target.
     /// </summary>
-    private static void RequirePasses(GateBinding binding, GateSet gates, ParcelType type, Parcel parcel, string toState)
+    private static void RequirePasses(GateBinding binding, GateSet gates, ParcelType type, Parcel parcel, string toStage)
     {
         IGate gate = gates.Find(binding.Gate)
             ?? throw new DomainException(
-                $"The gate '{binding.Gate}' bound to the move to '{toState}' is not a gate this daemon runs, so the move is refused.");
+                $"The gate '{binding.Gate}' bound to the move to '{toStage}' is not a gate this daemon runs, so the move is refused.");
 
         if (gate.Check(parcel, type, binding.From, binding.To) is GateVerdict.Failed failed)
         {
-            throw new DomainException($"The gate '{binding.Gate}' refused the move from '{parcel.State}' to '{toState}': {failed.Reason}");
+            throw new DomainException($"The gate '{binding.Gate}' refused the move from '{parcel.Stage}' to '{toStage}': {failed.Reason}");
         }
     }
 

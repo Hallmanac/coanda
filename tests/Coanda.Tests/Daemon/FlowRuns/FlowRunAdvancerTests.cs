@@ -58,7 +58,7 @@ public sealed class FlowRunAdvancerTests
         gates.TryGetProperty("placeholder", out _).Should().BeFalse("the gates step runs the project's build and test commands");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.State.Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
+        after.Stage.Should().Be("closed", "the build moved the task to review, and the merge that followed closed it");
         after.Resolution.Should().Be("completed");
         after.LiveFlowRunId.Should().BeNull();
 
@@ -87,7 +87,7 @@ public sealed class FlowRunAdvancerTests
 
         await using IQuerySession session = daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Project);
         var events = await session.Events.FetchStreamAsync(parcel.Id, token: None);
-        ParcelMoved toReview = events.Select(e => e.Data).OfType<ParcelMoved>().Should().ContainSingle(m => m.ToState == "review").Subject;
+        ParcelMoved toReview = events.Select(e => e.Data).OfType<ParcelMoved>().Should().ContainSingle(m => m.ToStage == "review").Subject;
         toReview.MovedBy.Should().Be(FlowRunAdvancer.PrincipalFor(started.Id).Id).And.Be($"flow-run:{started.Id}");
 
         await daemon.StopAsync(None);
@@ -118,7 +118,7 @@ public sealed class FlowRunAdvancerTests
         flowRun.Steps[^1].Answer.GetValueOrDefault().GetProperty("verdict").GetString().Should().Be("not-clean");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
-        after.State.Should().Be("build", "a flow run pause leaves the parcel in its state");
+        after.Stage.Should().Be("build", "a flow run pause leaves the parcel in its stage");
         after.LiveFlowRunId.Should().Be(started.Id);
 
         await daemon.StopAsync(None);

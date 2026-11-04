@@ -19,7 +19,7 @@ public sealed class DefinitionStoreTests
 
     private static readonly ParcelType QaTask = ShippedTypes.Task with
     {
-        States = [.. ShippedTypes.Task.States, "qa"],
+        Stages = [.. ShippedTypes.Task.Stages, "qa"],
         Moves = new Dictionary<string, IReadOnlyList<string>>
         {
             ["refine"] = ["build"],
@@ -287,10 +287,10 @@ public sealed class DefinitionStoreTests
         await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
         await RegisteredProjects.AddAsync(store, "beta", CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
-        await PublishedProjectTypeAsync(Definitions(store), "alpha", QaTask with { EntryStates = ["refine", "qa"] });
+        await PublishedProjectTypeAsync(Definitions(store), "alpha", QaTask with { EntryStages = ["refine", "qa"] });
 
         Parcel inAlpha = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Starts in qa", "qa", CancellationToken.None);
-        inAlpha.State.Should().Be("qa");
+        inAlpha.Stage.Should().Be("qa");
         inAlpha.TypeHash.Should().NotBe(ShippedTypes.Task.Hash);
 
         await FluentActions.Awaiting(() => parcels.AddAsync(Principal.LocalOwner, "beta", "task", "Not here", "qa", CancellationToken.None))
@@ -299,7 +299,7 @@ public sealed class DefinitionStoreTests
         inBeta.TypeHash.Should().Be(ShippedTypes.Task.Hash);
 
         IReadOnlyList<ParcelType> alphaTypes = await parcels.TypesAsync(Principal.LocalOwner, "alpha", CancellationToken.None);
-        alphaTypes.Single(t => t.Name == "task").States.Should().Contain("qa");
+        alphaTypes.Single(t => t.Name == "task").Stages.Should().Contain("qa");
         IReadOnlyList<ParcelType> betaTypes = await parcels.TypesAsync(Principal.LocalOwner, "beta", CancellationToken.None);
         betaTypes.Single(t => t.Name == "task").Hash.Should().Be(ShippedTypes.Task.Hash);
     }
@@ -317,7 +317,7 @@ public sealed class DefinitionStoreTests
 
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "alpha", "Task", "Lifecycle", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, "alpha", parcel.Id, cancellationToken: CancellationToken.None);
-        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", parcel.Id, "build", CancellationToken.None)).State.Should().Be("build");
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", parcel.Id, "build", CancellationToken.None)).Stage.Should().Be("build");
         (await parcels.CloseAsync(Principal.LocalOwner, "alpha", parcel.Id, "completed", "Done.", CancellationToken.None)).Resolution.Should().Be("completed");
 
         await FluentActions.Awaiting(() => parcels.AddAsync(Principal.LocalOwner, "alpha", "epic", "x", null, CancellationToken.None))
@@ -338,7 +338,7 @@ public sealed class DefinitionStoreTests
 
         ParcelType withoutReview = ShippedTypes.Task with
         {
-            States = ["refine", "build", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "build", ShippedTypes.Paused, ShippedTypes.Closed],
             Resolutions = ["shipped"],
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["build"] },
             GateBindings = [new GateBinding("refine", "build", RequiredFieldsGate.GateName)],
@@ -346,7 +346,7 @@ public sealed class DefinitionStoreTests
         await PublishedProjectTypeAsync(Definitions(store), "alpha", withoutReview);
 
         Parcel moved = await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
-        moved.State.Should().Be("build");
+        moved.Stage.Should().Be("build");
         moved.TypeHash.Should().Be(ShippedTypes.Task.Hash);
         (await parcels.CloseAsync(Principal.LocalOwner, "alpha", inReview.Id, "completed", "Done.", CancellationToken.None))
             .Resolution.Should().Be("completed");
@@ -368,15 +368,15 @@ public sealed class DefinitionStoreTests
         Parcel original = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Before", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, "alpha", original.Id, cancellationToken: CancellationToken.None);
 
-        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", ShippedTypes.Task with { Name = "Task", EntryStates = ["refine", "build"] });
-        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "build", CancellationToken.None)).State.Should().Be("build");
+        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", ShippedTypes.Task with { Name = "Task", EntryStages = ["refine", "build"] });
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "build", CancellationToken.None)).Stage.Should().Be("build");
 
         Parcel underCased = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "After", "build", CancellationToken.None);
         underCased.TypeName.Should().Be("Task");
         await parcels.BriefAsync(Principal.LocalOwner, "alpha", underCased.Id, cancellationToken: CancellationToken.None);
         await definitions.RetireAsync(Principal.LocalOwner, "alpha", cased.Id, CancellationToken.None);
 
-        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", underCased.Id, "review", CancellationToken.None)).State.Should().Be("review");
-        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "review", CancellationToken.None)).State.Should().Be("review");
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", underCased.Id, "review", CancellationToken.None)).Stage.Should().Be("review");
+        (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "review", CancellationToken.None)).Stage.Should().Be("review");
     }
 }

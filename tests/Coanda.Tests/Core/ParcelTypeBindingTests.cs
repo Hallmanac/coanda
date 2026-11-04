@@ -25,14 +25,14 @@ public sealed class ParcelTypeBindingTests
         ShippedTypes.Task.GateBindings.Should().Equal(
             new GateBinding("refine", "build", RequiredFieldsGate.GateName),
             new GateBinding("build", "review", RequiredFieldsGate.GateName));
-        ShippedTypes.All.Should().OnlyContain(t => t.FlowBindings.Count == 1, "no other state carries a flow");
+        ShippedTypes.All.Should().OnlyContain(t => t.FlowBindings.Count == 1, "no other stage carries a flow");
     }
 
     [Fact]
-    public void A_type_that_binds_nothing_keeps_the_hash_it_had_before_bindings_existed()
+    public void A_type_that_binds_nothing_hashes_to_a_literal()
     {
-        (Ungated with { FlowBindings = [] }).Hash.Should().Be("43a5a17c3896d58a");
-        (ShippedTypes.Idea with { FlowBindings = [] }).Hash.Should().Be("6d2b888dfd78bbdb");
+        (Ungated with { FlowBindings = [] }).Hash.Should().Be("3e70a726cd7c44a1");
+        (ShippedTypes.Idea with { FlowBindings = [] }).Hash.Should().Be("d548b43e0f79bc35");
     }
 
     [Fact]
@@ -41,11 +41,11 @@ public sealed class ParcelTypeBindingTests
         ParcelType unbound = Ungated with { FlowBindings = [] };
         ParcelType bound = unbound with { FlowBindings = [new FlowBinding("build", "build")] };
         ParcelType otherFlow = unbound with { FlowBindings = [new FlowBinding("build", "build-carefully")] };
-        ParcelType otherState = unbound with { FlowBindings = [new FlowBinding("review", "build")] };
+        ParcelType otherStage = unbound with { FlowBindings = [new FlowBinding("review", "build")] };
         ParcelType gated = bound with { GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
         ParcelType otherGate = bound with { GateBindings = [new GateBinding("refine", "build", "has-a-plan")] };
 
-        string[] hashes = [unbound.Hash, bound.Hash, otherFlow.Hash, otherState.Hash, gated.Hash, otherGate.Hash];
+        string[] hashes = [unbound.Hash, bound.Hash, otherFlow.Hash, otherStage.Hash, gated.Hash, otherGate.Hash];
         hashes.Should().OnlyHaveUniqueItems();
         bound.Hash.Should().Be(Ungated.Hash, "the hash is a pure function of the content");
     }
@@ -63,25 +63,25 @@ public sealed class ParcelTypeBindingTests
     }
 
     [Fact]
-    public void A_flow_binding_on_a_state_the_type_does_not_have_is_refused()
+    public void A_flow_binding_on_a_stage_the_type_does_not_have_is_refused()
     {
         ParcelType broken = Ungated with { FlowBindings = [new FlowBinding("shipping", "build")] };
 
         FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a flow to 'shipping', which is not one of its live states; a flow binds to a state the type has, never its terminal state.");
+            .WithMessage("Parcel type 'task' binds a flow to 'shipping', which is not one of its live stages; a flow binds to a stage the type has, never its terminal stage.");
     }
 
     [Fact]
-    public void A_flow_binding_on_the_terminal_state_is_refused()
+    public void A_flow_binding_on_the_terminal_stage_is_refused()
     {
         ParcelType broken = Ungated with { FlowBindings = [new FlowBinding("closed", "build")] };
 
         FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a flow to 'closed', which is not one of its live states;*never its terminal state.");
+            .WithMessage("Parcel type 'task' binds a flow to 'closed', which is not one of its live stages;*never its terminal stage.");
     }
 
     [Fact]
-    public void A_state_with_more_than_one_flow_binding_is_refused()
+    public void A_stage_with_more_than_one_flow_binding_is_refused()
     {
         ParcelType broken = Ungated with
         {
@@ -89,7 +89,7 @@ public sealed class ParcelTypeBindingTests
         };
 
         FluentActions.Invoking(() => broken.Validate(NoGates)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds more than one flow to 'build'; a state carries at most one flow binding.");
+            .WithMessage("Parcel type 'task' binds more than one flow to 'build'; a stage carries at most one flow binding.");
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class ParcelTypeBindingTests
         ParcelType broken = Ungated with { GateBindings = [new GateBinding("refine", "review", "has-an-owner")] };
 
         FluentActions.Invoking(() => broken.Validate(OneGate)).Should().Throw<DomainException>()
-            .WithMessage("Parcel type 'task' binds a gate to the move from 'refine' to 'review', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live state.");
+            .WithMessage("Parcel type 'task' binds a gate to the move from 'refine' to 'review', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live stage.");
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class ParcelTypeBindingTests
     }
 
     [Fact]
-    public void A_gate_binding_on_a_close_from_a_live_state_is_accepted_and_one_from_paused_is_refused()
+    public void A_gate_binding_on_a_close_from_a_live_stage_is_accepted_and_one_from_paused_is_refused()
     {
         ParcelType gatedClose = Ungated with { GateBindings = [new GateBinding("review", "closed", "has-an-owner")] };
         ParcelType fromPaused = Ungated with { GateBindings = [new GateBinding("paused", "closed", "has-an-owner")] };

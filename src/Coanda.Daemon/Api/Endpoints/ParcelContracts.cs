@@ -3,7 +3,7 @@ using Coanda.Core.Types;
 
 namespace Coanda.Daemon.Api.Endpoints;
 
-public sealed record ParcelAddRequest(string Project, string Type, string Title, string? State);
+public sealed record ParcelAddRequest(string Project, string Type, string Title, string? Stage);
 
 public sealed record ParcelMoveRequest(string Project, Guid ParcelId, string To);
 
@@ -20,7 +20,7 @@ public sealed record ParcelView(
     string Project,
     string Type,
     string TypeHash,
-    string State,
+    string Stage,
     string Title,
     string CreatedBy,
     DateTimeOffset CreatedAt,
@@ -36,7 +36,7 @@ public sealed record ParcelView(
     /// type version the node no longer holds can come to.
     /// </summary>
     public static ParcelView From(Parcel parcel, ParcelType? type) => new(
-        parcel.Id, parcel.Project, parcel.TypeName, parcel.TypeHash, parcel.State, parcel.Title,
+        parcel.Id, parcel.Project, parcel.TypeName, parcel.TypeHash, parcel.Stage, parcel.Title,
         parcel.CreatedBy, parcel.CreatedAt, parcel.UpdatedAt, parcel.Resolution, parcel.CloseReason, parcel.LiveFlowRunId,
         [.. (type?.Fields ?? []).Select(f => new ParcelFieldView(f.Name, f.Kind, parcel.ValueOf(f.Name)))]);
 }

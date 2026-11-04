@@ -24,7 +24,7 @@ public sealed class FlowTests
     {
         Name = name,
         Action = "do-thing",
-        Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("review"), ["count"] = FlowValue.Of(2) },
+        Arguments = new Dictionary<string, JsonElement> { ["stage"] = FlowValue.Of("review"), ["count"] = FlowValue.Of(2) },
         Transitions = [On("done", Flow.End), On("failed", "judge")],
     };
 
@@ -209,7 +209,7 @@ public sealed class FlowTests
         WithActStep(s => s with { Transitions = [On("done", Flow.Pause), On("failed", "judge")] }).Hash.Should().NotBe(baseline);
         WithActStep(s => s with
         {
-            Arguments = new Dictionary<string, JsonElement> { ["state"] = FlowValue.Of("build"), ["count"] = FlowValue.Of(2) },
+            Arguments = new Dictionary<string, JsonElement> { ["stage"] = FlowValue.Of("build"), ["count"] = FlowValue.Of(2) },
         }).Hash.Should().NotBe(baseline);
     }
 
@@ -274,7 +274,7 @@ public sealed class FlowTests
     {
         Flow reordered = WithActStep(s => s with
         {
-            Arguments = new Dictionary<string, JsonElement> { ["count"] = FlowValue.Of(2), ["state"] = FlowValue.Of("review") },
+            Arguments = new Dictionary<string, JsonElement> { ["count"] = FlowValue.Of(2), ["stage"] = FlowValue.Of("review") },
         });
 
         reordered.Hash.Should().Be(Valid().Hash);

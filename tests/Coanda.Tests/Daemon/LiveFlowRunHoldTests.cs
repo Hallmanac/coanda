@@ -115,7 +115,7 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
         outcome.Should().BeOfType<ActionOutcome.Done>();
         Parcel? moved = await parcels.ShowAsync(Person, Project, parcel.Id, None);
         moved.Should().NotBeNull();
-        moved.State.Should().Be("review");
+        moved.Stage.Should().Be("review");
         moved.LiveFlowRunId.Should().Be(flowRun.Id);
     }
 

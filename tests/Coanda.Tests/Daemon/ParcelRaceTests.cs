@@ -39,7 +39,7 @@ public sealed class ParcelRaceTests
             .WithMessage(Refusal(parcel.Id));
 
         racing.Raced.Should().BeTrue();
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("refine");
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("refine");
         (await EventsAsync(daemon, parcel.Id)).Should().NotContain(e => e is ParcelMoved);
 
         await daemon.StopAsync(None);
@@ -61,7 +61,7 @@ public sealed class ParcelRaceTests
             .WithMessage(Refusal(parcel.Id));
 
         racing.Raced.Should().BeTrue();
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("refine");
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("refine");
         (await EventsAsync(daemon, parcel.Id)).Should().NotContain(e => e is ParcelClosed);
 
         await daemon.StopAsync(None);
@@ -82,7 +82,7 @@ public sealed class ParcelRaceTests
             GateBindings =
             [
                 new GateBinding("refine", "build", gate.Name),
-                new GateBinding("refine", ShippedTypes.Task.TerminalState, gate.Name),
+                new GateBinding("refine", ShippedTypes.Task.TerminalStage, gate.Name),
             ],
         };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
@@ -117,7 +117,7 @@ public sealed class ParcelRaceTests
             parcelId = racedParcel;
         }
 
-        public GateVerdict Check(Parcel parcel, ParcelType type, string fromState, string toState)
+        public GateVerdict Check(Parcel parcel, ParcelType type, string fromStage, string toStage)
         {
             if (store is { } armed && parcel.Id == parcelId)
             {

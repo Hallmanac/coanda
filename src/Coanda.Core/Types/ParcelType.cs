@@ -8,27 +8,27 @@ using Coanda.Core.Parcels;
 namespace Coanda.Core.Types;
 
 /// <summary>
-/// The definition of a kind of parcel: its lifecycle (states, allowed moves, entry states, the
-/// one terminal state and its resolutions), the paused state reachable from any live state, its
-/// fields (each named, of a kind, and required to leave the states it names), and its bindings: a
-/// flow to start when a parcel enters a state, and a gate that must pass before a move. A type is
+/// The definition of a kind of parcel: its lifecycle (stages, allowed moves, entry stages, the
+/// one terminal stage and its resolutions), the paused stage reachable from any live stage, its
+/// fields (each named, of a kind, and required to leave the stages it names), and its bindings: a
+/// flow to start when a parcel enters a stage, and a gate that must pass before a move. A type is
 /// data; the types the binary ships and a user's type are the same shape.
 /// </summary>
 public sealed record ParcelType
 {
     public required string Name { get; init; }
-    public required IReadOnlyList<string> States { get; init; }
-    public required IReadOnlyList<string> EntryStates { get; init; }
-    public required string TerminalState { get; init; }
+    public required IReadOnlyList<string> Stages { get; init; }
+    public required IReadOnlyList<string> EntryStages { get; init; }
+    public required string TerminalStage { get; init; }
     public required IReadOnlyList<string> Resolutions { get; init; }
-    public required string PausedState { get; init; }
-    /// <summary>Allowed moves between live states, as from-state to the set of to-states.</summary>
+    public required string PausedStage { get; init; }
+    /// <summary>Allowed moves between live stages, as from-stage to the set of to-stages.</summary>
     public required IReadOnlyDictionary<string, IReadOnlyList<string>> Moves { get; init; }
 
-    /// <summary>The flow started on a parcel when it enters a state; at most one per state.</summary>
+    /// <summary>The flow started on a parcel when it enters a stage; at most one per stage.</summary>
     public IReadOnlyList<FlowBinding> FlowBindings { get; init; } = [];
 
-    /// <summary>The gates that must pass before a move the move table holds, or before a close from a live state.</summary>
+    /// <summary>The gates that must pass before a move the move table holds, or before a close from a live stage.</summary>
     public IReadOnlyList<GateBinding> GateBindings { get; init; } = [];
 
     /// <summary>The fields a parcel of the type holds values in, in the order the type declares them.</summary>
@@ -38,13 +38,13 @@ public sealed record ParcelType
     [JsonIgnore]
     public string Hash => ComputeHash();
 
-    public bool IsState(string state) => States.Contains(state, StringComparer.Ordinal);
+    public bool IsStage(string stage) => Stages.Contains(stage, StringComparer.Ordinal);
 
-    public bool IsTerminal(string state) => string.Equals(state, TerminalState, StringComparison.Ordinal);
+    public bool IsTerminal(string stage) => string.Equals(stage, TerminalStage, StringComparison.Ordinal);
 
-    public bool IsPaused(string state) => string.Equals(state, PausedState, StringComparison.Ordinal);
+    public bool IsPaused(string stage) => string.Equals(stage, PausedStage, StringComparison.Ordinal);
 
-    public bool IsEntry(string state) => EntryStates.Contains(state, StringComparer.Ordinal);
+    public bool IsEntry(string stage) => EntryStages.Contains(stage, StringComparer.Ordinal);
 
     public bool IsResolution(string resolution) => Resolutions.Contains(resolution, StringComparer.Ordinal);
 
@@ -53,7 +53,7 @@ public sealed record ParcelType
 
     /// <summary>
     /// The gates a move from <paramref name="from"/> to <paramref name="to"/> must pass. A move out of
-    /// the paused state passes every gate bound to a move into the target, so pausing bypasses none.
+    /// the paused stage passes every gate bound to a move into the target, so pausing bypasses none.
     /// </summary>
     public IReadOnlyList<GateBinding> GatesOn(string from, string to) =>
     [
@@ -62,29 +62,29 @@ public sealed record ParcelType
     ];
 
     /// <summary>
-    /// The fields, in declaration order, a parcel must hold values in to enter the live state
-    /// <paramref name="state"/>: those that every route the move table holds from an entry state to it
-    /// requires, before reaching it, to leave some state on the way. An entry state requires nothing to
-    /// enter, and neither does a state no route reaches, nor the paused or terminal state. A move the
-    /// table holds keeps this by itself, since it checks what its from state requires to leave and a set
+    /// The fields, in declaration order, a parcel must hold values in to enter the live stage
+    /// <paramref name="stage"/>: those that every route the move table holds from an entry stage to it
+    /// requires, before reaching it, to leave some stage on the way. An entry stage requires nothing to
+    /// enter, and neither does a stage no route reaches, nor the paused or terminal stage. A move the
+    /// table holds keeps this by itself, since it checks what its from stage requires to leave and a set
     /// field cannot be cleared; a resume out of paused is the one way around that, so it checks this in
-    /// addition to what each bound move into the state checks.
+    /// addition to what each bound move into the stage checks.
     /// </summary>
-    public IReadOnlyList<string> RequiredToEnter(string state) => RequiredToEnter(RequiredToEnterByState(), state);
+    public IReadOnlyList<string> RequiredToEnter(string stage) => RequiredToEnter(RequiredToEnterByStage(), stage);
 
-    private IReadOnlyList<string> RequiredToEnter(Dictionary<string, HashSet<string>> byState, string state) =>
-        byState.TryGetValue(state, out HashSet<string>? required)
+    private IReadOnlyList<string> RequiredToEnter(Dictionary<string, HashSet<string>> byStage, string stage) =>
+        byStage.TryGetValue(stage, out HashSet<string>? required)
             ? [.. Fields.Select(f => f.Name).Where(required.Contains)]
             : [];
 
     /// <summary>
-    /// A must-hold dataflow over the move table. An entry state starts and stays empty; every other
-    /// state a route reaches starts at every declared field and is narrowed, until nothing changes, to
+    /// A must-hold dataflow over the move table. An entry stage starts and stays empty; every other
+    /// stage a route reaches starts at every declared field and is narrowed, until nothing changes, to
     /// the intersection over its reached predecessors of what each requires to enter plus what it
     /// requires to leave. Intersecting over routes rather than taking a union over predecessors keeps
-    /// a move back (review to build, say) from demanding what only the later state needs.
+    /// a move back (review to build, say) from demanding what only the later stage needs.
     /// </summary>
-    private Dictionary<string, HashSet<string>> RequiredToEnterByState()
+    private Dictionary<string, HashSet<string>> RequiredToEnterByStage()
     {
         List<(string From, string To)> moves =
         [
@@ -92,7 +92,7 @@ public sealed record ParcelType
                 .SelectMany(m => m.Value.Where(IsLive).Select(to => (From: m.Key, To: to))),
         ];
 
-        var reached = new HashSet<string>(EntryStates.Where(IsLive), StringComparer.Ordinal);
+        var reached = new HashSet<string>(EntryStages.Where(IsLive), StringComparer.Ordinal);
         var frontier = new Queue<string>(reached);
         while (frontier.TryDequeue(out string? from))
         {
@@ -117,17 +117,17 @@ public sealed record ParcelType
         while (changed)
         {
             changed = false;
-            foreach (string state in reached.Where(s => !IsEntry(s)))
+            foreach (string stage in reached.Where(s => !IsEntry(s)))
             {
                 HashSet<string> narrowed = new(all, StringComparer.Ordinal);
-                foreach ((string from, _) in moves.Where(m => string.Equals(m.To, state, StringComparison.Ordinal) && reached.Contains(m.From)))
+                foreach ((string from, _) in moves.Where(m => string.Equals(m.To, stage, StringComparison.Ordinal) && reached.Contains(m.From)))
                 {
                     narrowed.IntersectWith(required[from].Concat(Fields.Where(f => f.IsRequiredToLeave(from)).Select(f => f.Name)));
                 }
 
-                if (!narrowed.SetEquals(required[state]))
+                if (!narrowed.SetEquals(required[stage]))
                 {
-                    required[state] = narrowed;
+                    required[stage] = narrowed;
                     changed = true;
                 }
             }
@@ -136,24 +136,24 @@ public sealed record ParcelType
         return required;
     }
 
-    private bool IsLive(string state) => IsState(state) && !IsTerminal(state) && !IsPaused(state);
+    private bool IsLive(string stage) => IsStage(stage) && !IsTerminal(stage) && !IsPaused(stage);
 
     /// <summary>Whether the move table itself holds a move, as opposed to the pause, resume, and close every type allows.</summary>
     public bool HoldsMove(string from, string to) =>
         Moves.TryGetValue(from, out IReadOnlyList<string>? targets) && targets.Contains(to, StringComparer.Ordinal);
 
-    /// <summary>Whether a gate binding names a close: from a live state other than paused, to the terminal state.</summary>
+    /// <summary>Whether a gate binding names a close: from a live stage other than paused, to the terminal stage.</summary>
     private bool IsGatedClose(string from, string to) =>
-        IsTerminal(to) && IsState(from) && !IsTerminal(from) && !IsPaused(from);
+        IsTerminal(to) && IsStage(from) && !IsTerminal(from) && !IsPaused(from);
 
     /// <summary>
-    /// Whether the lifecycle allows a move. Pausing is allowed from any live state; resuming from
-    /// paused is allowed to any live state; closing is allowed from any live or paused state and is
-    /// expressed by the terminal state; nothing leaves the terminal state.
+    /// Whether the lifecycle allows a move. Pausing is allowed from any live stage; resuming from
+    /// paused is allowed to any live stage; closing is allowed from any live or paused stage and is
+    /// expressed by the terminal stage; nothing leaves the terminal stage.
     /// </summary>
     public bool AllowsMove(string from, string to)
     {
-        if (!IsState(from) || !IsState(to) || IsTerminal(from) || string.Equals(from, to, StringComparison.Ordinal))
+        if (!IsStage(from) || !IsStage(to) || IsTerminal(from) || string.Equals(from, to, StringComparison.Ordinal))
         {
             return false;
         }
@@ -183,36 +183,36 @@ public sealed record ParcelType
             throw new DomainException("A parcel type needs a name.");
         }
 
-        if (States.Distinct(StringComparer.Ordinal).Count() != States.Count)
+        if (Stages.Distinct(StringComparer.Ordinal).Count() != Stages.Count)
         {
-            throw new DomainException($"Parcel type '{Name}' lists a state twice.");
+            throw new DomainException($"Parcel type '{Name}' lists a stage twice.");
         }
 
-        if (!IsState(TerminalState))
+        if (!IsStage(TerminalStage))
         {
-            throw new DomainException($"Parcel type '{Name}' names a terminal state '{TerminalState}' that is not one of its states.");
+            throw new DomainException($"Parcel type '{Name}' names a terminal stage '{TerminalStage}' that is not one of its stages.");
         }
 
-        if (!IsState(PausedState) || IsTerminal(PausedState))
+        if (!IsStage(PausedStage) || IsTerminal(PausedStage))
         {
-            throw new DomainException($"Parcel type '{Name}' needs a paused state distinct from its terminal state.");
+            throw new DomainException($"Parcel type '{Name}' needs a paused stage distinct from its terminal stage.");
         }
 
-        if (EntryStates.Count == 0 || EntryStates.Any(s => !IsState(s) || IsTerminal(s) || IsPaused(s)))
+        if (EntryStages.Count == 0 || EntryStages.Any(s => !IsStage(s) || IsTerminal(s) || IsPaused(s)))
         {
-            throw new DomainException($"Parcel type '{Name}' needs at least one entry state, each a live state.");
+            throw new DomainException($"Parcel type '{Name}' needs at least one entry stage, each a live stage.");
         }
 
         if (Resolutions.Count == 0)
         {
-            throw new DomainException($"Parcel type '{Name}' needs at least one resolution for its terminal state.");
+            throw new DomainException($"Parcel type '{Name}' needs at least one resolution for its terminal stage.");
         }
 
         foreach ((string from, IReadOnlyList<string> targets) in Moves)
         {
-            if (!IsState(from) || targets.Any(t => !IsState(t)))
+            if (!IsStage(from) || targets.Any(t => !IsStage(t)))
             {
-                throw new DomainException($"Parcel type '{Name}' has a move naming a state it does not have.");
+                throw new DomainException($"Parcel type '{Name}' has a move naming a stage it does not have.");
             }
         }
 
@@ -224,14 +224,14 @@ public sealed record ParcelType
 
     /// <summary>
     /// A field's declarations bind only where the required-fields gate runs, so a declaration the gate
-    /// bindings leave unenforced is refused: every move the table holds out of a state a field is
-    /// required to leave is bound to the gate, and every state some field is required to enter has a
-    /// move into it bound to the gate, which is what a resume into that state runs. An entry in the
-    /// table into the paused or terminal state is a pause or a close, which no empty field refuses, so
-    /// the first rule asks nothing of it. A third rule closes the way around the second: a state no
-    /// route from an entry state reaches requires nothing to enter, so a resume into it checks nothing,
-    /// and a move out of it into a state some field is required to enter is refused, since it would
-    /// carry a parcel there without what every route into that state requires.
+    /// bindings leave unenforced is refused: every move the table holds out of a stage a field is
+    /// required to leave is bound to the gate, and every stage some field is required to enter has a
+    /// move into it bound to the gate, which is what a resume into that stage runs. An entry in the
+    /// table into the paused or terminal stage is a pause or a close, which no empty field refuses, so
+    /// the first rule asks nothing of it. A third rule closes the way around the second: a stage no
+    /// route from an entry stage reaches requires nothing to enter, so a resume into it checks nothing,
+    /// and a move out of it into a stage some field is required to enter is refused, since it would
+    /// carry a parcel there without what every route into that stage requires.
     /// </summary>
     private void ValidateFieldEnforcement()
     {
@@ -242,39 +242,39 @@ public sealed record ParcelType
 
         foreach (FieldDeclaration field in Fields)
         {
-            foreach (string state in field.RequiredToLeave)
+            foreach (string stage in field.RequiredToLeave)
             {
-                IReadOnlyList<string> targets = Moves.GetValueOrDefault(state) ?? [];
-                string? unbound = targets.FirstOrDefault(to => IsLive(to) && !Bound(state, to));
+                IReadOnlyList<string> targets = Moves.GetValueOrDefault(stage) ?? [];
+                string? unbound = targets.FirstOrDefault(to => IsLive(to) && !Bound(stage, to));
                 if (unbound is not null)
                 {
                     throw new DomainException(
-                        $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{state}', and the move from '{state}' to '{unbound}' is not bound to the '{RequiredFieldsGate.GateName}' gate; every move the table holds out of a state a field is required to leave is bound to that gate.");
+                        $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{stage}', and the move from '{stage}' to '{unbound}' is not bound to the '{RequiredFieldsGate.GateName}' gate; every move the table holds out of a stage a field is required to leave is bound to that gate.");
                 }
             }
         }
 
-        Dictionary<string, HashSet<string>> requiredByState = RequiredToEnterByState();
-        foreach (string state in States.Where(IsLive))
+        Dictionary<string, HashSet<string>> requiredByStage = RequiredToEnterByStage();
+        foreach (string stage in Stages.Where(IsLive))
         {
-            IReadOnlyList<string> required = RequiredToEnter(requiredByState, state);
-            bool guarded = Moves.Any(m => m.Value.Contains(state, StringComparer.Ordinal) && Bound(m.Key, state));
+            IReadOnlyList<string> required = RequiredToEnter(requiredByStage, stage);
+            bool guarded = Moves.Any(m => m.Value.Contains(stage, StringComparer.Ordinal) && Bound(m.Key, stage));
             if (required.Count > 0 && !guarded)
             {
                 throw new DomainException(
-                    $"State '{state}' of parcel type '{Name}' requires {string.Join(", ", required.Select(f => $"'{f}'"))} to enter, and no move the table holds into it is bound to the '{RequiredFieldsGate.GateName}' gate, so a resume into it would check nothing; a state some field is required to enter has a move into it bound to that gate.");
+                    $"Stage '{stage}' of parcel type '{Name}' requires {string.Join(", ", required.Select(f => $"'{f}'"))} to enter, and no move the table holds into it is bound to the '{RequiredFieldsGate.GateName}' gate, so a resume into it would check nothing; a stage some field is required to enter has a move into it bound to that gate.");
             }
         }
 
-        foreach ((string from, IReadOnlyList<string> targets) in Moves.Where(m => IsLive(m.Key) && !requiredByState.ContainsKey(m.Key)))
+        foreach ((string from, IReadOnlyList<string> targets) in Moves.Where(m => IsLive(m.Key) && !requiredByStage.ContainsKey(m.Key)))
         {
             foreach (string to in targets.Where(IsLive))
             {
-                IReadOnlyList<string> required = RequiredToEnter(requiredByState, to);
+                IReadOnlyList<string> required = RequiredToEnter(requiredByStage, to);
                 if (required.Count > 0)
                 {
                     throw new DomainException(
-                        $"State '{to}' of parcel type '{Name}' requires {string.Join(", ", required.Select(f => $"'{f}'"))} to enter, and the move the table holds into it from '{from}', a state no route from an entry state reaches, would carry a parcel resumed into '{from}' there without them; a move out of a state no route reaches goes only into a state that requires nothing to enter.");
+                        $"Stage '{to}' of parcel type '{Name}' requires {string.Join(", ", required.Select(f => $"'{f}'"))} to enter, and the move the table holds into it from '{from}', a stage no route from an entry stage reaches, would carry a parcel resumed into '{from}' there without them; a move out of a stage no route reaches goes only into a stage that requires nothing to enter.");
                 }
             }
         }
@@ -308,12 +308,12 @@ public sealed record ParcelType
                     $"Field '{field.Name}' of parcel type '{Name}' is of the kind '{field.Kind}'; a field's kind is one of {string.Join(", ", FieldKinds.All)}.");
             }
 
-            foreach (string? state in field.RequiredToLeave)
+            foreach (string? stage in field.RequiredToLeave)
             {
-                if (state is null || !IsState(state) || IsTerminal(state) || IsPaused(state))
+                if (stage is null || !IsStage(stage) || IsTerminal(stage) || IsPaused(stage))
                 {
                     throw new DomainException(
-                        $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{state}', which is not one of its live states; a field is required to leave only a state the type has, never its terminal or paused state.");
+                        $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{stage}', which is not one of its live stages; a field is required to leave only a stage the type has, never its terminal or paused stage.");
                 }
             }
         }
@@ -324,29 +324,29 @@ public sealed record ParcelType
         foreach (FlowBinding? binding in FlowBindings)
         {
             // Read content can carry a null element or a missing field, whatever the annotations say.
-            if (binding?.State is null || binding.Flow is null)
+            if (binding?.Stage is null || binding.Flow is null)
             {
-                throw new DomainException($"Parcel type '{Name}' has a flow binding without a state or a flow; each binding names both.");
+                throw new DomainException($"Parcel type '{Name}' has a flow binding without a stage or a flow; each binding names both.");
             }
 
-            if (!IsState(binding.State) || IsTerminal(binding.State))
+            if (!IsStage(binding.Stage) || IsTerminal(binding.Stage))
             {
                 throw new DomainException(
-                    $"Parcel type '{Name}' binds a flow to '{binding.State}', which is not one of its live states; a flow binds to a state the type has, never its terminal state.");
+                    $"Parcel type '{Name}' binds a flow to '{binding.Stage}', which is not one of its live stages; a flow binds to a stage the type has, never its terminal stage.");
             }
 
             if (string.IsNullOrWhiteSpace(binding.Flow))
             {
-                throw new DomainException($"Parcel type '{Name}' binds a flow to '{binding.State}' without naming the flow.");
+                throw new DomainException($"Parcel type '{Name}' binds a flow to '{binding.Stage}' without naming the flow.");
             }
         }
 
         string? twice = FlowBindings
-            .GroupBy(b => b.State, StringComparer.Ordinal)
+            .GroupBy(b => b.Stage, StringComparer.Ordinal)
             .FirstOrDefault(g => g.Count() > 1)?.Key;
         if (twice is not null)
         {
-            throw new DomainException($"Parcel type '{Name}' binds more than one flow to '{twice}'; a state carries at most one flow binding.");
+            throw new DomainException($"Parcel type '{Name}' binds more than one flow to '{twice}'; a stage carries at most one flow binding.");
         }
     }
 
@@ -357,13 +357,13 @@ public sealed record ParcelType
             // Read content can carry a null element or a missing field, whatever the annotations say.
             if (binding?.From is null || binding.To is null || binding.Gate is null)
             {
-                throw new DomainException($"Parcel type '{Name}' has a gate binding without a from state, a to state, or a gate; each binding names all three.");
+                throw new DomainException($"Parcel type '{Name}' has a gate binding without a from stage, a to stage, or a gate; each binding names all three.");
             }
 
             if (!HoldsMove(binding.From, binding.To) && !IsGatedClose(binding.From, binding.To))
             {
                 throw new DomainException(
-                    $"Parcel type '{Name}' binds a gate to the move from '{binding.From}' to '{binding.To}', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live state.");
+                    $"Parcel type '{Name}' binds a gate to the move from '{binding.From}' to '{binding.To}', which its move table does not hold; a gate binds only to a move the table holds or to a close from a live stage.");
             }
 
             if (!knownGates.Contains(binding.Gate))
@@ -377,7 +377,7 @@ public sealed record ParcelType
     /// <summary>
     /// The fields and the bindings join the hashed shape only when the type has some, so adding either
     /// to the shape left the hash of a type that declares neither as it was. That holds for fields and
-    /// bindings alone: a change to the lifecycle's own keys or states (the paused state of 2026-11-03,
+    /// bindings alone: a change to the lifecycle's own keys or stages (the paused stage of 2026-11-03,
     /// for one) changes every type's hash, and a record written before such a change is not read across it.
     /// </summary>
     private string ComputeHash()
@@ -385,11 +385,11 @@ public sealed record ParcelType
         var lifecycle = new Dictionary<string, object>
         {
             ["name"] = Name,
-            ["states"] = States,
-            ["entry"] = EntryStates,
-            ["terminal"] = TerminalState,
+            ["stages"] = Stages,
+            ["entry"] = EntryStages,
+            ["terminal"] = TerminalStage,
             ["resolutions"] = Resolutions,
-            ["paused"] = PausedState,
+            ["paused"] = PausedStage,
             ["moves"] = Moves.OrderBy(m => m.Key, StringComparer.Ordinal).ToDictionary(m => m.Key, m => m.Value),
         };
         if (Fields.Count > 0)
@@ -399,7 +399,7 @@ public sealed record ParcelType
 
         if (FlowBindings.Count > 0)
         {
-            lifecycle["flows"] = FlowBindings.Select(b => new[] { b.State, b.Flow }).ToList();
+            lifecycle["flows"] = FlowBindings.Select(b => new[] { b.Stage, b.Flow }).ToList();
         }
 
         if (GateBindings.Count > 0)
@@ -436,7 +436,7 @@ public sealed record ParcelType
     public static string Describe(ParcelType type)
     {
         var text = new StringBuilder();
-        text.Append(type.Name).Append(": ").AppendJoin(", ", type.States);
+        text.Append(type.Name).Append(": ").AppendJoin(", ", type.Stages);
         return text.ToString();
     }
 }

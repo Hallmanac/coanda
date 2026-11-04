@@ -30,7 +30,7 @@ public sealed class ParcelGateTests
         FluentActions.Invoking(() => ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now))
             .Should().Throw<DomainException>()
             .WithMessage($"The gate 'stand-in' refused the move from 'refine' to 'build': {StandInGate.Reason}");
-        parcel.State.Should().Be("refine");
+        parcel.Stage.Should().Be("refine");
         gate.Checks.Should().Equal(("refine", "build"));
     }
 
@@ -42,7 +42,7 @@ public sealed class ParcelGateTests
 
         ParcelMoved moved = ParcelDecider.Move(Gated, gates, parcel, "build", "brian", Now);
 
-        moved.ToState.Should().Be("build");
+        moved.ToStage.Should().Be("build");
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public sealed class ParcelGateTests
         var gates = new GateSet([gate]);
         Parcel parcel = Create("unready work", gates);
 
-        ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now).ToState.Should().Be("paused");
+        ParcelDecider.Move(Gated, gates, parcel, "paused", "brian", Now).ToStage.Should().Be("paused");
         gate.Checks.Should().BeEmpty();
     }
 
@@ -68,7 +68,7 @@ public sealed class ParcelGateTests
             .Should().Throw<DomainException>()
             .WithMessage($"The gate 'stand-in' refused the move from 'paused' to 'build': {StandInGate.Reason}");
         gate.Checks.Should().Equal([("refine", "build")], "the gate judges the move its binding names, not the resume");
-        ParcelDecider.Move(Gated, gates, parcel, "review", "brian", Now).ToState.Should().Be("review", "no gate is bound to a move into review");
+        ParcelDecider.Move(Gated, gates, parcel, "review", "brian", Now).ToStage.Should().Be("review", "no gate is bound to a move into review");
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class ParcelGateTests
     }
 
     [Fact]
-    public void A_close_out_of_paused_runs_the_gate_bound_to_the_close_and_a_close_from_another_state_does_not()
+    public void A_close_out_of_paused_runs_the_gate_bound_to_the_close_and_a_close_from_another_stage_does_not()
     {
         var gate = new StandInGate();
         var gates = new GateSet([gate]);
@@ -128,7 +128,7 @@ public sealed class ParcelGateTests
 
         Parcel fresh = Parcel.Create(ParcelDecider.Create(GatedClose, gates, "coanda", "abandoned early", null, "brian", Now));
         gate.Checks.Clear();
-        ParcelDecider.Close(GatedClose, gates, fresh, "abandoned", "not needed", "brian", Now).TerminalState.Should().Be("closed");
+        ParcelDecider.Close(GatedClose, gates, fresh, "abandoned", "not needed", "brian", Now).TerminalStage.Should().Be("closed");
         gate.Checks.Should().BeEmpty("the gate is bound to the close from review, not from refine");
     }
 
@@ -159,7 +159,7 @@ public sealed class ParcelGateTests
             .Should().Throw<DomainException>().WithMessage($"*held by flow run {Ids.Short(flowRun)}*");
         gate.Checks.Should().BeEmpty("the live-flow-run refusal comes before any gate");
 
-        ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, flowRun).ToState.Should().Be("build");
+        ParcelDecider.Move(Gated, gates, parcel, "build", $"flow-run:{flowRun}", Now, flowRun).ToStage.Should().Be("build");
         gate.Checks.Should().Equal(("refine", "build"));
     }
 }

@@ -87,7 +87,7 @@ public sealed class SpawnInputsTests
 
                 - Parcel: {parcel.Id}
                 - Type: task
-                - State: build
+                - Stage: build
                 - Title: Render the record
 
                 ## objective

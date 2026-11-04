@@ -53,7 +53,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
 
         Parcel closed = await ShowAsync(parcel.Id);
         closed.Resolution.Should().Be("completed");
-        closed.State.Should().Be(ShippedTypes.Closed);
+        closed.Stage.Should().Be(ShippedTypes.Closed);
         closed.LiveFlowRunId.Should().BeNull();
         IReadOnlyList<IEvent> events = await EventsAsync(parcel.Id);
         ParcelClosed recorded = events[^1].Data.Should().BeOfType<ParcelClosed>().Subject;

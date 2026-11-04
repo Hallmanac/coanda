@@ -67,13 +67,13 @@ public sealed class FlowActionsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("review"))), parcel.Id);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
         JsonElement result = DoneResult(outcome);
         result.GetProperty("moved").GetBoolean().Should().BeTrue();
         Parcel? moved = await parcels.ShowAsync(Principal.LocalOwner, Project, parcel.Id, CancellationToken.None);
-        moved?.State.Should().Be("review");
-        ParcelMoved recorded = (await MovesAsync(parcel.Id)).Should().ContainSingle(m => m.ToState == "review").Subject;
+        moved?.Stage.Should().Be("review");
+        ParcelMoved recorded = (await MovesAsync(parcel.Id)).Should().ContainSingle(m => m.ToStage == "review").Subject;
         recorded.MovedBy.Should().Be(FlowRunPrincipal.Id);
     }
 
@@ -82,7 +82,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("build"))), parcel.Id);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("stage", FlowValue.Of("build"))), parcel.Id);
 
         DoneResult(outcome).GetProperty("moved").GetBoolean().Should().BeFalse();
         (await MovesAsync(parcel.Id)).Should().ContainSingle("only the arrange step's move to build is recorded");
@@ -93,7 +93,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     {
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Still refining", null, CancellationToken.None);
 
-        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("state", FlowValue.Of("review"))), parcel.Id);
+        ActionOutcome outcome = await PerformAsync(Step(CoreActions.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
         ActionOutcome.Paused paused = outcome.Should().BeOfType<ActionOutcome.Paused>().Subject;
         paused.Reason.Should().StartWith("Step 'act' could not move parcel").And.Contain("does not allow a move from 'refine' to 'review'");
@@ -191,8 +191,8 @@ public sealed class FlowActionsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(CoreActions.MoveParcel, "state", null)]
-    [InlineData(CoreActions.MoveParcel, "state", 3.0)]
+    [InlineData(CoreActions.MoveParcel, "stage", null)]
+    [InlineData(CoreActions.MoveParcel, "stage", 3.0)]
     [InlineData(CoreActions.Timer, "seconds", null)]
     [InlineData(CoreActions.Timer, "seconds", "ten")]
     [InlineData(CoreActions.Timer, "seconds", -1.0)]
@@ -212,13 +212,13 @@ public sealed class FlowActionsTests : IAsyncLifetime
         clock.Waits.Should().BeEmpty();
     }
 
-    private async Task<Parcel> TaskAtAsync(string state)
+    private async Task<Parcel> TaskAtAsync(string stage)
     {
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Act on me", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, cancellationToken: CancellationToken.None);
-        return state == parcel.State
+        return stage == parcel.Stage
             ? parcel
-            : await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, state, CancellationToken.None);
+            : await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, stage, CancellationToken.None);
     }
 
     private async Task<IReadOnlyList<ParcelMoved>> MovesAsync(Guid parcelId)

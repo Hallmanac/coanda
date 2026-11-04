@@ -24,15 +24,15 @@ namespace Coanda.Daemon.Triggers;
 /// <summary>
 /// The daemon's one trigger loop. It polls every project's record past its position, in global
 /// sequence order, for parcel creations, parcel moves, flow run ends, and recorded external events. A
-/// parcel entering a state its type binds a flow to starts that flow on the parcel; a flow run's end
+/// parcel entering a stage its type binds a flow to starts that flow on the parcel; a flow run's end
 /// starts, on its parcel, every published flow whose follow it matches and which accepts the
 /// parcel's type, as the next link of the ended flow run's chain; an external event matching a
 /// subscription in its project creates the subscription's parcel and starts its flow.
 /// A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
-/// a live flow run, as when a flow run's own step moves its parcel into a bound state, is refused and
+/// a live flow run, as when a flow run's own step moves its parcel into a bound stage, is refused and
 /// starts nothing, then or later; whether the parcel had one is read from the parcel as it stood at
 /// the entry, never as it stands when the loop gets to it, so the outcome does not depend on timing.
-/// A follow is not a state entry: when several flows follow the same end, a parcel holds one live
+/// A follow is not a stage entry: when several flows follow the same end, a parcel holds one live
 /// flow run at a time, so its followers start one after another, each on the release of the flow run
 /// before it.
 /// </summary>
@@ -40,13 +40,13 @@ namespace Coanda.Daemon.Triggers;
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
 /// before the daemon advertises its address: on a node where the loop has never run it is the end of
 /// the existing record, so installing this version starts nothing on parcels already sitting in a
-/// bound state. A stop between a start and the position being written replays that entry on the next
+/// bound stage. A stop between a start and the position being written replays that entry on the next
 /// start, and the replay finds the work already done: a binding's start acts as a principal whose id
 /// names the entry event, and is skipped when the parcel already has a flow run started by that
 /// principal; a subscription's parcel records an origin naming the subscription and the event, and is
 /// neither created again nor given a second flow run; a follow's start acts as a principal whose id
 /// names the ended flow run, and is skipped when that flow run already has a follower of the flow. A
-/// replayed entry that was refused is refused again, since the parcel's state at the entry does not
+/// replayed entry that was refused is refused again, since the parcel's stage at the entry does not
 /// change. Deferred follows are one document per parcel in the parcel's project, and a follow
 /// leaves it only once its start has been written or refused, so a replay finds the follower
 /// already started and drops it.
@@ -73,7 +73,7 @@ public sealed class TriggerLoop(
 
     /// <summary>The principal a binding's start acts as: the Agent role, named for the binding and the entry event.</summary>
     public static Principal PrincipalFor(string typeName, FlowBinding binding, Guid entryEventId) =>
-        new($"binding:{typeName}/{binding.State}/{binding.Flow}:entry:{entryEventId}", Role.Agent);
+        new($"binding:{typeName}/{binding.Stage}/{binding.Flow}:entry:{entryEventId}", Role.Agent);
 
     /// <summary>The principal a follow's start acts as: the Agent role, named for the flow run whose end it follows.</summary>
     public static Principal PrincipalFor(Guid parentFlowRunId) => new($"follow:{parentFlowRunId}", Role.Agent);
@@ -213,13 +213,13 @@ public sealed class TriggerLoop(
             {
                 case ParcelCreated created:
                     // A parcel being created has had no flow run yet, so nothing was live at this entry.
-                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.State, entry.Id, null, cancellationToken);
+                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.Stage, entry.Id, null, cancellationToken);
                     break;
                 case ParcelMoved moved:
                     await MovedAsync(entry.TenantId, moved, entry, cancellationToken);
                     break;
                 case ParcelFlowRunReleased released:
-                    // A release starts the follows waiting on it and never a state entry.
+                    // A release starts the follows waiting on it and never a stage entry.
                     await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, cancellationToken);
                     break;
                 case FlowRunEnded ended:
@@ -254,16 +254,16 @@ public sealed class TriggerLoop(
         Parcel before = await parcels.ShowAtAsync(LoopPrincipal, project, moved.ParcelId, entry.Version - 1, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(moved.ParcelId)} in project '{project}'.");
 
-        await EnteredAsync(project, before.Id, before.TypeName, moved.ToState, entry.Id, before.LiveFlowRunId, cancellationToken);
+        await EnteredAsync(project, before.Id, before.TypeName, moved.ToStage, entry.Id, before.LiveFlowRunId, cancellationToken);
     }
 
     /// <summary>
-    /// A parcel entered a state: start the flow its type, as resolution returns it by name, binds
+    /// A parcel entered a stage: start the flow its type, as resolution returns it by name, binds
     /// there. An entry made while the parcel had a live flow run, <paramref name="liveAtEntry"/>, is
     /// refused with a rule naming that flow run; a start the flow run service refuses throws its rule.
     /// Either refusal reaches the loop's warning log, and nothing is kept to start it later.
     /// </summary>
-    private async Task EnteredAsync(string project, Guid parcelId, string typeName, string state, Guid entryId, Guid? liveAtEntry, CancellationToken cancellationToken)
+    private async Task EnteredAsync(string project, Guid parcelId, string typeName, string stage, Guid entryId, Guid? liveAtEntry, CancellationToken cancellationToken)
     {
         ParcelType? type = await parcels.ResolveTypeAsync(LoopPrincipal, project, typeName, cancellationToken);
         if (type is null)
@@ -271,7 +271,7 @@ public sealed class TriggerLoop(
             return;
         }
 
-        TriggerEvent entered = TriggerEvent.ParcelEntered(type.Name, state);
+        TriggerEvent entered = TriggerEvent.ParcelEntered(type.Name, stage);
         FlowBinding? binding = type.FlowBindings.FirstOrDefault(b => Trigger.ForBinding(type, b).Matches(entered));
         if (binding is null)
         {
@@ -288,10 +288,10 @@ public sealed class TriggerLoop(
         if (liveAtEntry is Guid live)
         {
             throw new DomainException(
-                $"A parcel has at most one live flow run; parcel {Ids.Short(parcelId)} had flow run {Ids.Short(live)} live when it entered '{state}', so binding {type.Name}/{binding.State} starts nothing for that entry.");
+                $"A parcel has at most one live flow run; parcel {Ids.Short(parcelId)} had flow run {Ids.Short(live)} live when it entered '{stage}', so binding {type.Name}/{binding.Stage} starts nothing for that entry.");
         }
 
-        await StartAsync(principal, project, parcelId, binding.Flow, $"binding {type.Name}/{binding.State}", cancellationToken);
+        await StartAsync(principal, project, parcelId, binding.Flow, $"binding {type.Name}/{binding.Stage}", cancellationToken);
     }
 
     private async Task<bool> HasLiveFlowRunAsync(string project, Guid parcelId, CancellationToken cancellationToken)

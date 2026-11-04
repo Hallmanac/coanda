@@ -22,15 +22,15 @@ public sealed class TriggerLoopTests
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
 
-    /// <summary>A project's own type whose doing state binds a flow nobody published.</summary>
+    /// <summary>A project's own type whose doing stage binds a flow nobody published.</summary>
     private static readonly ParcelType Chore = new()
     {
         Name = "chore",
-        States = ["todo", "doing", ShippedTypes.Paused, ShippedTypes.Closed],
-        EntryStates = ["todo"],
-        TerminalState = ShippedTypes.Closed,
+        Stages = ["todo", "doing", ShippedTypes.Paused, ShippedTypes.Closed],
+        EntryStages = ["todo"],
+        TerminalStage = ShippedTypes.Closed,
         Resolutions = ["done"],
-        PausedState = ShippedTypes.Paused,
+        PausedStage = ShippedTypes.Paused,
         Moves = new Dictionary<string, IReadOnlyList<string>> { ["todo"] = ["doing"] },
         FlowBindings = [new FlowBinding("doing", "no-such-flow")],
     };
@@ -109,7 +109,7 @@ public sealed class TriggerLoopTests
     }
 
     [Fact]
-    public async Task Parcels_already_in_a_bound_state_on_a_node_where_the_loop_never_ran_start_nothing()
+    public async Task Parcels_already_in_a_bound_stage_on_a_node_where_the_loop_never_ran_start_nothing()
     {
         using var temp = new TemporaryHome();
         Guid parcelId;
@@ -186,7 +186,7 @@ public sealed class TriggerLoopTests
         await parcels.MoveAsync(FlowRunAdvancer.PrincipalFor(holding.Id), Project, held.Id, "build", holding.Id, None);
 
         // This flow run is stopped before the loop can be counted on to have read the move, so only the
-        // parcel's state at the move, not at handling, refuses the entry.
+        // parcel's stage at the move, not at handling, refuses the entry.
         ParcelView released = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Released before the loop looked", null), None);
         await client.BriefAsync(Project, released.Id, cancellationToken: None);
         FlowRun brief = await flowRuns.StartAsync(Principal.LocalOwner, Project, released.Id, "build", None);

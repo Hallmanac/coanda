@@ -25,18 +25,18 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     private readonly DefinitionResolver definitions = new(store);
     private readonly GateSet gates = gates ?? GateSet.Shipped;
 
-    public Task<Parcel> AddAsync(Principal principal, string project, string typeName, string title, string? state, CancellationToken cancellationToken) =>
-        AddAsync(principal, project, typeName, title, state, origin: null, cancellationToken);
+    public Task<Parcel> AddAsync(Principal principal, string project, string typeName, string title, string? stage, CancellationToken cancellationToken) =>
+        AddAsync(principal, project, typeName, title, stage, origin: null, cancellationToken);
 
     /// <summary>Creates a parcel recording <paramref name="origin"/>, what created it when a person's add did not.</summary>
     public async Task<Parcel> AddAsync(
-        Principal principal, string project, string typeName, string title, string? state, string? origin, CancellationToken cancellationToken)
+        Principal principal, string project, string typeName, string title, string? stage, string? origin, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.add", principal);
         string tenant = Tenants.RequireProject(project);
         await RequireRegisteredAsync(tenant, cancellationToken);
         ParcelType type = await RequireTypeAsync(tenant, typeName, cancellationToken);
-        ParcelCreated created = ParcelDecider.Create(type, gates, tenant, title, state, principal.Id, clock.GetUtcNow(), origin);
+        ParcelCreated created = ParcelDecider.Create(type, gates, tenant, title, stage, principal.Id, clock.GetUtcNow(), origin);
 
         await using IDocumentSession session = store.LightweightSession(created.Project);
         session.Events.StartStream<Parcel>(created.ParcelId, created);

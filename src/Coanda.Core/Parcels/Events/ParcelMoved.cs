@@ -2,7 +2,7 @@ namespace Coanda.Core.Parcels.Events;
 
 public sealed record ParcelMoved(
     Guid ParcelId,
-    string FromState,
-    string ToState,
+    string FromStage,
+    string ToStage,
     string MovedBy,
     DateTimeOffset MovedAt);

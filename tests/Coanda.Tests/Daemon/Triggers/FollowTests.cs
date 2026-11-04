@@ -163,7 +163,7 @@ public sealed class FollowTests
         // does not close it starts first and none is refused on a closed parcel.
         followers.Select(f => f.FlowName).Should().Equal([AfterBuild.Name, NotifyAfterBuild.Name, "merge"]);
         followers.Select(f => f.Outcome).Should().Equal(["followed", "followed", "merged"]);
-        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).State.Should().Be("closed");
+        (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage.Should().Be("closed");
 
         await daemon.StopAsync(None);
     }

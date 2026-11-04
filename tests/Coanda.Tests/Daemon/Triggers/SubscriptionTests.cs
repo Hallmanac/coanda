@@ -65,7 +65,7 @@ public sealed class SubscriptionTests
 
             first = await ParcelTitledAsync(client, "Review my PR");
             first.Type.Should().Be("task");
-            first.State.Should().Be("refine");
+            first.Stage.Should().Be("refine");
             first.CreatedBy.Should().Be(Teammate.Id, "the subscription acts as the principal that recorded it");
 
             FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, first.Id);

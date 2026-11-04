@@ -37,11 +37,11 @@ public sealed class TriggerTests
     }
 
     [Fact]
-    public void A_parcel_entry_reads_as_parcel_entered_with_its_type_and_state_and_a_binding_is_that_trigger()
+    public void A_parcel_entry_reads_as_parcel_entered_with_its_type_and_stage_and_a_binding_is_that_trigger()
     {
         TriggerEvent entered = TriggerEvent.ParcelEntered("task", "build");
         entered.Kind.Should().Be("parcel-entered");
-        entered.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["type"] = "task", ["state"] = "build" });
+        entered.Fields.Should().BeEquivalentTo(new Dictionary<string, string> { ["type"] = "task", ["stage"] = "build" });
 
         Trigger binding = Trigger.ForBinding(ShippedTypes.Task, ShippedTypes.Task.FlowBindings[0]);
         binding.Matches(entered).Should().BeTrue();
