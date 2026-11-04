@@ -9,6 +9,7 @@ using Coanda.Daemon.Actions;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Fisher;
+using JasperFx.Events;
 
 namespace Coanda.Tests.Daemon;
 
@@ -158,7 +159,7 @@ public sealed class LiveFlowHoldTests : IAsyncLifetime
     private async Task<IReadOnlyList<object>> EventsAsync(Guid parcelId)
     {
         await using IQuerySession session = store.QuerySession(Project);
-        var events = await session.Events.FetchStreamAsync(parcelId, token: None);
+        IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: None);
         return [.. events.Select(e => e.Data)];
     }
 }
