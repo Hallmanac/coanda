@@ -287,6 +287,50 @@ public sealed class ToolGuardTests : IDisposable
         ShellWords.HighestReach(text).Should().Be(before + string.Concat(Enumerable.Repeat(".." + Path.DirectorySeparatorChar, climbs)));
 
     [Theory]
+    [InlineData("cat {a/b/c/d,e}/../../../../daemon.json")]
+    [InlineData("cat x/{a/b/c/d,}/../../../../daemon.json")]
+    [InlineData("cd {a/b/c/d,e}/../../../.. && cat daemon.json")]
+    [InlineData("cat {a,b/..}/../../daemon.json")]
+    [InlineData("cat **/../daemon.json")]
+    [InlineData("cat src/**/../../daemon.json")]
+    [InlineData("cat $${a/b/c/d/e,d}/../../../../daemon.json")]
+    public void A_shell_word_whose_brace_choices_or_globstar_change_how_deep_it_goes_is_judged_by_each_choice(string command) =>
+        RefusedInNodeHome(Guard(Call("Bash", new { command })));
+
+    [Fact]
+    public void A_brace_choice_that_is_an_absolute_path_or_begins_with_a_tilde_is_judged_as_one()
+    {
+        RefusedInNodeHome(Guard(Call("Bash", new { command = $"cat {{x,{home.DaemonInfoPath}}}" })));
+        RefusedInNodeHome(Guard(Call("Bash", new { command = "cat {x,~/home/daemon.json}" }), environment: Environment(("HOME", root))));
+        RefusedInNodeHome(Guard(Call("Glob", new { pattern = $"{{src/*.cs,{home.Path}/*.json}}" })));
+        RefusedInNodeHome(Guard(Call("Glob", new { pattern = "{a/b/c/d,e}/../../../../*.json" })));
+    }
+
+    [Fact]
+    public void A_brace_expansion_of_more_words_than_the_guard_expands_is_refused() =>
+        RefusedUnknowable(Guard(Call("Bash", new { command = "cat src/{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}.cs" })));
+
+    [Fact]
+    public void Ordinary_braces_inside_the_work_directory_stay_allowed() =>
+        Allowed(Guard(Call("Bash", new { command = "cp src/a.cs{,.bak} && ls src/{a,b}.cs {src,.}/a.cs && ls src/{1..3}.cs ${PWD}/src && grep -E \"src/x{2,3}\" src" })));
+
+    [Theory]
+    [InlineData("src/a.cs", new[] { "src/a.cs" })]
+    [InlineData("{a/b/c/d,e}/x", new[] { "a/b/c/d/x", "e/x", "{a/b/c/d,e}/x" })]
+    [InlineData("a{,.bak}", new[] { "a", "a.bak", "a{,.bak}" })]
+    [InlineData("{a,{b,c}}d", new[] { "ad", "bd", "cd", "{a,{b,c}}d" })]
+    [InlineData("{a}{b,c}", new[] { "{a}b", "{a}c", "{a}{b,c}" })]
+    [InlineData("${HOME}/{1..3}", new[] { "${HOME}/{1..3}" })]
+    [InlineData("${A,B}", new[] { "$A", "$B", "${A,B}" })]
+    [InlineData("{a,b", new[] { "{a,b" })]
+    public void A_brace_expands_to_each_of_its_choices_and_the_text_as_quoted(string text, string[] expected) =>
+        ShellWords.Braces(text).Should().Equal(expected);
+
+    [Fact]
+    public void A_brace_expansion_of_more_words_than_the_limit_gives_none() =>
+        ShellWords.Braces(string.Concat(Enumerable.Repeat("{a,b}", 9))).Should().BeNull();
+
+    [Theory]
     [InlineData("/c/Users/me/.coanda/daemon.json", @"C:\Users\me\.coanda\daemon.json")]
     [InlineData("/cygdrive/d/work", @"D:\work")]
     [InlineData("/c", @"C:\")]

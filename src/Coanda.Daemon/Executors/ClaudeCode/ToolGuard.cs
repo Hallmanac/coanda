@@ -35,8 +35,10 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// before unless the word's command is joined to the <c>cd</c> by <c>&amp;&amp;</c>, and a
 /// <c>cd</c>'s destination is itself a path the call names. <c>$PWD</c> is the directory the
 /// shell is in at that point; a call that depends on <c>$OLDPWD</c> or <c>cd -</c>, which nothing the guard
-/// receives names, is refused. A path holding a wildcard is judged by the highest directory it may
-/// reach (<see cref="ShellWords.HighestReach"/>). Files a
+/// receives names, is refused. A Bash word or a Glob pattern holding braces is judged as each word
+/// its brace expansion gives (<see cref="ShellWords.Braces"/>), and one giving too many is refused. A
+/// path holding a wildcard is judged by the highest directory it may reach
+/// (<see cref="ShellWords.HighestReach"/>). Files a
 /// process the command starts reads on its own are not paths a call names, and stay allowed. The
 /// reason never quotes a file's contents: it names the path, the directory it reaches, and nothing else.
 /// </remarks>
@@ -144,6 +146,19 @@ public static class ToolGuard
 
         string Expanded(string text) => ShellWords.Expand(text, Value, home);
 
+        // A shell, and the Glob tool, expand a word's braces before anything else, so each word a
+        // brace makes is expanded and judged on its own.
+        IReadOnlyList<string> ExpandedWords(string text)
+        {
+            if (ShellWords.Braces(text) is { } words)
+            {
+                return [.. words.Select(Expanded)];
+            }
+
+            unknowable ??= $"a brace expansion of more than {ShellWords.BraceLimit} words";
+            return [];
+        }
+
         // The shell sets PWD to the directory it is in, whatever the hook inherited, and its OLDPWD is
         // the directory it was in before, which nothing the hook receives names.
         string Value(string name)
@@ -164,13 +179,15 @@ public static class ToolGuard
 
         List<Named> Glob(string pattern, string? path)
         {
-            List<Named> paths = [new(Expanded(pattern), atCwd)];
+            IReadOnlyList<string> patterns = ExpandedWords(pattern);
+            List<Named> paths = [.. patterns.Select(expanded => new Named(expanded, atCwd))];
             if (path is not null)
             {
                 // A relative pattern is matched under the Glob's own path, so it is judged there too.
                 string under = Expanded(path);
                 paths.Add(new(under, atCwd));
-                paths.Add(new(Expanded(pattern), [.. GuardPath.Readings(ShellWords.HighestReach(under)).Select(reading => GuardPath.Resolve(reading, cwd))]));
+                IReadOnlyList<string> bases = [.. GuardPath.Readings(ShellWords.HighestReach(under)).Select(reading => GuardPath.Resolve(reading, cwd))];
+                paths.AddRange(patterns.Select(expanded => new Named(expanded, bases)));
             }
 
             return paths;
@@ -252,12 +269,12 @@ public static class ToolGuard
             return paths;
         }
 
-        // A word as the shell expands it in each directory it may be in, which differs only through $PWD.
+        // The words a shell expands a word to in each directory it may be in, which differ only through $PWD.
         IReadOnlyList<string> ExpandedAt(string text, IReadOnlyList<string> at) =>
-            [.. at.Select(directory =>
+            [.. at.SelectMany(directory =>
             {
                 pwd = directory;
-                return Expanded(text);
+                return ExpandedWords(text);
             }).Distinct(StringComparer.Ordinal)];
 
         static IReadOnlyList<string> Union(IReadOnlyList<string> first, IReadOnlyList<string> second) =>

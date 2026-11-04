@@ -127,6 +127,95 @@ public static partial class ShellWords
         return destination ?? (name == "cd" ? "~" : null);
     }
 
+    /// <summary>The most words a brace expansion may give before the guard stops expanding it.</summary>
+    public const int BraceLimit = 256;
+
+    /// <summary>
+    /// The words a shell's brace expansion makes of <paramref name="text"/>, followed by the text
+    /// itself, which is what a word whose braces were quoted names; or null when the expansion would
+    /// give more than <see cref="BraceLimit"/> words. A brace expands when its matching closing brace
+    /// follows with a comma between them at its own level, each choice in turn; a brace with none,
+    /// such as a sequence like <c>{1..3}</c> or a variable's <c>${NAME}</c>, is kept as it is. A shell
+    /// does not expand the brace of <c>${</c>, but expanding it here only adds words to judge. A choice may hold path separators or be empty, so the words may differ from one another
+    /// in how many components they have, and a word may begin with <c>/</c> or <c>~</c>.
+    /// </summary>
+    public static IReadOnlyList<string>? Braces(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        List<string> words = [];
+        if (!Expand(text, 0, words))
+        {
+            return null;
+        }
+
+        words.Add(text);
+        return [.. words.Distinct(StringComparer.Ordinal)];
+
+        bool Expand(string word, int from, List<string> into)
+        {
+            for (int open = word.IndexOf('{', from); open >= 0; open = word.IndexOf('{', open + 1))
+            {
+                if (Choices(word, open) is not { } choices)
+                {
+                    continue;
+                }
+
+                string prefix = word[..open];
+                string suffix = word[(choices.Close + 1)..];
+                foreach (string choice in choices.Texts)
+                {
+                    // What precedes the brace holds no brace that expands, so the search resumes after it.
+                    if (!Expand(prefix + choice + suffix, open, into))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            into.Add(word);
+            return into.Count <= BraceLimit;
+        }
+    }
+
+    /// <summary>
+    /// The choices of the brace opening at <paramref name="open"/> and where it closes, or null when
+    /// it has no matching closing brace or no comma at its own level.
+    /// </summary>
+    private static (IReadOnlyList<string> Texts, int Close)? Choices(string word, int open)
+    {
+        List<string> texts = [];
+        int level = 0;
+        int start = open + 1;
+        for (int i = open + 1; i < word.Length; i++)
+        {
+            switch (word[i])
+            {
+                case '{':
+                    level++;
+                    break;
+                case '}' when level > 0:
+                    level--;
+                    break;
+                case '}':
+                    if (texts.Count == 0)
+                    {
+                        return null;
+                    }
+
+                    texts.Add(word[start..i]);
+                    return (texts, i);
+                case ',' when level == 0:
+                    texts.Add(word[start..i]);
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// <paramref name="text"/> with a leading <c>~</c> replaced by the home directory, and every
     /// <c>$NAME</c> and <c>${NAME}</c> replaced by what <paramref name="value"/> gives for the name,
@@ -177,8 +266,10 @@ public static partial class ShellWords
     /// one <c>..</c> for each level the part from its first wildcard component on may climb above it.
     /// A component that is <c>..</c>, alone or as one choice of a brace, or that begins with <c>.</c>
     /// followed by a wildcard or a second <c>.</c>, which a shell may match to <c>..</c>, is counted as
-    /// a climb; <c>.</c> and an empty component stay where they are, and any other descends one
-    /// level. Everything the pattern may match lies under the directory this names, so judging it
+    /// a climb; <c>.</c> and an empty component stay where they are, and so does one holding
+    /// <c>**</c>, which zsh, and bash with <c>globstar</c>, may match to no directory at all; any other
+    /// descends one level. A brace is expanded before this is asked (<see cref="Braces"/>), so a brace
+    /// left in the text is one a shell keeps as it is. Everything the pattern may match lies under the directory this names, so judging it
     /// judges them all; a regular expression that only looks like such a pattern names a directory
     /// at or below the one it is resolved against, and is judged by that.
     /// </summary>
@@ -194,6 +285,7 @@ public static partial class ShellWords
             {
                 "" or "." => 0,
                 _ when MayBeParent(component) => -1,
+                _ when component.Contains("**", StringComparison.Ordinal) => 0,
                 _ => 1,
             };
             lowest = Math.Min(lowest, depth);
