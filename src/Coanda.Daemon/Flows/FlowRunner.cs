@@ -58,7 +58,8 @@ namespace Coanda.Daemon.Flows;
 /// because a resume came after its launch, does not pause the flow: the resume's own pass performs
 /// the step again. Each launch, once recorded and before its agent starts, is issued a session token
 /// of its own (<see cref="SessionTokens"/>), handed to the executor in the spawn's
-/// <see cref="SessionAccess"/>, and forgotten when the judgment ends.
+/// <see cref="SessionAccess"/>, and removed when the judgment ends, unless a daemon stop ended it:
+/// the session then runs on, and the token it holds resolves again once the next start reattaches it.
 /// </remarks>
 public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 {
@@ -213,11 +214,56 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// </summary>
     public async Task AdvanceLiveAsync(CancellationToken cancellationToken)
     {
+        await SweepSessionTokensAsync(cancellationToken);
         IReadOnlyList<(string Project, Guid FlowId)> live = await flows.ListLiveAsync(ScanPrincipal, cancellationToken);
         await StopUnclaimedSessionsAsync(live, cancellationToken);
         foreach ((string project, Guid flowId) in live)
         {
             _ = RequestAdvance(project, flowId);
+        }
+    }
+
+    /// <summary>
+    /// Removes the stored session tokens whose launch its flow no longer expects: ones a daemon stop
+    /// kept for a flow that was paused, stopped, or ended before this start, or whose removal failed.
+    /// A sweep that fails is logged and the start goes on, since such a token resolves to nothing anyway.
+    /// </summary>
+    private async Task SweepSessionTokensAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            int removed = await sessionTokens.SweepAsync(cancellationToken);
+            if (removed > 0)
+            {
+                logger.LogInformation("Removed {Count} session tokens whose launch no flow expects any more.", removed);
+            }
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(failure, "Sweeping the session tokens no launch is expected for failed; the daemon starts without it.");
+        }
+    }
+
+    /// <summary>
+    /// Removes the session tokens issued for <paramref name="launch"/> once its judgment has ended,
+    /// unless a daemon stop ended it: then the session is left running for the next start to
+    /// reattach, and its process still holds the token. A removal that fails is logged, and the next
+    /// start's sweep removes what is left, since by then the flow no longer expects the launch.
+    /// </summary>
+    private async Task EndSessionTokensAsync(Guid launch, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            await sessionTokens.RevokeAsync(launch, cancellationToken);
+        }
+        catch (Exception failure)
+        {
+            logger.LogWarning(failure, "Removing the session tokens of launch {Launch} failed; the next start removes them.", Ids.Short(launch));
         }
     }
 
@@ -487,6 +533,12 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
             return;
         }
 
+        // The pause or stop ended this launch, so its tokens go, as they would at its judgment's end.
+        if (entry.LaunchId is Guid launch)
+        {
+            await EndSessionTokensAsync(launch, cancellationToken);
+        }
+
         Reattachment? found = await executor.ReattachAsync(new SessionHandle(id, entry.Performer), access: null, cancellationToken);
         var spend = new JudgmentSpend();
         switch (found)
@@ -626,7 +678,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
 
             // Issued once the launch is recorded and before the agent starts, since the session's
             // environment is fixed when its process starts; it resolves only while this launch runs.
-            string token = sessionTokens.Issue(new SessionBinding(project.Trim(), flow.Id, launch.Value));
+            string token = await sessionTokens.IssueAsync(new SessionBinding(project.Trim(), flow.Id, launch.Value), cancellationToken);
             request = request with { Access = new SessionAccess(token, home.Path, project.Trim()) };
             var launched = new Launched(step.Name, agentName, published.ContentHash, agent.Model, budget.Ceiling);
 
@@ -658,7 +710,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         {
             if (launch is Guid issued)
             {
-                sessionTokens.Revoke(issued);
+                await EndSessionTokensAsync(issued, cancellationToken);
             }
 
             Unwatch(flow.Id, ended);
@@ -675,10 +727,11 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
     /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch, though a
     /// session that finished while no daemon ran is still collected once the limit is past, and a
     /// person's pause or stop saved before the reattach was watched ends it before its first collect.
-    /// Nothing is recorded for the reattach itself. The reattach hands the session a session token
-    /// this daemon issues for the recorded launch, so a retry's process reaches this daemon as the
-    /// launch's own principal; the process that ran across the restart keeps the token an earlier
-    /// daemon issued, which this one does not resolve.
+    /// Nothing is recorded for the reattach itself. The process that ran across the restart keeps the
+    /// token an earlier daemon issued, which resolves again because its binding is stored; the
+    /// reattach also hands the session a token this daemon issues for the recorded launch, so a
+    /// retry's process reaches this daemon as the launch's own principal. Both are removed once the
+    /// judgment ends, unless a daemon stop ended it.
     /// When the visit names no session, or the executor no longer holds it, the flow pauses instead,
     /// and its resume performs the step again with one more spawn counted. A session lost on its
     /// retry pauses carrying what its turns before the retry spent, which nothing recorded at the
@@ -704,12 +757,14 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         string lostWhen = restarted ? "across a daemon restart" : "before its answer was recorded";
         string unobserved = restarted ? "observed" : "recorded";
 
-        // Issued for the recorded launch, so it resolves only while the flow still expects that launch.
-        SessionAccess? access = launch is Guid issuedFor
-            ? new SessionAccess(sessionTokens.Issue(new SessionBinding(project.Trim(), flow.Id, issuedFor)), home.Path, project.Trim())
-            : null;
         try
         {
+            // Issued for the recorded launch, so it resolves only while the flow still expects that
+            // launch; the token the launch was spawned with is still stored and resolves beside it.
+            SessionAccess? access = launch is Guid issuedFor
+                ? new SessionAccess(
+                    await sessionTokens.IssueAsync(new SessionBinding(project.Trim(), flow.Id, issuedFor), cancellationToken), home.Path, project.Trim())
+                : null;
             Reattachment? found = null;
             bool settled = false;
             try
@@ -804,7 +859,7 @@ public sealed class FlowRunner : IFlowAdvancer, IHostedService, IDisposable
         {
             if (launch is Guid issued)
             {
-                sessionTokens.Revoke(issued);
+                await EndSessionTokensAsync(issued, cancellationToken);
             }
         }
     }

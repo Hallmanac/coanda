@@ -111,11 +111,12 @@ public sealed class FlowRestartTests
         SessionTokens tokens = second.Services.GetRequiredService<SessionTokens>();
         Principal? principal = await tokens.ResolveAsync(reissued.Token, None);
         principal?.Session.Should().Be(new SessionBinding(Project, flowId, launch), "the token is bound to the launch the restart found");
-        (await tokens.ResolveAsync(spawned.Token, None)).Should().BeNull("a token the earlier daemon issued is not kept across the restart");
+        (await tokens.ResolveAsync(spawned.Token, None))?.Session.Should().Be(new SessionBinding(Project, flowId, launch), "the token the earlier daemon issued is kept across the restart");
 
         held.Open();
         await Flowing.UntilAsync(again, Project, flowId, "ended");
         (await tokens.ResolveAsync(reissued.Token, None)).Should().BeNull("the token is revoked once the reattached judgment ends");
+        (await tokens.ResolveAsync(spawned.Token, None)).Should().BeNull("so is the one the launch was spawned with");
 
         await second.StopAsync(None);
     }
