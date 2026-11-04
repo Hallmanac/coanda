@@ -140,6 +140,7 @@ public sealed class JudgmentTests
                 resumesSeen = executor.Resumes.Count;
                 return ValueTask.CompletedTask;
             },
+            CancellationToken.None,
             CancellationToken.None);
 
         received.Should().Be(outcome.Session);
@@ -174,12 +175,31 @@ public sealed class JudgmentTests
                 received = handle;
                 await cancellation.CancelAsync();
             },
+            cancellation.Token,
             cancellation.Token);
 
         await run.Should().ThrowAsync<OperationCanceledException>();
         executor.Stops.Should().BeEmpty();
         SessionHandle taken = received.Should().NotBeNull().And.BeOfType<SessionHandle>().Subject;
         (await executor.ReattachAsync(taken, CancellationToken.None)).Should().Be(taken);
+    }
+
+    [Fact]
+    public async Task A_cancellation_after_the_caller_took_the_handle_while_the_caller_is_not_stopping_stops_the_session()
+    {
+        ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
+        using var limit = new CancellationTokenSource();
+
+        Func<Task> run = () => Judgment.RunAsync(
+            executor,
+            Request,
+            async (_, _) => await limit.CancelAsync(),
+            CancellationToken.None,
+            limit.Token);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        executor.Stops.Should().Equal(executor.Spawns.Should().ContainSingle().Subject.Handle);
+        (await executor.ListAsync(CancellationToken.None)).Should().BeEmpty();
     }
 
     [Fact]
@@ -191,6 +211,7 @@ public sealed class JudgmentTests
             executor,
             Request,
             (_, _) => throw new OperationCanceledException(),
+            CancellationToken.None,
             CancellationToken.None);
 
         await run.Should().ThrowAsync<OperationCanceledException>();
