@@ -17,7 +17,7 @@ public sealed class FlowControlApiTests
     private static readonly CancellationToken None = CancellationToken.None;
 
     [Fact]
-    public async Task A_pause_while_a_judgment_runs_drops_its_answer_and_a_resume_performs_the_step_again_to_its_answer()
+    public async Task A_pause_while_a_judgment_runs_drops_its_answer_but_keeps_its_cost_and_a_resume_performs_the_step_again_to_its_answer()
     {
         using var temp = new TemporaryHome();
         var executor = new GatedExecutor(new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
@@ -64,12 +64,14 @@ public sealed class FlowControlApiTests
         executor.Open();
         await Flowing.UntilAsync(() => executor.Inner.Stops.Count == 1, "the held session is stopped");
 
+        // The usage is recorded before the session is stopped, so the stop means it is in.
         FlowView held = await Flowing.ShowAsync(client, Project, started.Id);
         held.Status.Should().Be("paused");
         held.PauseReason.Should().Be("Waiting on the API owner.");
         held.Lever.Should().Be(FlowLevers.PerformAgain("build"));
         held.Steps.Should().ContainSingle().Which.Answer.Should().BeNull("the held judgment's late answer is dropped");
         executor.Inner.Spawns.Should().ContainSingle();
+        held.Cost.Should().Be(Scripts.Usage(1).CostUsd, "the dropped answer's agent still spent what it reported");
 
         FlowView resumed = await Flowing.ResumeAsync(client, Project, started.Id, "The API owner answered.");
         resumed.Status.Should().Be("running");
@@ -78,6 +80,7 @@ public sealed class FlowControlApiTests
         executor.Inner.Spawns.Should().HaveCount(2, "the resume performs the step again");
         FlowStepView build = ended.Steps.Should().ContainSingle().Subject;
         build.Answer.GetValueOrDefault().GetProperty("summary").GetString().Should().Be("answer 2");
+        ended.Cost.Should().Be(Scripts.Usage(1).CostUsd + Scripts.Usage(2).CostUsd, "both spawns' spend is recorded");
 
         await RefusedAsync(http, daemon, $"/flows/{started.Id}/stop", new FlowStopRequest(Project, "Too late."), $"Flow {Ids.Short(started.Id)} has ended; only a live flow stops.");
 

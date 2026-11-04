@@ -135,6 +135,18 @@ public sealed class FlowService(IDocumentStore store, TimeProvider clock, IFlowA
             (flow, answered) => flow.Apply(answered),
             cancellationToken);
 
+    /// <summary>
+    /// Records what the judgment <paramref name="step"/> spent when its answer arrived after the flow
+    /// was paused or stopped, so the flow's cost counts it though the answer is not recorded.
+    /// </summary>
+    public Task<Flow> RecordUsageAsync(
+        Principal principal, string project, Guid flowId, string step, string agent, Measurement usage, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flow.usage", principal, project, flowId,
+            (contour, flow) => FlowDecider.RecordUsage(contour, flow, step, agent, usage, clock.GetUtcNow()),
+            (flow, recorded) => flow.Apply(recorded),
+            cancellationToken);
+
     public Task<Flow> RecordResultAsync(
         Principal principal, string project, Guid flowId, string step, string action, JsonElement result, CancellationToken cancellationToken) =>
         WriteAsync(
