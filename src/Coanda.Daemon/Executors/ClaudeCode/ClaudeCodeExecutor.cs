@@ -213,8 +213,10 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// Kills the session's process together with every process it started, and reports its attempt
     /// in progress: the result's usage when the process printed one that no collect returned (an
     /// error result), otherwise the tokens and count of the assistant messages it printed, with no
-    /// cost, and its duration up to the stop. Stopping a session whose process has already ended,
-    /// or one already stopped, succeeds.
+    /// cost, and its duration up to the stop. A process killed while it ran reports that much even
+    /// when it had printed no assistant message, since its turn in progress may already have been
+    /// billed; one that had already ended with nothing printed reports nothing. Stopping a session
+    /// whose process has already ended, or one already stopped, succeeds.
     /// </summary>
     public async ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
@@ -243,6 +245,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             return null;
         }
 
+        // A process still running when it is killed may have been billed for a turn it had not printed yet.
+        bool killedRunning = !attempt.Ended.IsCompleted;
         attempt.Kill();
         await attempt.Ended.WaitAsync(cancellationToken);
         lock (gate)
@@ -252,7 +256,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                 return new StopReport(result.Usage(session.ReportedTotalCostUsd));
             }
 
-            return attempt.Stream.MessageCount == 0
+            return attempt.Stream.MessageCount == 0 && !killedRunning
                 ? null
                 : new StopReport(new Measurement(attempt.Stream.MessageTokens, 0m, attempt.Stream.MessageCount, attempt.Elapsed), CostReported: false);
         }
