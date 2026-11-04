@@ -11,6 +11,7 @@ using Coanda.Daemon.Actions;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Fisher;
+using JasperFx.Events;
 
 namespace Coanda.Tests.Daemon.Actions;
 
@@ -201,7 +202,7 @@ public sealed class FlowActionsTests : IAsyncLifetime
     private async Task<IReadOnlyList<ParcelMoved>> MovesAsync(Guid parcelId)
     {
         await using IQuerySession session = store.QuerySession(Project);
-        var events = await session.Events.FetchStreamAsync(parcelId, token: CancellationToken.None);
+        IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: CancellationToken.None);
         return [.. events.Select(e => e.Data).OfType<ParcelMoved>()];
     }
 
