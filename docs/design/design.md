@@ -265,8 +265,12 @@ called one.
 Three scopes, nearest wins by name: project (shared with teammates through the project ledger),
 owner (fleet-replicated to every node and project the owner holds), and module (imported from an
 installed module at install, once per node, read-only, versioned with the module; decision
-836ec405). A customization of a module's definition is a fork that records its base, the module
-name and module version. Unforked users take new module versions automatically; forked
+836ec405). A customization of a module's definition is a fork that records its base: the definition's
+name, the module name and module version, and the base's content hash. The content hash, with the
+name and module, is what identifies the base on another node; the module version is recorded for
+the reader but not matched. One module version can hold more than one content of a definition, and
+a node records an unchanged content under the first module version it imported it at, so two nodes
+can hold the same base under different module versions. Unforked users take new module versions automatically; forked
 users get a notice and a three-way diff command, with fold-in an explicit act. Nothing is ever
 silently replaced. A shareable template is an export of a set of definitions; import recreates
 them.
@@ -607,7 +611,10 @@ Coanda word.
 
 **Versioning.** An integer module API version in the manifest and in describe; the daemon supports a
 range and refuses to install or start a module outside it, naming both. Module and Coanda versions
-are otherwise independent. A fork's base is module name plus module version.
+are otherwise independent. A fork's base is the definition's name, module name, module version,
+and content hash, and another node finds it by the name, module, and content hash alone: one module
+version can hold more than one content of a definition, and a node records an unchanged content
+under the first module version it imported it at (section 9).
 
 **Multiple modules.** A project's switched-on set may hold several. Step names and event kinds are
 module-prefixed (`software/gates`, `cms/publish`); definition names are not, and install refuses a
