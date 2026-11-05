@@ -23,7 +23,8 @@ public static class DefinitionDecider
     /// <paramref name="knownSystemSteps"/> is every system step name the daemon registered, which a flow's
     /// system steps are validated against; none when null. The decider holds no catalog of either.
     /// <paramref name="moduleVersions"/> is every module-scope definition of <paramref name="kind"/>,
-    /// which a fork base must name one of by name and version; none when null.
+    /// which a fork base must name one of by name and version, and whose parcel type, when the fork
+    /// base names one, is the only source of a field owner the draft's parcel type may name; none when null.
     /// </summary>
     public static DefinitionDrafted Draft(
         DefinitionKind kind,
@@ -46,9 +47,10 @@ public static class DefinitionDecider
                 "A definition cannot be drafted into module scope; module-scope definitions enter the store only when a module's definitions are imported.");
         }
 
-        RequireForkBase(kind, name, forkBase, moduleVersions ?? []);
+        Definition? forkedFrom = ForkedFrom(kind, name, forkBase, moduleVersions ?? []);
         return Build(
             kind, name, scope, project, latestVersion, content, contentHash, forkBase,
+            type => RequireOwnersFromForkBase(type, forkBase, forkedFrom),
             knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, draftedBy, now, null, null);
     }
 
@@ -88,7 +90,8 @@ public static class DefinitionDecider
     /// import is refused when another module's is among them, is null when the module's own versions
     /// already hold the content hash, and is otherwise the next version after the highest of them. Each
     /// definition passes the validation a draft of no project does: a parcel type is validated against
-    /// <paramref name="knownGates"/>, the gates the daemon runs (the shipped gate set's when null); a flow is validated against
+    /// <paramref name="knownGates"/>, the gates the daemon runs (the shipped gate set's when null), and
+    /// may name only its own module as a field's owner; a flow is validated against
     /// <paramref name="knownSystemSteps"/>, the system step names a flow of no project may name; none when null.
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published)? Import(
@@ -124,7 +127,7 @@ public static class DefinitionDecider
 
         DefinitionDrafted drafted = Build(
             definition.Kind, definition.Name, DefinitionScope.Module, null, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(),
-            definition.Content, definition.ContentHash, null,
+            definition.Content, definition.ContentHash, null, type => RequireOwnModuleOnly(type, module),
             knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, importedBy, now, module, moduleVersion.Trim());
         return (drafted, new DefinitionPublished(drafted.DefinitionId, importedBy, now));
     }
@@ -138,6 +141,7 @@ public static class DefinitionDecider
         string content,
         string contentHash,
         ForkBase? forkBase,
+        Action<ParcelType> requireOwners,
         IReadOnlySet<string> knownGates,
         IReadOnlySet<string> knownSystemSteps,
         string draftedBy,
@@ -168,7 +172,7 @@ public static class DefinitionDecider
         switch (kind)
         {
             case DefinitionKind.ParcelType:
-                RequireParcelType(trimmedName, content, contentHash, knownGates);
+                requireOwners(RequireParcelType(trimmedName, content, contentHash, knownGates));
                 break;
             case DefinitionKind.Flow:
                 RequireFlow(trimmedName, content, contentHash, knownSystemSteps);
@@ -183,12 +187,15 @@ public static class DefinitionDecider
             module, moduleVersion);
     }
 
-    /// <summary>Refuses a fork base that names no module-scope definition of the draft's kind among <paramref name="moduleVersions"/>.</summary>
-    private static void RequireForkBase(DefinitionKind kind, string name, ForkBase? forkBase, IReadOnlyCollection<Definition> moduleVersions)
+    /// <summary>
+    /// The module-scope definition <paramref name="forkBase"/> names among <paramref name="moduleVersions"/>,
+    /// or null when there is no fork base; a fork base that names none is refused.
+    /// </summary>
+    private static Definition? ForkedFrom(DefinitionKind kind, string name, ForkBase? forkBase, IReadOnlyCollection<Definition> moduleVersions)
     {
         if (forkBase is null)
         {
-            return;
+            return null;
         }
 
         if (string.IsNullOrWhiteSpace(forkBase.Name) || forkBase.Version < 1)
@@ -197,17 +204,49 @@ public static class DefinitionDecider
                 $"A fork base names the module-scope definition and version a customization came from; '{name.Trim()}' has an invalid one.");
         }
 
-        if (!moduleVersions.Any(d => d.Scope == DefinitionScope.Module
+        return moduleVersions.FirstOrDefault(d => d.Scope == DefinitionScope.Module
                 && d.Kind == kind
                 && DefinitionResolution.SameName(d.Name, forkBase.Name.Trim())
-                && d.VersionNumber == forkBase.Version))
-        {
-            throw new DomainException(
+                && d.VersionNumber == forkBase.Version)
+            ?? throw new DomainException(
                 $"The fork base '{forkBase.Name}' version {forkBase.Version} of '{name.Trim()}' names no module-scope {Describe(kind)}; a fork base names a module-scope definition of the draft's own kind, by name and version.");
+    }
+
+    /// <summary>
+    /// Refuses a field owner a project-scope or owner-scope type names unless its fork base declares a
+    /// field of the same name owned by the same module, so a fork of a module's type keeps that field
+    /// owned by that module and a user's type grants no module a field otherwise.
+    /// </summary>
+    private static void RequireOwnersFromForkBase(ParcelType type, ForkBase? forkBase, Definition? forkedFrom)
+    {
+        ParcelType? baseType = forkedFrom is null ? null : ParcelType.FromJson(forkedFrom.Content);
+        foreach (FieldDeclaration field in type.Fields.Where(f => f.Owner is not null))
+        {
+            string? baseOwner = baseType?.Fields.FirstOrDefault(f => string.Equals(f.Name, field.Name, StringComparison.Ordinal))?.Owner;
+            if (string.Equals(baseOwner, field.Owner, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string reason = forkBase is null
+                ? $"'{type.Name}' has no fork base"
+                : $"its fork base '{forkBase.Name}' version {forkBase.Version} declares no field '{field.Name}' owned by '{field.Owner}'";
+            throw new DomainException(
+                $"Field '{field.Name}' of parcel type '{type.Name}' names the module '{field.Owner}' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and {reason}.");
         }
     }
 
-    private static void RequireParcelType(string name, string content, string contentHash, IReadOnlySet<string> knownGates)
+    /// <summary>Refuses a module's parcel type that names another module as a field's owner.</summary>
+    private static void RequireOwnModuleOnly(ParcelType type, string module)
+    {
+        if (type.Fields.FirstOrDefault(f => f.Owner is not null && !string.Equals(f.Owner, module, StringComparison.Ordinal)) is { } field)
+        {
+            throw new DomainException(
+                $"Field '{field.Name}' of parcel type '{type.Name}' of module '{module}' names the module '{field.Owner}' as its owner; a module's type names only its own module as a field's owner.");
+        }
+    }
+
+    private static ParcelType RequireParcelType(string name, string content, string contentHash, IReadOnlySet<string> knownGates)
     {
         ParcelType type = ParcelType.FromJson(content);
         type.Validate(knownGates);
@@ -222,6 +261,8 @@ public static class DefinitionDecider
             throw new DomainException(
                 $"The content hash '{contentHash}' differs from the parcel type's hash '{type.Hash}'.");
         }
+
+        return type;
     }
 
     private static void RequireFlow(string name, string content, string contentHash, IReadOnlySet<string> knownSystemSteps)
