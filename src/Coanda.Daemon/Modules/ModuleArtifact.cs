@@ -116,7 +116,7 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
             throw new DomainException($"The module manifest at '{path}' is not JSON: {exception.Message}");
         }
 
-        ICollection<ValidationError> failures = (await ManifestSchema.Value).Validate(text);
+        ICollection<ValidationError> failures = (await ManifestSchema.Value.WaitAsync(cancellationToken)).Validate(text);
         if (failures.Count > 0)
         {
             throw new DomainException(
@@ -189,12 +189,17 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
         return files.Length == 0 ? string.Empty : $", in {string.Join(" and ", files.Select(f => $"'{f}'"))}";
     }
 
+    /// <summary>
+    /// Reads the embedded manifest schema once for the whole process. It takes no cancellation token on
+    /// purpose: <see cref="ManifestSchema"/> caches the task it returns, so a token one caller cancelled
+    /// would leave every later read with a cancelled schema. A caller stops waiting on it with its own
+    /// token instead, through <see cref="Task.WaitAsync(CancellationToken)"/>.
+    /// </summary>
     private static async Task<JsonSchema> ReadManifestSchemaAsync()
     {
         await using Stream stream = typeof(ModuleArtifact).Assembly.GetManifestResourceStream(ManifestSchemaResource)
             ?? throw new InvalidOperationException($"The daemon carries no '{ManifestSchemaResource}'.");
-        using var reader = new StreamReader(stream);
-        return await JsonSchema.FromJsonAsync(await reader.ReadToEndAsync());
+        return await JsonSchema.FromJsonAsync(stream, CancellationToken.None);
     }
 
     /// <summary>The module API's manifest schema, which the daemon's project embeds from <c>schemas/module/v1/</c>.</summary>
