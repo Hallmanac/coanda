@@ -20,6 +20,7 @@ using Coanda.Tests.Daemon.FlowRuns;
 using Coanda.Tests.Modules.Software.GitHub;
 using Fisher;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Coanda.Tests.Modules.Software;
 
@@ -132,6 +133,22 @@ internal sealed class SoftwareNode : IAsyncDisposable
         return new SoftwareNode(temp, daemon, runner, github);
     }
 
+    /// <summary>
+    /// A software module of its own over this node's home, command runner, GitHub, and core, built as the
+    /// daemon builds its own, so it holds nothing the daemon's module learned in memory: what a restart
+    /// of the daemon would start with. The caller disposes it.
+    /// </summary>
+    public SoftwareModule FreshModule() => new(new SoftwareModuleOptions
+    {
+        HomePath = Home.Path,
+        ProfilesPath = Home.ModuleAreaOf(SoftwareSteps.Module),
+        CoreApi = Services.GetRequiredService<ModuleCoreAccess>().Options,
+        CommandRunner = Runner,
+        GitHubHandler = GitHub.Handler,
+        LoggerFactory = Services.GetRequiredService<ILoggerFactory>(),
+        GatesCommandLimit = DaemonOptions.DefaultGatesCommandLimit,
+    });
+
     /// <summary>Gives the software module's setting <paramref name="name"/> the value <paramref name="value"/> in <paramref name="project"/>, as the owner would.</summary>
     public Task<ModuleSettingsShown> SetAsync(string project, string name, object value) =>
         Services.GetRequiredService<ModuleSettingsService>().SetAsync(
@@ -166,16 +183,17 @@ internal sealed class SoftwareNode : IAsyncDisposable
     /// <summary>
     /// Dispatches the module's step <paramref name="step"/> for the flow run <paramref name="flowRunId"/>
     /// on the parcel <paramref name="parcelId"/>, under <paramref name="dispatchId"/> or a new id, and
-    /// gives its answer as the daemon records it.
+    /// gives its answer as the daemon records it. The daemon's own module performs the step unless
+    /// <paramref name="module"/> names another.
     /// </summary>
     public async Task<SystemStepAnswer> DispatchAsync(
-        string step, Guid parcelId, Guid flowRunId, Guid? dispatchId = null, string project = Project, CancellationToken? cancellationToken = null)
+        string step, Guid parcelId, Guid flowRunId, Guid? dispatchId = null, string project = Project, CancellationToken? cancellationToken = null, SoftwareModule? module = null)
     {
         await EnsureTaskAsync(project, parcelId);
         var request = new DispatchRequest(
             project, parcelId, flowRunId, step, Visit: 1, dispatchId ?? Ids.New(), Resumed: false,
             Home.FlowRunWorkPath(project, flowRunId), new Dictionary<string, JsonElement>());
-        DispatchAnswer answer = await Services.GetRequiredService<SoftwareModule>().DispatchAsync(request, cancellationToken ?? None);
+        DispatchAnswer answer = await (module ?? Services.GetRequiredService<SoftwareModule>()).DispatchAsync(request, cancellationToken ?? None);
         return answer switch
         {
             DispatchAnswer.Done done => new SystemStepAnswer.Done(JsonSerializer.SerializeToElement(done.Result, ModuleJson.Options)),

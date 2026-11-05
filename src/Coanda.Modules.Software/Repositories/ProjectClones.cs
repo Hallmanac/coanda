@@ -116,6 +116,10 @@ public sealed record WorktreeHolders(
 /// A flow run's branch is <c>coanda/&lt;short parcel id&gt;</c>, and the parcel that owns it is recorded
 /// in the clone's configuration as <c>branch.&lt;branch&gt;.coandaParcel</c> before the branch is
 /// created, so an interruption leaves a setting with no branch, never a branch with no owner. The
+/// commit this node last pushed for the branch, by open-pr's push or the rebase's, is recorded beside it
+/// as <c>branch.&lt;branch&gt;.coandaPushed</c> once the push has succeeded. A clone's configuration is
+/// never pushed or replicated, so that record is this node's own and survives a restart; the head a
+/// parcel's flow runs record as pushed may be another node's push, and is not read for it. The
 /// clone's <c>info/exclude</c>, which every worktree of it shares, holds <see cref="ExcludeLine"/>,
 /// so the daemon's own files at a worktree's root are invisible to git there.
 /// </remarks>
@@ -126,6 +130,9 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
 
     /// <summary>The setting, under a branch's section of the clone's configuration, naming the parcel that owns it.</summary>
     public const string OwnerSetting = "coandaParcel";
+
+    /// <summary>The setting, under a branch's section of the clone's configuration, holding the commit this node last pushed for it.</summary>
+    public const string PushedSetting = "coandaPushed";
 
     private readonly Git git = new(runner);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new(StringComparer.Ordinal);
@@ -139,6 +146,9 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     /// <summary>The configuration key naming the parcel that owns <paramref name="branch"/>.</summary>
     public static string OwnerKeyOf(string branch) => $"branch.{branch}.{OwnerSetting}";
 
+    /// <summary>The configuration key holding the commit this node last pushed for <paramref name="branch"/>.</summary>
+    public static string PushedKeyOf(string branch) => $"branch.{branch}.{PushedSetting}";
+
     /// <summary>
     /// Makes the flow run's work path, <paramref name="workPath"/>, the one its dispatch carries, a
     /// worktree of the repo's clone on the parcel's branch. A clone that is missing or is not a
@@ -150,10 +160,12 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     /// the primary branch as a fetch brings it when there is not. One it holds, which an earlier flow run
     /// on the parcel created, moves forward to the remote's branch when that contains it, so commits
     /// someone added on the remote are built on rather than refused at the push. When each has
-    /// commits the other does not, and the remote's branch is <paramref name="lastPushed"/>, the
-    /// commit coanda last recorded as pushed for the parcel, the divergence is a local rewrite (a
-    /// person's rebase, say) and the branch is checked out as it stands; when the remote's is any
-    /// other commit, the checkout is refused naming how to reconcile them.
+    /// commits the other does not, and the remote's branch is the commit this node last pushed for
+    /// the parcel (<see cref="PushedKeyOf"/>), the divergence is a local rewrite (a person's rebase,
+    /// say) and the branch is checked out as it stands; when the remote's is any other commit, or this
+    /// node holds no record of a push for the branch, the checkout is refused naming how to reconcile
+    /// them. A head the parcel's flow runs record as pushed is never read for this, because another
+    /// node may have pushed it.
     /// </summary>
     /// <remarks>
     /// A branch another worktree has checked out is taken over when that worktree is at the work path the
@@ -171,7 +183,6 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
         Guid parcelId,
         Guid flowRunId,
         string workPath,
-        string? lastPushed,
         WorktreeHolders holders,
         CancellationToken cancellationToken)
     {
@@ -182,7 +193,7 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
             Guid? waitFor;
             using (Held held = await LockAsync(clone, cancellationToken))
             {
-                (Checkout? checkout, waitFor) = await CheckOutHeldAsync(project, parcelId, flowRunId, workPath, lastPushed, holders, reached, cancellationToken);
+                (Checkout? checkout, waitFor) = await CheckOutHeldAsync(project, parcelId, flowRunId, workPath, holders, reached, cancellationToken);
                 if (checkout is not null)
                 {
                     return checkout;
@@ -206,7 +217,6 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
         Guid parcelId,
         Guid flowRunId,
         string workPath,
-        string? lastPushed,
         WorktreeHolders holders,
         HashSet<Guid> reached,
         CancellationToken cancellationToken)
@@ -288,17 +298,21 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
                         await git.RunAsync(Git.Against(clone, "update-ref", reference, remote, tip), cancellationToken);
                         tip = remote;
                         break;
-                    case Ancestry.Diverged when string.Equals(remote, lastPushed, StringComparison.Ordinal):
-                        // The remote still holds what coanda last pushed, so only the clone's branch
+                    case Ancestry.Diverged:
+                        string lastPushed = await LastPushedAsync(clone, branch, cancellationToken);
+                        if (!string.Equals(remote, lastPushed, StringComparison.Ordinal))
+                        {
+                            return (new Checkout.Refused(
+                                $"Branch {branch} in the node's clone of project '{project.Project}' is at {tip}, and the remote's branch, at {remote}, has commits it does not, while it has commits the remote's does not, and the remote's is not the commit this node last pushed for the parcel, so neither can be brought onto the other without someone deciding which to keep. "
+                                + $"Reconcile them by hand in {clone}, by moving {reference} to a commit that contains {remote}, or by deleting {reference} there to start again from the remote's branch, and the step checks it out."), null);
+                        }
+
+                        // The remote still holds what this node last pushed, so only the clone's branch
                         // was rewritten, as a person's rebase does; the push replaces the remote's.
                         logger.LogInformation(
-                            "Branch {Branch} in the node's clone of project '{Project}' is at {Tip}, rewritten from {Remote}, the commit last recorded as pushed, which the remote still holds; it is checked out as it stands.",
+                            "Branch {Branch} in the node's clone of project '{Project}' is at {Tip}, rewritten from {Remote}, the commit this node last pushed, which the remote still holds; it is checked out as it stands.",
                             branch, project.Project, tip, remote);
                         break;
-                    case Ancestry.Diverged:
-                        return (new Checkout.Refused(
-                            $"Branch {branch} in the node's clone of project '{project.Project}' is at {tip}, and the remote's branch, at {remote}, has commits it does not, while it has commits the remote's does not, and the remote's is not the commit last recorded as pushed for the parcel, so neither can be brought onto the other without someone deciding which to keep. "
-                            + $"Reconcile them by hand in {clone}, by moving {reference} to a commit that contains {remote}, or by deleting {reference} there to start again from the remote's branch, and the step checks it out."), null);
                 }
             }
         }
@@ -361,7 +375,8 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     /// branch to hold what the clone's remote-tracking ref for it holds, or not to exist when the
     /// clone holds no such ref. <see cref="CheckOutAsync"/> refreshed that ref from the remote when the
     /// worktree was made, and once the push succeeds it is set to the pushed commit, so the lease
-    /// refuses only an update someone made on the remote since. A failing git command other than the push throws
+    /// refuses only an update someone made on the remote since, and the pushed commit is recorded as
+    /// the one this node last pushed for the branch (<see cref="PushedKeyOf"/>). A failing git command other than the push throws
     /// <see cref="GitCommandException"/>.
     /// </summary>
     public async Task<Push> PushAsync(RepoTarget project, Guid parcelId, string workPath, CancellationToken cancellationToken)
@@ -396,6 +411,7 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
         }
 
         await git.RunAsync(Git.Against(clone, "update-ref", tracking, head), cancellationToken);
+        await RecordPushedAsync(clone, branch, head, cancellationToken);
         return new Push.Pushed(head);
     }
 
@@ -414,6 +430,8 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     /// or pushed, unless the remote's branch holds exactly the commit this flow run last noted, and that
     /// is not the recorded head: an earlier performance pushed it and was not recorded, so the branch
     /// is put at it and nothing is pushed. The remote's branch is read without changing a ref.
+    /// Once the branch is at a commit the remote holds, by this performance's push or an earlier one's,
+    /// that commit is recorded as the one this node last pushed for the branch (<see cref="PushedKeyOf"/>).
     /// </summary>
     /// <remarks>
     /// The rebase runs on a detached head started at the recorded head, and the commit it makes is
@@ -512,8 +530,17 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
 
             await git.RunAsync(Git.In(workPath, "checkout", "--quiet", branch), cancellationToken);
             await git.RunAsync(Git.Against(clone, "update-ref", TrackingRefOf(branch), pushedHead), cancellationToken);
+            await RecordPushedAsync(clone, branch, pushedHead, cancellationToken);
         }
     }
+
+    /// <summary>The commit this node last pushed for <paramref name="branch"/>, or empty when it holds no record of one.</summary>
+    private async Task<string> LastPushedAsync(string clone, string branch, CancellationToken cancellationToken) =>
+        (await git.RunAsync(Git.Against(clone, "config", "--get", "--default", string.Empty, PushedKeyOf(branch)), cancellationToken)).Trim();
+
+    /// <summary>Records <paramref name="head"/>, which the remote's <paramref name="branch"/> now holds, as the commit this node last pushed for it.</summary>
+    private Task RecordPushedAsync(string clone, string branch, string head, CancellationToken cancellationToken) =>
+        git.RunAsync(Git.Against(clone, "config", PushedKeyOf(branch), head), cancellationToken);
 
     /// <summary>
     /// Removes the worktree at <paramref name="workPath"/>, the work path the core gives the flow run
