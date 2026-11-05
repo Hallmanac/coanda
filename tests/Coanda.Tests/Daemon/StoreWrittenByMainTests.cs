@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
@@ -132,6 +133,29 @@ public sealed class StoreWrittenByMainTests
         Assert.All(earlier, d => Assert.Equal(("software", "0.1.0"), (d.Module, d.ModuleVersion)));
         Assert.All(kept.Where(d => d.Scope != DefinitionScope.Module), d => Assert.Equal((null, null), (d.Module, d.ModuleVersion)));
         Assert.Equal(["build", "build"], earlier.Where(d => d.Kind == DefinitionKind.Flow && d.Name == "build").OrderBy(d => d.VersionNumber).Select(d => Flow.FromJson(d.Content).Name));
+    }
+
+    [Fact]
+    public async Task A_start_rewrites_no_event_main_stored_and_every_definition_reads_with_the_content_hash_it_was_stored_with()
+    {
+        using var temp = new TemporaryHome();
+        Restore(temp.Home);
+        IReadOnlyList<StoredRow> before = EarlierFlowRuns.Rows(temp.Home.DatabasePath);
+        Dictionary<string, string> storedHashes = before
+            .Where(r => r.Type == "definition_drafted")
+            .ToDictionary(r => r.StreamId, r => JsonDocument.Parse(r.Data).RootElement.GetProperty("contentHash").GetString() ?? string.Empty, StringComparer.Ordinal);
+
+        await using (RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None))
+        {
+            await daemon.StopAsync(None);
+        }
+
+        IReadOnlyList<StoredRow> after = EarlierFlowRuns.Rows(temp.Home.DatabasePath);
+        Assert.Equal(before, after.Take(before.Count));
+        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        List<Definition> held = await HeldAsync(store);
+        Assert.Equal(14, storedHashes.Count);
+        Assert.All(storedHashes, stored => Assert.Equal(stored.Value, Assert.Single(held, d => d.Id.ToString() == stored.Key).ContentHash));
     }
 
     [Fact]
