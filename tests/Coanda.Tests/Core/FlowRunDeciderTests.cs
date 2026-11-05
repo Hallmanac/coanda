@@ -6,7 +6,6 @@ using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
-using Coanda.Core.Software;
 using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
@@ -14,7 +13,7 @@ namespace Coanda.Tests.Core;
 public sealed class FlowRunDeciderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
-    private static readonly Flow Build = ShippedFlows.Build;
+    private static readonly Flow Build = SoftwareFlows.Build;
     private static readonly ModelSpec Model = new("anthropic", "claude-opus-5-5", "high");
     private static readonly Measurement Spend = new(1200, 0.42m, 3, TimeSpan.FromSeconds(63));
 
@@ -105,9 +104,9 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_flow_run_whose_first_step_is_an_agent_step_counts_one_spawn_at_start()
     {
-        FlowRun flowRun = Started(ShippedFlows.ReviewOnAssignment);
+        FlowRun flowRun = Started(SoftwareFlows.ReviewOnAssignment);
 
-        Assert.Equal(Interpreter.Start(ShippedFlows.ReviewOnAssignment), flowRun.Position);
+        Assert.Equal(Interpreter.Start(SoftwareFlows.ReviewOnAssignment), flowRun.Position);
         Assert.Equal(1, flowRun.Position.Spawns);
     }
 
@@ -376,7 +375,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void Recording_against_a_flow_other_than_the_one_the_flow_run_started_under_is_refused()
     {
-        Action step = () => FlowRunDecider.StartStep(ShippedFlows.Discovery, Started(), "discover", Now);
+        Action step = () => FlowRunDecider.StartStep(SoftwareFlows.Discovery, Started(), "discover", Now);
 
         DomainException exception = Assert.Throws<DomainException>(step);
         Assert.EndsWith("a flow run keeps the flow it started under.", exception.Message, StringComparison.Ordinal);

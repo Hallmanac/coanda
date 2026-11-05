@@ -7,7 +7,6 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -39,7 +38,7 @@ public sealed class MergeFlowRunTests
     private static readonly CancellationToken None = CancellationToken.None;
 
     /// <summary>The shipped merge flow's shape with a short timer: <see cref="LapCap"/> laps, and a merged cap five above it.</summary>
-    private static readonly Flow QuickLap = ShippedFlows.Merge with
+    private static readonly Flow QuickLap = SoftwareFlows.Merge with
     {
         Steps =
         [
@@ -63,7 +62,7 @@ public sealed class MergeFlowRunTests
     /// The shipped merge flow's shape, rebase lap included, with a short timer: six inspections,
     /// <see cref="RebaseLaps"/> rebases, and a merged cap five above the pending cap.
     /// </summary>
-    private static readonly Flow QuickRebaseLap = ShippedFlows.Merge with
+    private static readonly Flow QuickRebaseLap = SoftwareFlows.Merge with
     {
         Steps =
         [
@@ -102,7 +101,7 @@ public sealed class MergeFlowRunTests
             new FlowStep
             {
                 Name = "qa",
-                Agent = ShippedAgents.ReviewerAdversarial.Name,
+                Agent = SoftwareAgents.ReviewerAdversarial.Name,
                 AnswerSchema = "review",
                 Transitions = [On("clean", Flow.End, 1), On("not-clean", Flow.Pause, 1)],
             },
@@ -110,7 +109,7 @@ public sealed class MergeFlowRunTests
     };
 
     /// <summary>The project's own merge, named as the shipped one so it replaces it there, following QA's outcome rather than the build's.</summary>
-    private static readonly Flow MergeAfterQa = ShippedFlows.Merge with
+    private static readonly Flow MergeAfterQa = SoftwareFlows.Merge with
     {
         Follow = new FlowFollow { Outcome = "qa-passed", Flow = "qa", DepthCap = 3 },
     };
@@ -312,9 +311,9 @@ public sealed class MergeFlowRunTests
         var github = new FakeGitHub();
         var hold = new HoldingGate();
         await using Harness harness = await Harness.StartAsync(github, project: null, hold);
-        await harness.PublishTypeAsync(ShippedTypes.Task with
+        await harness.PublishTypeAsync(SoftwareTypes.Task with
         {
-            GateBindings = [.. ShippedTypes.Task.GateBindings, new GateBinding("review", ShippedTypes.Closed, HoldingGate.GateName)],
+            GateBindings = [.. SoftwareTypes.Task.GateBindings, new GateBinding("review", SoftwareTypes.Closed, HoldingGate.GateName)],
         });
 
         (FlowRunView build, FlowRunView merge) = await harness.BuildThenMergeAsync("Closed only when released", "paused");

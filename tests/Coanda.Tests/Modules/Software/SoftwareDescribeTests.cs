@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 using Coanda.Daemon.Modules;
 using Coanda.Modules.Software;
 using Coanda.Sdk.Contract;
@@ -53,7 +52,7 @@ public sealed class SoftwareDescribeTests
     public async Task The_shipped_build_and_merge_flows_name_the_software_steps_as_describe_does_and_give_each_arguments_its_schema_accepts()
     {
         Dictionary<string, StepDescription> described = SoftwareDescribe.Answer.Steps.ToDictionary(s => s.Name, StringComparer.Ordinal);
-        FlowStep[] software = [.. new[] { ShippedFlows.Build, ShippedFlows.Merge }
+        FlowStep[] software = [.. new[] { SoftwareFlows.Build, SoftwareFlows.Merge }
             .SelectMany(f => f.Steps)
             .Where(s => s.SystemStep is { } name && !CoreSystemSteps.All.Contains(name))];
 

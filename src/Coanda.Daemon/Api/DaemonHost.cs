@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
+using Coanda.Core;
 using Coanda.Core.Parcels;
-using Coanda.Core.Software;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
@@ -188,10 +188,10 @@ public sealed class DaemonHost
             // of its live flow runs reaches a module's step.
             await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);
 
-            // Types come from the store, so the shipped ones are in it before anything is served
-            // or advertised: the address file is written only after this returns.
-            await app.Services.GetRequiredService<DefinitionService>()
-                .SeedAsync(ShippedDefinitions.All, cancellationToken);
+            // Types come from the store, so the modules' ones are in it before anything is served
+            // or advertised: the address file is written only after this returns. Until install exists,
+            // the start stands in for it, reading each module's definitions folder from its directory.
+            await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
 
             // Worktrees of flow runs that ended or were stopped while no daemon ran to remove them go
             // first, before any live flow run is advanced. A sweep that fails is logged and the start goes on.
@@ -218,6 +218,28 @@ public sealed class DaemonHost
         app.Lifetime.ApplicationStopped.Register(() => DaemonInfo.Delete(home));
 
         return new RunningDaemon(app, info);
+    }
+
+    /// <summary>
+    /// Imports the definitions of the software module, whose manifest must name it by the name its steps
+    /// are prefixed with and projects switch it on by, then those of each module in
+    /// <see cref="DaemonOptions.ModulePaths"/>, each module in one save.
+    /// </summary>
+    private static async Task ImportModulesAsync(DefinitionService definitions, DaemonOptions options, CancellationToken cancellationToken)
+    {
+        string softwarePath = options.SoftwareModulePath ?? DaemonOptions.DefaultSoftwareModulePath;
+        ModuleArtifact software = await ModuleArtifact.ReadAsync(softwarePath, cancellationToken);
+        if (!string.Equals(software.Module, SoftwareSteps.Module, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"The software module's manifest in '{softwarePath}' names the module '{software.Module}'; it is '{SoftwareSteps.Module}', the name its steps are prefixed with and projects switch it on by.");
+        }
+
+        await definitions.ImportAsync(software, cancellationToken);
+        foreach (string path in options.ModulePaths)
+        {
+            await definitions.ImportAsync(await ModuleArtifact.ReadAsync(path, cancellationToken), cancellationToken);
+        }
     }
 
     private static int BoundPort(WebApplication app)

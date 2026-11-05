@@ -1,5 +1,4 @@
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 using Coanda.Core.Triggers;
 
 namespace Coanda.Tests.Core;
@@ -43,7 +42,7 @@ public sealed class TriggerTests
         Assert.Equal("parcel-entered", entered.Kind);
         Assert.Equivalent(new Dictionary<string, string> { ["type"] = "task", ["stage"] = "build" }, entered.Fields, strict: true);
 
-        Trigger binding = Trigger.ForBinding(ShippedTypes.Task, ShippedTypes.Task.FlowBindings[0]);
+        Trigger binding = Trigger.ForBinding(SoftwareTypes.Task, SoftwareTypes.Task.FlowBindings[0]);
         Assert.True(binding.Matches(entered));
         Assert.False(binding.Matches(TriggerEvent.ParcelEntered("task", "review")));
         Assert.False(binding.Matches(TriggerEvent.ParcelEntered("idea", "build")));

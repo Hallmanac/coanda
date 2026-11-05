@@ -4,7 +4,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
-using Coanda.Core.Software;
 using Coanda.Daemon.Executors;
 
 namespace Coanda.Tests.Daemon.Executors;
@@ -235,7 +234,7 @@ public sealed class ContextAssemblerTests
     [Fact]
     public async Task The_spawned_context_holds_the_parcel_and_the_step_and_none_of_the_persona()
     {
-        AgentDefinition agent = ShippedAgents.ReviewerAdversarial with
+        AgentDefinition agent = SoftwareAgents.ReviewerAdversarial with
         {
             Name = "persona-probe",
             Persona = new AgentPersona(

@@ -2,7 +2,6 @@ using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Parcels;
@@ -17,16 +16,16 @@ public sealed class DefinitionStoreTests
     private static readonly Principal Agent = new("build-session", Role.Agent);
     private static readonly Principal Member = new("pat", Role.Member);
 
-    private static readonly ParcelType QaTask = ShippedTypes.Task with
+    private static readonly ParcelType QaTask = SoftwareTypes.Task with
     {
-        Stages = [.. ShippedTypes.Task.Stages, "qa"],
+        Stages = [.. SoftwareTypes.Task.Stages, "qa"],
         Moves = new Dictionary<string, IReadOnlyList<string>>
         {
             ["refine"] = ["build"],
             ["build"] = ["review"],
             ["review"] = ["build", "qa"],
         },
-        GateBindings = [.. ShippedTypes.Task.GateBindings, new GateBinding("review", "qa", RequiredFieldsGate.GateName)],
+        GateBindings = [.. SoftwareTypes.Task.GateBindings, new GateBinding("review", "qa", RequiredFieldsGate.GateName)],
     };
 
     private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
@@ -67,7 +66,7 @@ public sealed class DefinitionStoreTests
                 Principal.LocalOwner, DefinitionScope.Project, "alpha", fork, new ForkBase("task", 1), CancellationToken.None);
             project = await definitions.PublishAsync(Principal.LocalOwner, "alpha", project.Id, CancellationToken.None);
             owner = await definitions.DraftParcelTypeAsync(
-                Principal.LocalOwner, DefinitionScope.Owner, null, ShippedTypes.Idea with { Name = "note" }, null, CancellationToken.None);
+                Principal.LocalOwner, DefinitionScope.Owner, null, SoftwareTypes.Idea with { Name = "note" }, null, CancellationToken.None);
         }
 
         await using (IDocumentStore reopened = StoreConfiguration.Open(temp.Home.DatabasePath))
@@ -93,8 +92,8 @@ public sealed class DefinitionStoreTests
             Assert.Equal(DefinitionStatus.Draft, readOwner.Status);
             Assert.Null(readOwner.ForkBase);
 
-            IReadOnlyList<Definition> shipped = [.. (await node.Query<Definition>().ToListAsync(CancellationToken.None)).Where(d => d.Scope == DefinitionScope.Shipped)];
-            Assert.Equivalent(ShippedTypes.All.Select(t => (t.Name, t.Hash, 1, DefinitionStatus.Published)), shipped.Select(d => (d.Name, d.ContentHash, d.VersionNumber, d.Status)), strict: true);
+            IReadOnlyList<Definition> shipped = [.. (await node.Query<Definition>().ToListAsync(CancellationToken.None)).Where(d => d.Scope == DefinitionScope.Module)];
+            Assert.Equivalent(SoftwareTypes.All.Select(t => (t.Name, t.Hash, 1, DefinitionStatus.Published)), shipped.Select(d => (d.Name, d.ContentHash, d.VersionNumber, d.Status)), strict: true);
         }
     }
 
@@ -114,7 +113,7 @@ public sealed class DefinitionStoreTests
     [Theory]
     [InlineData(DefinitionScope.Project, "alpha")]
     [InlineData(DefinitionScope.Owner, null)]
-    public async Task A_draft_whose_fork_base_names_no_seeded_shipped_version_is_refused(DefinitionScope scope, string? project)
+    public async Task A_draft_whose_fork_base_names_no_imported_module_scope_version_is_refused(DefinitionScope scope, string? project)
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
@@ -124,11 +123,11 @@ public sealed class DefinitionStoreTests
         {
             DomainException exception = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
                     Principal.LocalOwner, scope, project, QaTask, unshipped, CancellationToken.None));
-            Assert.StartsWith($"The fork base '{unshipped.Name}' version {unshipped.Version} of 'task' names no shipped parcel type", exception.Message, StringComparison.Ordinal);
+            Assert.StartsWith($"The fork base '{unshipped.Name}' version {unshipped.Version} of 'task' names no module-scope parcel type", exception.Message, StringComparison.Ordinal);
         }
 
-        // A shipped definition of another kind is not a fork base for a parcel type.
-        await definitions.SeedAsync(ShippedDefinitions.Flows, CancellationToken.None);
+        // A module-scope definition of another kind is not a fork base for a parcel type.
+        await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.Flows), CancellationToken.None);
         DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
                 Principal.LocalOwner, scope, project, QaTask, new ForkBase("build", 1), CancellationToken.None));
         Assert.StartsWith("The fork base 'build' version 1", exception2.Message, StringComparison.Ordinal);
@@ -155,8 +154,8 @@ public sealed class DefinitionStoreTests
         Definition? resolved = await resolver.ResolveAsync("alpha", DefinitionKind.ParcelType, "task", CancellationToken.None);
         Assert.NotNull(resolved);
         // an agent's drafts govern nothing
-        Assert.Equal(DefinitionScope.Shipped, resolved.Scope);
-        Assert.Equal(ShippedTypes.Task.Hash, resolved.ContentHash);
+        Assert.Equal(DefinitionScope.Module, resolved.Scope);
+        Assert.Equal(SoftwareTypes.Task.Hash, resolved.ContentHash);
     }
 
     [Theory]
@@ -190,14 +189,14 @@ public sealed class DefinitionStoreTests
 
         await definitions.RetireAsync(Principal.LocalOwner, "alpha", published.Id, CancellationToken.None);
         Definition? afterRetire = await resolver.ResolveAsync("alpha", DefinitionKind.ParcelType, "task", CancellationToken.None);
-        Assert.Equal(DefinitionScope.Shipped, afterRetire!.Scope);
+        Assert.Equal(DefinitionScope.Module, afterRetire!.Scope);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => definitions.PublishAsync(Principal.LocalOwner, "alpha", published.Id, CancellationToken.None));
         Assert.StartsWith("Only a draft can be published", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task A_shipped_definition_cannot_be_retired_through_the_service()
+    public async Task A_module_scope_definition_cannot_be_retired_through_the_service()
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
@@ -205,11 +204,11 @@ public sealed class DefinitionStoreTests
         Definition shipped = (await resolver.ResolveAsync("alpha", DefinitionKind.ParcelType, "task", CancellationToken.None))!;
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => Definitions(store).RetireAsync(Principal.LocalOwner, null, shipped.Id, CancellationToken.None));
-        Assert.StartsWith("A shipped definition cannot be retired", exception.Message, StringComparison.Ordinal);
+        Assert.StartsWith("A module-scope definition cannot be retired", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Owner_and_shipped_records_live_in_the_node_tenant_that_no_project_name_reaches()
+    public async Task Owner_and_module_scope_records_live_in_the_node_tenant_that_no_project_name_reaches()
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
@@ -225,7 +224,7 @@ public sealed class DefinitionStoreTests
 
         await using (IQuerySession node = store.QuerySession(Tenants.Node))
         {
-            Assert.Equal(ShippedTypes.All.Count + 1, (await node.Query<Definition>().ToListAsync(CancellationToken.None)).Count);
+            Assert.Equal(SoftwareTypes.All.Count + 1, (await node.Query<Definition>().ToListAsync(CancellationToken.None)).Count);
         }
 
         foreach (string reserved in new[] { Tenants.Node, " _NODE " })
@@ -248,9 +247,9 @@ public sealed class DefinitionStoreTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         long before = await CountEventsAsync(store, Tenants.Node);
         // each shipped type is a drafted and a published event
-        Assert.Equal(ShippedTypes.All.Count * 2, before);
+        Assert.Equal(SoftwareTypes.All.Count * 2, before);
 
-        IReadOnlyList<Definition> again = await Definitions(store).SeedAsync(ShippedDefinitions.ParcelTypes, CancellationToken.None);
+        IReadOnlyList<Definition> again = await Definitions(store).ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.ParcelTypes), CancellationToken.None);
 
         Assert.Empty(again);
         Assert.Equal(before, await CountEventsAsync(store, Tenants.Node));
@@ -261,23 +260,23 @@ public sealed class DefinitionStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        ParcelType changed = ShippedTypes.Task with { Resolutions = [.. ShippedTypes.Task.Resolutions, "wontfix"] };
+        ParcelType changed = SoftwareTypes.Task with { Resolutions = [.. SoftwareTypes.Task.Resolutions, "wontfix"] };
 
-        IReadOnlyList<Definition> seeded = await Definitions(store).SeedAsync([ShippedDefinition.FromParcelType(changed)], CancellationToken.None);
+        IReadOnlyList<Definition> seeded = await Definitions(store).ImportAsync(SoftwareDefinitions.Artifact([ModuleDefinition.FromParcelType(changed)]), CancellationToken.None);
 
         Assert.Equal(2, Assert.Single(seeded).VersionNumber);
         Definition? resolved = await new DefinitionResolver(store).ResolveAsync("alpha", DefinitionKind.ParcelType, "task", CancellationToken.None);
         Assert.Equal(2, resolved!.VersionNumber);
         Assert.Equal(changed.Hash, resolved.ContentHash);
 
-        Assert.Empty(await Definitions(store).SeedAsync([ShippedDefinition.FromParcelType(changed)], CancellationToken.None));
+        Assert.Empty(await Definitions(store).ImportAsync(SoftwareDefinitions.Artifact([ModuleDefinition.FromParcelType(changed)]), CancellationToken.None));
     }
 
     [Fact]
     public void Seeding_passes_the_registrys_publish_entry_under_an_owner_role_principal()
     {
-        Assert.Equal(Role.Owner, DefinitionService.SeedPrincipal.Role);
-        Assert.NotNull(CommandRegistry.Require("definition.publish", DefinitionService.SeedPrincipal));
+        Assert.Equal(Role.Owner, DefinitionService.ImportPrincipal.Role);
+        Assert.NotNull(CommandRegistry.Require("definition.publish", DefinitionService.ImportPrincipal));
     }
 
     [Fact]
@@ -292,17 +291,17 @@ public sealed class DefinitionStoreTests
 
         Parcel inAlpha = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Starts in qa", "qa", CancellationToken.None);
         Assert.Equal("qa", inAlpha.Stage);
-        Assert.NotEqual(ShippedTypes.Task.Hash, inAlpha.TypeHash);
+        Assert.NotEqual(SoftwareTypes.Task.Hash, inAlpha.TypeHash);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.AddAsync(Principal.LocalOwner, "beta", "task", "Not here", "qa", CancellationToken.None));
         Assert.Contains("cannot start at 'qa'", exception.Message, StringComparison.Ordinal);
         Parcel inBeta = await parcels.AddAsync(Principal.LocalOwner, "beta", "task", "Shipped", null, CancellationToken.None);
-        Assert.Equal(ShippedTypes.Task.Hash, inBeta.TypeHash);
+        Assert.Equal(SoftwareTypes.Task.Hash, inBeta.TypeHash);
 
         IReadOnlyList<ParcelType> alphaTypes = await parcels.TypesAsync(Principal.LocalOwner, "alpha", CancellationToken.None);
         Assert.Contains("qa", alphaTypes.Single(t => t.Name == "task").Stages);
         IReadOnlyList<ParcelType> betaTypes = await parcels.TypesAsync(Principal.LocalOwner, "beta", CancellationToken.None);
-        Assert.Equal(ShippedTypes.Task.Hash, betaTypes.Single(t => t.Name == "task").Hash);
+        Assert.Equal(SoftwareTypes.Task.Hash, betaTypes.Single(t => t.Name == "task").Hash);
     }
 
     [Fact]
@@ -314,7 +313,7 @@ public sealed class DefinitionStoreTests
         var parcels = new ParcelService(store, TimeProvider.System);
 
         IReadOnlyList<ParcelType> types = await parcels.TypesAsync(Principal.LocalOwner, "alpha", CancellationToken.None);
-        Assert.Equal(ShippedTypes.All.Select(t => (t.Name, t.Hash)), types.Select(t => (t.Name, t.Hash)));
+        Assert.Equal(SoftwareTypes.All.Select(t => (t.Name, t.Hash)), types.Select(t => (t.Name, t.Hash)));
 
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "alpha", "Task", "Lifecycle", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, "alpha", parcel.Id, cancellationToken: CancellationToken.None);
@@ -337,9 +336,9 @@ public sealed class DefinitionStoreTests
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "review", CancellationToken.None);
 
-        ParcelType withoutReview = ShippedTypes.Task with
+        ParcelType withoutReview = SoftwareTypes.Task with
         {
-            Stages = ["refine", "build", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "build", SoftwareTypes.Paused, SoftwareTypes.Closed],
             Resolutions = ["shipped"],
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["build"] },
             GateBindings = [new GateBinding("refine", "build", RequiredFieldsGate.GateName)],
@@ -348,7 +347,7 @@ public sealed class DefinitionStoreTests
 
         Parcel moved = await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
         Assert.Equal("build", moved.Stage);
-        Assert.Equal(ShippedTypes.Task.Hash, moved.TypeHash);
+        Assert.Equal(SoftwareTypes.Task.Hash, moved.TypeHash);
         Assert.Equal("completed", (await parcels.CloseAsync(Principal.LocalOwner, "alpha", inReview.Id, "completed", "Done.", CancellationToken.None))
             .Resolution);
 
@@ -369,7 +368,7 @@ public sealed class DefinitionStoreTests
         Parcel original = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Before", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, "alpha", original.Id, cancellationToken: CancellationToken.None);
 
-        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", ShippedTypes.Task with { Name = "Task", EntryStages = ["refine", "build"] });
+        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", SoftwareTypes.Task with { Name = "Task", EntryStages = ["refine", "build"] });
         Assert.Equal("build", (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "build", CancellationToken.None)).Stage);
 
         Parcel underCased = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "After", "build", CancellationToken.None);

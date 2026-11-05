@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -10,7 +9,7 @@ namespace Coanda.Tests.Core;
 /// </summary>
 public sealed class BuildFlowInterpreterTests
 {
-    private static readonly Flow Build = ShippedFlows.Build;
+    private static readonly Flow Build = SoftwareFlows.Build;
 
     /// <summary>A step's success answer is the one its first transition routes on.</summary>
     private static FlowTransition Success(string step) => Build.Step(step)?.Transitions[0]

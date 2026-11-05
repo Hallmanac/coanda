@@ -19,6 +19,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The module's manifest and its definitions folder, one JSON file per type, flow, and agent. They are
+      copied to modules/software/ beside the assembly of whatever builds on this project, the daemon's
+      among them, which reads them there at start and imports the definitions in module scope.
+    -->
+    <None Include="module.json" CopyToOutputDirectory="PreserveNewest" Link="modules/software/module.json" />
+    <None Include="definitions/**/*.json" CopyToOutputDirectory="PreserveNewest" Link="modules/software/definitions/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Coanda.Tests" />
   </ItemGroup>
 

@@ -4,7 +4,6 @@ using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
@@ -273,7 +272,7 @@ public sealed class ClaudeCodeFlowRunTests
         using var fake = new FakeClaude(Answer(Valid));
         await using RunningDaemon daemon = await StartAsync(temp, fake);
         using var client = new DaemonClient(temp.Home);
-        AgentDefinition outsider = ShippedAgents.Build with { Name = "outsider", Model = new ModelSpec(vendor, model, effort) };
+        AgentDefinition outsider = SoftwareAgents.Build with { Name = "outsider", Model = new ModelSpec(vendor, model, effort) };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
         Definition draft = await definitions.DraftAsync(
             Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, outsider.Name, AgentDefinition.CanonicalJson(outsider), outsider.Hash, null, None);

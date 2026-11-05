@@ -1,0 +1,78 @@
+{
+  "Name": "task",
+  "Stages": [
+    "refine",
+    "build",
+    "review",
+    "paused",
+    "closed"
+  ],
+  "EntryStages": [
+    "refine"
+  ],
+  "TerminalStage": "closed",
+  "Resolutions": [
+    "completed",
+    "abandoned",
+    "superseded",
+    "duplicate"
+  ],
+  "PausedStage": "paused",
+  "Moves": {
+    "refine": [
+      "build"
+    ],
+    "build": [
+      "review"
+    ],
+    "review": [
+      "build"
+    ]
+  },
+  "FlowBindings": [
+    {
+      "Stage": "build",
+      "Flow": "build"
+    }
+  ],
+  "GateBindings": [
+    {
+      "From": "refine",
+      "To": "build",
+      "Gate": "required-fields"
+    },
+    {
+      "From": "build",
+      "To": "review",
+      "Gate": "required-fields"
+    }
+  ],
+  "Fields": [
+    {
+      "Name": "objective",
+      "Kind": "text",
+      "RequiredToLeave": [
+        "refine"
+      ]
+    },
+    {
+      "Name": "criteria",
+      "Kind": "text-list",
+      "RequiredToLeave": [
+        "refine"
+      ]
+    },
+    {
+      "Name": "non-goals",
+      "Kind": "text-list",
+      "RequiredToLeave": []
+    },
+    {
+      "Name": "pull-request",
+      "Kind": "reference",
+      "RequiredToLeave": [
+        "build"
+      ]
+    }
+  ]
+}

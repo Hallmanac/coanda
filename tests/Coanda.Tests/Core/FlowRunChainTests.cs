@@ -7,7 +7,6 @@ using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
-using Coanda.Core.Software;
 using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
@@ -15,7 +14,7 @@ namespace Coanda.Tests.Core;
 public sealed class FlowRunChainTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
-    private static readonly Flow Build = ShippedFlows.Build;
+    private static readonly Flow Build = SoftwareFlows.Build;
     private static readonly ModelSpec Model = new("anthropic", "claude-opus-5-5", "high");
 
     private static readonly Flow Follower = new()

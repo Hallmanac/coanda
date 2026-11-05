@@ -1,7 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -16,9 +15,9 @@ public sealed class OwnedFieldDecisionTests
     private const string Owned = "objective";
     private const string Unowned = "criteria";
 
-    private static readonly ParcelType Type = ShippedTypes.Task with
+    private static readonly ParcelType Type = SoftwareTypes.Task with
     {
-        Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == Owned ? f with { Owner = "software" } : f)],
+        Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Name == Owned ? f with { Owner = "software" } : f)],
     };
 
     public static TheoryData<string, Principal, bool> Allowed => new()

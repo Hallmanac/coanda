@@ -1,6 +1,5 @@
 using Coanda.Core;
 using Coanda.Core.Parcels;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -14,23 +13,23 @@ public sealed class ParcelTypeBindingTests
     /// The shipped task without the gate bindings it ships with, so a test binds only the gates it names,
     /// and without the fields those bindings enforce, which a type may not declare unenforced.
     /// </summary>
-    private static readonly ParcelType Ungated = ShippedTypes.Task with { GateBindings = [], Fields = [] };
+    private static readonly ParcelType Ungated = SoftwareTypes.Task with { GateBindings = [], Fields = [] };
 
     [Fact]
     public void The_shipped_task_binds_build_to_build_and_the_shipped_idea_binds_discovery_to_discovery_and_nothing_else()
     {
-        Assert.Equal([new FlowBinding("build", "build")], ShippedTypes.Task.FlowBindings);
-        Assert.Equal([new FlowBinding("discovery", "discovery")], ShippedTypes.Idea.FlowBindings);
-        Assert.Empty(ShippedTypes.Idea.GateBindings);
-        Assert.Equal([new GateBinding("refine", "build", RequiredFieldsGate.GateName), new GateBinding("build", "review", RequiredFieldsGate.GateName)], ShippedTypes.Task.GateBindings);
-        Assert.All(ShippedTypes.All, t => Assert.True(t.FlowBindings.Count == 1, "no other stage carries a flow"));
+        Assert.Equal([new FlowBinding("build", "build")], SoftwareTypes.Task.FlowBindings);
+        Assert.Equal([new FlowBinding("discovery", "discovery")], SoftwareTypes.Idea.FlowBindings);
+        Assert.Empty(SoftwareTypes.Idea.GateBindings);
+        Assert.Equal([new GateBinding("refine", "build", RequiredFieldsGate.GateName), new GateBinding("build", "review", RequiredFieldsGate.GateName)], SoftwareTypes.Task.GateBindings);
+        Assert.All(SoftwareTypes.All, t => Assert.True(t.FlowBindings.Count == 1, "no other stage carries a flow"));
     }
 
     [Fact]
     public void A_type_that_binds_nothing_hashes_to_a_literal()
     {
         Assert.Equal("3e70a726cd7c44a1", (Ungated with { FlowBindings = [] }).Hash);
-        Assert.Equal("d548b43e0f79bc35", (ShippedTypes.Idea with { FlowBindings = [] }).Hash);
+        Assert.Equal("d548b43e0f79bc35", (SoftwareTypes.Idea with { FlowBindings = [] }).Hash);
     }
 
     [Fact]

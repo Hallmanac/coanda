@@ -1,6 +1,5 @@
 using Coanda.Core;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -82,7 +81,7 @@ public sealed class FlowStepFieldTests
     [Fact]
     public void The_shipped_build_flow_briefs_its_agent_steps_with_the_objective_criteria_and_non_goals()
     {
-        Flow build = ShippedFlows.Build;
+        Flow build = SoftwareFlows.Build;
 
         foreach (string step in new[] { "build", "fix", "adversarial-review", "conformance-review" })
         {

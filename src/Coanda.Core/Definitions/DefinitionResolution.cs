@@ -2,12 +2,12 @@ namespace Coanda.Core.Definitions;
 
 /// <summary>
 /// Which definition governs a project's work. Nearest scope wins by name, in the order project,
-/// owner, shipped; within a scope the highest published version wins. A draft or a retired
+/// owner, module; within a scope the highest published version wins. A draft or a retired
 /// version is never returned, and a project-scope definition is returned only for its own project.
 /// </summary>
 public static class DefinitionResolution
 {
-    private static readonly DefinitionScope[] NearestFirst = [DefinitionScope.Project, DefinitionScope.Owner, DefinitionScope.Shipped];
+    private static readonly DefinitionScope[] NearestFirst = [DefinitionScope.Project, DefinitionScope.Owner, DefinitionScope.Module];
 
     public static Definition? Resolve(IEnumerable<Definition> candidates, string project, DefinitionKind kind, string name)
     {

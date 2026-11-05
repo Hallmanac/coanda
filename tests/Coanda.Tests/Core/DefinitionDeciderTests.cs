@@ -2,7 +2,6 @@ using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Modules.Software;
@@ -15,7 +14,7 @@ public sealed class DefinitionDeciderTests
 
     private static DefinitionDrafted DraftTask(ParcelType? type = null, DefinitionScope scope = DefinitionScope.Project, string? project = "alpha", int latest = 0)
     {
-        ParcelType task = type ?? ShippedTypes.Task;
+        ParcelType task = type ?? SoftwareTypes.Task;
         return DefinitionDecider.Draft(
             DefinitionKind.ParcelType, task.Name, scope, scope == DefinitionScope.Project ? project : null, latest,
             ParcelType.CanonicalJson(task), task.Hash, null, "brian", Now);
@@ -27,10 +26,10 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void Draft_records_every_field_and_the_next_version()
     {
-        ParcelType fork = ShippedTypes.Task with { Stages = [.. ShippedTypes.Task.Stages, "qa"] };
+        ParcelType fork = SoftwareTypes.Task with { Stages = [.. SoftwareTypes.Task.Stages, "qa"] };
         DefinitionDrafted drafted = DefinitionDecider.Draft(
             DefinitionKind.ParcelType, "task", DefinitionScope.Project, " alpha ", 2,
-            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, shippedVersions: [new ForkBase("task", 1)]);
+            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task))]);
 
         Definition definition = Definition.Create(drafted);
         Assert.Equal(DefinitionKind.ParcelType, definition.Kind);
@@ -48,21 +47,21 @@ public sealed class DefinitionDeciderTests
     [InlineData("task", 2)]
     [InlineData("bug", 1)]
     [InlineData("build", 1)]
-    public void A_fork_base_naming_no_shipped_definition_of_the_drafts_kind_is_refused_naming_it(string baseName, int baseVersion)
+    public void A_fork_base_naming_no_module_scope_definition_of_the_drafts_kind_is_refused_naming_it(string baseName, int baseVersion)
     {
-        ParcelType fork = ShippedTypes.Task with { Stages = [.. ShippedTypes.Task.Stages, "qa"] };
-        ForkBase[] shipped = [new("task", 1), new("idea", 1)];
+        ParcelType fork = SoftwareTypes.Task with { Stages = [.. SoftwareTypes.Task.Stages, "qa"] };
+        Definition[] shipped = [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task)), ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea))];
 
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
-                ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase(baseName, baseVersion), "brian", Now, shippedVersions: shipped));
-        Assert.StartsWith($"The fork base '{baseName}' version {baseVersion} of 'task' names no shipped parcel type", exception.Message, StringComparison.Ordinal);
+                ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase(baseName, baseVersion), "brian", Now, moduleVersions: shipped));
+        Assert.StartsWith($"The fork base '{baseName}' version {baseVersion} of 'task' names no module-scope parcel type", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_fork_base_is_refused_when_no_shipped_versions_are_given_and_matched_by_name_without_case()
+    public void A_fork_base_is_refused_when_no_module_versions_are_given_and_matched_by_name_without_case()
     {
-        ParcelType fork = ShippedTypes.Task with { Stages = [.. ShippedTypes.Task.Stages, "qa"] };
+        ParcelType fork = SoftwareTypes.Task with { Stages = [.. SoftwareTypes.Task.Stages, "qa"] };
         string content = ParcelType.CanonicalJson(fork);
 
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
@@ -71,14 +70,14 @@ public sealed class DefinitionDeciderTests
 
         Assert.Equal(new ForkBase("Task", 1), DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Owner, null, 0, content, fork.Hash, new ForkBase("Task", 1), "brian", Now,
-                shippedVersions: [new ForkBase("task", 1)])
+                moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task))])
             .ForkBase);
     }
 
     [Fact]
     public void Content_round_trips_to_a_parcel_type_with_the_same_hash()
     {
-        foreach (ParcelType type in ShippedTypes.All)
+        foreach (ParcelType type in SoftwareTypes.All)
         {
             Assert.Equal(type.Hash, ParcelType.FromJson(ParcelType.CanonicalJson(type)).Hash);
         }
@@ -117,37 +116,44 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
-    public void Retiring_a_shipped_definition_is_refused()
+    public void Retiring_a_module_scope_definition_is_refused()
     {
         (DefinitionDrafted drafted, DefinitionPublished published) =
-            DefinitionDecider.Seed(ShippedDefinition.FromParcelType(ShippedTypes.Task), 0, "seed", Now);
-        Definition shipped = Definition.Create(drafted);
-        shipped.Apply(published);
+            DefinitionDecider.Import(ModuleDefinition.FromParcelType(SoftwareTypes.Task), "software", "0.1.0", [], "import", Now)
+            ?? throw new InvalidOperationException("Nothing was imported.");
+        Definition imported = Definition.Create(drafted);
+        imported.Apply(published);
 
-        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Retire(shipped, "owner", Now));
-        Assert.StartsWith("A shipped definition cannot be retired", exception.Message, StringComparison.Ordinal);
+        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Retire(imported, "owner", Now));
+        Assert.Equal(
+            "A module-scope definition cannot be retired; 'task' version 1 came with module 'software' version 0.1.0.",
+            exception.Message);
     }
 
     [Fact]
-    public void Drafting_into_shipped_scope_is_refused()
+    public void Drafting_into_module_scope_is_refused()
     {
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
-                DefinitionKind.ParcelType, "task", DefinitionScope.Shipped, null, 0,
-                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Task.Hash, null, "brian", Now));
-        Assert.StartsWith("A definition cannot be drafted into shipped scope", exception.Message, StringComparison.Ordinal);
+                DefinitionKind.ParcelType, "task", DefinitionScope.Module, null, 0,
+                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Task.Hash, null, "brian", Now));
+        Assert.StartsWith("A definition cannot be drafted into module scope", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Seeding_produces_the_drafted_and_published_events_together_in_shipped_scope()
+    public void Importing_produces_the_drafted_and_published_events_together_in_module_scope_with_the_module_and_its_version()
     {
-        ShippedDefinition shipped = ShippedDefinition.FromParcelType(ShippedTypes.Idea);
+        ModuleDefinition idea = ModuleDefinition.FromParcelType(SoftwareTypes.Idea);
+        Definition earlier = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea with { Resolutions = ["split"] }));
 
-        (DefinitionDrafted drafted, DefinitionPublished published) = DefinitionDecider.Seed(shipped, 1, "seed", Now);
+        (DefinitionDrafted drafted, DefinitionPublished published) =
+            DefinitionDecider.Import(idea, "software", "0.2.0", [earlier], "import", Now) ?? throw new InvalidOperationException("Nothing was imported.");
 
-        Assert.Equal(DefinitionScope.Shipped, drafted.Scope);
+        Assert.Equal(DefinitionScope.Module, drafted.Scope);
         Assert.Null(drafted.Project);
         Assert.Equal(2, drafted.Version);
-        Assert.Equal(ShippedTypes.Idea.Hash, drafted.ContentHash);
+        Assert.Equal("software", drafted.Module);
+        Assert.Equal("0.2.0", drafted.ModuleVersion);
+        Assert.Equal(SoftwareTypes.Idea.Hash, drafted.ContentHash);
         Assert.Equal(drafted.DefinitionId, published.DefinitionId);
 
         Definition definition = Definition.Create(drafted);
@@ -169,7 +175,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_parcel_type_that_fails_validation_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with { TerminalStage = "finished" };
+        ParcelType broken = SoftwareTypes.Task with { TerminalStage = "finished" };
 
         DomainException exception = Assert.Throws<DomainException>(() => DraftTask(broken));
         Assert.Contains("terminal stage", exception.Message, StringComparison.Ordinal);
@@ -180,8 +186,8 @@ public sealed class DefinitionDeciderTests
     {
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
-                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Idea.Hash, null, "brian", Now));
-        Assert.StartsWith($"The content hash '{ShippedTypes.Idea.Hash}' differs from the parcel type's hash", exception.Message, StringComparison.Ordinal);
+                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Idea.Hash, null, "brian", Now));
+        Assert.StartsWith($"The content hash '{SoftwareTypes.Idea.Hash}' differs from the parcel type's hash", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -189,7 +195,7 @@ public sealed class DefinitionDeciderTests
     {
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "bug", DefinitionScope.Project, "alpha", 0,
-                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Task.Hash, null, "brian", Now));
+                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Task.Hash, null, "brian", Now));
         Assert.StartsWith("A parcel-type definition is named for its type", exception.Message, StringComparison.Ordinal);
     }
 
@@ -201,7 +207,7 @@ public sealed class DefinitionDeciderTests
 
         DomainException exception2 = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Owner, "alpha", 0,
-                ParcelType.CanonicalJson(ShippedTypes.Task), ShippedTypes.Task.Hash, null, "brian", Now));
+                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Task.Hash, null, "brian", Now));
         Assert.StartsWith("Only a project-scope definition belongs to a project", exception2.Message, StringComparison.Ordinal);
     }
 
@@ -232,17 +238,17 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_valid_flow_is_drafted_with_its_hash_and_content_that_reads_back()
     {
-        DefinitionDrafted drafted = DraftFlow(ShippedFlows.Build);
+        DefinitionDrafted drafted = DraftFlow(SoftwareFlows.Build);
 
         Assert.Equal(DefinitionKind.Flow, drafted.Kind);
-        Assert.Equal(ShippedFlows.Build.Hash, drafted.ContentHash);
-        Assert.Equal(ShippedFlows.Build.Hash, Flow.FromJson(drafted.Content).Hash);
+        Assert.Equal(SoftwareFlows.Build.Hash, drafted.ContentHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, Flow.FromJson(drafted.Content).Hash);
     }
 
     [Fact]
     public void A_flow_that_fails_validation_is_refused_quoting_the_validation_message()
     {
-        Flow broken = ShippedFlows.Build with { Budget = 0 };
+        Flow broken = SoftwareFlows.Build with { Budget = 0 };
 
         DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(broken));
         Assert.Equal("Flow 'build' needs a budget greater than zero; every flow declares one.", exception.Message);
@@ -254,17 +260,17 @@ public sealed class DefinitionDeciderTests
         var withoutGates = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != SoftwareSteps.Gates), StringComparer.Ordinal);
         var withoutMove = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != CoreSystemSteps.MoveParcel), StringComparer.Ordinal);
 
-        DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(ShippedFlows.Build, systemSteps: withoutGates));
+        DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(SoftwareFlows.Build, systemSteps: withoutGates));
         Assert.Contains("names the system step 'software/gates', which is not a known system step", exception.Message, StringComparison.Ordinal);
-        DomainException exception2 = Assert.Throws<DomainException>(() => DraftFlow(ShippedFlows.Build, systemSteps: withoutMove));
+        DomainException exception2 = Assert.Throws<DomainException>(() => DraftFlow(SoftwareFlows.Build, systemSteps: withoutMove));
         Assert.Contains("names the system step 'move-parcel', which is not a known system step", exception2.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void A_flow_naming_a_system_step_among_the_names_passed_in_is_drafted_even_when_neither_catalog_holds_it()
     {
-        FlowStep[] steps = [.. ShippedFlows.Build.Steps.Select(s => s.SystemStep == SoftwareSteps.Gates ? s with { SystemStep = "teleport" } : s)];
-        Flow teleporting = ShippedFlows.Build with { Steps = steps };
+        FlowStep[] steps = [.. SoftwareFlows.Build.Steps.Select(s => s.SystemStep == SoftwareSteps.Gates ? s with { SystemStep = "teleport" } : s)];
+        Flow teleporting = SoftwareFlows.Build with { Steps = steps };
         Assert.DoesNotContain("teleport", CoreSystemSteps.All.Concat(SoftwareSteps.All));
 
         DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(teleporting));
@@ -275,19 +281,19 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
-    public void Seeding_a_flow_validates_it_against_the_names_passed_in()
+    public void Importing_a_flow_validates_it_against_the_names_passed_in()
     {
-        ShippedDefinition build = ShippedDefinition.FromFlow(ShippedFlows.Build);
+        ModuleDefinition build = ModuleDefinition.FromFlow(SoftwareFlows.Build);
 
-        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Seed(build, 0, "seed", Now));
+        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Import(build, "software", "0.1.0", [], "import", Now));
         Assert.Contains("which is not a known system step", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(ShippedFlows.Build.Hash, DefinitionDecider.Seed(build, 0, "seed", Now, ShippedSystemSteps.Names).Drafted.ContentHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, DefinitionDecider.Import(build, "software", "0.1.0", [], "import", Now, knownSystemSteps: ShippedSystemSteps.Names)?.Drafted.ContentHash);
     }
 
     [Fact]
     public void A_flow_whose_content_hash_differs_from_its_content_is_refused()
     {
-        DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(ShippedFlows.Build, hash: "0123456789abcdef"));
+        DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(SoftwareFlows.Build, hash: "0123456789abcdef"));
         Assert.StartsWith("The content hash '0123456789abcdef' differs from the flow's hash", exception.Message, StringComparison.Ordinal);
     }
 
@@ -306,26 +312,27 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_flow_definition_named_for_a_different_flow_is_refused()
     {
-        DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(ShippedFlows.Build, name: "ship"));
+        DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(SoftwareFlows.Build, name: "ship"));
         Assert.StartsWith("A flow definition is named for its flow", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Seeding_a_shipped_flow_produces_a_published_shipped_scope_definition()
+    public void Importing_a_modules_flow_produces_a_published_module_scope_definition()
     {
         (DefinitionDrafted drafted, DefinitionPublished published) =
-            DefinitionDecider.Seed(ShippedDefinition.FromFlow(ShippedFlows.Discovery), 0, "seed", Now, ShippedSystemSteps.Names);
+            DefinitionDecider.Import(ModuleDefinition.FromFlow(SoftwareFlows.Discovery), "software", "0.1.0", [], "import", Now, knownSystemSteps: ShippedSystemSteps.Names)
+            ?? throw new InvalidOperationException("Nothing was imported.");
 
         Assert.Equal(DefinitionKind.Flow, drafted.Kind);
-        Assert.Equal(DefinitionScope.Shipped, drafted.Scope);
-        Assert.Equal(ShippedFlows.Discovery.Hash, drafted.ContentHash);
+        Assert.Equal(DefinitionScope.Module, drafted.Scope);
+        Assert.Equal(SoftwareFlows.Discovery.Hash, drafted.ContentHash);
         Assert.Equal(drafted.DefinitionId, published.DefinitionId);
     }
 
     [Fact]
     public void A_drafted_parcel_type_is_validated_against_the_gate_names_it_is_given()
     {
-        ParcelType gated = ShippedTypes.Task with { Fields = [], GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
+        ParcelType gated = SoftwareTypes.Task with { Fields = [], GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
         string content = ParcelType.CanonicalJson(gated);
 
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(

@@ -3,7 +3,6 @@ using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
@@ -51,10 +50,10 @@ public sealed class DaemonSeedingTests
         await RunAndStopAsync(temp.Home, async client =>
         {
             List<TypeView> types = await TypesAsync(client, "alpha");
-            Assert.Equal(ShippedTypes.All.Select(t => (t.Name, t.Hash)), types.Select(t => (t.Name, t.Hash)));
+            Assert.Equal(SoftwareTypes.All.Select(t => (t.Name, t.Hash)), types.Select(t => (t.Name, t.Hash)));
         });
         int afterFirst = await StreamCountAsync(temp.Home);
-        Assert.Equal(ShippedDefinitions.All.Count * 2, afterFirst);
+        Assert.Equal(SoftwareDefinitions.All.Count * 2, afterFirst);
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
         Assert.Equal(afterFirst, await StreamCountAsync(temp.Home));
@@ -66,7 +65,7 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        ParcelType qa = ShippedTypes.Task with { EntryStages = ["refine", "build"] };
+        ParcelType qa = SoftwareTypes.Task with { EntryStages = ["refine", "build"] };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
@@ -78,7 +77,7 @@ public sealed class DaemonSeedingTests
         await RunAndStopAsync(temp.Home, async client =>
         {
             Assert.Equal(qa.Hash, (await TypesAsync(client, "alpha")).Single(t => t.Name == "task").Hash);
-            Assert.Equal(ShippedTypes.Task.Hash, (await TypesAsync(client, "beta")).Single(t => t.Name == "task").Hash);
+            Assert.Equal(SoftwareTypes.Task.Hash, (await TypesAsync(client, "beta")).Single(t => t.Name == "task").Hash);
 
             ParcelView added = await client.PostAsync<ParcelView>(
                 "/parcels", new ParcelAddRequest("alpha", "task", "Starts building", "build"), CancellationToken.None);
@@ -99,15 +98,15 @@ public sealed class DaemonSeedingTests
 
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
         int afterFirst = await StreamCountAsync(temp.Home);
-        Assert.Equal(ShippedDefinitions.All.Count * 2, afterFirst);
+        Assert.Equal(SoftwareDefinitions.All.Count * 2, afterFirst);
 
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             await using IQuerySession session = store.QuerySession(Tenants.Node);
             IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
             List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
-            Assert.Equivalent(ShippedFlows.All.Select(f => (f.Name, f.Hash)), flows.Select(d => (d.Name, d.ContentHash)), strict: true);
-            Assert.All(flows, d => Assert.True(d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1));
+            Assert.Equivalent(SoftwareFlows.All.Select(f => (f.Name, f.Hash)), flows.Select(d => (d.Name, d.ContentHash)), strict: true);
+            Assert.All(flows, d => Assert.True(d.Scope == DefinitionScope.Module && d.Status == DefinitionStatus.Published && d.VersionNumber == 1));
             Assert.All(flows, d => Assert.True(Flow.FromJson(d.Content).Hash == d.ContentHash));
         }
 
@@ -124,7 +123,7 @@ public sealed class DaemonSeedingTests
         {
             List<FlowView> flows = await FlowsAsync(client, "alpha");
 
-            Assert.Equal(ShippedFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)), flows.Select(f => (f.Name, f.Version, f.Hash)));
+            Assert.Equal(SoftwareFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)), flows.Select(f => (f.Name, f.Version, f.Hash)));
             Assert.Equivalent(new[] { "build", "merge", "discovery", "review-on-assignment" }, flows.Select(f => f.Name), strict: true);
 
             DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<List<FlowView>>("/flows?project=_node", CancellationToken.None));
@@ -138,7 +137,7 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        Flow quick = ShippedFlows.ReviewOnAssignment with { Budget = 1m };
+        Flow quick = SoftwareFlows.ReviewOnAssignment with { Budget = 1m };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
@@ -151,7 +150,7 @@ public sealed class DaemonSeedingTests
         await RunAndStopAsync(temp.Home, async client =>
         {
             Assert.Equal(quick.Hash, (await FlowsAsync(client, "alpha")).Single(f => f.Name == "review-on-assignment").Hash);
-            Assert.Equal(ShippedFlows.ReviewOnAssignment.Hash, (await FlowsAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash);
+            Assert.Equal(SoftwareFlows.ReviewOnAssignment.Hash, (await FlowsAsync(client, "beta")).Single(f => f.Name == "review-on-assignment").Hash);
         });
     }
 
@@ -168,18 +167,18 @@ public sealed class DaemonSeedingTests
     public async Task Seeding_a_store_that_holds_the_earlier_shipped_flows_publishes_the_merge_flow_beside_them()
     {
         using var temp = new TemporaryHome();
-        ShippedDefinition[] earlier = [.. ShippedFlows.All.Where(c => c.Name != "merge").Select(ShippedDefinition.FromFlow)];
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [.. ShippedDefinitions.ParcelTypes, .. earlier]);
+        ModuleDefinition[] earlier = [.. SoftwareFlows.All.Where(c => c.Name != "merge").Select(ModuleDefinition.FromFlow)];
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [.. SoftwareDefinitions.ParcelTypes, .. earlier]);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
-        await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+        await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.All), CancellationToken.None);
 
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(CancellationToken.None);
         List<Definition> flows = [.. all.Where(d => d.Kind == DefinitionKind.Flow)];
         // the merge flow is published as its first version and the others are left as they were
-        Assert.Equivalent(ShippedFlows.All.Select(c => (c.Name, 1, c.Hash)), flows.Select(d => (d.Name, d.VersionNumber, d.ContentHash)), strict: true);
-        Assert.All(flows, d => Assert.True(d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Shipped));
+        Assert.Equivalent(SoftwareFlows.All.Select(c => (c.Name, 1, c.Hash)), flows.Select(d => (d.Name, d.VersionNumber, d.ContentHash)), strict: true);
+        Assert.All(flows, d => Assert.True(d.Status == DefinitionStatus.Published && d.Scope == DefinitionScope.Module));
     }
 
     [Fact]
@@ -188,14 +187,14 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         Flow previous = PreviousFlows.BuildWithGatedMerge;
         Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Fields = [] })] };
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ModuleDefinition.FromFlow(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
-        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+        IReadOnlyList<Definition> seeded = await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.All), CancellationToken.None);
 
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
         Assert.Equal(2, build.VersionNumber);
-        Assert.Equal(ShippedFlows.Build.Hash, build.ContentHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, build.ContentHash);
     }
 
     [Fact]
@@ -205,14 +204,14 @@ public sealed class DaemonSeedingTests
         Flow previous = PreviousFlows.BuildWithGatedMerge;
         Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
         Assert.NotEqual(previous.Hash, before.Hash);
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ModuleDefinition.FromFlow(before)]);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
-        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+        IReadOnlyList<Definition> seeded = await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.All), CancellationToken.None);
 
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
         Assert.Equal(2, build.VersionNumber);
-        Assert.Equal(ShippedFlows.Build.Hash, build.ContentHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, build.ContentHash);
     }
 
     [Fact]
@@ -221,16 +220,16 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         Flow previous = PreviousFlows.BuildWithGatedMerge;
         Flow beforeSources = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(beforeSources)]);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ModuleDefinition.FromFlow(beforeSources)]);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
-        await definitions.SeedAsync([ShippedDefinition.FromFlow(previous)], CancellationToken.None);
+        await definitions.ImportAsync(SoftwareDefinitions.Artifact([ModuleDefinition.FromFlow(previous)]), CancellationToken.None);
 
-        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+        IReadOnlyList<Definition> seeded = await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.All), CancellationToken.None);
 
         Definition build = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "build");
         Assert.Equal(3, build.VersionNumber);
         Assert.Equal(DefinitionStatus.Published, build.Status);
-        Assert.Equal(ShippedFlows.Build.Hash, build.ContentHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, build.ContentHash);
         Assert.NotEqual(previous.Hash, build.ContentHash);
         Assert.DoesNotContain(Flow.FromJson(build.Content).Steps, s => s.Name == "gated-merge");
     }
@@ -240,15 +239,15 @@ public sealed class DaemonSeedingTests
     {
         using var temp = new TemporaryHome();
         Flow previous = PreviousFlows.MergeWithoutRebase;
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(previous)]);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ModuleDefinition.FromFlow(previous)]);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
-        IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
+        IReadOnlyList<Definition> seeded = await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.All), CancellationToken.None);
 
         Definition merge = seeded.Single(d => d.Kind == DefinitionKind.Flow && d.Name == "merge");
         Assert.Equal(2, merge.VersionNumber);
         Assert.Equal(DefinitionStatus.Published, merge.Status);
-        Assert.Equal(ShippedFlows.Merge.Hash, merge.ContentHash);
+        Assert.Equal(SoftwareFlows.Merge.Hash, merge.ContentHash);
         Assert.NotEqual(previous.Hash, merge.ContentHash);
         Assert.Equal(["gated-merge", "wait-for-checks", "worktree", "rebase"], Flow.FromJson(merge.Content).Steps.Select(s => s.Name));
     }

@@ -3,6 +3,7 @@ using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.SystemSteps;
+using Coanda.Modules.Software;
 using Coanda.Modules.Software.GitHub;
 using Microsoft.Extensions.Logging;
 
@@ -62,6 +63,25 @@ public sealed record DaemonOptions
     /// modules' own; null holds none. A test brings stand-in modules here.
     /// </summary>
     public IModuleSettingsSchemas? ModuleSettingsSchemas { get; init; }
+
+    /// <summary>
+    /// The directory the software module's <c>module.json</c> and definitions folder are read from at
+    /// start, whose definitions are imported in module scope; null reads <see cref="DefaultSoftwareModulePath"/>.
+    /// </summary>
+    public string? SoftwareModulePath { get; init; }
+
+    /// <summary>
+    /// Directories of modules the daemon does not host, each holding a <c>module.json</c> and a
+    /// definitions folder, whose definitions it imports at start after the software module's. None by
+    /// default: a test brings stand-in modules here.
+    /// </summary>
+    public IReadOnlyList<string> ModulePaths { get; init; } = [];
+
+    /// <summary>
+    /// Where the build puts the software module's <c>module.json</c> and definitions folder: under
+    /// <c>modules/software/</c> beside the daemon's assembly, copied there from the module's project.
+    /// </summary>
+    public static string DefaultSoftwareModulePath => Path.Combine(AppContext.BaseDirectory, "modules", SoftwareSteps.Module);
 
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }

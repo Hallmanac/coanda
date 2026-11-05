@@ -13,12 +13,12 @@ namespace Coanda.Daemon.Definitions;
 
 /// <summary>
 /// The daemon's side of every definition command: pass the registry, ask the decider, append,
-/// save. Project-scope definitions live in their project's tenant; owner-scope and shipped-scope
+/// save. Project-scope definitions live in their project's tenant; owner-scope and module-scope
 /// definitions live in the node tenant (<see cref="Tenants.Node"/>). Writes are serialized so that
 /// two drafts of one name cannot be handed the same version. A drafted parcel type is validated
-/// against the names of the gates the daemon runs, and a drafted or seeded flow against the system
+/// against the names of the gates the daemon runs, and a drafted or imported flow against the system
 /// step names <see cref="SystemStepNames"/> gives for the definition's project, or for no project when
-/// the definition belongs to none (an owner-scope or shipped-scope one); the shipped gate set when it
+/// the definition belongs to none (an owner-scope or module-scope one); the shipped gate set when it
 /// is given no gates, and no system steps when it is given none.
 /// </summary>
 public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates, DefinitionService.SystemStepNames? systemSteps)
@@ -33,10 +33,10 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
     }
 
     /// <summary>
-    /// The principal seeding acts as: the daemon itself, in the Owner role, because seeding is the
-    /// publication of the definitions the binary carries.
+    /// The principal a module's import acts as: the daemon itself, in the Owner role, because importing
+    /// is the publication of the definitions a module the node installed brings.
     /// </summary>
-    public static readonly Principal SeedPrincipal = new("coanda-seed", Role.Owner);
+    public static readonly Principal ImportPrincipal = new("coanda-import", Role.Owner);
 
     private readonly SemaphoreSlim writes = new(1, 1);
     private readonly DefinitionResolver resolver = new(store);
@@ -65,15 +65,13 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             await using IDocumentSession session = store.LightweightSession(tenant);
             IReadOnlyList<Definition> existing = await session.Query<Definition>().ToListAsync(cancellationToken);
             int latest = LatestVersion(existing, kind, scope, project, name);
-            IReadOnlyCollection<ForkBase> shippedVersions = forkBase is null
-                ? []
-                : await ShippedVersionsAsync(kind, cancellationToken);
+            IReadOnlyCollection<Definition> moduleVersions = await ModuleVersionsAsync(kind, cancellationToken);
             IReadOnlySet<string>? known = kind == DefinitionKind.Flow && systemSteps is not null
                 ? await systemSteps(scope == DefinitionScope.Project ? project : null, cancellationToken)
                 : null;
             DefinitionDrafted drafted = DefinitionDecider.Draft(
                 kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(),
-                (gates ?? GateSet.Shipped).Names, known, shippedVersions);
+                (gates ?? GateSet.Shipped).Names, known, moduleVersions);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);
@@ -136,44 +134,54 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
     }
 
     /// <summary>
-    /// Seeds the shipped definitions, whatever their kind, as published shipped-scope definitions.
-    /// A definition whose content hash is already among the shipped versions of its name is
-    /// skipped, so a second run over the same store appends nothing; a new hash becomes the next
-    /// version. Returns the definitions it seeded.
+    /// Imports a module's definitions, whatever their kind, as published module-scope definitions
+    /// carrying the module's name and version, in one save: when any of them breaks a rule, nothing
+    /// is recorded, and the refusal names the file it came from. A definition whose content hash is
+    /// already among the module-scope versions of its kind and name is skipped, so a second import of
+    /// the same definitions records nothing; a new hash becomes the next version; and a kind and name
+    /// another module's module-scope definition holds is refused. Returns the definitions it recorded.
     /// </summary>
-    public async Task<IReadOnlyList<Definition>> SeedAsync(IReadOnlyCollection<ShippedDefinition> shipped, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Definition>> ImportAsync(ModuleArtifact module, CancellationToken cancellationToken)
     {
-        CommandRegistry.Require("definition.publish", SeedPrincipal);
+        CommandRegistry.Require("definition.publish", ImportPrincipal);
+        module.RequireOnePerName();
 
         await writes.WaitAsync(cancellationToken);
         try
         {
             await using IDocumentSession session = store.LightweightSession(Tenants.Node);
             IReadOnlyList<Definition> inNode = await session.Query<Definition>().ToListAsync(cancellationToken);
-            List<Definition> known = [.. inNode.Where(d => d.Scope == DefinitionScope.Shipped)];
-            List<Definition> seeded = [];
+            List<Definition> known = [.. inNode.Where(d => d.Scope == DefinitionScope.Module)];
+            List<Definition> imported = [];
             IReadOnlySet<string>? stepNames = systemSteps is null ? null : await systemSteps(null, cancellationToken);
 
-            foreach (ShippedDefinition definition in shipped)
+            foreach (ModuleArtifactDefinition item in module.Definitions)
             {
-                List<Definition> versions = [.. known.Where(d => d.Kind == definition.Kind && DefinitionResolution.SameName(d.Name, definition.Name))];
-                if (versions.Any(d => string.Equals(d.ContentHash, definition.ContentHash, StringComparison.Ordinal)))
+                (DefinitionDrafted Drafted, DefinitionPublished Published)? recorded;
+                try
+                {
+                    recorded = DefinitionDecider.Import(
+                        item.Definition, module.Module, module.Version, known, ImportPrincipal.Id, clock.GetUtcNow(), (gates ?? GateSet.Shipped).Names, stepNames);
+                }
+                catch (DomainException broken)
+                {
+                    throw module.Refusal(item, broken);
+                }
+
+                if (recorded is not { } events)
                 {
                     continue;
                 }
 
-                (DefinitionDrafted drafted, DefinitionPublished published) = DefinitionDecider.Seed(
-                    definition, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(), SeedPrincipal.Id, clock.GetUtcNow(), stepNames);
-                session.Events.StartStream<Definition>(drafted.DefinitionId, drafted, published);
-
-                Definition created = Definition.Create(drafted);
-                created.Apply(published);
+                session.Events.StartStream<Definition>(events.Drafted.DefinitionId, events.Drafted, events.Published);
+                Definition created = Definition.Create(events.Drafted);
+                created.Apply(events.Published);
                 known.Add(created);
-                seeded.Add(created);
+                imported.Add(created);
             }
 
             await session.SaveChangesAsync(cancellationToken);
-            return seeded;
+            return imported;
         }
         finally
         {
@@ -182,14 +190,15 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
     }
 
     /// <summary>
-    /// The name and version of every shipped definition of a kind. Shipped definitions live in the
-    /// node tenant whatever the draft's scope, so a project-scope draft reads them from there.
+    /// Every module-scope definition of a kind, which a fork base names one of. Module-scope
+    /// definitions live in the node tenant whatever the draft's scope, so a project-scope draft reads
+    /// them from there.
     /// </summary>
-    private async Task<IReadOnlyCollection<ForkBase>> ShippedVersionsAsync(DefinitionKind kind, CancellationToken cancellationToken)
+    private async Task<IReadOnlyCollection<Definition>> ModuleVersionsAsync(DefinitionKind kind, CancellationToken cancellationToken)
     {
         await using IQuerySession node = store.QuerySession(Tenants.Node);
         IReadOnlyList<Definition> inNode = await node.Query<Definition>().ToListAsync(cancellationToken);
-        return [.. inNode.Where(d => d.Scope == DefinitionScope.Shipped && d.Kind == kind).Select(d => new ForkBase(d.Name, d.VersionNumber))];
+        return [.. inNode.Where(d => d.Scope == DefinitionScope.Module && d.Kind == kind)];
     }
 
     private static int LatestVersion(IEnumerable<Definition> existing, DefinitionKind kind, DefinitionScope scope, string? project, string name) =>

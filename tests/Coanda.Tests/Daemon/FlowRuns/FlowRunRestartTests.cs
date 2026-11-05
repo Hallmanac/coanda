@@ -6,7 +6,6 @@ using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
@@ -59,7 +58,7 @@ public sealed class FlowRunRestartTests
         held.Open();
 
         // Published while no daemon runs, so the second start's reattach meets the new version.
-        AgentDefinition republished = ShippedAgents.Build with { Model = new ModelSpec("claude-code", "claude-republished", "low") };
+        AgentDefinition republished = SoftwareAgents.Build with { Model = new ModelSpec("claude-code", "claude-republished", "low") };
         await PublishAgentAsync(temp, republished);
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = held }, None);
         using var again = new DaemonClient(temp.Home);
@@ -69,9 +68,9 @@ public sealed class FlowRunRestartTests
         Assert.Equal(CleanPath, ended.Steps.Select(s => s.Step));
         FlowRunStepView build = ended.Steps.Single(s => s.Step == "build");
         // the answer is recorded with the agent the launch recorded
-        Assert.Equal(ShippedAgents.Build.Hash, build.AgentHash);
+        Assert.Equal(SoftwareAgents.Build.Hash, build.AgentHash);
         Assert.NotEqual(republished.Hash, build.AgentHash);
-        Assert.Equal(ShippedAgents.Build.Model, build.Model);
+        Assert.Equal(SoftwareAgents.Build.Model, build.Model);
         // both turns of the reattached session are its usage
         Assert.Equal(AgentStep.Sum(Scripts.Usage(4), Scripts.Usage(1)), build.Measurement);
         // the reattach counts no spawn: build and the two reviews
@@ -374,7 +373,7 @@ public sealed class FlowRunRestartTests
     {
         using var temp = new TemporaryHome();
         Guid flowRunId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All))
         {
             await RegisteredProjects.AddAsync(store, Project, None);
             var parcels = new Coanda.Daemon.Parcels.ParcelService(store, TimeProvider.System);
@@ -386,7 +385,7 @@ public sealed class FlowRunRestartTests
             await flowRuns.RecordResultAsync(
                 Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
             await flowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRun.Id, "build", None);
-            await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
+            await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, None);
             flowRunId = flowRun.Id;
         }
 
@@ -414,7 +413,7 @@ public sealed class FlowRunRestartTests
         var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
         (Guid flowRunId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Swept");
         SessionHandle orphan = await stalled.Inner.SpawnAsync(
-            ShippedAgents.Build, "Nobody waits on this.", temp.Home.FlowRunWorkPath(Project, Ids.New()), new SpawnCaps(1m, TimeSpan.FromMinutes(1)), AnswerSchemas.Build, null, null, None);
+            SoftwareAgents.Build, "Nobody waits on this.", temp.Home.FlowRunWorkPath(Project, Ids.New()), new SpawnCaps(1m, TimeSpan.FromMinutes(1)), AnswerSchemas.Build, null, null, None);
 
         stalled.Open();
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None);
@@ -553,7 +552,7 @@ public sealed class FlowRunRestartTests
         {
             FailStops = true,
             CollectsGiveUp = true,
-            InProgressUsage = new Measurement(1000, ShippedFlows.Build.Budget, 1, TimeSpan.FromSeconds(30)),
+            InProgressUsage = new Measurement(1000, SoftwareFlows.Build.Budget, 1, TimeSpan.FromSeconds(30)),
         };
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stopping }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
@@ -570,7 +569,7 @@ public sealed class FlowRunRestartTests
         FlowRunView spent = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
 
         Assert.Equal("paused", spent.Status);
-        Assert.True(spent.Cost >= ShippedFlows.Build.Budget, $"Expected at least {ShippedFlows.Build.Budget}, but found {spent.Cost}.");
+        Assert.True(spent.Cost >= SoftwareFlows.Build.Budget, $"Expected at least {SoftwareFlows.Build.Budget}, but found {spent.Cost}.");
         Assert.StartsWith($"Flow run {Ids.Short(flowRunId)} has recorded a cost of", spent.PauseReason, StringComparison.Ordinal);
         Assert.Equal([issued], stopping.Inner.Stops);
         // the budget the stopped session's usage reached launches no other agent

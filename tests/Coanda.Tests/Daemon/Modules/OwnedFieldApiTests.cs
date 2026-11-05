@@ -7,7 +7,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
@@ -62,7 +61,7 @@ public sealed class OwnedFieldApiTests
         ParcelService parcels = node.Services.GetRequiredService<ParcelService>();
 
         await parcels.SetFieldAsync(Principal.LocalOwner, On, parcel.Id, Mirror, FieldValue.OfText("By the owner."), None);
-        await parcels.SetFieldAsync(DefinitionService.SeedPrincipal, On, parcel.Id, Mirror, FieldValue.OfText("By the seed."), None);
+        await parcels.SetFieldAsync(DefinitionService.ImportPrincipal, On, parcel.Id, Mirror, FieldValue.OfText("By the seed."), None);
 
         Principal[] refused =
         [
@@ -140,11 +139,11 @@ public sealed class OwnedFieldApiTests
         return node;
     }
 
-    private static ParcelType TypeWith(string mirrorOwner) => ShippedTypes.Task with
+    private static ParcelType TypeWith(string mirrorOwner) => SoftwareTypes.Task with
     {
         Fields =
         [
-            .. ShippedTypes.Task.Fields,
+            .. SoftwareTypes.Task.Fields,
             new FieldDeclaration { Name = Mirror, Kind = FieldKinds.Text, Owner = mirrorOwner },
             new FieldDeclaration { Name = Foreign, Kind = FieldKinds.Text, Owner = ModuleNode.Other },
         ],

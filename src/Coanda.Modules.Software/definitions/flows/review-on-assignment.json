@@ -1,0 +1,34 @@
+{
+  "Name": "review-on-assignment",
+  "Accepts": [
+    "task"
+  ],
+  "Outcome": "report-produced",
+  "Budget": 3,
+  "SpawnCap": 2,
+  "Steps": [
+    {
+      "Name": "review",
+      "Agent": "reviewer-adversarial",
+      "AnswerSchema": "review",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "clean",
+          "VisitCap": 5,
+          "Target": "end"
+        },
+        {
+          "Field": "verdict",
+          "Value": "not-clean",
+          "VisitCap": 5,
+          "Target": "end"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    }
+  ]
+}

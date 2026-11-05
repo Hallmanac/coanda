@@ -2,7 +2,6 @@ using Coanda.Cli;
 using Coanda.Core.Agents;
 using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
@@ -27,7 +26,7 @@ public sealed class SpawnInputsTests
 
         await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        decimal budget = ShippedFlows.Build.Budget;
+        decimal budget = SoftwareFlows.Build.Budget;
         Assert.Equal([budget, budget - Scripts.Usage(1).CostUsd, budget - Scripts.Usage(1).CostUsd - Scripts.Usage(2).CostUsd], executor.Spawns.Select(s => s.Caps.CostCeilingUsd));
 
         await daemon.StopAsync(None);

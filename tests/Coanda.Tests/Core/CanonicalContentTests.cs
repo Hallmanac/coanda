@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -14,7 +13,7 @@ public sealed class CanonicalContentTests
     [Fact]
     public void A_shipped_flows_canonical_json_holds_no_derived_property()
     {
-        foreach (Flow flow in ShippedFlows.All)
+        foreach (Flow flow in SoftwareFlows.All)
         {
             string content = Flow.CanonicalJson(flow);
 
@@ -29,7 +28,7 @@ public sealed class CanonicalContentTests
     [Fact]
     public void A_shipped_parcel_types_canonical_json_holds_no_hash()
     {
-        foreach (ParcelType type in ShippedTypes.All)
+        foreach (ParcelType type in SoftwareTypes.All)
         {
             // type '{type.Name}' writes only what it declares
             Assert.DoesNotContain("Hash", PropertyNames(ParcelType.CanonicalJson(type)));
@@ -39,7 +38,7 @@ public sealed class CanonicalContentTests
     [Fact]
     public void A_flow_stored_with_the_derived_step_properties_still_reads_as_before()
     {
-        Flow shipped = ShippedFlows.Build;
+        Flow shipped = SoftwareFlows.Build;
         JsonNode node = JsonNode.Parse(Flow.CanonicalJson(shipped)) ?? throw new InvalidOperationException("The flow wrote no content.");
         foreach (JsonObject step in node["Steps"]?.AsArray().OfType<JsonObject>() ?? [])
         {

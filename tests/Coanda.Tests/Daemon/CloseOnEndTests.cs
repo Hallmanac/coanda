@@ -5,7 +5,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
@@ -31,7 +30,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         await RegisteredProjects.AddAsync(store, Project, None);
         parcels = new ParcelService(store, TimeProvider.System);
         flowRuns = new FlowRunService(store, TimeProvider.System);
@@ -53,7 +52,7 @@ public sealed class CloseOnEndTests : IAsyncLifetime
 
         Parcel closed = await ShowAsync(parcel.Id);
         Assert.Equal("completed", closed.Resolution);
-        Assert.Equal(ShippedTypes.Closed, closed.Stage);
+        Assert.Equal(SoftwareTypes.Closed, closed.Stage);
         Assert.Null(closed.LiveFlowRunId);
         IReadOnlyList<IEvent> events = await EventsAsync(parcel.Id);
         ParcelClosed recorded = Assert.IsType<ParcelClosed>(events[^1].Data);

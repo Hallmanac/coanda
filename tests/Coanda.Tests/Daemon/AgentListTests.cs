@@ -2,7 +2,6 @@ using Coanda.Cli;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -54,8 +53,8 @@ public sealed class AgentListTests
 
         List<Definition> held = await AgentsInStoreAsync(temp.Home);
         Assert.Equal(5, held.Count);
-        Assert.All(held, d => Assert.True(d.Scope == DefinitionScope.Shipped && d.Status == DefinitionStatus.Published && d.VersionNumber == 1));
-        Assert.Equal(ShippedAgents.All.OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => (a.Name, a.Hash)), held.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => (d.Name, d.ContentHash)));
+        Assert.All(held, d => Assert.True(d.Scope == DefinitionScope.Module && d.Status == DefinitionStatus.Published && d.VersionNumber == 1));
+        Assert.Equal(SoftwareAgents.All.OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => (a.Name, a.Hash)), held.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => (d.Name, d.ContentHash)));
         Assert.All(held, d => Assert.True(AgentDefinition.FromJson(d.Content).Hash == d.ContentHash));
         int events = await AgentEventCountAsync(temp.Home);
         Assert.Equal(10, events);
@@ -74,7 +73,7 @@ public sealed class AgentListTests
         {
             List<AgentView> agents = await client.GetAsync<List<AgentView>>("/agents?project=alpha", CancellationToken.None);
 
-            Assert.Equivalent(ShippedAgents.All.Select(a => (a.Name, 1, a.Model, a.Hash)), agents.Select(a => (a.Name, a.Version, a.Model, a.Hash)), strict: true);
+            Assert.Equivalent(SoftwareAgents.All.Select(a => (a.Name, 1, a.Model, a.Hash)), agents.Select(a => (a.Name, a.Version, a.Model, a.Hash)), strict: true);
             Assert.Equal(5, agents.Count);
         });
     }
@@ -85,7 +84,7 @@ public sealed class AgentListTests
         using var temp = new TemporaryHome();
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        AgentDefinition custom = ShippedAgents.Fix with { Persona = ShippedAgents.Fix.Persona with { Role = "A house-style fixer." } };
+        AgentDefinition custom = SoftwareAgents.Fix with { Persona = SoftwareAgents.Fix.Persona with { Role = "A house-style fixer." } };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
@@ -102,7 +101,7 @@ public sealed class AgentListTests
 
             Assert.Equal(5, alpha.Count);
             Assert.Equal(custom.Hash, alpha.Single(a => a.Name == "fix").Hash);
-            Assert.Equal(ShippedAgents.Fix.Hash, beta.Single(a => a.Name == "fix").Hash);
+            Assert.Equal(SoftwareAgents.Fix.Hash, beta.Single(a => a.Name == "fix").Hash);
         });
     }
 

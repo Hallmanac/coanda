@@ -6,7 +6,6 @@ using Coanda.Core;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
@@ -234,9 +233,9 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAsync(Project, "Under the shipped flow");
 
-        SystemStepAnswer outcome = await PerformUnderAsync(ShippedFlows.Build, parcel.Id);
+        SystemStepAnswer outcome = await PerformUnderAsync(SoftwareFlows.Build, parcel.Id);
 
-        Assert.Equal(new FlowRunMove.GoTo("move-to-review"), Decide(ShippedFlows.Build, Answered(outcome, OpenPrStep.OpenedVerdict)));
+        Assert.Equal(new FlowRunMove.GoTo("move-to-review"), Decide(SoftwareFlows.Build, Answered(outcome, OpenPrStep.OpenedVerdict)));
     }
 
     [Fact]
