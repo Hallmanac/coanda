@@ -53,6 +53,11 @@ public sealed class DaemonHost
         // Narrows what an earlier run left wider and creates the database owner-only, before the
         // check below or the store opens it.
         home.EnsureExists().EnsureDatabase();
+        IModuleSettingsSchemas moduleSettingsSchemas = options.ModuleSettingsSchemas ?? ModuleSettingsSchemas.None;
+        foreach (string module in moduleSettingsSchemas.Modules)
+        {
+            home.EnsureModuleArea(module);
+        }
 
         // Before the store is configured, which would add this build's tables to an old record.
         PreRenameStore.ThrowIfFound(home);
@@ -104,6 +109,8 @@ public sealed class DaemonHost
             services.GetRequiredService<FlowRunWorkers>()).With(options.SystemSteps));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<ModuleTokens>();
+        builder.Services.AddSingleton(moduleSettingsSchemas);
+        builder.Services.AddSingleton<ModuleSettingsService>();
         builder.Services.AddSingleton<FlowRunAdvancer>();
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
         builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunAdvancer>());
@@ -129,6 +136,7 @@ public sealed class DaemonHost
         app.MapAgentEndpoints();
         app.MapFlowRunEndpoints();
         app.MapProjectEndpoints();
+        app.MapProjectModuleEndpoints();
         app.MapParcelEndpoints();
 
         // Served in every environment: the slim builder's environment is Production unless set.

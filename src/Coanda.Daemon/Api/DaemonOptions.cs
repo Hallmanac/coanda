@@ -2,6 +2,7 @@ using Coanda.Core.Parcels;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.GitHub;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.SystemSteps;
 using Microsoft.Extensions.Logging;
 
@@ -54,6 +55,12 @@ public sealed record DaemonOptions
     /// that is already registered is refused. None by default: a test brings a step of its own here.
     /// </summary>
     public IReadOnlyList<IFlowSystemStep> SystemSteps { get; init; } = [];
+
+    /// <summary>
+    /// Where the daemon reads each module's settings schema by the module's name; null holds none, so
+    /// no module has settings to set or show. A test brings stand-in modules here.
+    /// </summary>
+    public IModuleSettingsSchemas? ModuleSettingsSchemas { get; init; }
 
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }

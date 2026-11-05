@@ -51,11 +51,13 @@ internal sealed class ModuleNode : IAsyncDisposable
 
     public IServiceProvider Services => Daemon.Services;
 
-    public static async Task<ModuleNode> StartAsync()
+    /// <summary>Starts the node; <paramref name="settingsSchemas"/> are the stand-in modules' settings schemas, none when it is null.</summary>
+    public static async Task<ModuleNode> StartAsync(IModuleSettingsSchemas? settingsSchemas = null)
     {
         var temp = new TemporaryHome();
         var step = new RunningSystemStep();
-        RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { SystemSteps = [step] }, None);
+        RunningDaemon daemon = await Daemons.StartAsync(
+            temp.Home, new DaemonOptions { SystemSteps = [step], ModuleSettingsSchemas = settingsSchemas }, None);
         var node = new ModuleNode(temp, daemon, step);
         foreach (string project in new[] { On, Off })
         {

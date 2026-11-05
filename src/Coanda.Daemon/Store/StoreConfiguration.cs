@@ -1,5 +1,6 @@
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
+using Coanda.Core.Modules;
 using Coanda.Core.Parcels;
 using Coanda.Core.Projects;
 using Coanda.Core.Triggers;
@@ -33,6 +34,8 @@ public static class StoreConfiguration
         options.Policies.AllDocumentsAreMultiTenanted();
         options.Projections.Snapshot<Project>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<ProjectProfile>(SnapshotLifecycle.Inline);
+        options.Projections.Snapshot<ModuleSettings>(SnapshotLifecycle.Inline);
+        options.Projections.Snapshot<ModuleProfileSelection>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<FlowRun>(SnapshotLifecycle.Inline);

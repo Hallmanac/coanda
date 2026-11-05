@@ -4,15 +4,18 @@ using Coanda.Core.Registry;
 namespace Coanda.Tests.Core;
 
 /// <summary>
-/// The registry opens the Module role to the reads a module needs, to recording external events, and
-/// to the two writes it makes under a dispatch it holds, and to nothing else; every other role is open
-/// to what it was open to before the Module role existed, and only the owner switches modules on.
+/// The registry opens the Module role to the reads a module needs, to recording external events, to
+/// the two writes it makes under a dispatch it holds or on a field its module owns, and to setting and
+/// showing its own settings, and to nothing else; every other role is open to what it was open to before
+/// the Module role existed, or for an entry added since, what it was added open to, and only the owner
+/// switches modules on.
 /// </summary>
 public sealed class ModuleRoleRegistryTests
 {
     private static readonly string[] OpenToModules =
     [
         "project.show", "project.list",
+        "project-module.set", "project-module.show",
         "parcel.list", "parcel.show", "parcel.set-field",
         "type.list", "flow.list", "agent.list",
         "flow-run.list", "flow-run.show", "flow-run.outcome",
@@ -23,12 +26,15 @@ public sealed class ModuleRoleRegistryTests
     private static readonly Role[] People = [Role.Owner, Role.Member];
     private static readonly Role[] Everyone = [Role.Owner, Role.Member, Role.Agent];
 
-    /// <summary>The roles each entry was open to before the Module role, by name.</summary>
+    /// <summary>The roles other than Module each entry is open to, by name: for an entry older than the Module role, those it was open to before it.</summary>
     private static readonly Dictionary<string, Role[]> Before = new(StringComparer.Ordinal)
     {
         ["project.add"] = Owner,
         ["project.set"] = Owner,
         ["project.set-profile"] = Owner,
+        ["project-module.set"] = Owner,
+        ["project-module.select-profile"] = Owner,
+        ["project-module.show"] = Everyone,
         ["project.show"] = Everyone,
         ["project.list"] = Everyone,
         ["parcel.list"] = Everyone,
@@ -67,7 +73,7 @@ public sealed class ModuleRoleRegistryTests
     };
 
     [Fact]
-    public void The_module_role_is_open_to_exactly_the_reads_the_event_record_and_the_two_dispatch_writes()
+    public void The_module_role_is_open_to_exactly_the_reads_the_event_record_the_two_field_writes_and_its_own_settings()
     {
         IEnumerable<string> open = CommandRegistry.Entries.Where(e => e.AllowedRoles.Contains(Role.Module)).Select(e => e.Name);
 
