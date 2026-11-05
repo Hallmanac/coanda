@@ -20,6 +20,52 @@ public sealed class ParcelTypeFieldTests
     }
 
     [Fact]
+    public void The_shipped_task_names_no_owner_and_hashes_to_the_literal_it_had_before_owners()
+    {
+        Assert.All(ShippedTypes.Task.Fields, f => Assert.Null(f.Owner));
+        // the task's fields name no module, so its hash is the one it had before a field could name one
+        Assert.Equal("f5bc1ad145ab7a9f", ShippedTypes.Task.Hash);
+        Assert.DoesNotContain("\"Owner\"", ParcelType.CanonicalJson(ShippedTypes.Task), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_fields_owner_survives_the_canonical_json_and_is_part_of_the_hash()
+    {
+        ParcelType owned = WithObjectiveOwnedBy("software");
+        ParcelType ownedByAnother = WithObjectiveOwnedBy("jira");
+
+        ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(owned));
+
+        Assert.Equal("software", read.Field("objective")?.Owner);
+        Assert.Null(read.Field("criteria")?.Owner);
+        Assert.Equal(owned.Hash, read.Hash);
+        Assert.Contains("\"Owner\": \"software\"", ParcelType.CanonicalJson(owned), StringComparison.Ordinal);
+        Assert.Distinct((string[])[ShippedTypes.Task.Hash, owned.Hash, ownedByAnother.Hash]);
+        owned.Validate(Gates);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("software/github")]
+    [InlineData("two words")]
+    [InlineData("../software")]
+    public void A_field_whose_owner_is_not_a_plain_module_name_is_refused(string owner)
+    {
+        ParcelType type = WithObjectiveOwnedBy(owner);
+
+        DomainException exception = Assert.Throws<DomainException>(() => type.Validate(Gates));
+
+        Assert.Equal(
+            $"Field 'objective' of parcel type 'task' names '{owner}' as the module that owns it; a field's owner is a module's plain name: letters, digits, hyphens, and underscores, and not empty.",
+            exception.Message);
+    }
+
+    private static ParcelType WithObjectiveOwnedBy(string owner) => ShippedTypes.Task with
+    {
+        Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Owner = owner } : f)],
+    };
+
+    [Fact]
     public void The_shipped_task_declares_its_objective_criteria_non_goals_and_pull_request()
     {
         Assert.Equal([("objective", FieldKinds.Text, "refine"), ("criteria", FieldKinds.TextList, "refine"), ("non-goals", FieldKinds.TextList, ""), ("pull-request", FieldKinds.Reference, "build")], ShippedTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))));

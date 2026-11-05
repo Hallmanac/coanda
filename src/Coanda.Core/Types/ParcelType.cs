@@ -4,13 +4,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
+using Coanda.Core.Registry;
 
 namespace Coanda.Core.Types;
 
 /// <summary>
 /// The definition of a kind of parcel: its lifecycle (stages, allowed moves, entry stages, the
 /// one terminal stage and its resolutions), the paused stage reachable from any live stage, its
-/// fields (each named, of a kind, and required to leave the stages it names), and its bindings: a
+/// fields (each named, of a kind, required to leave the stages it names, and owned by the module it
+/// names, if it names one), and its bindings: a
 /// flow to start when a parcel enters a stage, and a gate that must pass before a move. A type is
 /// data; the types the binary ships and a user's type are the same shape.
 /// </summary>
@@ -308,6 +310,12 @@ public sealed record ParcelType
                     $"Field '{field.Name}' of parcel type '{Name}' is of the kind '{field.Kind}'; a field's kind is one of {string.Join(", ", FieldKinds.All)}.");
             }
 
+            if (field.Owner is not null && !ModuleNames.IsModuleName(field.Owner))
+            {
+                throw new DomainException(
+                    $"Field '{field.Name}' of parcel type '{Name}' names '{field.Owner}' as the module that owns it; a field's owner is a module's plain name: letters, digits, hyphens, and underscores, and not empty.");
+            }
+
             foreach (string? stage in field.RequiredToLeave)
             {
                 if (stage is null || !IsStage(stage) || IsTerminal(stage) || IsPaused(stage))
@@ -394,7 +402,7 @@ public sealed record ParcelType
         };
         if (Fields.Count > 0)
         {
-            lifecycle["fields"] = Fields.Select(f => new { name = f.Name, kind = f.Kind, requiredToLeave = f.RequiredToLeave }).ToList();
+            lifecycle["fields"] = Fields.Select(HashedField).ToList();
         }
 
         if (FlowBindings.Count > 0)
@@ -409,6 +417,26 @@ public sealed record ParcelType
 
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(lifecycle);
         return Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];
+    }
+
+    /// <summary>
+    /// A field as the hash covers it: its name, kind, and the stages it is required to leave, and its
+    /// owner only when it names one, so a field no module owns hashes as it did before owners existed.
+    /// </summary>
+    private static Dictionary<string, object> HashedField(FieldDeclaration field)
+    {
+        var hashed = new Dictionary<string, object>
+        {
+            ["name"] = field.Name,
+            ["kind"] = field.Kind,
+            ["requiredToLeave"] = field.RequiredToLeave,
+        };
+        if (field.Owner is { } owner)
+        {
+            hashed["owner"] = owner;
+        }
+
+        return hashed;
     }
 
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };

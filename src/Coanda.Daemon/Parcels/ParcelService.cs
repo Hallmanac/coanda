@@ -81,8 +81,11 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     /// <summary>
     /// Records a value in one of the parcel's fields under <paramref name="dispatch"/>, when it names
     /// one: the flow run that recorded it would take an outcome under its id now, and runs on this
-    /// parcel. A Module principal sets a field only by naming a dispatch, and only one of its own
-    /// module's steps (<see cref="FlowRunDecider.RequireHeldBy"/>).
+    /// parcel. Whether the principal may set the field at all is read from the type version the parcel
+    /// was created under (<see cref="ParcelDecider.RequireMaySetField"/>): a field a module owns is set
+    /// by that module, with no dispatch, and by the owner alone; any other field is set by a Module
+    /// principal only by naming a dispatch of one of its own module's steps
+    /// (<see cref="FlowRunDecider.RequireHeldBy"/>).
     /// </summary>
     public async Task<Parcel> SetFieldAsync(
         Principal principal, string project, Guid parcelId, string field, FieldValue value, NamedDispatch? dispatch, CancellationToken cancellationToken)
@@ -90,21 +93,17 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         CommandRegistry.Require("parcel.set-field", principal);
         string tenant = Tenants.RequireProject(project);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
-        if (principal.Role == Role.Module && dispatch is null)
-        {
-            throw new DomainException(
-                $"Module '{principal.Module}' sets a parcel's field only by naming a dispatch of one of its own steps that it holds; this set-field named none.");
-        }
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
+        ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
+        ParcelDecider.RequireMaySetField(type, field, principal, underDispatch: dispatch is not null);
         if (dispatch is not null)
         {
             await RequireDispatchOnAsync(session, principal, tenant, parcel, dispatch, cancellationToken);
         }
 
-        ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelFieldSet set = ParcelDecider.SetField(type, parcel, field, value, principal.Id, clock.GetUtcNow());
         stream.AppendOne(set);
         await SaveGuardedAsync(session, parcelId, cancellationToken);
