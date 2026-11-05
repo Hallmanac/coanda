@@ -1,6 +1,5 @@
 using Coanda.Cli;
 using Coanda.Core;
-using ProjectDefaults = Coanda.Core.Projects.Project;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Sdk.Commands;
@@ -35,7 +34,7 @@ public sealed class WorktreeFlowRunTests
         var runner = new ScriptedCommandRunner();
         int builds = 0;
         runner.On(
-            c => c.IsShell(ProjectDefaults.DefaultBuild),
+            c => c.IsShell(SoftwareSettings.DefaultBuild),
             (_, _) => Task.FromResult(Interlocked.Increment(ref builds) == 1
                 ? new CommandResult(1, string.Empty, "error CS0103\n", "error CS0103\n")
                 : ScriptedCommandRunner.Ok()));
@@ -53,7 +52,7 @@ public sealed class WorktreeFlowRunTests
         Assert.Equal("failed", flowRun.Steps[2].Result.GetValueOrDefault().GetProperty("verdict").GetString());
         Assert.Equal("The build command 'dotnet build' exited with code 1. The last 1 lines of its output:\nerror CS0103", flowRun.Steps[2].Result.GetValueOrDefault().GetProperty("reason").GetString());
         Assert.Equal("done", flowRun.Steps[4].Result.GetValueOrDefault().GetProperty("verdict").GetString());
-        Assert.Equal([ProjectDefaults.DefaultBuild, ProjectDefaults.DefaultBuild, ProjectDefaults.DefaultTest], runner.ShellLines);
+        Assert.Equal([SoftwareSettings.DefaultBuild, SoftwareSettings.DefaultBuild, SoftwareSettings.DefaultTest], runner.ShellLines);
         Assert.All(runner.Commands.Where(c => c.ShellLine() is not null), c => Assert.True(c.WorkingDirectory == temp.Home.FlowRunWorkPath(Project, flowRun.Id)));
 
         await daemon.StopAsync(None);
@@ -115,7 +114,7 @@ public sealed class WorktreeFlowRunTests
         var runner = new ScriptedCommandRunner();
         var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), async (_, token) =>
+        runner.On(c => c.IsShell(SoftwareSettings.DefaultBuild), async (_, token) =>
         {
             running.TrySetResult();
             try
@@ -153,7 +152,7 @@ public sealed class WorktreeFlowRunTests
         // a stopped system step records nothing
         Assert.Null(stopped.Steps[2].Result);
         // the test command never runs
-        Assert.Equal([ProjectDefaults.DefaultBuild], runner.ShellLines);
+        Assert.Equal([SoftwareSettings.DefaultBuild], runner.ShellLines);
 
         await daemon.StopAsync(None);
     }
@@ -196,7 +195,7 @@ public sealed class WorktreeFlowRunTests
         var runner = new ScriptedCommandRunner();
         var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), async (_, token) =>
+        runner.On(c => c.IsShell(SoftwareSettings.DefaultBuild), async (_, token) =>
         {
             running.TrySetResult();
             try
@@ -243,7 +242,7 @@ public sealed class WorktreeFlowRunTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // The first build command ignores the stop's cancellation, so the stopped flow run's worker stays in its step.
         int builds = 0;
-        runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), async (_, _) =>
+        runner.On(c => c.IsShell(SoftwareSettings.DefaultBuild), async (_, _) =>
         {
             if (Interlocked.Increment(ref builds) == 1)
             {
@@ -434,7 +433,9 @@ public sealed class WorktreeFlowRunTests
         FlowRunView after = await FlowRunDriver.ShowAsync(again, Project, taker.Id);
         Assert.Equal("done", after.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString());
         Assert.DoesNotContain(held, failing.Worktrees(clone));
-        Assert.Contains(temp.Home.FlowRunWorkPath(Project, taker.Id), failing.Worktrees(clone));
+        // The taker's worktree was added; it is not looked for among the clone's worktrees, since the taker
+        // goes on past its worktree step and may end, and its worktree be removed, before this reads them.
+        Assert.Contains(failing.GitCalls, c => c.StartsWith($"worktree add --quiet {temp.Home.FlowRunWorkPath(Project, taker.Id)} ", StringComparison.Ordinal));
 
         await second.StopAsync(None);
     }
