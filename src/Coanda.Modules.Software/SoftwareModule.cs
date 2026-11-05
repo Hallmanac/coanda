@@ -23,7 +23,8 @@ namespace Coanda.Modules.Software;
 /// in its work path, and the module removes that flow run's worktree and keeps its branch. A removal
 /// that fails, or a delivery the core skipped, leaves the worktree to the next start: the module's first
 /// health call sweeps the worktrees of every flow run that has ended or been stopped before it answers,
-/// and the core waits on health before it advances any live flow run.
+/// and the core waits on health before it advances any live flow run. A worktree step that needs such a
+/// worktree's branch before then takes it over once the core shows its flow run no longer working.
 /// </remarks>
 public sealed class SoftwareModule : IModule, IAsyncDisposable
 {
@@ -160,6 +161,9 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
             {
                 logger.LogInformation("Removed the worktree of flow run {FlowRun} in project {Project}.", ClonePaths.Short(flowRunId), project);
             }
+
+            // The worktree is gone, removed now or before, so no step can find it holding a branch.
+            ends.Forget(flowRunId);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
