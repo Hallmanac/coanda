@@ -77,6 +77,42 @@ public sealed class FlowSystemSteps
         return new HashSet<string>([.. systemSteps.Keys, .. modules.StepsOf(switchedOn)], StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// What the argument schema of each module step a flow of <paramref name="project"/>, or of no project
+    /// when it is null, may name says of a step's arguments: the step's providing module is one switched on
+    /// for the project, or, for no project, one the daemon hosts. A step implemented here, or one no such
+    /// module provides, has no complaint, so the core's steps are checked as their names alone are.
+    /// </summary>
+    public async Task<StepArgumentCheck> ArgumentCheckAsync(string? project, CancellationToken cancellationToken)
+    {
+        IReadOnlySet<string> switchedOn = project is null
+            ? modules.Names.ToHashSet(StringComparer.Ordinal)
+            : ((await ProjectOfAsync(project, cancellationToken))?.Modules ?? []).ToHashSet(StringComparer.Ordinal);
+        return (name, arguments) =>
+            !systemSteps.ContainsKey(name) && ModuleNames.PrefixOf(name) is { } module && switchedOn.Contains(module)
+                ? modules.ArgumentComplaintsOf(module, name, arguments)
+                : [];
+    }
+
+    /// <summary>
+    /// What the argument schema of the step a stored flow names <paramref name="name"/> says of
+    /// <paramref name="arguments"/>, as dispatch would read the name: one of the five steps the binary
+    /// shipped unprefixed is the software module's. A step implemented here, or one no module the daemon
+    /// hosts provides, has no complaint.
+    /// </summary>
+    public IReadOnlyList<StepArgumentComplaint> StoredArgumentComplaintsOf(string name, IReadOnlyDictionary<string, JsonElement> arguments)
+    {
+        if (systemSteps.ContainsKey(name))
+        {
+            return [];
+        }
+
+        string canonical = UnprefixedSteps.Canonical(name);
+        return ModuleNames.PrefixOf(canonical) is { } module
+            ? modules.ArgumentComplaintsOf(module, canonical, arguments)
+            : [];
+    }
+
     public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string name = request.SystemStep;

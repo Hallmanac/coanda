@@ -79,12 +79,14 @@ public sealed class DaemonHost
         // The shipped gates run whatever the options name; the options add gates, never remove one.
         builder.Services.AddSingleton(new GateSet([.. GateSet.ShippedGates, .. options.Gates]));
         // Flows are validated against the core's system steps and the steps the modules switched on for
-        // the flow's project describe, or every hosted module's for a definition of no project.
+        // the flow's project describe, or every hosted module's for a definition of no project, and a
+        // module step's arguments against the argument schema its module describes.
         builder.Services.AddSingleton(services => new DefinitionService(
             services.GetRequiredService<IDocumentStore>(),
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<GateSet>(),
-            services.GetRequiredService<FlowSystemSteps>().NamesAsync));
+            services.GetRequiredService<FlowSystemSteps>().NamesAsync,
+            services.GetRequiredService<FlowSystemSteps>().ArgumentCheckAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<EarlierProjectRecords>();
@@ -200,6 +202,14 @@ public sealed class DaemonHost
             // or advertised: the address file is written only after this returns. Until install exists,
             // the start stands in for it, reading each module's definitions folder from its directory.
             await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
+
+            // A flow version recorded before its module's argument schema refused its arguments still
+            // reads, resolves, and runs; the start says which ones its module now refuses.
+            await StoredFlowArguments.WarnAsync(
+                app.Services.GetRequiredService<IDocumentStore>(),
+                app.Services.GetRequiredService<FlowSystemSteps>(),
+                app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(StoredFlowArguments)),
+                cancellationToken);
 
             // Each module's feed position is fixed before any live flow run is advanced, so on a node
             // where a feed has never run, an end a resumed flow run records lands past the position and
