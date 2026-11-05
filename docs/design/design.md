@@ -123,8 +123,9 @@ carries the repo names the field holds at export, read from the field the type v
 created under declares. A parcel whose type version declares no tag field, or whose field holds no
 value, is project-wide, and so is every event of no parcel: membership, definitions, decisions. A
 retag is not an event of its own: it is a field set on the tag field, and its line carries the union
-of the repos the field held before the set and those it holds at export, so the old repo set and the
-new one both carry it. The tag is inside the signed bytes, so the node keeps it with the line and
+of the repos the field held before the set, the repos the set wrote, and those it holds at export, so
+the old repo set and the new one both carry it even when a later set has moved the parcel on before
+the export. The tag is inside the signed bytes, so the node keeps it with the line and
 never reads it again. Each repo's ref namespace carries the project-wide events plus the events whose
 tag names that repo; a node pushes to and imports from every repo of the project it holds, and the
 import's idempotency on origin plus sequence stores an event that arrives through two repos once
