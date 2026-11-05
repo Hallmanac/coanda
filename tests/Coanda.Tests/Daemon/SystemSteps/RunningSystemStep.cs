@@ -35,6 +35,9 @@ internal sealed class RunningSystemStep : IFlowSystemStep
     /// <summary>Runs as a stop is asked, after it is recorded.</summary>
     public Action<Guid>? OnStop { get; set; }
 
+    /// <summary>Runs after <see cref="OnStop"/>; the stop returns only once it completes, so a test can hold the stop call open.</summary>
+    public Func<Guid, CancellationToken, Task>? Stopping { get; set; }
+
     public IReadOnlyList<SystemStepDispatch> Dispatches
     {
         get
@@ -111,7 +114,7 @@ internal sealed class RunningSystemStep : IFlowSystemStep
         return await Status(dispatchId, cancellationToken);
     }
 
-    public ValueTask StopAsync(Guid dispatchId, CancellationToken cancellationToken)
+    public async ValueTask StopAsync(Guid dispatchId, CancellationToken cancellationToken)
     {
         lock (gate)
         {
@@ -119,6 +122,9 @@ internal sealed class RunningSystemStep : IFlowSystemStep
         }
 
         OnStop?.Invoke(dispatchId);
-        return ValueTask.CompletedTask;
+        if (Stopping is { } stopping)
+        {
+            await stopping(dispatchId, cancellationToken);
+        }
     }
 }

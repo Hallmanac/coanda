@@ -193,7 +193,7 @@ public sealed class UnprefixedStepTests
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid earlier = Ids.New();
         await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, earlier);
-        await node.Worktrees.RemoveAsync(Project, earlier, None);
+        await node.DeliverEndAsync(earlier);
         Guid recorder = await RecordedAsync(node, parcel.Id, "open-pr", ScriptedCommandRunner.PrimaryHead);
         await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, recorder, "rebase", None);
         await Record(node, recorder, "rebase", Pushed);

@@ -313,7 +313,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
 
         // A removal of the stopped flow run's worktree that runs afterwards finds nothing at its work path.
         before = runner.Commands.Count;
-        Assert.False(await node.Worktrees.RemoveAsync(Project, holder, None));
+        await node.DeliverEndAsync(holder);
         Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree prune", StringComparison.Ordinal));
         Assert.Equal([workPath], runner.Worktrees(Clone));
     }
@@ -321,9 +321,10 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     [Fact]
     public async Task A_takeover_whose_holding_worktree_was_already_removed_answers_done()
     {
-        (Guid parcelId, string branch, Guid holder, _) = await HeldByFlowRunAsync();
+        (Guid parcelId, string branch, Guid holder, string held) = await HeldByFlowRunAsync();
         await flowRuns.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
-        Assert.True(await node.Worktrees.RemoveAsync(Project, holder, None), "the stopped flow run's own removal runs first");
+        // the stopped flow run's own removal runs first
+        await FlowRunDriver.UntilAsync(() => !runner.Worktrees(Clone).Contains(held), "the feed's delivery of the stop removes the holding worktree");
         Guid taker = Ids.New();
 
         JsonElement result = Done(await DispatchAsync(parcelId, taker));
@@ -336,9 +337,9 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     public async Task A_takeover_from_a_stopped_flow_run_whose_worker_is_still_performing_removes_and_adds_nothing_until_that_worker_returns()
     {
         (Guid parcelId, string branch, Guid holder, string held) = await HeldByFlowRunAsync();
-        await flowRuns.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
         var working = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         node.Workers.Started(holder, working.Task);
+        await flowRuns.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
         Guid taker = Ids.New();
         int before = runner.Commands.Count;
 
@@ -348,7 +349,8 @@ public sealed class WorktreeStepTests : IAsyncLifetime
 
         Assert.False(takeover.IsCompleted, "the takeover waits for the stopped flow run's worker");
         Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
-        Assert.False(await node.Worktrees.RemoveAsync(Project, Ids.New(), None), "the clone's turn is not held while the takeover waits");
+        // the clone's turn is not held while the takeover waits
+        await node.DeliverEndAsync(Ids.New()).WaitAsync(TimeSpan.FromSeconds(15));
 
         node.Workers.Returned(holder);
         working.SetResult();
@@ -362,8 +364,8 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     public async Task A_takeover_waiting_on_a_worker_ends_when_its_own_step_is_cancelled()
     {
         (Guid parcelId, _, Guid holder, _) = await HeldByFlowRunAsync();
-        await flowRuns.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
         node.Workers.Started(holder, new TaskCompletionSource().Task);
+        await flowRuns.StopAsync(Principal.LocalOwner, Project, holder, "the build is done with it", None);
         using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
 
         Func<Task> takeover = async () => await node.DispatchAsync(SoftwareSteps.Worktree, parcelId, Ids.New(), cancellationToken: stop.Token);
@@ -659,7 +661,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     [Fact]
     public async Task Removing_the_worktree_of_a_flow_run_in_a_project_with_no_plain_name_finds_none_and_runs_nothing()
     {
-        Assert.False(await node.Worktrees.RemoveAsync("team/alpha", Ids.New(), None));
+        await node.DeliverEndAsync(Ids.New(), "team/alpha");
 
         Assert.Empty(runner.Commands);
     }
@@ -667,8 +669,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private const string Ahead = "aaaabbbbccccddddeeeeffff0000111122223333";
 
-    private async Task EndAsync(Guid flowRunId) =>
-        await node.Worktrees.RemoveAsync(Project, flowRunId, None);
+    private Task EndAsync(Guid flowRunId) => node.DeliverEndAsync(flowRunId);
 
     private async Task<Guid> TaskAsync()
     {

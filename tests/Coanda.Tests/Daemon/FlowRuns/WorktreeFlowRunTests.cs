@@ -7,6 +7,10 @@ using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.Commands;
+using Microsoft.Extensions.DependencyInjection;
+using Coanda.Modules.Software;
+using Coanda.Daemon.Modules;
+using Coanda.Core.Registry;
 using Microsoft.Extensions.Logging;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
@@ -148,6 +152,37 @@ public sealed class WorktreeFlowRunTests
         Assert.Null(stopped.Steps[2].Result);
         // the test command never runs
         Assert.Equal([ProjectDefaults.DefaultBuild], runner.ShellLines);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_stop_while_an_agent_session_is_held_past_it_removes_the_worktree_only_once_the_session_has_answered_and_the_worker_has_returned()
+    {
+        using var temp = new TemporaryHome();
+        var runner = new ScriptedCommandRunner();
+        var executor = new GatedExecutor(Scripts.CleanBuildExecutor()) { HeldCollectsIgnoreCancellation = true };
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Stopped mid-session");
+        FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        await executor.Holding.WaitAsync(Patience);
+        string workPath = temp.Home.FlowRunWorkPath(Project, started.Id);
+        string clone = temp.Home.ProjectClonePath(Project);
+
+        await FlowRunDriver.StopAsync(client, Project, started.Id, "Wrong approach.");
+        await FlowRunDriver.UntilAsync(client, Project, started.Id, "stopped");
+        await Task.Delay(TimeSpan.FromMilliseconds(300), None);
+
+        // the session has not answered, so the worker is still in its step and the worktree stays
+        Assert.Equal([workPath], runner.Worktrees(clone));
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree remove", StringComparison.Ordinal));
+
+        executor.Open();
+        await FlowRunDriver.UntilAsync(() => runner.Worktrees(clone).Count == 0, "the stopped flow run's worktree is removed");
+
+        Assert.Contains($"worktree remove --force --force {workPath}", runner.GitCalls);
 
         await daemon.StopAsync(None);
     }
@@ -344,6 +379,86 @@ public sealed class WorktreeFlowRunTests
         Assert.Equivalent(new[] { temp.Home.FlowRunWorkPath(Project, pausedId), notAFlowRun, unknownFlowRun }, runner.Worktrees(clone), strict: true);
         Assert.Contains($"worktree remove --force --force {temp.Home.FlowRunWorkPath(Project, endedId)}", runner.GitCalls);
         Assert.Contains($"worktree remove --force --force {temp.Home.FlowRunWorkPath(Project, stoppedId)}", runner.GitCalls);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_holder_whose_stop_was_recorded_before_the_daemon_started_is_taken_over_without_waiting_for_a_delivery()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("blocked", 1)] });
+        var failing = new ScriptedCommandRunner();
+        int failuresLeft = int.MaxValue;
+        failing.On(c => c.IsGit("worktree", "remove") && Interlocked.Decrement(ref failuresLeft) >= 0, ScriptedCommandRunner.Fails(1, "fatal: busy"));
+        Guid parcelId, holder;
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = failing }, None))
+        {
+            await RegisteredProjects.AddAsync(first, Project, None);
+            using var client = new DaemonClient(temp.Home);
+            ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Stopped before a restart");
+            parcelId = parcel.Id;
+            holder = (await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcelId)).Id, "paused")).Id;
+            await FlowRunDriver.StopAsync(client, Project, holder, "Start again.");
+            await FlowRunDriver.UntilAsync(() => failing.GitCalls.Any(c => c.StartsWith("worktree remove", StringComparison.Ordinal)), "the stop's delivery tried the removal");
+            await first.StopAsync(None);
+        }
+
+        // The start-up sweep's removal fails too, so the holding worktree is still there once the daemon has started.
+        string clone = temp.Home.ProjectClonePath(Project);
+        string held = temp.Home.FlowRunWorkPath(Project, holder);
+        Volatile.Write(ref failuresLeft, 1);
+        await using RunningDaemon second = await Daemons.StartAsync(
+            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), CommandRunner = failing }, None);
+        Assert.Contains(held, failing.Worktrees(clone));
+        using var again = new DaemonClient(temp.Home);
+
+        FlowRunView taker = await FlowRunDriver.StartAsync(again, Project, parcelId, "build");
+        await FlowRunDriver.UntilAsync(
+            async () => (await FlowRunDriver.ShowAsync(again, Project, taker.Id)).Steps[0].Result is not null,
+            "the new flow run's worktree step has recorded its result");
+
+        FlowRunView after = await FlowRunDriver.ShowAsync(again, Project, taker.Id);
+        Assert.Equal("done", after.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.DoesNotContain(held, failing.Worktrees(clone));
+        Assert.Contains(temp.Home.FlowRunWorkPath(Project, taker.Id), failing.Worktrees(clone));
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task The_start_up_sweep_removes_the_worktree_of_a_flow_run_whose_stopped_delivery_was_skipped_as_unconfigured()
+    {
+        using var temp = new TemporaryHome();
+        var runner = new ScriptedCommandRunner();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("blocked", 1)] });
+        var log = new RecordingLogger();
+        string clone = temp.Home.ProjectClonePath(Project);
+        string workPath;
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner, LoggerProvider = log }, None))
+        {
+            await RegisteredProjects.AddAsync(first, Project, None);
+            string profile = Path.Combine(temp.Home.ModuleAreaOf(SoftwareSteps.Module), "work");
+            Directory.CreateDirectory(profile);
+            await first.Services.GetRequiredService<ModuleSettingsService>().SelectProfileAsync(Principal.LocalOwner, Project, SoftwareSteps.Module, "work", None);
+            using var client = new DaemonClient(temp.Home);
+            Guid paused = (await FlowRunDriver.UntilAsync(client, Project, await BoundIdAsync(client, "Stopped while unconfigured"), "paused")).Id;
+            workPath = temp.Home.FlowRunWorkPath(Project, paused);
+
+            // The selected profile is gone, so the module is on and unconfigured here, and the stop's delivery is skipped.
+            Directory.Delete(profile);
+            await FlowRunDriver.StopAsync(client, Project, paused, "Not needed.");
+            await FlowRunDriver.UntilAsync(
+                () => log.Entries.Any(e => e.Message.StartsWith("Skipped the feed delivery", StringComparison.Ordinal) && e.Message.Contains($"module '{SoftwareSteps.Module}'", StringComparison.Ordinal)),
+                "the stop's delivery is skipped");
+            Assert.Equal([workPath], runner.Worktrees(clone));
+            await first.StopAsync(None);
+        }
+
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner }, None);
+
+        Assert.Empty(runner.Worktrees(clone));
+        Assert.Contains($"worktree remove --force --force {workPath}", runner.GitCalls);
 
         await second.StopAsync(None);
     }

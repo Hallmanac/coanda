@@ -93,12 +93,11 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new FlowRunAdvancerOptions(options.AgentStepLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton<FlowRunWorkers>();
-        builder.Services.AddSingleton<InterimWorktreeLink>();
 
         // The software module, hosted in this process behind its host adapter. It is given the node
         // home's locations, the command runner, the GitHub handler, the gates command limit, and the
         // core's address and its token, which exist only once the daemon is listening, and it reaches
-        // the daemon otherwise only through the interim seam.
+        // the daemon otherwise only through the core's API.
         var softwareCore = new ModuleCoreAccess(SoftwareSteps.Module);
         builder.Services.AddSingleton(softwareCore);
         builder.Services.AddSingleton(services => new SoftwareModule(
@@ -112,8 +111,7 @@ public sealed class DaemonHost
                 GitHubHandler = options.GitHubHandler ?? (() => new NoGitHubHandler()),
                 LoggerFactory = services.GetRequiredService<ILoggerFactory>(),
                 GatesCommandLimit = options.GatesCommandLimit,
-            },
-            services.GetRequiredService<InterimWorktreeLink>()));
+            }));
         builder.Services.AddSingleton(services => new HostedModules(
             new Dictionary<string, ModuleHostAdapter>(
                 [
@@ -152,18 +150,6 @@ public sealed class DaemonHost
 
         WebApplication app = builder.Build();
 
-        // Describe is asked of every hosted module before anything is served, since flows are validated
-        // against its answer and module settings are read through it.
-        try
-        {
-            await app.Services.GetRequiredService<HostedModules>().StartAsync(cancellationToken);
-        }
-        catch
-        {
-            await app.DisposeAsync();
-            throw;
-        }
-
         // The token check runs first for everything but /health; the DomainException mapping sits
         // inside it, wrapping the endpoints.
         app.UseDaemonToken(token, app.Services.GetRequiredService<SessionTokens>(), app.Services.GetRequiredService<ModuleTokens>());
@@ -193,21 +179,23 @@ public sealed class DaemonHost
                 await app.Services.GetRequiredService<ModuleTokens>().ReissueAsync(SoftwareSteps.Module, cancellationToken));
 
             // A project registered before modules were has the default modules switched on, before any
-            // of its live flow runs reaches a module's step.
+            // of its live flow runs reaches a module's step and before a module's start reads it.
             await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);
+
+            // Each hosted module is waited on for health and asked to describe itself once the API it
+            // calls is listening, and before anything is advertised: flows are validated against its
+            // answer and module settings are read through it. A module answers health only once its own
+            // start is done; the software module's start sweeps the worktrees of flow runs that ended or
+            // were stopped while no daemon ran, so that is done before any live flow run is advanced.
+            await app.Services.GetRequiredService<HostedModules>().StartAsync(cancellationToken);
 
             // Types come from the store, so the modules' ones are in it before anything is served
             // or advertised: the address file is written only after this returns. Until install exists,
             // the start stands in for it, reading each module's definitions folder from its directory.
             await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
 
-            // Worktrees of flow runs that ended or were stopped while no daemon ran to remove them go
-            // first, before any live flow run is advanced. A sweep that fails is logged and the start goes on.
-            FlowRunAdvancer runner = app.Services.GetRequiredService<FlowRunAdvancer>();
-            await runner.SweepWorktreesAsync(cancellationToken);
-
             // Every live flow run that is not paused carries on from its current step.
-            await runner.AdvanceLiveAsync(cancellationToken);
+            await app.Services.GetRequiredService<FlowRunAdvancer>().AdvanceLiveAsync(cancellationToken);
 
             // The trigger loop's position is fixed before the address is advertised, so nothing
             // recorded through the API can land before the point it reads from.
