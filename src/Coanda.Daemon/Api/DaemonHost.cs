@@ -87,6 +87,7 @@ public sealed class DaemonHost
             services.GetRequiredService<FlowSystemSteps>().NamesAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<ProjectService>();
+        builder.Services.AddSingleton<EarlierProjectRecords>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
@@ -182,6 +183,11 @@ public sealed class DaemonHost
             // A project registered before modules were has the default modules switched on, before any
             // of its live flow runs reaches a module's step and before a module's start reads it.
             await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);
+
+            // A project an earlier build registered reads its remote as its first repo, and what that
+            // build kept in the project's record of the software module's (the primary branch, the build
+            // and test commands, the required checks) becomes the module's settings, before any step reads them.
+            await app.Services.GetRequiredService<EarlierProjectRecords>().CarryAsync(cancellationToken);
 
             // Each hosted module is waited on for health and asked to describe itself once the API it
             // calls is listening, and before anything is advertised: flows are validated against its
