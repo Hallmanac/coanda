@@ -26,8 +26,9 @@ namespace Coanda.Tests.Daemon.Modules;
 
 /// <summary>
 /// The calls a module makes that have no loopback endpoint yet, at the service: recording an external
-/// event of its own prefixed kind, listing subscriptions, and recording the outcome of a dispatch it
-/// holds; the refusals of entries closed to it; and the owner's switching modules on for a project.
+/// event of its own prefixed kind, which no other principal records, listing subscriptions, and
+/// recording the outcome of a dispatch it holds; the refusals of entries closed to it; and the owner's
+/// switching modules on for a project.
 /// </summary>
 public sealed class ModulePrincipalServiceTests
 {
@@ -54,9 +55,12 @@ public sealed class ModulePrincipalServiceTests
         Assert.Equal("Module 'test' records external events of kinds it prefixes with its own name, 'test/<name>'; 'other/pr-opened' is not one.", another.Message);
         Assert.Equal(ModuleNode.NotSwitchedOn(ModuleNode.Module, Off), elsewhere.Message);
 
-        // A person may record a prefixed kind, in any project, as well as a plain one.
-        ExternalEvent byOwner = await triggers.RecordEventAsync(Principal.LocalOwner, Off, "test/pr-opened", Fields, None);
-        Assert.Equal("test/pr-opened", byOwner.Kind);
+        // A person records a plain kind in any project, but a prefixed kind belongs to its module alone, the owner included.
+        DomainException byOwner = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Principal.LocalOwner, On, "test/pr-opened", Fields, None));
+        DomainException byMember = await Assert.ThrowsAsync<DomainException>(
+            () => triggers.RecordEventAsync(new Principal("teammate", Role.Member), On, "test/pr-opened", Fields, None));
+        Assert.Equal("Only module 'test' records external events of kinds prefixed 'test/'; 'owner' cannot record 'test/pr-opened'.", byOwner.Message);
+        Assert.Equal("Only module 'test' records external events of kinds prefixed 'test/'; 'teammate' cannot record 'test/pr-opened'.", byMember.Message);
         Assert.Equal("pr-opened", (await triggers.RecordEventAsync(new Principal("teammate", Role.Member), Off, "pr-opened", Fields, None)).Kind);
 
         await using IQuerySession on = node.Services.GetRequiredService<IDocumentStore>().QuerySession(On);

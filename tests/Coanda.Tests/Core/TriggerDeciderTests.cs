@@ -9,10 +9,11 @@ public sealed class TriggerDeciderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
     private static readonly Principal Member = new("teammate", Role.Member);
+    private static readonly Principal Owner = new("brian", Role.Owner);
     private static readonly Dictionary<string, string> NoFields = [];
 
-    private static ExternalEventRecorded Record(string kind, Dictionary<string, string>? fields = null) =>
-        TriggerDecider.RecordExternalEvent("alpha", kind, fields ?? NoFields, "brian", Now);
+    private static ExternalEventRecorded Record(string kind, Dictionary<string, string>? fields = null, Principal? recordedBy = null) =>
+        TriggerDecider.RecordExternalEvent("alpha", kind, fields ?? NoFields, recordedBy ?? Owner, Now);
 
     private static SubscriptionRecorded Subscribe(
         string kind = "pr-assigned",
@@ -49,12 +50,36 @@ public sealed class TriggerDeciderTests
     }
 
     [Fact]
-    public void An_external_event_of_a_module_prefixed_kind_is_recorded_by_anyone()
+    public void An_external_event_of_a_module_prefixed_kind_is_recorded_by_the_module_its_prefix_names()
     {
-        ExternalEventRecorded recorded = Record("software/pr-opened");
+        ExternalEventRecorded recorded = Record("software/pr-opened", recordedBy: Principal.ForModule("software"));
 
         Assert.Equal("software/pr-opened", recorded.Kind);
-        Assert.Equal("brian", recorded.RecordedBy);
+        Assert.Equal("module:software", recorded.RecordedBy);
+    }
+
+    public static TheoryData<string, Role, string?> NotTheNamedModule => new()
+    {
+        { "brian", Role.Owner, null },
+        { "teammate", Role.Member, null },
+        { "module:other", Role.Module, "other" },
+    };
+
+    [Theory]
+    [MemberData(nameof(NotTheNamedModule))]
+    public void An_external_event_of_a_module_prefixed_kind_is_refused_to_every_principal_but_the_module_its_prefix_names(
+        string id, Role role, string? module)
+    {
+        DomainException exception = Assert.Throws<DomainException>(
+            () => Record("software/pr-opened", recordedBy: new Principal(id, role, Module: module)));
+
+        Assert.Equal($"Only module 'software' records external events of kinds prefixed 'software/'; '{id}' cannot record 'software/pr-opened'.", exception.Message);
+    }
+
+    [Fact]
+    public void An_external_event_of_a_plain_kind_is_recorded_by_a_member()
+    {
+        Assert.Equal("teammate", Record("pr-assigned", recordedBy: Member).RecordedBy);
     }
 
     [Theory]
