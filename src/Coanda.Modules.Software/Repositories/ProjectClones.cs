@@ -79,9 +79,9 @@ public abstract record Rebase
 /// <summary>
 /// What the worktree step reads of the flow runs on the node when another worktree holds the parcel's
 /// branch: a flow run's status as the core names it (running, paused, ended, or stopped; null when the
-/// core holds no such flow run), and a wait that completes once the module knows an ended or stopped
-/// flow run's end, because its ended or stopped feed delivery has reached the module or the module's
-/// start-up sweep found it ended, at once when it already does (<see cref="FlowRunEnds"/>).
+/// core holds no such flow run), and a wait that completes once nothing of the core's runs for an ended or
+/// stopped flow run any more: when its ended or stopped feed delivery reaches the module, or when the core
+/// shows it no longer working (<see cref="Steps.WorktreeStep"/>).
 /// </summary>
 public sealed record WorktreeHolders(
     Func<Guid, CancellationToken, Task<string?>> StatusOf,
@@ -138,9 +138,9 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// <remarks>
     /// A branch another worktree has checked out is taken over when that worktree is the work path of
     /// a flow run <paramref name="holders"/> reports ended or stopped, as a build flow run before a merge flow run
-    /// can be while its removal is still pending: the clone's turn is given back until that flow run's
-    /// end has reached the module, which the core sends only once nothing it runs for the flow run is
-    /// still running, and then, in one turn, the worktree is listed again, the holding one removed as
+    /// can be while its removal is still pending: the clone's turn is given back until nothing the core runs
+    /// for that flow run is still running, which its end reaching the module through the feed or the core
+    /// showing it no longer working tells, and then, in one turn, the worktree is listed again, the holding one removed as
     /// its end's delivery would, and the branch checked out here. A later removal of the ended flow run's
     /// worktree works by that flow run's own work path and finds nothing there. A branch held by a live
     /// flow run's worktree, or by one at a path that is no flow run's work path or whose flow run the store does
@@ -168,7 +168,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
                 }
             }
 
-            // Outside the clone's turn: the holding flow run's end, once it arrives, removes its worktree through it.
+            // Outside the clone's turn: the holding flow run's end, if it arrives meanwhile, removes its worktree through it.
             Guid holder = waitFor ?? throw new InvalidOperationException("A checkout neither ended nor named a flow run to wait for.");
             await holders.EndReached(holder, cancellationToken);
             reached.Add(holder);

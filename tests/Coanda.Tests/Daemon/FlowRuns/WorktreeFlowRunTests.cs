@@ -476,6 +476,48 @@ public sealed class WorktreeFlowRunTests
         await second.StopAsync(None);
     }
 
+    [Fact]
+    public async Task A_holder_whose_stopped_delivery_was_skipped_as_unconfigured_is_taken_over_once_the_core_shows_it_no_longer_working()
+    {
+        using var temp = new TemporaryHome();
+        var runner = new ScriptedCommandRunner();
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("blocked", 1)] });
+        var log = new RecordingLogger();
+        string clone = temp.Home.ProjectClonePath(Project);
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner, LoggerProvider = log }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        string profile = Path.Combine(temp.Home.ModuleAreaOf(SoftwareSteps.Module), "work");
+        Directory.CreateDirectory(profile);
+        await daemon.Services.GetRequiredService<ModuleSettingsService>().SelectProfileAsync(Principal.LocalOwner, Project, SoftwareSteps.Module, "work", None);
+        using var client = new DaemonClient(temp.Home);
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Taken over after a skipped stop");
+        Guid holder = (await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused")).Id;
+        string held = temp.Home.FlowRunWorkPath(Project, holder);
+
+        // The selected profile is gone, so the stop's delivery is skipped and the module never learns of the stop through the feed.
+        Directory.Delete(profile);
+        await FlowRunDriver.StopAsync(client, Project, holder, "Start again.");
+        await FlowRunDriver.UntilAsync(
+            () => log.Entries.Any(e => e.Message.StartsWith("Skipped the feed delivery", StringComparison.Ordinal) && e.Message.Contains($"module '{SoftwareSteps.Module}'", StringComparison.Ordinal)),
+            "the stop's delivery is skipped");
+        Assert.Equal([held], runner.Worktrees(clone));
+        Assert.False((await FlowRunDriver.ShowAsync(client, Project, holder)).Working);
+
+        // The profile comes back within the same daemon run, and a new flow run on the parcel needs the held branch.
+        Directory.CreateDirectory(profile);
+        FlowRunView taker = await FlowRunDriver.StartAsync(client, Project, parcel.Id, "build");
+        await FlowRunDriver.UntilAsync(
+            async () => (await FlowRunDriver.ShowAsync(client, Project, taker.Id)).Steps[0].Result is not null,
+            "the new flow run's worktree step has recorded its result");
+
+        FlowRunView after = await FlowRunDriver.ShowAsync(client, Project, taker.Id);
+        Assert.Equal("done", after.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString());
+        Assert.DoesNotContain(held, runner.Worktrees(clone));
+        Assert.Contains(temp.Home.FlowRunWorkPath(Project, taker.Id), runner.Worktrees(clone));
+
+        await daemon.StopAsync(None);
+    }
+
     private static async Task<Guid> BoundIdAsync(DaemonClient client, string title)
     {
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, title);

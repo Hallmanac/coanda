@@ -30,7 +30,9 @@ public sealed record CoreFieldReference(string Id, string? Url = null);
 /// <summary>
 /// A flow run as the core's API shows it. <see cref="Status"/> is running, paused, ended, or stopped,
 /// <see cref="CurrentStep"/> is the name of the step it is in, and every flow run of a chain carries the
-/// chain's <see cref="RootFlowRunId"/>.
+/// chain's <see cref="RootFlowRunId"/>. <see cref="Working"/> is true while the core has a worker
+/// advancing the flow run or a person's stop of it being saved; a core that does not say is taken as
+/// working, the side that never acts on a flow run something may still be running for.
 /// </summary>
 public sealed record CoreFlowRun(
     Guid Id,
@@ -40,7 +42,8 @@ public sealed record CoreFlowRun(
     string Status,
     string CurrentStep,
     Guid RootFlowRunId,
-    IReadOnlyList<CoreFlowRunStep> Steps)
+    IReadOnlyList<CoreFlowRunStep> Steps,
+    bool Working = true)
 {
     /// <summary>Whether the flow run has ended or been stopped, after which it never runs again.</summary>
     public bool IsFinal => Status is "ended" or "stopped";

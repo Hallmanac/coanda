@@ -31,6 +31,14 @@ public sealed class FlowRunWorkers
     }
 
     /// <summary>
+    /// Whether a worker is advancing <paramref name="flowRunId"/> or a stop of it is being saved now. The
+    /// core's API shows it on each flow run, so a module that never had a flow run's ended or stopped
+    /// delivery (the feed skipped it, or the delivery failed) can still tell when nothing of the core's
+    /// runs for it.
+    /// </summary>
+    public bool IsWorking(Guid flowRunId) => Pending(flowRunId) is not null;
+
+    /// <summary>
     /// Marks a person's stop of <paramref name="flowRunId"/> as being saved until the mark is disposed,
     /// which its caller does once the advancer has been told of the stop or the stop was refused.
     /// </summary>
