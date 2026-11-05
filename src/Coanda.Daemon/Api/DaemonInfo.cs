@@ -19,18 +19,20 @@ public sealed record DaemonInfo(int Pid, int Port, string Token, DateTimeOffset 
         JsonSerializer.Serialize(file, this, Json);
     }
 
+    /// <summary>
+    /// Reads the address file, or null while there is none to read. The file is opened sharing write
+    /// and delete with whoever else holds it, since on Windows a read that shares only read is refused
+    /// while the daemon is still writing it; a file caught half written is not valid JSON, so a reader
+    /// polling for a starting daemon sees no daemon yet and looks again.
+    /// </summary>
     public static DaemonInfo? Load(NodeHome home)
     {
-        if (!File.Exists(home.DaemonInfoPath))
-        {
-            return null;
-        }
-
         try
         {
-            return JsonSerializer.Deserialize<DaemonInfo>(File.ReadAllText(home.DaemonInfoPath));
+            using var file = new FileStream(home.DaemonInfoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonSerializer.Deserialize<DaemonInfo>(file);
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException or JsonException)
         {
             return null;
         }
