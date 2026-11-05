@@ -53,6 +53,8 @@ public sealed class DaemonHost
         // Narrows what an earlier run left wider and creates the database owner-only, before the
         // check below or the store opens it.
         home.EnsureExists().EnsureDatabase();
+        // Made at the first start on a home and read at every later one; a home holding part of one is refused here.
+        NodeIdentity identity = await NodeIdentity.EnsureAsync(home, cancellationToken);
         string[] moduleAreas = [SoftwareSteps.Module, .. options.Modules.Keys, .. options.ModuleSettingsSchemas?.Modules ?? []];
         foreach (string module in moduleAreas)
         {
@@ -74,6 +76,7 @@ public sealed class DaemonHost
 
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton(home);
+        builder.Services.AddSingleton(identity);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.

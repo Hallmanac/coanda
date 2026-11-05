@@ -26,11 +26,21 @@ public sealed record NodeHome(string Path)
     /// <summary>The node configuration <see cref="Api.NodeConfiguration"/> reads when <c>coa daemon run</c> starts; it may be absent.</summary>
     public string ConfigurationPath => System.IO.Path.Combine(Path, "node.json");
 
+    /// <summary>
+    /// The node's identity, its node id and its ed25519 key pair (<see cref="NodeIdentity"/>), made at
+    /// the daemon's first start and never rewritten. Kept apart from <see cref="ConfigurationPath"/>,
+    /// which is the user's to edit.
+    /// </summary>
+    public string NodeIdentityPath => System.IO.Path.Combine(Path, "node-identity.json");
+
+    /// <summary>The empty file a start holds an exclusive lock on while it makes the node identity, so two starts at once make one.</summary>
+    public string NodeIdentityLockPath => System.IO.Path.Combine(Path, "node-identity.lock");
+
     /// <summary>The files SQLite keeps beside the database: the write-ahead log, the shared-memory file, and the rollback journal.</summary>
     public IReadOnlyList<string> DatabaseCompanionPaths => [DatabasePath + "-wal", DatabasePath + "-shm", DatabasePath + "-journal"];
 
     /// <summary>Every file in the home that only its owner may read or write.</summary>
-    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath];
+    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath, NodeIdentityPath];
 
     /// <summary>
     /// The module area: <c>modules-private/</c> under the home, holding one directory per module, each
@@ -118,8 +128,9 @@ public sealed record NodeHome(string Path)
     /// Creates the home if it is absent and narrows to owner-only access anything an earlier run
     /// left wider: on Windows the directory itself, whose access list every file created in it
     /// inherits, and on every platform the token file, the database and its companion files, the
-    /// log, and the detached daemon's output. It also creates the module area owner-only and narrows
-    /// every directory and file under it, the area included, to owner-only (<see cref="OwnerOnly.NarrowTree"/>).
+    /// log, the detached daemon's output, and the node identity, which it never creates. It also
+    /// creates the module area owner-only and narrows every directory and file under it, the area
+    /// included, to owner-only (<see cref="OwnerOnly.NarrowTree"/>).
     /// Called before anything opens the database or writes to any of those files.
     /// </summary>
     public NodeHome EnsureExists()

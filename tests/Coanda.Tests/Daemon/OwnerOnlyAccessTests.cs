@@ -11,7 +11,7 @@ using Microsoft.Data.Sqlite;
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
-/// The node home's token file, database with its companion files, and log are readable and
+/// The node home's token file, database with its companion files, log, and node identity are readable and
 /// writable by their owner alone: mode 0600 on macOS and Linux, and on Windows an access list whose
 /// only entry grants the current user full control, inherited from the home's own owner-only list.
 /// Every assertion checks whichever of the two the platform it runs on has.
@@ -46,7 +46,8 @@ public sealed class OwnerOnlyAccessTests
         NodeHome home = scratch.Home;
         SeedWriteAheadLogDatabase(home);
         await File.WriteAllTextAsync(home.DaemonInfoPath, "{}", CancellationToken.None);
-        string[] seeded = [home.DaemonInfoPath, home.DatabasePath, Wal(home), Shm(home)];
+        NodeIdentity identity = await SeedIdentityAsync(home);
+        string[] seeded = [home.DaemonInfoPath, home.DatabasePath, Wal(home), Shm(home), home.NodeIdentityPath];
         foreach (string path in seeded)
         {
             Widen(path);
@@ -58,7 +59,28 @@ public sealed class OwnerOnlyAccessTests
         await WriteToStoreAsync(home);
 
         AssertWhileRunning(home);
+        Assert.Equal(identity.NodeId, NodeIdentity.Read(home)?.NodeId);
         await daemon.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task The_node_identity_is_owner_only_from_the_moment_it_is_written()
+    {
+        // a home nothing has narrowed yet, so the identity's own creation is what makes it owner-only
+        using var scratch = new ScratchHome(create: true);
+        NodeHome home = scratch.Home;
+        NodeIdentity.BeforeMove.Value = () => AssertOwnerOnly(Assert.Single(Directory.GetFiles(home.Path), path => path.EndsWith(".tmp", StringComparison.Ordinal)));
+        try
+        {
+            await NodeIdentity.EnsureAsync(home, CancellationToken.None);
+        }
+        finally
+        {
+            NodeIdentity.BeforeMove.Value = null;
+        }
+
+        AssertOwnerOnly(home.NodeIdentityPath);
+        AssertHomeDirectory(home);
     }
 
     [Fact]
@@ -202,7 +224,7 @@ public sealed class OwnerOnlyAccessTests
     {
         Assert.True(File.Exists(Wal(home)), "the store runs in write-ahead-log mode");
         Assert.True(File.Exists(Shm(home)), "the store runs in write-ahead-log mode");
-        foreach (string path in (string[])[home.DaemonInfoPath, home.DatabasePath, Wal(home), Shm(home)])
+        foreach (string path in (string[])[home.DaemonInfoPath, home.DatabasePath, Wal(home), Shm(home), home.NodeIdentityPath])
         {
             AssertOwnerOnly(path);
         }
@@ -233,6 +255,18 @@ public sealed class OwnerOnlyAccessTests
         long shm = new FileInfo(Shm(home)).Length;
         Assert.True(wal > 0, $"Expected a write-ahead log with content, but its length is {wal}.");
         Assert.True(shm > 0, $"Expected a shared-memory file with content, but its length is {shm}.");
+    }
+
+    /// <summary>
+    /// Copies in an identity made in a home of its own, since making one narrows the home it is made in
+    /// on Windows, and the copy takes the access list of a home nothing has narrowed.
+    /// </summary>
+    private static async Task<NodeIdentity> SeedIdentityAsync(NodeHome home)
+    {
+        using var source = new ScratchHome(create: true);
+        NodeIdentity identity = await NodeIdentity.EnsureAsync(source.Home, CancellationToken.None);
+        File.Copy(source.Home.NodeIdentityPath, home.NodeIdentityPath);
+        return identity;
     }
 
     private static SqliteConnection Open(string database)
