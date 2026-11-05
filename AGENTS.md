@@ -43,5 +43,9 @@ code, and `decisions.md` in its worktree carries the binding rules.
 - `src/Coanda.Core`: the meta-model (parcels, types, relations), definitions (types, flows,
   agents), the interpreter, the registry. No store dependency.
 - `src/Coanda.Daemon`: the store (Fisher on SQLite), loops, adapters, transport, the loopback API.
+- `src/Coanda.Sdk`: the module SDK, referencing no other Coanda project: the module API's
+  contract types, a client for the core's loopback API, and the command runner and git wrapper,
+  which the daemon uses too.
+- `schemas/module/v1`: the module API's JSON schemas, with `index.json` naming each call's documents.
 - `src/Coanda.Cli`: the `coa` executable, thin; also hosts the daemon under `coa daemon`.
 - `tests/Coanda.Tests`: unit tests. No test creates a branch or touches GitHub.
