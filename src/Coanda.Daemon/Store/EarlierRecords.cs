@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
+using Coanda.Core.Projects;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Sdk.Contract;
 using Fisher;
@@ -64,6 +66,13 @@ namespace Coanda.Daemon.Store;
 /// false in the daemon.</item>
 /// </list>
 /// <para>
+/// An export of the record (<see cref="RecordExport"/>) writes every event in its current shape through
+/// <see cref="Exported"/>, which puts the shapes read elsewhere in theirs too, and a deferred follow in its
+/// current shape through <see cref="CurrentDeferredFollows"/>; a rebuild from the export holds no earlier
+/// shape but the two that stay current, flow content naming the software steps unprefixed and an
+/// <c>agent_step_spawned</c> with null members.
+/// </para>
+/// <para>
 /// This type, and each reader listed above as elsewhere, is deleted in the change that passes phase 3's
 /// gate, once the node has been rebuilt from an export, which emits only current shapes. From then on the
 /// daemon refuses a home holding any of these shapes, as <see cref="PreRenameStore"/> refuses a home
@@ -83,6 +92,13 @@ public static class EarlierRecords
 
     /// <summary>The five system steps every build before the carve-out named without the software module's prefix.</summary>
     public static readonly IReadOnlyList<string> UnprefixedSteps = ["worktree", "gates", "open-pr", "gated-merge", "rebase"];
+
+    private const string ProjectRegistered = "project_registered";
+    private const string ProjectRequiredChecksSet = "project_required_checks_set";
+    private const string DefinitionDraftedType = "definition_drafted";
+
+    /// <summary>What a registration from before repos and module settings held beside the remote, and this build no longer records.</summary>
+    private static readonly IReadOnlyList<string> EarlierRegistrationMembers = ["remote", "primaryBranch", "buildCommand", "testCommand"];
 
     private const string UnprefixedOpenPr = "open-pr";
     private const string OpenedVerdict = "opened";
@@ -128,6 +144,65 @@ public static class EarlierRecords
         return upgraded
             ? stored with { Data = data.ToJsonString() }
             : stored;
+    }
+
+    /// <summary>
+    /// One stored event, given as the events table holds it, in the shape an export writes, or null when
+    /// an export leaves it out. It is <see cref="Upgrade"/>'s current shape with the shapes this build
+    /// reads elsewhere put in theirs too: a <c>project_registered</c> from before repos is written with its
+    /// one repo and without the remote, the primary branch, and the build and test commands, and a
+    /// <c>project_required_checks_set</c> is left out, since <see cref="EarlierProjectRecords"/> carries what
+    /// both held into the software module's settings; and a fork base of a name and a store-given version
+    /// is written as the base <paramref name="currentBase"/> gives for the definition's kind, name, and that
+    /// version, which is the module-scope definition it resolves to on this node. A fork base that resolves
+    /// to none is refused, naming the definition. A definition's content and content hash are left as
+    /// stored, and so is an <c>agent_step_spawned</c> with null members, which is a current shape.
+    /// </summary>
+    public static StoredEvent? Exported(StoredEvent stored, Func<DefinitionKind, string, int, ForkBase?> currentBase)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        ArgumentNullException.ThrowIfNull(currentBase);
+        if (stored.Type == ProjectRequiredChecksSet)
+        {
+            return null;
+        }
+
+        StoredEvent current = Upgrade(stored);
+        if (current.Type is not (ProjectRegistered or DefinitionDraftedType) || JsonNode.Parse(current.Data) is not JsonObject data)
+        {
+            return current;
+        }
+
+        bool changed = current.Type == ProjectRegistered
+            ? ExportRegistration(data)
+            : ExportForkBase(data, currentBase);
+        return changed
+            ? current with { Data = data.ToJsonString() }
+            : current;
+    }
+
+    /// <summary>
+    /// A stored <c>DeferredFollows</c> document's JSON in its current shape: a pending follow recorded
+    /// before the closes flag existed carries it as false, which is how it reads. Any other JSON is
+    /// returned as it was given.
+    /// </summary>
+    public static string CurrentDeferredFollows(string data)
+    {
+        if (JsonNode.Parse(data) is not JsonObject document || document["pending"] is not JsonArray pending)
+        {
+            return data;
+        }
+
+        bool changed = false;
+        foreach (JsonObject follow in pending.OfType<JsonObject>().Where(f => !f.ContainsKey("closes")))
+        {
+            follow["closes"] = false;
+            changed = true;
+        }
+
+        return changed
+            ? document.ToJsonString()
+            : data;
     }
 
     /// <summary>
@@ -188,6 +263,57 @@ public static class EarlierRecords
         }
     }
 
+    /// <summary>A registration from before repos: its remote as its one repo, and nothing of the software module's.</summary>
+    private static bool ExportRegistration(JsonObject registration)
+    {
+        bool changed = false;
+        if (registration["repos"] is null && registration["remote"] is JsonValue remote && remote.GetValueKind() == JsonValueKind.String)
+        {
+            ProjectRepo repo = ProjectRepo.FromRemote(remote.GetValue<string>());
+            registration["repos"] = new JsonArray(new JsonObject { ["name"] = repo.Name, ["remote"] = repo.Remote });
+            changed = true;
+        }
+
+        foreach (string earlier in EarlierRegistrationMembers)
+        {
+            changed |= registration.Remove(earlier);
+        }
+
+        return changed;
+    }
+
+    /// <summary>A fork base of a name and a store-given version, as the base it resolves to on this node.</summary>
+    private static bool ExportForkBase(JsonObject drafted, Func<DefinitionKind, string, int, ForkBase?> currentBase)
+    {
+        if (drafted["forkBase"] is not JsonObject forkBase
+            || forkBase["contentHash"] is JsonValue
+            || forkBase["version"] is not JsonValue version
+            || forkBase["name"] is not JsonValue name)
+        {
+            return false;
+        }
+
+        string definition = drafted["name"]?.GetValue<string>() ?? "(unnamed)";
+        string scope = drafted["scope"]?.GetValue<string>() ?? "(no scope)";
+        DefinitionKind kind = KindOf(drafted["kind"])
+            ?? throw new DomainException($"The definition '{definition}' ({scope} scope) records a kind this build does not know, '{drafted["kind"]}', so its fork base cannot be resolved and nothing was exported.");
+        string baseName = name.GetValue<string>();
+        int baseVersion = version.GetValue<int>();
+        ForkBase resolved = currentBase(kind, baseName, baseVersion)
+            ?? throw new DomainException(
+                $"The {kind} '{definition}' ({scope} scope{(drafted["project"]?.GetValue<string>() is { } project ? $", project '{project}'" : string.Empty)}, "
+                + $"definition {drafted["definitionId"]?.GetValue<string>()}) was forked from '{baseName}' version {baseVersion}, "
+                + "which resolves to no module-scope definition on this node, so nothing was exported.");
+        drafted["forkBase"] = new JsonObject
+        {
+            ["name"] = resolved.Name,
+            ["module"] = resolved.Module,
+            ["moduleVersion"] = resolved.ModuleVersion,
+            ["contentHash"] = resolved.ContentHash,
+        };
+        return true;
+    }
+
     private static bool UpgradeDefinition(JsonObject definition)
     {
         if (definition["scope"] is not JsonValue scope || scope.GetValueKind() != JsonValueKind.String || scope.GetValue<string>() != ShippedScope)
@@ -227,6 +353,17 @@ public static class EarlierRecords
         data[performer] = current;
         return true;
     }
+
+    /// <summary>A definition kind stored as its name or as its number, or null for any other value.</summary>
+    private static DefinitionKind? KindOf(JsonNode? kind) =>
+        kind is JsonValue value
+            ? value.GetValueKind() switch
+            {
+                JsonValueKind.String when Enum.TryParse(value.GetValue<string>(), out DefinitionKind named) && Enum.IsDefined(named) => named,
+                JsonValueKind.Number when Enum.IsDefined((DefinitionKind)value.GetValue<int>()) => (DefinitionKind)value.GetValue<int>(),
+                _ => null,
+            }
+            : null;
 
     /// <summary>A step kind stored as its number or as its name.</summary>
     private static bool IsSystemStep(JsonNode? kind) =>
