@@ -21,7 +21,9 @@ public static class DefinitionDecider
     /// scope), or 0 when there is none. <paramref name="knownGates"/> is every gate name the
     /// daemon runs, which a parcel type's gate bindings are validated against; the shipped gate set's when null.
     /// <paramref name="knownSystemSteps"/> is every system step name the daemon registered, which a flow's
-    /// system steps are validated against; none when null. The decider holds no catalog of either.
+    /// system steps are validated against; none when null. <paramref name="stepArguments"/> is what each
+    /// system step's argument schema says of a step's arguments; no step's arguments are checked against a
+    /// schema when null. The decider holds no catalog of any of them.
     /// <paramref name="moduleVersions"/> is every module-scope definition of <paramref name="kind"/>,
     /// which a fork base must name one of by name and version, and whose parcel type, when the fork
     /// base names one, is the only source of a field owner the draft's parcel type may name; none when null.
@@ -39,7 +41,8 @@ public static class DefinitionDecider
         DateTimeOffset now,
         IReadOnlySet<string>? knownGates = null,
         IReadOnlySet<string>? knownSystemSteps = null,
-        IReadOnlyCollection<Definition>? moduleVersions = null)
+        IReadOnlyCollection<Definition>? moduleVersions = null,
+        StepArgumentCheck? stepArguments = null)
     {
         if (scope == DefinitionScope.Module)
         {
@@ -51,7 +54,7 @@ public static class DefinitionDecider
         return Build(
             kind, name, scope, project, latestVersion, content, contentHash, forkBase,
             type => RequireOwnersFromForkBase(type, forkBase, forkedFrom),
-            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, draftedBy, now, null, null);
+            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, stepArguments, draftedBy, now, null, null);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -93,7 +96,8 @@ public static class DefinitionDecider
     /// definition passes the validation a draft of no project does: a parcel type is validated against
     /// <paramref name="knownGates"/>, the gates the daemon runs (the shipped gate set's when null), and
     /// may name only its own module as a field's owner; a flow is validated against
-    /// <paramref name="knownSystemSteps"/>, the system step names a flow of no project may name; none when null.
+    /// <paramref name="knownSystemSteps"/>, the system step names a flow of no project may name (none when
+    /// null), and its system steps' arguments against <paramref name="stepArguments"/> (unchecked when null).
     /// </summary>
     public static (DefinitionDrafted Drafted, DefinitionPublished Published)? Import(
         ModuleDefinition definition,
@@ -103,7 +107,8 @@ public static class DefinitionDecider
         string importedBy,
         DateTimeOffset now,
         IReadOnlySet<string>? knownGates = null,
-        IReadOnlySet<string>? knownSystemSteps = null)
+        IReadOnlySet<string>? knownSystemSteps = null,
+        StepArgumentCheck? stepArguments = null)
     {
         ModuleNames.Require(module);
         if (string.IsNullOrWhiteSpace(moduleVersion))
@@ -129,7 +134,7 @@ public static class DefinitionDecider
         DefinitionDrafted drafted = Build(
             definition.Kind, definition.Name, DefinitionScope.Module, null, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(),
             definition.Content, definition.ContentHash, null, type => RequireOwnModuleOnly(type, module),
-            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, importedBy, now, module, moduleVersion.Trim());
+            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, stepArguments, importedBy, now, module, moduleVersion.Trim());
         return (drafted, new DefinitionPublished(drafted.DefinitionId, importedBy, now));
     }
 
@@ -145,6 +150,7 @@ public static class DefinitionDecider
         Action<ParcelType> requireOwners,
         IReadOnlySet<string> knownGates,
         IReadOnlySet<string> knownSystemSteps,
+        StepArgumentCheck? stepArguments,
         string draftedBy,
         DateTimeOffset now,
         string? module,
@@ -176,7 +182,7 @@ public static class DefinitionDecider
                 requireOwners(RequireParcelType(trimmedName, content, contentHash, knownGates));
                 break;
             case DefinitionKind.Flow:
-                RequireFlow(trimmedName, content, contentHash, knownSystemSteps);
+                RequireFlow(trimmedName, content, contentHash, knownSystemSteps, stepArguments);
                 break;
             case DefinitionKind.Agent:
                 RequireAgent(trimmedName, content, contentHash);
@@ -266,10 +272,10 @@ public static class DefinitionDecider
         return type;
     }
 
-    private static void RequireFlow(string name, string content, string contentHash, IReadOnlySet<string> knownSystemSteps)
+    private static void RequireFlow(string name, string content, string contentHash, IReadOnlySet<string> knownSystemSteps, StepArgumentCheck? stepArguments)
     {
         Flow flow = Flow.FromJson(content);
-        flow.Validate(knownSystemSteps);
+        flow.Validate(knownSystemSteps, stepArguments);
 
         if (!string.Equals(flow.Name, name, StringComparison.OrdinalIgnoreCase))
         {
