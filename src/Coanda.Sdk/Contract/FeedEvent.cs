@@ -7,6 +7,10 @@ namespace Coanda.Sdk.Contract;
 /// node's event sequence, and the ids of what it is about. The <c>kind</c> property names its
 /// <see cref="CoreEventKind"/>. The private constructor closes the hierarchy.
 /// </summary>
+/// <remarks>
+/// This is the one abstract contract type that is not an answer. It is abstract for the same reason
+/// an answer with several kinds is: a feed event has several kinds, each a sealed record nested here.
+/// </remarks>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(FeedEvent.ParcelEntered), "parcel-entered")]
 [JsonDerivedType(typeof(FeedEvent.FlowRunEnded), "flow-run-ended")]
