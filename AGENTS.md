@@ -44,11 +44,14 @@ code, and `decisions.md` in its worktree carries the binding rules.
   agents), the interpreter, the registry. No store dependency.
 - `src/Coanda.Daemon`: the store (Fisher on SQLite), loops, adapters, transport, the loopback API.
 - `src/Coanda.Sdk`: the module SDK, referencing no other Coanda project: the module API's
-  contract types, a client for the core's loopback API, and the command runner and git wrapper,
-  which the daemon uses too.
+  contract types, the interface an in-process module answers the module API's calls through, a
+  client for the core's loopback API, and the command runner and git wrapper, which the daemon uses
+  too.
 - `src/Coanda.Modules.Software`: the software engineering module: the worktree, gates, open-pr,
   gated-merge, and rebase steps, the GitHub client, and the clones and worktrees they act on. It
-  references the SDK and no other Coanda project, and the daemon hosts it in process until phase 5.
+  removes a flow run's worktree when the module feed delivers that flow run's end or stop, and sweeps
+  what is left at its start. It references the SDK and no other Coanda project, and the daemon hosts
+  it in process until phase 5.
   Its `module.json` and its `definitions` folder (one JSON file per type, flow, and agent) are copied
   to `modules/software/` beside the daemon, which imports the definitions in module scope at start.
 - `schemas/module/v1`: the module API's JSON schemas, with `index.json` naming each call's documents.
