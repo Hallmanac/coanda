@@ -271,7 +271,7 @@ public sealed class FlowRunAdvancerTests
         FlowRunView build = await FlowRunDriver.BoundAsync(client, Project, task.Id);
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, discovery.Id, "paused");
-        Assert.StartsWith("Step 'discover' got no judgment from agent 'discovery':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'discover' got no answer from agent 'discovery':", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("agent 'discovery'", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("discover"), paused.Lever);
         Assert.Null(Assert.Single(paused.Steps).Answer);
@@ -651,7 +651,7 @@ public sealed class FlowRunAdvancerTests
 
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, twice.Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
-        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'build' got no answer from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("could not be launched", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(1, paused.Spawns);
         FlowRun? failed = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
@@ -734,7 +734,7 @@ public sealed class FlowRunAdvancerTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'build' got no answer from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("gave up collecting", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
         Assert.Null(paused.Steps[^1].Answer);

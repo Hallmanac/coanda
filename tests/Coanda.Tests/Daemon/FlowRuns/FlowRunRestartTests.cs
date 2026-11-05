@@ -443,7 +443,7 @@ public sealed class FlowRunRestartTests
         using var again = new DaemonClient(temp.Home);
         FlowRunView paused = await FlowRunDriver.UntilAsync(again, Project, flowRunId, "paused");
 
-        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'build' got no answer from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("gave up collecting", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
         Assert.Equal([issued], givingUp.Inner.Stops);
@@ -521,7 +521,7 @@ public sealed class FlowRunRestartTests
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Left running, then stopped");
         flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
-        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'build' got no answer from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
         SessionHandle issued = Assert.Single(stopping.Inner.Spawns).Handle;
         // its stop after the pause failed
         Assert.Equal(issued, Assert.Single(await stopping.ListAsync(None)));
@@ -559,7 +559,7 @@ public sealed class FlowRunRestartTests
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Spent by its stop");
         Guid flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
-        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", (await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused")).PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'build' got no answer from agent 'build':", (await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused")).PauseReason, StringComparison.Ordinal);
         SessionHandle issued = Assert.Single(stopping.Inner.Spawns).Handle;
 
         stopping.FailStops = false;

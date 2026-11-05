@@ -946,7 +946,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         {
             await PauseAgentStepAsync(
                 principal, project, flowRunId, launched,
-                $"Step '{step.Name}' got no judgment from agent '{launched.Agent}': {failure.Message}{CostUnreported(spend, launched.Ceiling)}",
+                $"Step '{step.Name}' got no answer from agent '{launched.Agent}': {failure.Message}{CostUnreported(spend, launched.Ceiling)}",
                 FlowRunLevers.PerformAgain(step.Name),
                 spend.Reported,
                 cancellationToken);
