@@ -465,7 +465,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             : step.IsAgentStep
                 ? current.AwaitsLaunchedSession
                     ? await ReattachAsync(principal, project, flowRun, step, current, cancellationToken)
-                    : await JudgeAsync(principal, project, flowRun, flow, step, spawnsAgain, cancellationToken)
+                    : await LaunchAgentStepAsync(principal, project, flowRun, flow, step, spawnsAgain, cancellationToken)
                 : await DispatchSystemStepAsync(principal, project, flowRun, flow, step, current, cancellationToken);
 
         // Routed against the flow run as the recording left it, so a spawn counted on this pass is in the position.
@@ -604,7 +604,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// load) leaves that spawn unused, and the next resume uses it rather than counting another. The
     /// session the spawn returns is recorded before its first collect.
     /// </summary>
-    private async Task<Recording?> JudgeAsync(
+    private async Task<Recording?> LaunchAgentStepAsync(
         Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, bool spawnsAgain, CancellationToken cancellationToken)
     {
         if (await StopLeftSessionAsync(principal, project, flowRun, step, cancellationToken) is not { } stopped)
