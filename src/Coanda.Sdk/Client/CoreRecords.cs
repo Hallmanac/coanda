@@ -66,6 +66,8 @@ public sealed record CoreFieldReference(string Id, string? Url = null);
 /// chain's <see cref="RootFlowRunId"/>. <see cref="Working"/> is true while the core has a worker
 /// advancing the flow run or a person's stop of it being saved; a core that does not say is taken as
 /// working, the side that never acts on a flow run something may still be running for.
+/// <see cref="WorkPath"/> is the flow run's work path as the core places it, the path every dispatch of
+/// it carries, or null when the core gives it none; a module never computes it.
 /// </summary>
 public sealed record CoreFlowRun(
     Guid Id,
@@ -76,7 +78,8 @@ public sealed record CoreFlowRun(
     string CurrentStep,
     Guid RootFlowRunId,
     IReadOnlyList<CoreFlowRunStep> Steps,
-    bool Working = true)
+    bool Working = true,
+    string? WorkPath = null)
 {
     /// <summary>Whether the flow run has ended or been stopped, after which it never runs again.</summary>
     public bool IsFinal => Status is "ended" or "stopped";

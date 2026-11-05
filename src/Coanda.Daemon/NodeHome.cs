@@ -1,5 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Registry;
+using Coanda.Sdk.Repositories;
 
 namespace Coanda.Daemon;
 
@@ -60,13 +61,27 @@ public sealed record NodeHome(string Path)
 
     /// <summary>
     /// Where a flow run's agent steps work: <c>work/&lt;project&gt;/&lt;flow run id&gt;</c> under the home.
+    /// This is the one rule that places a flow run's work path: a dispatch carries the path it gives, and
+    /// the core's API shows it on a flow run (<see cref="WorkPathOf"/>), so a module never computes it.
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
     /// </summary>
     public string FlowRunWorkPath(string project, Guid flowRunId) =>
         System.IO.Path.Combine(WorkPath, RequirePlain(project, "working directory"), flowRunId.ToString());
 
+    /// <summary>The flow run's work path (<see cref="FlowRunWorkPath"/>), or null when its project's name is not a plain directory name and so gives it none.</summary>
+    public string? WorkPathOf(string project, Guid flowRunId) =>
+        RepoLayout.IsPlain(project)
+            ? FlowRunWorkPath(project, flowRunId)
+            : null;
+
     /// <summary>The directory holding one directory per project of its flow runs' work paths.</summary>
     public string WorkPath => System.IO.Path.Combine(Path, "work");
+
+    /// <summary>
+    /// The core's bare clone of the repo <paramref name="repo"/> of <paramref name="project"/>:
+    /// <c>projects/&lt;project&gt;/repos/&lt;repo&gt;</c> under the home, as <see cref="RepoLayout"/> places it.
+    /// </summary>
+    public string RepoClonePath(string project, string repo) => RepoLayout.ClonePath(Path, project, repo);
 
     /// <summary>The directory holding one directory per project whose flow runs have needed the node's clone of its repository.</summary>
     public string ClonesPath => System.IO.Path.Combine(Path, "clones");
@@ -104,14 +119,9 @@ public sealed record NodeHome(string Path)
             : throw new DomainException($"{flowRunWorkPath} is not a flow run's working directory under the node home {Path}, so it has no transcript directory.");
     }
 
-    /// <summary>Whether the project's name is a plain directory name, which is what gives its flow runs work paths and transcript directories under the home.</summary>
-    private static bool IsPlain(string project) =>
-        project is not ("" or "." or "..")
-            && project.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0
-            && project.IndexOfAny(['/', '\\']) < 0;
-
+    /// <summary>The project's name, when it is a plain directory name (<see cref="RepoLayout.IsPlain"/>), which is what gives its flow runs work paths and transcript directories under the home.</summary>
     private static string RequirePlain(string project, string what) =>
-        IsPlain(project)
+        RepoLayout.IsPlain(project)
             ? project
             : throw new DomainException($"Project '{project}' is not a plain directory name, so its flow runs have no {what} under the node home.");
 
