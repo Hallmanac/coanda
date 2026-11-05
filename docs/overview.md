@@ -54,8 +54,11 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
 
 - `coa project add <name> --repo <url> --branch <name> [--build <command>] [--test <command>]`,
   `coa project show <name>`,
-  `coa project list`, `coa project set-profile <name> <profile>`,
-  `coa project set <name> --required-check <check> [--required-check <check> ...]`
+  `coa project list`, `coa project set-profile <name> <profile>`
+
+  `coa project add` registers a project with one repo and records `--branch`, `--build`, and
+  `--test` as the software module's settings for it. Every later change to a module's settings,
+  the required checks included, goes through `coa project module`.
 - `coa project module set <project> <module> <name> <value>`,
   `coa project module select-profile <project> <module> <profile>`,
   `coa project module show <project> <module>`
