@@ -72,10 +72,13 @@ still use this node's own git credentials, whatever profile is selected. The wor
 from the remote before it checks it out, so a branch someone updated there since the node last
 pushed it (a reviewer's "Update branch" or committed suggestion) is built on, and a branch deleted
 there is pushed again. When the node's branch and the remote's each have commits the other lacks,
-and the remote's is still the commit coanda last pushed for the task, the branch was rewritten in
-the node's clone, as a rebase of your own leaves it, so the worktree step checks it out as it
-stands and the build's push replaces the remote's. When the remote's is any other commit, the
-worktree step pauses and names how to reconcile them by hand in the node's clone. A branch still
+and the remote's is still the commit this node itself last pushed for the task, the branch was
+rewritten in the node's clone, as a rebase of your own leaves it, so the worktree step checks it out
+as it stands and the build's push replaces the remote's. The node keeps that record in its clone's
+configuration, never in a flow run's result, because a push another node made can reach the store
+too. When the remote's is any other commit, or the node has no record of pushing the task's branch
+(its last push came before the record was kept, or was made elsewhere), the worktree step pauses and
+names how to reconcile them by hand in the node's clone. A branch still
 checked out in the worktree of a flow run that has ended or been stopped is taken over: the step waits
 for that flow run to finish with it, removes its worktree, and checks the branch out for itself. The push is
 guarded by a lease on what the node last fetched or pushed, so a branch someone else updates on the
@@ -122,10 +125,15 @@ through build, whose gates and both reviews run on it. Stop the merge flow run. 
 daemon's work paths; the clone is bare, so this is where you work. There, fetch the primary branch
 and rebase the branch onto it, resolving the conflicts, without pushing. Remove that worktree, and
 move the task back to build. The build's worktree step checks out the branch you rebased, because
-the remote still holds the commit coanda last pushed, and the build gates, reviews, and pushes it,
+the remote still holds the commit this node last pushed, and the build gates, reviews, and pushes it,
 and a merge follows again. The rebase also pauses, asking you to stop the flow run, when its worktree
 has changes, when the branch holds a commit neither the build nor an earlier rebase pushed, or when
-someone else updated the branch on the remote.
+someone else updated the branch on the remote. A rebase makes commits, so git needs a committer
+identity for the user the daemon runs as. When git cannot determine one in the flow run's worktree
+(no `user.name` or `user.email` in the repository's, the user's, or the system's configuration, and
+none it can work out from the host), the rebase pauses before it changes anything. Set one as that
+user with `git config --global user.name "<name>"` and `git config --global user.email "<email>"`,
+then resume the flow run, and the rebase is performed again.
 
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
