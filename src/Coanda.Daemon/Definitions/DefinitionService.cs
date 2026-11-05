@@ -1,6 +1,7 @@
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
@@ -19,12 +20,22 @@ namespace Coanda.Daemon.Definitions;
 /// against the names of the gates the daemon runs, and a drafted or imported flow against the system
 /// step names <see cref="SystemStepNames"/> gives for the definition's project, or for no project when
 /// the definition belongs to none (an owner-scope or module-scope one); the shipped gate set when it
-/// is given no gates, and no system steps when it is given none.
+/// is given no gates, and no system steps when it is given none. A drafted or imported flow's system
+/// steps' arguments are checked, for the same project, against what <see cref="StepArgumentChecks"/>
+/// gives, the argument schemas of the modules that provide them; unchecked when it is given none.
 /// </summary>
-public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates, DefinitionService.SystemStepNames? systemSteps)
+public sealed class DefinitionService(
+    IDocumentStore store,
+    TimeProvider clock,
+    GateSet? gates,
+    DefinitionService.SystemStepNames? systemSteps,
+    DefinitionService.StepArgumentChecks? stepArguments = null)
 {
     /// <summary>The system step names a flow of <paramref name="project"/>, or of no project when it is null, may name.</summary>
     public delegate Task<IReadOnlySet<string>> SystemStepNames(string? project, CancellationToken cancellationToken);
+
+    /// <summary>What the argument schemas of the steps a flow of <paramref name="project"/>, or of no project when it is null, may name say of a step's arguments.</summary>
+    public delegate Task<StepArgumentCheck> StepArgumentChecks(string? project, CancellationToken cancellationToken);
 
     /// <summary>A definition service whose flows may name the system steps <paramref name="systemSteps"/>, whatever their project.</summary>
     public DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null, IReadOnlySet<string>? systemSteps = null)
@@ -66,12 +77,16 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             IReadOnlyList<Definition> existing = await session.Query<Definition>().ToListAsync(cancellationToken);
             int latest = LatestVersion(existing, kind, scope, project, name);
             IReadOnlyCollection<Definition> moduleVersions = await ModuleVersionsAsync(kind, cancellationToken);
+            string? flowProject = scope == DefinitionScope.Project ? project : null;
             IReadOnlySet<string>? known = kind == DefinitionKind.Flow && systemSteps is not null
-                ? await systemSteps(scope == DefinitionScope.Project ? project : null, cancellationToken)
+                ? await systemSteps(flowProject, cancellationToken)
+                : null;
+            StepArgumentCheck? check = kind == DefinitionKind.Flow && stepArguments is not null
+                ? await stepArguments(flowProject, cancellationToken)
                 : null;
             DefinitionDrafted drafted = DefinitionDecider.Draft(
                 kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(),
-                (gates ?? GateSet.Shipped).Names, known, moduleVersions);
+                (gates ?? GateSet.Shipped).Names, known, moduleVersions, check);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);
@@ -155,6 +170,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             List<Definition> known = [.. inNode.Where(d => d.Scope == DefinitionScope.Module)];
             List<Definition> imported = [];
             IReadOnlySet<string>? stepNames = systemSteps is null ? null : await systemSteps(null, cancellationToken);
+            StepArgumentCheck? check = stepArguments is null ? null : await stepArguments(null, cancellationToken);
 
             foreach (ModuleArtifactDefinition item in module.Definitions)
             {
@@ -162,7 +178,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
                 try
                 {
                     recorded = DefinitionDecider.Import(
-                        item.Definition, module.Module, module.Version, known, ImportPrincipal.Id, clock.GetUtcNow(), (gates ?? GateSet.Shipped).Names, stepNames);
+                        item.Definition, module.Module, module.Version, known, ImportPrincipal.Id, clock.GetUtcNow(), (gates ?? GateSet.Shipped).Names, stepNames, check);
                 }
                 catch (DomainException broken)
                 {
