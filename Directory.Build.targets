@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    The software module's definition files are copied with PreserveNewest into every project that builds
+    on the module, which never deletes a file. A definition file deleted or renamed in the module would
+    otherwise stay beside the daemon and keep being imported at start, so after the copy this removes
+    any file under modules/software/definitions/ in the output that the module no longer has.
+  -->
+  <PropertyGroup>
+    <_SoftwareModuleDefinitionsSource>$(MSBuildThisFileDirectory)src/Coanda.Modules.Software/definitions/</_SoftwareModuleDefinitionsSource>
+  </PropertyGroup>
+
+  <Target Name="PruneSoftwareModuleDefinitions" AfterTargets="CopyFilesToOutputDirectory">
+    <PropertyGroup>
+      <_SoftwareModuleDefinitionsOutput>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(OutDir)', 'modules/software/definitions/'))))</_SoftwareModuleDefinitionsOutput>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('$(_SoftwareModuleDefinitionsOutput)')">
+      <_SoftwareModuleDefinitionSource Include="$(_SoftwareModuleDefinitionsSource)**/*.json" />
+      <_SoftwareModuleDefinitionExpected Include="@(_SoftwareModuleDefinitionSource->'$(_SoftwareModuleDefinitionsOutput)%(RecursiveDir)%(Filename)%(Extension)')" />
+      <_SoftwareModuleDefinitionStale Include="$(_SoftwareModuleDefinitionsOutput)**/*" Exclude="@(_SoftwareModuleDefinitionExpected)" />
+    </ItemGroup>
+    <Delete Files="@(_SoftwareModuleDefinitionStale)" Condition="'@(_SoftwareModuleDefinitionStale)' != ''" />
+    <Message Importance="normal" Text="Removed stale software module definition '%(_SoftwareModuleDefinitionStale.Identity)'." Condition="'@(_SoftwareModuleDefinitionStale)' != ''" />
+  </Target>
+
+</Project>
