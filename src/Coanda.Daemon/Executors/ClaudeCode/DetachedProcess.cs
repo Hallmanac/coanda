@@ -170,7 +170,7 @@ internal sealed class DetachedProcess : IDisposable
         public sealed record Replaced : Found;
     }
 
-    private static class Posix
+    internal static class Posix
     {
         private const string Libc = "libc";
         private const int NoHang = 1;
@@ -179,6 +179,18 @@ internal sealed class DetachedProcess : IDisposable
         private const short SetProcessGroup = 0x02;
         private const short SetSignalDefaults = 0x04;
         private const short SetSignalMask = 0x08;
+
+        /// <summary><c>PROC_PIDTBSDINFO</c>, whose <c>struct proc_bsdinfo</c> is 136 bytes, its status at 4 and its start time's seconds and microseconds at 120.</summary>
+        private const int BsdInfo = 3;
+        private const int BsdInfoSize = 136;
+        private const int BsdStatusOffset = 4;
+        private const int BsdStartSecondsOffset = 120;
+
+        /// <summary>The argument that has <c>PROC_PIDTBSDINFO</c> answer for a process that has exited unreaped too.</summary>
+        private const ulong FindZombie = 1;
+
+        /// <summary><c>SZOMB</c>, the status of a process that has exited and not been reaped.</summary>
+        private const uint Zombie = 5;
 
         /// <summary>Larger than <c>posix_spawnattr_t</c>, <c>posix_spawn_file_actions_t</c>, and <c>sigset_t</c> on every supported platform.</summary>
         private const int OpaqueSize = 1024;
@@ -250,7 +262,7 @@ internal sealed class DetachedProcess : IDisposable
                     throw new Win32Exception(failed);
                 }
 
-                // Read while the process cannot yet have been reaped, so even one that exits at once has its identity.
+                // Read while the process cannot yet have been reaped, so even one that has already exited has its identity.
                 string identity = IdentityOf(pid)?.Identity ?? string.Empty;
                 return new DetachedProcess(pid, identity, handle: null, started: true);
             }
@@ -321,31 +333,46 @@ internal sealed class DetachedProcess : IDisposable
         /// <summary>The process's start time as the system records it, and whether it has exited unreaped; null when there is no such process.</summary>
         public static (string Identity, bool Exited)? IdentityOf(int pid)
         {
-            if (OperatingSystem.IsLinux())
+            if (!OperatingSystem.IsLinux())
             {
-                try
-                {
-                    // Fields after the command, which is in parentheses and may hold spaces: the
-                    // state is field 3, and the start time in clock ticks since boot is field 22.
-                    string stat = File.ReadAllText($"/proc/{pid.ToString(CultureInfo.InvariantCulture)}/stat");
-                    string[] fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
-                    return fields.Length > 19 ? ($"linux:{fields[19]}", fields[0] is "Z" or "X") : null;
-                }
-                catch (Exception gone) when (gone is IOException or UnauthorizedAccessException)
-                {
-                    return null;
-                }
+                return MacIdentityOf(pid);
             }
 
             try
             {
-                using Process process = Process.GetProcessById(pid);
-                return ($"start:{process.StartTime.ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture)}", false);
+                // Fields after the command, which is in parentheses and may hold spaces: the
+                // state is field 3, and the start time in clock ticks since boot is field 22.
+                string stat = File.ReadAllText($"/proc/{pid.ToString(CultureInfo.InvariantCulture)}/stat");
+                string[] fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
+                return fields.Length > 19 ? ($"linux:{fields[19]}", fields[0] is "Z" or "X") : null;
             }
-            catch (Exception gone) when (gone is ArgumentException or InvalidOperationException or Win32Exception or NotSupportedException)
+            catch (Exception gone) when (gone is IOException or UnauthorizedAccessException)
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The macOS identity, read from the process's BSD information, which the system also gives
+        /// for a process that has exited and not been reaped. <c>Process.StartTime</c> reads the
+        /// task information, which it does not, so a session process that exited before its start
+        /// returned had no identity. The text is the one that read produced: the start time, built
+        /// from the same two fields the same way, as UTC ticks.
+        /// </summary>
+        private static (string Identity, bool Exited)? MacIdentityOf(int pid)
+        {
+            _ = Resolver.Value;
+            byte[] info = new byte[BsdInfoSize];
+            if (proc_pidinfo(pid, BsdInfo, FindZombie, info, info.Length) != info.Length)
+            {
+                return null;
+            }
+
+            uint status = BitConverter.ToUInt32(info, BsdStatusOffset);
+            ulong seconds = BitConverter.ToUInt64(info, BsdStartSecondsOffset);
+            ulong microseconds = BitConverter.ToUInt64(info, BsdStartSecondsOffset + sizeof(ulong));
+            DateTime started = DateTime.UnixEpoch + TimeSpan.FromSeconds(seconds + (microseconds / 1_000_000.0));
+            return ($"start:{started.ToLocalTime().ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture)}", status == Zombie);
         }
 
         private static void Check(int result, string call)
@@ -433,6 +460,9 @@ internal sealed class DetachedProcess : IDisposable
 
         [DllImport(Libc, SetLastError = true)]
         private static extern int kill(int pid, int signal);
+
+        [DllImport(Libc, SetLastError = true)]
+        private static extern int proc_pidinfo(int pid, int flavor, ulong arg, [Out] byte[] buffer, int size);
     }
 
     [SupportedOSPlatform("windows")]
