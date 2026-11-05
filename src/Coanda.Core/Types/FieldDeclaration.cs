@@ -7,7 +7,7 @@ namespace Coanda.Core.Types;
 /// parcel must hold a value in it to leave, which may be none. A type that declares a field required
 /// to leave a stage binds the required-fields gate to every move its table holds out of that stage;
 /// validation refuses one that leaves such a move unbound. A field may name the module that owns it,
-/// which alone, beside the owner, sets it.
+/// which alone, beside the owner, sets it, and may be marked as its type's tag field.
 /// </summary>
 public sealed record FieldDeclaration
 {
@@ -28,6 +28,15 @@ public sealed record FieldDeclaration
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Owner { get; init; }
+
+    /// <summary>
+    /// Whether this is its type's tag field: the module-owned text-list whose values name the repos that
+    /// carry the events of a parcel of the type, read when the node exports them (design section 6). A
+    /// type marks at most one. It is written into the type's content only when set, so a type that
+    /// marks none reads and hashes as it did before the mark existed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Tag { get; init; }
 
     public bool IsRequiredToLeave(string stage) => RequiredToLeave.Contains(stage, StringComparer.Ordinal);
 }

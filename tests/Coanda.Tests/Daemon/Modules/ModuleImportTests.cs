@@ -28,12 +28,13 @@ public sealed class ModuleImportTests
 
     /// <summary>
     /// Each definition the software module brings, with the content hash its C# definition had on main at
-    /// e86428f, but for the task type, which has since gained the repos field the module owns.
+    /// e86428f, but for the task type, which has since gained the repos field the module owns and marked
+    /// it as the type's tag field.
     /// </summary>
     public static TheoryData<DefinitionKind, string, string> HashesOnMain() => new()
     {
         { DefinitionKind.ParcelType, "idea", "e6c4447a6bc6586d" },
-        { DefinitionKind.ParcelType, "task", "ea1d4a852606b5ea" },
+        { DefinitionKind.ParcelType, "task", "3e16509d2543dbb9" },
         { DefinitionKind.Flow, "build", "728a81e81272ed5e" },
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
         { DefinitionKind.Flow, "discovery", "c8b01e99a6cc7916" },

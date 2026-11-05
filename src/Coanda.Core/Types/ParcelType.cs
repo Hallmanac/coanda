@@ -11,8 +11,8 @@ namespace Coanda.Core.Types;
 /// <summary>
 /// The definition of a kind of parcel: its lifecycle (stages, allowed moves, entry stages, the
 /// one terminal stage and its resolutions), the paused stage reachable from any live stage, its
-/// fields (each named, of a kind, required to leave the stages it names, and owned by the module it
-/// names, if it names one), and its bindings: a
+/// fields (each named, of a kind, required to leave the stages it names, owned by the module it
+/// names, if it names one, and at most one of them marked as the tag field), and its bindings: a
 /// flow to start when a parcel enters a stage, and a gate that must pass before a move. A type is
 /// data; the types the binary ships and a user's type are the same shape.
 /// </summary>
@@ -49,6 +49,10 @@ public sealed record ParcelType
     public bool IsEntry(string stage) => EntryStages.Contains(stage, StringComparer.Ordinal);
 
     public bool IsResolution(string resolution) => Resolutions.Contains(resolution, StringComparer.Ordinal);
+
+    /// <summary>The field the type marks as its tag field, whose values name the repos that carry a parcel's events, or null when it marks none.</summary>
+    [JsonIgnore]
+    public FieldDeclaration? TagField => Fields.FirstOrDefault(f => f is { Tag: true });
 
     /// <summary>The field the type declares by that name, or null when it declares none.</summary>
     public FieldDeclaration? Field(string name) => Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
@@ -316,6 +320,12 @@ public sealed record ParcelType
                     $"Field '{field.Name}' of parcel type '{Name}' names '{field.Owner}' as the module that owns it; a field's owner is a module's name: {ModuleNames.Rule}.");
             }
 
+            if (field.Tag && (field.Owner is null || field.Kind != FieldKinds.TextList))
+            {
+                throw new DomainException(
+                    $"Field '{field.Name}' of parcel type '{Name}' is marked as the tag field and is a {(field.Owner is null ? "" : "module-owned ")}{field.Kind}; the tag field is a module-owned {FieldKinds.TextList}, since its values are the repos that carry a parcel's events.");
+            }
+
             foreach (string? stage in field.RequiredToLeave)
             {
                 if (stage is null || !IsStage(stage) || IsTerminal(stage) || IsPaused(stage))
@@ -324,6 +334,13 @@ public sealed record ParcelType
                         $"Field '{field.Name}' of parcel type '{Name}' is required to leave '{stage}', which is not one of its live stages; a field is required to leave only a stage the type has, never its terminal or paused stage.");
                 }
             }
+        }
+
+        string[] tagged = [.. Fields.Where(f => f.Tag).Select(f => $"'{f.Name}'")];
+        if (tagged.Length > 1)
+        {
+            throw new DomainException(
+                $"Parcel type '{Name}' marks {string.Join(", ", tagged)} as its tag field; a type marks at most one.");
         }
     }
 
@@ -420,8 +437,9 @@ public sealed record ParcelType
     }
 
     /// <summary>
-    /// A field as the hash covers it: its name, kind, and the stages it is required to leave, and its
-    /// owner only when it names one, so a field no module owns hashes as it did before owners existed.
+    /// A field as the hash covers it: its name, kind, and the stages it is required to leave, its owner
+    /// only when it names one, and its tag mark only when it is marked, so a field with neither hashes as
+    /// it did before owners and the mark existed.
     /// </summary>
     private static Dictionary<string, object> HashedField(FieldDeclaration field)
     {
@@ -434,6 +452,11 @@ public sealed record ParcelType
         if (field.Owner is { } owner)
         {
             hashed["owner"] = owner;
+        }
+
+        if (field.Tag)
+        {
+            hashed["tag"] = true;
         }
 
         return hashed;
