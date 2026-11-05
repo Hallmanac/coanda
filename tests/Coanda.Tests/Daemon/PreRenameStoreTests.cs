@@ -19,6 +19,9 @@ public sealed class PreRenameStoreTests
     /// <summary>A parcel type as this build drafts it.</summary>
     private const string StagedType = """{"kind":"ParcelType","name":"task","content":"{\"Name\":\"task\",\"Stages\":[\"refine\",\"paused\",\"closed\"],\"PausedStage\":\"paused\"}"}""";
 
+    /// <summary>A parcel as a build from before the daemon recorded definitions created it, carrying a state rather than a stage.</summary>
+    private const string PreDefinitionsParcel = """{"parcelId":"0192a3b4-0000-7000-8000-000000000001","project":"alpha","typeName":"task","state":"refine","title":"Written before definitions","createdBy":"owner","createdAt":"2026-11-03T09:00:00+00:00"}""";
+
     private const string Refusal = "*written by a build from before the stage and step names*Move the node home aside*.pre-stage'*";
 
     /// <summary>Writes a record holding only the given drafted definitions, the way an older build would have left them.</summary>
@@ -96,6 +99,54 @@ public sealed class PreRenameStoreTests
 
         DomainException exception = Assert.Throws<DomainException>(check);
         Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
+    }
+
+    [Fact]
+    public void A_record_holding_parcel_events_and_no_parcel_types_is_refused()
+    {
+        using var temp = new TemporaryHome();
+        WriteEvents(temp.Home, ("parcel_created", PreDefinitionsParcel));
+
+        Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
+
+        DomainException exception = Assert.Throws<DomainException>(check);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
+    }
+
+    [Fact]
+    public async Task The_daemon_refuses_a_record_holding_parcel_events_and_no_parcel_types_and_leaves_it_as_it_was()
+    {
+        using var temp = new TemporaryHome();
+        WriteEvents(temp.Home, ("parcel_created", PreDefinitionsParcel));
+        byte[] before = await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None);
+
+        Func<Task> start = () => Daemons.StartAsync(temp.Home, CancellationToken.None);
+
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(start);
+        Assert.Matches(WildcardPattern.ToRegex(Refusal), exception.Message);
+        Assert.Equal(before, await File.ReadAllBytesAsync(temp.Home.DatabasePath, CancellationToken.None));
+    }
+
+    [Fact]
+    public void A_record_whose_events_table_holds_no_events_passes()
+    {
+        using var temp = new TemporaryHome();
+        WriteEvents(temp.Home);
+
+        Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
+
+        check();
+    }
+
+    [Fact]
+    public void An_empty_database_file_passes()
+    {
+        using var temp = new TemporaryHome();
+        File.WriteAllBytes(temp.Home.DatabasePath, []);
+
+        Action check = () => PreRenameStore.ThrowIfFound(temp.Home);
+
+        check();
     }
 
     [Fact]

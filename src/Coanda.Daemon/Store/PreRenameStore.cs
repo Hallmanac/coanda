@@ -17,11 +17,15 @@ namespace Coanda.Daemon.Store;
 public static class PreRenameStore
 {
     /// <summary>
-    /// Every daemon records the parcel types its modules bring on its first start, so every record holds parcel
-    /// types, and every type this build writes carries a <c>PausedStage</c>. A record written before
-    /// the stage name holds types with none: those written since 2026-11-03 carry a
-    /// <c>PausedState</c> in its place, and older ones carry neither. That covers every record the
-    /// earlier changes left too, since each of those was written before this one.
+    /// A record this build wrote holds parcel types once it holds anything at all: on a fresh home
+    /// nothing records an event before the daemon records the parcel types its modules bring, and
+    /// every type this build writes carries a <c>PausedStage</c>. A record written before the stage
+    /// name holds types with none: those written since 2026-11-03 carry a <c>PausedState</c> in its
+    /// place, and older ones carry neither. A record written before the daemon recorded definitions
+    /// at all holds events and no parcel types, and its <c>parcel_created</c> events carry a state
+    /// rather than a stage. That covers every record the earlier changes left too, since each of
+    /// those was written before this one. A record with no events, such as one from a first start
+    /// that failed before the import, passes.
     /// </summary>
     private const string Query =
         """
@@ -30,12 +34,17 @@ public static class PreRenameStore
             WHERE type = 'definition_drafted'
               AND json_extract(data, '$.kind') = 'ParcelType'
               AND json_extract(json_extract(data, '$.content'), '$.PausedStage') IS NULL)
+        OR (EXISTS (SELECT 1 FROM fi_events)
+            AND NOT EXISTS (
+                SELECT 1 FROM fi_events
+                WHERE type = 'definition_drafted'
+                  AND json_extract(data, '$.kind') = 'ParcelType'))
         """;
 
     /// <summary>
-    /// Throws when the home's record was written before the stage and step names. A home with no
-    /// record yet, or one this build wrote, passes. The record is opened read-only, so a refused home
-    /// is left exactly as it was.
+    /// Throws when the home's record was written before the stage and step names, or before the
+    /// daemon recorded definitions. A home with no record yet, an empty record, or one this build
+    /// wrote, passes. The record is opened read-only, so a refused home is left exactly as it was.
     /// </summary>
     public static void ThrowIfFound(NodeHome home)
     {
