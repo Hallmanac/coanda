@@ -142,7 +142,7 @@ public sealed class OwnedFieldApiTests
         ModuleNode node = owned.Node;
         Parcel older = await node.ParcelAsync(On, "Under the module's version", Probe);
         ParcelType unowned = ProbeType with { Fields = [.. ProbeType.Fields.Select(f => f with { Owner = null })] };
-        await PublishAsync(node, On, unowned, new ForkBase(Probe, 1));
+        await PublishAsync(node, On, unowned, new ForkBase(Probe, ModuleNode.Module, "1.0.0", ProbeType.Hash));
         Parcel newer = await node.ParcelAsync(On, "Under the project's fork", Probe);
         string token = await node.TokenAsync(ModuleNode.Module);
 

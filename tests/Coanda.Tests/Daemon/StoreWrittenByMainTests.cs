@@ -149,14 +149,14 @@ public sealed class StoreWrittenByMainTests
         Definition alphaBuild = await resolver.ResolveAsync("alpha", DefinitionKind.Flow, "build", None) ?? throw new InvalidOperationException("No build flow in alpha.");
         Definition ownerFix = await resolver.ResolveAsync("alpha", DefinitionKind.Agent, "fix", None) ?? throw new InvalidOperationException("No fix agent in alpha.");
 
-        Assert.Equal((DefinitionScope.Project, new ForkBase("build", 2), AlphaBuild.Hash), (alphaBuild.Scope, alphaBuild.ForkBase, alphaBuild.ContentHash));
+        Assert.Equal((DefinitionScope.Project, ForkBase.Earlier("build", 2), AlphaBuild.Hash), (alphaBuild.Scope, alphaBuild.ForkBase, alphaBuild.ContentHash));
         Definition buildBase = await resolver.ForkedFromAsync(alphaBuild, None) ?? throw new InvalidOperationException("The fork's base resolves to nothing.");
         Assert.Equal((DefinitionScope.Module, 2, SoftwareFlows.Build.Hash, "software", "0.1.0"), (buildBase.Scope, buildBase.VersionNumber, buildBase.ContentHash, buildBase.Module, buildBase.ModuleVersion));
         // The fixture's text was written on macOS and CanonicalJson writes the platform's line ending,
         // so the content is compared as the flow it reads as rather than as text.
         Assert.Equal(Flow.CanonicalJson(SoftwareFlows.Build), Flow.CanonicalJson(Flow.FromJson(buildBase.Content)));
 
-        Assert.Equal((DefinitionScope.Owner, new ForkBase("fix", 1), OwnerFix.Hash), (ownerFix.Scope, ownerFix.ForkBase, ownerFix.ContentHash));
+        Assert.Equal((DefinitionScope.Owner, ForkBase.Earlier("fix", 1), OwnerFix.Hash), (ownerFix.Scope, ownerFix.ForkBase, ownerFix.ContentHash));
         Definition fixBase = await resolver.ForkedFromAsync(ownerFix, None) ?? throw new InvalidOperationException("The fork's base resolves to nothing.");
         Assert.Equal((SoftwareAgents.Fix.Hash, "software", "0.1.0"), (fixBase.ContentHash, fixBase.Module, fixBase.ModuleVersion));
     }

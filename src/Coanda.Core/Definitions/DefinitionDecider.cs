@@ -25,7 +25,7 @@ public static class DefinitionDecider
     /// system step's argument schema says of a step's arguments; no step's arguments are checked against a
     /// schema when null. The decider holds no catalog of any of them.
     /// <paramref name="moduleVersions"/> is every module-scope definition of <paramref name="kind"/>,
-    /// which a fork base must name one of by name and version, and whose parcel type, when the fork
+    /// which a fork base must name one of by name, module, module version, and content hash, and whose parcel type, when the fork
     /// base names one, is the only source of a field owner the draft's parcel type may name; none when null.
     /// </summary>
     public static DefinitionDrafted Draft(
@@ -196,7 +196,11 @@ public static class DefinitionDecider
 
     /// <summary>
     /// The module-scope definition <paramref name="forkBase"/> names among <paramref name="moduleVersions"/>,
-    /// or null when there is no fork base; a fork base that names none is refused.
+    /// or null when there is no fork base. A fork base names its base by name, module, module version,
+    /// and content hash, and is refused when it records a store-given version number instead, or when no
+    /// module-scope definition of the draft's kind matches all four. On the drafting node the module
+    /// version is by construction the one that node holds the content under, so all four are matched
+    /// here, although resolution elsewhere matches only the name, module, and content hash.
     /// </summary>
     private static Definition? ForkedFrom(DefinitionKind kind, string name, ForkBase? forkBase, IReadOnlyCollection<Definition> moduleVersions)
     {
@@ -205,39 +209,51 @@ public static class DefinitionDecider
             return null;
         }
 
-        if (string.IsNullOrWhiteSpace(forkBase.Name) || forkBase.Version < 1)
+        if (string.IsNullOrWhiteSpace(forkBase.Name)
+            || string.IsNullOrWhiteSpace(forkBase.Module)
+            || string.IsNullOrWhiteSpace(forkBase.ModuleVersion)
+            || string.IsNullOrWhiteSpace(forkBase.ContentHash)
+            || forkBase.Version is not null)
         {
             throw new DomainException(
-                $"A fork base names the module-scope definition and version a customization came from; '{name.Trim()}' has an invalid one.");
+                $"A fork base names the module-scope definition a customization came from by its name, module, module version, and content hash, and records no version number a store gave it; '{name.Trim()}' has an invalid one.");
         }
 
-        return moduleVersions.FirstOrDefault(d => d.Scope == DefinitionScope.Module
-                && d.Kind == kind
-                && DefinitionResolution.SameName(d.Name, forkBase.Name.Trim())
-                && d.VersionNumber == forkBase.Version)
+        string moduleVersion = forkBase.ModuleVersion;
+        return moduleVersions.FirstOrDefault(d => d.Kind == kind
+                && forkBase.IsBaseOf(d)
+                && string.Equals(d.ModuleVersion, moduleVersion, StringComparison.Ordinal))
             ?? throw new DomainException(
-                $"The fork base '{forkBase.Name}' version {forkBase.Version} of '{name.Trim()}' names no module-scope {Describe(kind)}; a fork base names a module-scope definition of the draft's own kind, by name and version.");
+                $"The fork base {forkBase.Describe()} of '{name.Trim()}' names no module-scope {Describe(kind)}; a fork base names a module-scope definition of the draft's own kind, by name, module, module version, and content hash.");
     }
 
     /// <summary>
     /// Refuses a field owner a project-scope or owner-scope type names unless its fork base declares a
     /// field of the same name owned by the same module, so a fork of a module's type keeps that field
-    /// owned by that module and a user's type grants no module a field otherwise.
+    /// owned by that module and a user's type grants no module a field otherwise; and refuses a field
+    /// that keeps its base's owner but declares a different kind, since the owning module reads and
+    /// writes the field as the kind it declared.
     /// </summary>
     private static void RequireOwnersFromForkBase(ParcelType type, ForkBase? forkBase, Definition? forkedFrom)
     {
         ParcelType? baseType = forkedFrom is null ? null : ParcelType.FromJson(forkedFrom.Content);
         foreach (FieldDeclaration field in type.Fields.Where(f => f.Owner is not null))
         {
-            string? baseOwner = baseType?.Fields.FirstOrDefault(f => string.Equals(f.Name, field.Name, StringComparison.Ordinal))?.Owner;
-            if (string.Equals(baseOwner, field.Owner, StringComparison.Ordinal))
+            FieldDeclaration? baseField = baseType?.Fields.FirstOrDefault(f => string.Equals(f.Name, field.Name, StringComparison.Ordinal));
+            if (baseField is not null && string.Equals(baseField.Owner, field.Owner, StringComparison.Ordinal))
             {
-                continue;
+                if (string.Equals(baseField.Kind, field.Kind, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                throw new DomainException(
+                    $"Field '{field.Name}' of parcel type '{type.Name}' keeps the module '{field.Owner}' as its owner but declares the kind '{field.Kind}', and its fork base {forkBase?.Describe()} declares that field of the kind '{baseField.Kind}'; a type that keeps a field's owner from its fork base keeps the field's kind too.");
             }
 
             string reason = forkBase is null
                 ? $"'{type.Name}' has no fork base"
-                : $"its fork base '{forkBase.Name}' version {forkBase.Version} declares no field '{field.Name}' owned by '{field.Owner}'";
+                : $"its fork base {forkBase.Describe()} declares no field '{field.Name}' owned by '{field.Owner}'";
             throw new DomainException(
                 $"Field '{field.Name}' of parcel type '{type.Name}' names the module '{field.Owner}' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and {reason}.");
         }

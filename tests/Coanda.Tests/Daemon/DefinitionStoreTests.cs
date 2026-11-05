@@ -28,6 +28,9 @@ public sealed class DefinitionStoreTests
         GateBindings = [.. SoftwareTypes.Task.GateBindings, new GateBinding("review", "qa", RequiredFieldsGate.GateName)],
     };
 
+    /// <summary>The seeded task type, as a fork base names it.</summary>
+    private static readonly ForkBase TaskBase = new("task", SoftwareDefinitions.Manifest.Name, SoftwareDefinitions.Manifest.Version, SoftwareTypes.Task.Hash);
+
     private static DefinitionService Definitions(IDocumentStore store) => new(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
 
     private static async Task<Definition> PublishedProjectTypeAsync(DefinitionService definitions, string project, ParcelType type)
@@ -63,7 +66,7 @@ public sealed class DefinitionStoreTests
         {
             DefinitionService definitions = Definitions(store);
             project = await definitions.DraftParcelTypeAsync(
-                Principal.LocalOwner, DefinitionScope.Project, "alpha", fork, new ForkBase("task", 1), CancellationToken.None);
+                Principal.LocalOwner, DefinitionScope.Project, "alpha", fork, TaskBase, CancellationToken.None);
             project = await definitions.PublishAsync(Principal.LocalOwner, "alpha", project.Id, CancellationToken.None);
             owner = await definitions.DraftParcelTypeAsync(
                 Principal.LocalOwner, DefinitionScope.Owner, null, SoftwareTypes.Idea with { Name = "note" }, null, CancellationToken.None);
@@ -82,7 +85,7 @@ public sealed class DefinitionStoreTests
             Assert.Equal(ParcelType.CanonicalJson(fork), read.Content);
             Assert.Equal(fork.Hash, read.ContentHash);
             Assert.Equal(DefinitionStatus.Published, read.Status);
-            Assert.Equal(new ForkBase("task", 1), read.ForkBase);
+            Assert.Equal(TaskBase, read.ForkBase);
 
             await using IQuerySession node = reopened.QuerySession(Tenants.Node);
             Definition? readOwner = await node.LoadAsync<Definition>(owner.Id, CancellationToken.None);
@@ -104,10 +107,10 @@ public sealed class DefinitionStoreTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
 
         Definition draft = await Definitions(store).DraftParcelTypeAsync(
-            Principal.LocalOwner, DefinitionScope.Owner, null, QaTask, new ForkBase("task", 1), CancellationToken.None);
+            Principal.LocalOwner, DefinitionScope.Owner, null, QaTask, TaskBase, CancellationToken.None);
 
         Assert.Equal(DefinitionScope.Owner, draft.Scope);
-        Assert.Equal(new ForkBase("task", 1), draft.ForkBase);
+        Assert.Equal(TaskBase, draft.ForkBase);
     }
 
     [Theory]
@@ -119,18 +122,30 @@ public sealed class DefinitionStoreTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         DefinitionService definitions = Definitions(store);
 
-        foreach (ForkBase unshipped in new[] { new ForkBase("task", 2), new ForkBase("bug", 1) })
+        ForkBase[] unshipped =
+        [
+            TaskBase with { ContentHash = SoftwareTypes.UnownedTask.Hash },
+            TaskBase with { ModuleVersion = "0.0.9" },
+            TaskBase with { Name = "bug" },
+        ];
+        foreach (ForkBase forkBase in unshipped)
         {
             DomainException exception = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
-                    Principal.LocalOwner, scope, project, QaTask, unshipped, CancellationToken.None));
-            Assert.StartsWith($"The fork base '{unshipped.Name}' version {unshipped.Version} of 'task' names no module-scope parcel type", exception.Message, StringComparison.Ordinal);
+                    Principal.LocalOwner, scope, project, QaTask, forkBase, CancellationToken.None));
+            Assert.StartsWith($"The fork base {forkBase.Describe()} of 'task' names no module-scope parcel type", exception.Message, StringComparison.Ordinal);
         }
 
         // A module-scope definition of another kind is not a fork base for a parcel type.
         await definitions.ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.Flows), CancellationToken.None);
+        ForkBase build = new("build", SoftwareDefinitions.Manifest.Name, SoftwareDefinitions.Manifest.Version, SoftwareFlows.Build.Hash);
         DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
-                Principal.LocalOwner, scope, project, QaTask, new ForkBase("build", 1), CancellationToken.None));
-        Assert.StartsWith("The fork base 'build' version 1", exception2.Message, StringComparison.Ordinal);
+                Principal.LocalOwner, scope, project, QaTask, build, CancellationToken.None));
+        Assert.StartsWith("The fork base 'build' of module 'software'", exception2.Message, StringComparison.Ordinal);
+
+        // The earlier shape, a name and a store-given version number, is never drafted.
+        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
+                Principal.LocalOwner, scope, project, QaTask, ForkBase.Earlier("task", 1), CancellationToken.None));
+        Assert.Contains("records no version number a store gave it", exception3.Message, StringComparison.Ordinal);
     }
 
     [Fact]
