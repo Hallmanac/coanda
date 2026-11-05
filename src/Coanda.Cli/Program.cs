@@ -58,6 +58,16 @@ app.Configure(config =>
             .WithExample("project", "set-profile", "coanda", "work");
         project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
         project.AddCommand<ProjectListCommand>("list").WithDescription("List the projects registered on this node.").WithExample("project", "list");
+        project.AddBranch("module", module =>
+        {
+            module.SetDescription("A module's settings in a project: replicated settings the project agrees on, and the credential profile this node selects.");
+            module.AddCommand<ProjectModuleSetCommand>("set").WithDescription("Give one of a module's replicated settings in a project a value.")
+                .WithExample("project", "module", "set", "coanda", "software", "primary-branch", "main");
+            module.AddCommand<ProjectModuleSelectProfileCommand>("select-profile").WithDescription("Select one of this node's credential profiles for a module in a project.")
+                .WithExample("project", "module", "select-profile", "coanda", "software", "work");
+            module.AddCommand<ProjectModuleShowCommand>("show").WithDescription("Show a module's settings in a project and whether it is configured on this node.")
+                .WithExample("project", "module", "show", "coanda", "software");
+        });
     });
 
     config.AddBranch("parcel", parcel =>

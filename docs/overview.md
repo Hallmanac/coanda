@@ -56,6 +56,9 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
   `coa project show <name>`,
   `coa project list`, `coa project set-profile <name> <profile>`,
   `coa project set <name> --required-check <check> [--required-check <check> ...]`
+- `coa project module set <project> <module> <name> <value>`,
+  `coa project module select-profile <project> <module> <profile>`,
+  `coa project module show <project> <module>`
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <stage>`,
   `coa parcel close <id>`
 - `coa flow list`, `coa flow start <flow> --parcel <id>`
