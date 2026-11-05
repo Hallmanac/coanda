@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Coanda.Sdk.Client;
 
 /// <summary>
@@ -23,7 +25,7 @@ public sealed record CoreApiOptions
     /// <summary>The core's address, an absolute http or https URL.</summary>
     public Uri Address { get; }
 
-    /// <summary>The module token, presented on every call.</summary>
+    /// <summary>The module token, presented on every call. <see cref="object.ToString"/> leaves it out.</summary>
     public string Token { get; }
 
     /// <summary>
@@ -41,6 +43,16 @@ public sealed record CoreApiOptions
         return Uri.TryCreate(address, UriKind.Absolute, out Uri? uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
             ? new CoreApiOptions(uri, token)
             : throw new InvalidOperationException($"{CoreApi.AddressVariable} holds '{address}', which is not an absolute http or https URL.");
+    }
+
+    /// <summary>
+    /// Writes the address and leaves the token out, so options that reach a log or an exception
+    /// message do not carry the token that calls the core as the module.
+    /// </summary>
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append("Address = ").Append(Address).Append(", Token = (redacted)");
+        return true;
     }
 
     private static string Require(Func<string, string?> read, string variable) =>

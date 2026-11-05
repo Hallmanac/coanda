@@ -55,6 +55,17 @@ public sealed class CoreApiClientTests
     }
 
     [Fact]
+    public void The_options_written_as_text_leave_the_token_out()
+    {
+        var options = new CoreApiOptions(new Uri("http://127.0.0.1:47123"), "module-token");
+
+        string text = options.ToString();
+
+        Assert.DoesNotContain("module-token", text, StringComparison.Ordinal);
+        Assert.Contains("http://127.0.0.1:47123", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_options_build_from_the_variables_the_sdk_declares()
     {
         string? address = Environment.GetEnvironmentVariable(CoreApi.AddressVariable);
