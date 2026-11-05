@@ -1,4 +1,5 @@
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Registry;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Parcels;
@@ -7,7 +8,8 @@ namespace Coanda.Core.Parcels;
 /// The rules of a parcel's lifecycle, as pure decisions: given the type, the current parcel, and
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
 /// The decider is given the gates the daemon runs; a move or a close runs every gate its type binds to it.
-/// A field is set only to a non-empty value of the kind the type declares it.
+/// A field is set only to a non-empty value of the kind the type declares it, and a field a module owns
+/// only by that module or the owner.
 /// A parcel a live flow run holds (running or paused) is closed by nobody and moved only by that flow run.
 /// </summary>
 public static class ParcelDecider
@@ -146,6 +148,47 @@ public static class ParcelDecider
             : value;
         return new ParcelFieldSet(parcel.Id, declared.Name, recorded, setBy, now);
     }
+
+    /// <summary>
+    /// Refuses <paramref name="principal"/> setting <paramref name="field"/> under the type version
+    /// <paramref name="type"/> unless it may. A field a module owns is set by that module's Module
+    /// principal, with or without a dispatch, and by an Owner-role principal; every other caller is
+    /// refused it, another module holding a dispatch included. A field no module owns is set by a Module
+    /// principal only under a dispatch it names (<paramref name="underDispatch"/>), whose hold the
+    /// caller checks, and by every other principal the registry lets through. A field the type does not
+    /// declare is left to <see cref="SetField"/> to refuse.
+    /// </summary>
+    public static void RequireMaySetField(ParcelType type, string field, Principal principal, bool underDispatch)
+    {
+        if (type.Field(field)?.Owner is { } owner)
+        {
+            bool allowed = principal.Role switch
+            {
+                Role.Owner => true,
+                Role.Module => string.Equals(principal.Module, owner, StringComparison.Ordinal),
+                _ => false,
+            };
+            if (!allowed)
+            {
+                throw new DomainException(
+                    $"Field '{field}' of a '{type.Name}' is owned by module '{owner}'; it is set by that module and by an Owner-role principal, and {Describe(principal)} is neither.");
+            }
+
+            return;
+        }
+
+        if (principal.Role == Role.Module && !underDispatch)
+        {
+            throw new DomainException(
+                $"Module '{principal.Module}' sets a parcel's field only by naming a dispatch of one of its own steps that it holds; this set-field named none.");
+        }
+    }
+
+    private static string Describe(Principal principal) => principal.Role switch
+    {
+        Role.Module => $"module '{principal.Module}'",
+        _ => $"the {principal.Role} principal '{principal.Id}'",
+    };
 
     private static bool IsEmpty(FieldValue value) => value switch
     {
