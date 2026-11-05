@@ -44,7 +44,12 @@ public static class ContractDocuments
                 { "kind": "software/review-requested", "watchableFields": ["repo", "reviewer"] }
               ],
               "subscriptions": ["parcel-entered", "flow-run-ended", "flow-run-stopped", "flow-run-paused", "parcel-field-set"],
-              "settingsSchema": { "type": "object", "properties": { "primaryBranch": { "type": "string" } } }
+              "settingsSchema": {
+                "replicated": [
+                  { "name": "primary-branch", "schema": { "type": "string" }, "required": true, "default": "main" }
+                ],
+                "credentialProfile": { "required": true, "defaultsToNodeIdentity": true }
+              }
             }
             """),
         ("dispatch.schema.json#/definitions/request", "dispatch request", """

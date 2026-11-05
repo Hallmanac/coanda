@@ -34,8 +34,8 @@
       "items": { "$ref": "#/definitions/coreEventKind" }
     },
     "settingsSchema": {
-      "description": "The schema of the module's replicated per-project settings.",
-      "$ref": "#/definitions/schema"
+      "description": "The settings the module declares for each project it is switched on for.",
+      "$ref": "#/definitions/settingsSchema"
     }
   },
   "definitions": {
@@ -81,6 +81,63 @@
       "description": "A core event kind the feed can deliver: a parcel entered a stage, a flow run ended, stopped, or paused, or a parcel's field was set.",
       "type": "string",
       "enum": ["parcel-entered", "flow-run-ended", "flow-run-stopped", "flow-run-paused", "parcel-field-set"]
+    },
+    "settingsSchema": {
+      "description": "The module's per-project settings: its replicated settings, which replicate with the project, and the credential profile setting it may declare, which each node selects for itself from the profiles it holds for the module.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicated"],
+      "properties": {
+        "replicated": {
+          "description": "The replicated settings, each by a name unique among them.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/replicatedSetting" }
+        },
+        "credentialProfile": {
+          "description": "The credential profile setting, when the module acts under a credential it keeps in its area of the node home.",
+          "$ref": "#/definitions/credentialProfileSetting"
+        }
+      }
+    },
+    "replicatedSetting": {
+      "description": "One replicated setting.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "schema", "required"],
+      "properties": {
+        "name": {
+          "description": "The setting's name: letters, digits, hyphens, and underscores.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "schema": {
+          "description": "The schema a value of the setting must meet.",
+          "$ref": "#/definitions/schema"
+        },
+        "required": {
+          "description": "Whether the module requires the setting. A required setting with no value and no default leaves the module unconfigured in the project.",
+          "type": "boolean"
+        },
+        "default": {
+          "description": "The value the setting takes when the project sets none. Absent, or null, when it has none."
+        }
+      }
+    },
+    "credentialProfileSetting": {
+      "description": "The credential profile setting.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "defaultsToNodeIdentity"],
+      "properties": {
+        "required": {
+          "description": "Whether the module requires the setting. A required setting with no value and no default leaves the module unconfigured in the project.",
+          "type": "boolean"
+        },
+        "defaultsToNodeIdentity": {
+          "description": "Whether the setting's default is the node's default identity, which the module acts as when a project selects no profile on the node. A selected profile the node no longer holds is no value, and the default does not stand in for it.",
+          "type": "boolean"
+        }
+      }
     },
     "prefixedName": {
       "type": "string",
