@@ -12,7 +12,9 @@ namespace Coanda.Daemon.Transport;
 /// What one line says about one event: the project it belongs to, by the id its registration
 /// records; the origin node that authored it; the origin's sequence in that project, from 1; the
 /// hash of the origin's previous line in that project, none for its first; the repos that carry it;
-/// its stream; and the event as the events table holds it.
+/// its stream; the id the store gave the event; the time the store recorded it; and the event as the
+/// events table holds it. The stream, the event id, and the recorded time are what an importer appends
+/// the event with, so it lands in the same stream as the same event.
 /// </summary>
 public sealed record LineContent(
     Guid ProjectId,
@@ -21,17 +23,19 @@ public sealed record LineContent(
     string? PreviousHash,
     LineTag Tag,
     Guid StreamId,
+    Guid EventId,
+    DateTimeOffset RecordedAt,
     StoredEvent Event);
 
 /// <summary>
 /// One signed line: a project event as one line of JSONL, signed by its origin's node key. Its
 /// members, in this order, are <c>format</c>, <c>project</c>, <c>origin</c>, <c>sequence</c>,
-/// <c>previous</c>, <c>tag</c>, <c>stream</c>, <c>type</c>, <c>data</c>, <c>signer</c>, and
-/// <c>signature</c>; design section 6 states each one's encoding. The signature is an ed25519
-/// signature over the UTF-8 bytes of the line with its signature member removed, that is, the line
-/// up to the comma before <c>"signature"</c>, closed with <c>}</c>. A line has exactly one way to be
-/// written, and one written any other way does not parse, so a line's bytes are a function of what
-/// it says.
+/// <c>previous</c>, <c>tag</c>, <c>stream</c>, <c>event</c>, <c>recorded</c>, <c>type</c>,
+/// <c>data</c>, <c>signer</c>, and <c>signature</c>; design section 6 states each one's encoding. The
+/// signature is an ed25519 signature over the UTF-8 bytes of the line with its signature member
+/// removed, that is, the line up to the comma before <c>"signature"</c>, closed with <c>}</c>. A line
+/// has exactly one way to be written, and one written any other way does not parse, so a line's bytes
+/// are a function of what it says.
 /// </summary>
 /// <remarks>
 /// The line is not written in the JSON Canonicalization Scheme (RFC 8785), which the approval record
@@ -49,13 +53,16 @@ public sealed class SignedLine
     /// <summary>How a line's hash is written: this prefix, then the SHA-256 digest of the line in lowercase hex.</summary>
     public const string HashPrefix = "sha256:";
 
+    /// <summary>How a line writes the recorded time: UTC, to the tenth of a microsecond, always with every digit.</summary>
+    public const string RecordedFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
+
     /// <summary>How deep event data may nest; far past anything the store's serializer writes, so no event is refused for its depth.</summary>
     private const int MaxDepth = 4096;
 
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     /// <summary>The members after <c>format</c>, which every line of this format has.</summary>
-    private static readonly string[] Members = ["project", "origin", "sequence", "previous", "tag", "stream", "type", "data", "signer", "signature"];
+    private static readonly string[] Members = ["project", "origin", "sequence", "previous", "tag", "stream", "event", "recorded", "type", "data", "signer", "signature"];
 
     private SignedLine(LineContent content, byte[] signer, byte[] signature, byte[] bytes, byte[] signedBytes)
     {
@@ -71,6 +78,9 @@ public sealed class SignedLine
 
     /// <summary>The signer's ed25519 public key in standard base64 with padding.</summary>
     public string Signer => Convert.ToBase64String(SignerKey);
+
+    /// <summary>The signature in standard base64 with padding.</summary>
+    public string Signature => Convert.ToBase64String(SignatureBytes);
 
     /// <summary>The line's hash: <see cref="HashPrefix"/> and the full SHA-256 digest of <see cref="Bytes"/>, never truncated.</summary>
     public string Hash { get; }
@@ -223,6 +233,12 @@ public sealed class SignedLine
                 ? LineTag.ProjectWide
                 : LineTag.Repos([.. tag.EnumerateArray().Select(name => name.GetString() ?? throw new FormatException("A repo name in the tag is not a string."))]),
             root.GetProperty("stream").GetGuid(),
+            root.GetProperty("event").GetGuid(),
+            DateTimeOffset.ParseExact(
+                root.GetProperty("recorded").GetString() ?? throw new FormatException("The recorded time is not a string."),
+                RecordedFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal),
             new StoredEvent(root.GetProperty("type").GetString() ?? "", root.GetProperty("data").GetRawText()));
         if (ShapeFault(content) is { } contentFault)
         {
@@ -284,7 +300,9 @@ public sealed class SignedLine
             Text(output, LineTag.ProjectWideValue);
         }
 
-        Ascii(output, $",\"stream\":\"{content.StreamId:D}\",\"type\":");
+        Ascii(output, string.Create(
+            CultureInfo.InvariantCulture,
+            $",\"stream\":\"{content.StreamId:D}\",\"event\":\"{content.EventId:D}\",\"recorded\":\"{content.RecordedAt.UtcDateTime.ToString(RecordedFormat, CultureInfo.InvariantCulture)}\",\"type\":"));
         Text(output, content.Event.Type);
         Ascii(output, ",\"data\":");
         output.Write(data);

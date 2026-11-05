@@ -19,10 +19,10 @@ public sealed class SignedLineTests
     /// significant digits, a raw non-ASCII character, and escapes, all of which the line keeps as stored.
     /// </summary>
     private const string FixtureLine =
-        """{"format":1,"project":"0196f3a0-1c2d-7e4f-8a5b-6c7d8e9f0a1b","origin":"0196f3a0-2b3c-7d4e-9f50-61728394a5b6","sequence":3,"previous":"sha256:000000000000000000000000000000000123456789abcdef0123456789abcdef","tag":["coanda","web"],"stream":"0196f3a0-3c4d-7e5f-a061-728394a5b6c7","type":"agent_step_answered","data":{"flowRunId":"0196f3a0-4d5e-7f60-b172-8394a5b6c7d8","answer":{"count":9007199254740993,"ratio":1.2345678901234567890,"note":"caf\u00e9 \"quoted\" \u00e9"},"answeredAt":"2026-11-05T12:00:00+00:00"},"signer":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=","signature":"FKa83OPzyueFCwkOs6myIndRl89VYIkfG01QxHMgx8vO6Zcn68O++YphXz+NAux/67xE0CHS0NfQLo3EEDXhAA=="}""";
+        """{"format":1,"project":"0196f3a0-1c2d-7e4f-8a5b-6c7d8e9f0a1b","origin":"0196f3a0-2b3c-7d4e-9f50-61728394a5b6","sequence":3,"previous":"sha256:000000000000000000000000000000000123456789abcdef0123456789abcdef","tag":["coanda","web"],"stream":"0196f3a0-3c4d-7e5f-a061-728394a5b6c7","event":"0196f3a0-5e6f-7a71-8283-94a5b6c7d8e9","recorded":"2026-11-05T12:00:00.1234567Z","type":"agent_step_answered","data":{"flowRunId":"0196f3a0-4d5e-7f60-b172-8394a5b6c7d8","answer":{"count":9007199254740993,"ratio":1.2345678901234567890,"note":"caf\u00e9 \"quoted\" \u00e9"},"answeredAt":"2026-11-05T12:00:00+00:00"},"signer":"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=","signature":"/Wjv/EWHq5Z7cLf/0KQaIYwYmYvpfep0p7FmAwp9/BqYC9DJU3Yaqz/ylw2N6zmHFXdzCJ8778kxQHyX69UeAg=="}""";
 
     /// <summary>The fixture line's hash, so a fixture changed in the source by anything at all fails here before it fails anywhere else.</summary>
-    private const string FixtureHash = "sha256:8cb75be3564b28c796328fb718a122407bfb207df300d422f30182761c8e1ca4";
+    private const string FixtureHash = "sha256:7ea0c7e960f011d5f2182ed19a07bac5efddd7c8411941cd50bd0528b0051d1c";
 
     /// <summary>The fixture's event as the events table would hold it: indented, with a raw é in one string and an escaped one beside it.</summary>
     private static readonly LineContent FixtureContent = new(
@@ -32,6 +32,8 @@ public sealed class SignedLineTests
         "sha256:000000000000000000000000000000000123456789abcdef0123456789abcdef",
         LineTag.Repos(["web", "coanda"]),
         Guid.Parse("0196f3a0-3c4d-7e5f-a061-728394a5b6c7"),
+        Guid.Parse("0196f3a0-5e6f-7a71-8283-94a5b6c7d8e9"),
+        new DateTimeOffset(2026, 11, 5, 7, 0, 0, TimeSpan.FromHours(-5)).AddTicks(1234567),
         new StoredEvent(
             "agent_step_answered",
             "{\n  \"flowRunId\": \"0196f3a0-4d5e-7f60-b172-8394a5b6c7d8\",\n"
@@ -92,6 +94,8 @@ public sealed class SignedLineTests
         { "previous", "0123456789abcdef0123456789abcdef\"", "0123456789abcdef0123456789abcdee\"" },
         { "tag", "\"tag\":[\"coanda\",\"web\"]", "\"tag\":[\"coanda\",\"wec\"]" },
         { "stream", "0196f3a0-3c4d-7e5f-a061-728394a5b6c7", "0196f3a0-3c4d-7e5f-a061-728394a5b6c8" },
+        { "event", "0196f3a0-5e6f-7a71-8283-94a5b6c7d8e9", "0196f3a0-5e6f-7a71-8283-94a5b6c7d8ea" },
+        { "recorded", "12:00:00.1234567Z", "12:00:00.1234568Z" },
         { "type", "agent_step_answered", "agent_step_answerer" },
         { "data, an integer past a double's exact range", "9007199254740993", "9007199254740992" },
         { "data, the last digit of a 20-digit decimal", "1.2345678901234567890", "1.2345678901234567891" },

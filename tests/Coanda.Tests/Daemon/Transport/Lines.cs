@@ -11,6 +11,8 @@ internal static class Lines
     public static readonly Guid Project = Guid.Parse("0196f3a0-0000-7000-8000-000000000001");
     public static readonly Guid Origin = Guid.Parse("0196f3a0-0000-7000-8000-0000000000aa");
     public static readonly Guid Stream = Guid.Parse("0196f3a0-0000-7000-8000-0000000000bb");
+    public static readonly Guid Event = Guid.Parse("0196f3a0-0000-7000-8000-0000000000cc");
+    public static readonly DateTimeOffset Recorded = new(2026, 11, 5, 6, 0, 19, 554, TimeSpan.Zero);
 
     /// <summary>The secret key of RFC 8032's first ed25519 test vector.</summary>
     public static readonly Ed25519Key Key = Ed25519Key.FromPrivateKey(Convert.FromHexString("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"));
@@ -20,7 +22,7 @@ internal static class Lines
     public static IReadOnlyCollection<string> Accepted => [Key.PublicKey];
 
     public static LineContent Content(long sequence, string? previous, string data = """{"title":"Line"}""") =>
-        new(Project, Origin, sequence, previous, LineTag.Repos(["coanda"]), Stream, new StoredEvent("parcel_created", data));
+        new(Project, Origin, sequence, previous, LineTag.Repos(["coanda"]), Stream, Event, Recorded, new StoredEvent("parcel_created", data));
 
     /// <summary>A run of <paramref name="count"/> lines from the origin's first, each naming the hash of the one before it.</summary>
     public static List<byte[]> Run(int count, Ed25519Key? key = null)
