@@ -11,7 +11,6 @@ using Coanda.Sdk.Contract;
 using Fisher;
 using JasperFx.Events.Documents;
 using NJsonSchema;
-using NJsonSchema.References;
 using NJsonSchema.Validation;
 
 namespace Coanda.Daemon.Modules;
@@ -201,43 +200,17 @@ public sealed class ModuleSettingsService(IDocumentStore store, TimeProvider clo
         }
 
         string text = JsonSerializer.Serialize(value);
-        JsonSchema schema;
-        try
-        {
-            schema = await JsonSchema.FromJsonAsync(
-                declared.Schema.GetRawText(), documentPath: null, LocalReferencesOnly.Factory(module, declared.Name), cancellationToken);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            // The schema is the module's, so a schema the reader cannot read is a rule the module broke.
-            throw exception.InnerException as DomainException
-                ?? new DomainException($"The schema of setting '{declared.Name}' of module '{module}' cannot be read: {exception.Message}");
-        }
+        JsonSchema schema = await LocalSchemas.ReadAsync(
+            declared.Schema.GetRawText(),
+            reference => $"The schema of setting '{declared.Name}' of module '{module}' refers to '{reference}', outside itself; a setting's schema refers only to its own definitions.",
+            reason => $"The schema of setting '{declared.Name}' of module '{module}' cannot be read: {reason}",
+            cancellationToken);
 
         ICollection<ValidationError> failures = schema.Validate(text);
         return failures.Count == 0
             ? text
             : throw new DomainException(
                 $"The value given for setting '{declared.Name}' of module '{module}' does not meet the setting's schema: {string.Join("; ", failures.Select(f => $"{f.Kind} at {f.Path ?? "#"}"))}.");
-    }
-
-    /// <summary>
-    /// Resolves a setting's schema references inside the schema alone, and refuses one to a file or a URL,
-    /// so reading a module's schema never reads a file of the node, a profile's among them, or reaches the network.
-    /// </summary>
-    private sealed class LocalReferencesOnly(JsonSchemaAppender appender, string module, string setting) : JsonReferenceResolver(appender)
-    {
-        public static Func<JsonSchema, JsonReferenceResolver> Factory(string module, string setting) =>
-            schema => new LocalReferencesOnly(new JsonSchemaAppender(schema, new DefaultTypeNameGenerator()), module, setting);
-
-        public override Task<IJsonReference> ResolveFileReferenceAsync(string filePath, CancellationToken cancellationToken) =>
-            throw Refused(filePath);
-
-        public override Task<IJsonReference> ResolveUrlReferenceAsync(string url, CancellationToken cancellationToken) =>
-            throw Refused(url);
-
-        private DomainException Refused(string reference) =>
-            new($"The schema of setting '{setting}' of module '{module}' refers to '{reference}', outside itself; a setting's schema refers only to its own definitions.");
     }
 
     private async Task<ModuleSettingsShown> ShownAsync(string tenant, string module, CancellationToken cancellationToken)
