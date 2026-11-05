@@ -37,11 +37,14 @@ public sealed class NodeConfigurationTests
         Assert.Equal(exports ? LedgerExport.DefaultInterval : (TimeSpan?)null, options.ExportInterval);
     }
 
-    [Fact]
-    public void A_ledger_export_that_is_not_true_or_false_is_refused()
+    [Theory]
+    [InlineData("\"no\"")]
+    [InlineData("null")]
+    [InlineData("0")]
+    public void A_ledger_export_that_is_not_true_or_false_is_refused(string setting)
     {
         using var temp = new TemporaryHome();
-        Write(temp, """{ "executor": "scripted", "ledgerExport": "no" }""");
+        Write(temp, $$"""{ "executor": "scripted", "ledgerExport": {{setting}} }""");
 
         Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
     }

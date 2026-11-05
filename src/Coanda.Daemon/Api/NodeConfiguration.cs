@@ -84,6 +84,11 @@ public static class NodeConfiguration
             throw Refused(path, $"names no executor; set \"executor\" to \"{ClaudeCodeExecutor}\" or \"{ScriptedExecutor}\".");
         }
 
+        if (file.LedgerExportNull)
+        {
+            throw Refused(path, "gives \"ledgerExport\" as null; it is true or false, and left out it is true.");
+        }
+
         string? claudeExecutable = Given(file.ClaudeExecutable);
         List<CredentialProfile> profiles = Profiles(home, path, file.Profiles);
         IAgentExecutor executor = (file.Executor, claudeExecutable) switch
@@ -232,7 +237,22 @@ public static class NodeConfiguration
 
         public Dictionary<string, List<ProfileShape?>?>? Profiles { get; init; }
 
-        public bool? LedgerExport { get; init; }
+        private readonly bool? ledgerExport;
+
+        /// <summary>The <c>ledgerExport</c> setting, or null when the file leaves it out or gives it as null.</summary>
+        public bool? LedgerExport
+        {
+            get => ledgerExport;
+            init
+            {
+                ledgerExport = value;
+                LedgerExportNull = value is null;
+            }
+        }
+
+        /// <summary>Whether the file gives <c>ledgerExport</c> as null, which is neither <c>true</c> nor <c>false</c>.</summary>
+        [JsonIgnore]
+        public bool LedgerExportNull { get; private init; }
     }
 
     private sealed class ProfileShape
