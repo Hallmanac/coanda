@@ -57,6 +57,20 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Every_shipped_step_answers_unknown_to_a_status_and_does_nothing_on_a_stop()
+    {
+        foreach (string name in systemSteps.Names)
+        {
+            Guid dispatchId = Ids.New();
+            Assert.IsType<SystemStepStatus.Unknown>(await systemSteps.StatusAsync("step", name, dispatchId, CancellationToken.None));
+            await systemSteps.StopAsync(name, dispatchId, CancellationToken.None);
+        }
+
+        Assert.Empty(runner.Commands);
+        Assert.Empty(github.Requests);
+    }
+
+    [Fact]
     public void Registering_two_implementations_of_one_name_is_refused()
     {
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new FlowSystemSteps([new PlaceholderSystemStep("gates"), new PlaceholderSystemStep("gates")]));
@@ -235,7 +249,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
     private ValueTask<SystemStepAnswer> DispatchAsync(FlowStep step, Guid parcelId, bool resumed = false) =>
         systemSteps.DispatchAsync(
-            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, step, resumed),
+            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, step, resumed, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"),
             CancellationToken.None);
 
     private static JsonElement DoneResult(SystemStepAnswer outcome)

@@ -23,7 +23,7 @@ namespace Coanda.Daemon.FlowRuns;
 
 /// <summary>
 /// Advances live flow runs on the daemon's own workers: performs the current step through the
-/// executor or a system step, records its result on the flow run, asks the interpreter for the next
+/// executor or dispatches its system step, records its result on the flow run, asks the interpreter for the next
 /// move, and applies it, until the flow run ends, pauses, or stops. At most one worker advances a
 /// flow run; a request for a flow run already being advanced is folded into that worker, which reads
 /// the flow run once more before it finishes. Before any step, a flow run deeper in its chain than its
@@ -61,6 +61,15 @@ namespace Coanda.Daemon.FlowRuns;
 /// of its own (<see cref="SessionTokens"/>), handed to the executor in the spawn's
 /// <see cref="SessionAccess"/>, and removed when the agent step ends, unless a daemon stop ended it:
 /// the session then runs on, and the token it holds resolves again once the next start reattaches it.
+/// A system step is dispatched under a dispatch id recorded on the flow run before the call, and
+/// its answer, a result or a pause, is recorded as that dispatch's outcome. One that answers running
+/// leaves the flow run running with no worker; its outcome is recorded later under the id
+/// (<see cref="FlowRunService.RecordOutcomeAsync"/>), which hands the flow run back to be routed. The
+/// next start asks the status of a dispatch with no outcome and no resume since, rather than
+/// dispatching it blindly, and dispatches it again under the same id only when the step does not
+/// know it. A person's pause leaves such a dispatch held, and the resume stops it before the step
+/// is dispatched again under a new id; a person's stop of a flow run holding one with no call in
+/// progress stops it before the worktree is removed, and records nothing for the step.
 /// </remarks>
 public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposable
 {
@@ -93,6 +102,13 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// so a reattach of one is not across a daemon restart.
     /// </summary>
     private readonly HashSet<Guid> launchedHere = [];
+
+    /// <summary>
+    /// The dispatches a person's stop needs tell no step to stop: those whose dispatch call the stop
+    /// ended, and those this runner already told to stop. A status call the stop ended does not count,
+    /// since the dispatch it asked about may still be running.
+    /// </summary>
+    private readonly HashSet<Guid> endedByStop = [];
     private bool stopRequested;
 
     public FlowRunAdvancer(
@@ -387,6 +403,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             FlowRun? flowRun = await flowRuns.ShowAsync(principal, project, flowRunId, cancellationToken);
             if (flowRun is { Status: FlowRunStatus.Ended or FlowRunStatus.Stopped })
             {
+                await StopHeldDispatchAsync(flowRun, cancellationToken);
                 await RemoveWorktreeAsync(project, flowRunId, cancellationToken);
                 return;
             }
@@ -478,7 +495,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
                 ? current.AwaitsLaunchedSession
                     ? await ReattachAsync(principal, project, flowRun, step, current, cancellationToken)
                     : await JudgeAsync(principal, project, flowRun, flow, step, spawnsAgain, cancellationToken)
-                : await ActAsync(principal, project, flowRun, flow, step, current.ResumedAt is not null, cancellationToken);
+                : await DispatchSystemStepAsync(principal, project, flowRun, flow, step, current, cancellationToken);
 
         // Routed against the flow run as the recording left it, so a spawn counted on this pass is in the position.
         return recorded is Recording recording
@@ -1264,20 +1281,169 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
     private static string Dollars(decimal amount) => string.Create(CultureInfo.InvariantCulture, $"${amount:0.00##}");
 
-    /// <summary>Performs the step's system step and records its result, or pauses; null when the flow run paused.</summary>
-    private async Task<Recording?> ActAsync(
-        Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, bool resumed, CancellationToken cancellationToken)
+    /// <summary>
+    /// The system step's part of a step: dispatches it under a dispatch id recorded on the flow run
+    /// before the call, and records its answer as that dispatch's outcome, a result to route on or a
+    /// pause; null when nothing is to be routed. A visit holding a dispatch with no outcome and no
+    /// resume since (a daemon restart found it, or it answered running) is asked its status instead:
+    /// running leaves it for the outcome command, done and paused are recorded as a dispatch's answer
+    /// would be, and unknown dispatches it again under the same id. A visit holding a dispatch a
+    /// resume replaced has that dispatch stopped before it is dispatched under a new id.
+    /// </summary>
+    private async Task<Recording?> DispatchSystemStepAsync(
+        Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, FlowRunStepEntry current, CancellationToken cancellationToken)
     {
-        var request = new SystemStepDispatch(principal, project, flowRun.Id, flowRun.ParcelId, flow, step, resumed);
-        SystemStepAnswer outcome;
+        SystemStepAnswer? answer = null;
+        Guid dispatchId;
+        if (current is { AwaitsDispatch: true, DispatchId: Guid awaited })
+        {
+            dispatchId = awaited;
+            Called<SystemStepStatus> asked = await CallWatchedAsync(
+                flowRun.Id, step, token => systemSteps.StatusAsync(step.Name, current.Performer, awaited, token), cancellationToken);
+            switch (asked)
+            {
+                case { Stopped: true }:
+                    return null;
+                case { Failure: { } failure }:
+                    await PauseAsync(
+                        principal, project, flowRun.Id,
+                        $"Step '{step.Name}' could not ask the system step '{current.Performer}' where dispatch {Ids.Short(awaited)} stands: {failure.Message}",
+                        FlowRunLevers.PerformAgain(step.Name),
+                        cancellationToken);
+                    return null;
+                case { Value: SystemStepStatus.Running }:
+                    logger.LogInformation(
+                        "Dispatch {Dispatch} of step '{Step}' on flow run {FlowRun} is still running; its outcome is recorded under its id.",
+                        Ids.Short(awaited), step.Name, Ids.Short(flowRun.Id));
+                    return null;
+                case { Value: SystemStepStatus.Done done }:
+                    answer = new SystemStepAnswer.Done(done.Result);
+                    break;
+                case { Value: SystemStepStatus.Paused paused }:
+                    answer = new SystemStepAnswer.Paused(paused.Reason, paused.Lever);
+                    break;
+                case { Value: SystemStepStatus.Unknown }:
+                    // The step does not know the dispatch, so it is dispatched again under the same id.
+                    break;
+                default:
+                    throw new InvalidOperationException($"A system step answered a status the runner does not know: {asked.Value?.GetType().Name}.");
+            }
+        }
+        else
+        {
+            if (current is { HoldsDispatch: true, DispatchId: Guid replaced }
+                && !await StopReplacedDispatchAsync(principal, project, flowRun.Id, step, current.Performer, replaced, cancellationToken))
+            {
+                return null;
+            }
 
-        // A person's stop, saved before the system step starts or while it runs, cancels it.
-        using var stopped = new CancellationTokenSource();
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopped.Token);
-        WatchSystemStep(flowRun.Id, stopped);
+            flowRun = await flowRuns.DispatchedAsync(principal, project, flowRun.Id, step.Name, cancellationToken);
+            dispatchId = flowRun.Current?.DispatchId
+                ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} recorded no dispatch id for step '{step.Name}'.");
+        }
+
+        if (answer is null)
+        {
+            var request = new SystemStepDispatch(
+                principal, project, flowRun.Id, flowRun.ParcelId, flow, step,
+                Resumed: current.ResumedAt is not null,
+                Visit: flowRun.Position.VisitsTo(step.Name),
+                DispatchId: dispatchId,
+                WorkPath: home.FlowRunWorkPath(project, flowRun.Id));
+            Called<SystemStepAnswer> dispatched = await CallWatchedAsync(
+                flowRun.Id, step, token => systemSteps.DispatchAsync(request, token), cancellationToken);
+            switch (dispatched)
+            {
+                case { Stopped: true }:
+                    // The stop ended the call in progress, so it tells the step nothing more.
+                    lock (gate)
+                    {
+                        endedByStop.Add(dispatchId);
+                    }
+
+                    return null;
+                case { Failure: { } failure }:
+                    await PauseAsync(
+                        principal, project, flowRun.Id,
+                        $"Step '{step.Name}' could not perform the system step '{step.SystemStep}': {failure.Message}",
+                        FlowRunLevers.PerformAgain(step.Name),
+                        cancellationToken);
+                    return null;
+                default:
+                    answer = dispatched.Value;
+                    break;
+            }
+        }
+
+        switch (answer)
+        {
+            case SystemStepAnswer.Done done:
+                FlowRun? recorded = await RecordDispatchOutcomeAsync(principal, project, flowRun.Id, dispatchId, done, cancellationToken);
+                return recorded is null ? null : new Recording(recorded, done.Result);
+            case SystemStepAnswer.Paused paused:
+                await RecordDispatchOutcomeAsync(principal, project, flowRun.Id, dispatchId, paused, cancellationToken);
+                return null;
+            case SystemStepAnswer.Running:
+                logger.LogInformation(
+                    "Step '{Step}' on flow run {FlowRun} answered running under dispatch {Dispatch}; its outcome is recorded under that id.",
+                    step.Name, Ids.Short(flowRun.Id), Ids.Short(dispatchId));
+                return null;
+            default:
+                throw new InvalidOperationException($"A system step answered in a way the runner does not know: {answer?.GetType().Name}.");
+        }
+    }
+
+    /// <summary>
+    /// Records a dispatch's answer as its outcome and returns the flow run as it left it. When the
+    /// outcome command recorded an outcome under the same dispatch first (a step that recorded its
+    /// outcome while the daemon asked its status, say), the answer is not recorded again and null is
+    /// returned: the command's own advance, folded into this worker, routes what it recorded. Any
+    /// other refusal is thrown, as a refused recording always is.
+    /// </summary>
+    private async Task<FlowRun?> RecordDispatchOutcomeAsync(
+        Principal principal, string project, Guid flowRunId, Guid dispatchId, SystemStepAnswer outcome, CancellationToken cancellationToken)
+    {
         try
         {
-            outcome = await systemSteps.DispatchAsync(request, bounded.Token);
+            return await flowRuns.RecordOutcomeAsync(principal, project, flowRunId, dispatchId, outcome, cancellationToken);
+        }
+        catch (DomainException) when (!cancellationToken.IsCancellationRequested)
+        {
+            FlowRun? now = await flowRuns.ShowAsync(principal, project, flowRunId, cancellationToken);
+            if (now?.Current is not { DispatchId: Guid held } entry || held != dispatchId || entry is { IsRecorded: false, DispatchOutcomeAt: null })
+            {
+                throw;
+            }
+
+            logger.LogInformation(
+                "Dispatch {Dispatch} of step '{Step}' on flow run {FlowRun} already holds its outcome, so its answer is not recorded again.",
+                Ids.Short(dispatchId), entry.Step, Ids.Short(flowRunId));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// What a call on a system step came to: its <see cref="Value"/>, the <see cref="Failure"/> it
+    /// threw, or <see cref="Stopped"/> when a person's stop of the flow run ended it, so it records nothing.
+    /// </summary>
+    private readonly record struct Called<T>(T? Value, Exception? Failure, bool Stopped);
+
+    /// <summary>Makes a call on the system step of <paramref name="step"/> that a person's stop, saved before the call starts or while it runs, cancels.</summary>
+    private async Task<Called<T>> CallWatchedAsync<T>(
+        Guid flowRunId, FlowStep step, Func<CancellationToken, ValueTask<T>> call, CancellationToken cancellationToken)
+    {
+        using var stopped = new CancellationTokenSource();
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopped.Token);
+        WatchSystemStep(flowRunId, stopped);
+        try
+        {
+            T value = await call(bounded.Token);
+            if (!stopped.IsCancellationRequested)
+            {
+                return new Called<T>(value, null, Stopped: false);
+            }
+
+            // Stopped as the call finished: what it found is not recorded on a stopped flow run.
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -1287,36 +1453,84 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         {
             logger.LogInformation(
                 "The system step '{SystemStep}' of step '{Step}' on flow run {FlowRun} ended because a person stopped the flow run; it records nothing: {Failure}",
-                step.SystemStep, step.Name, Ids.Short(flowRun.Id), failure.Message);
-            return null;
+                step.SystemStep, step.Name, Ids.Short(flowRunId), failure.Message);
         }
         catch (Exception failure)
         {
-            outcome = new SystemStepAnswer.Paused(
-                $"Step '{step.Name}' could not perform the system step '{step.SystemStep}': {failure.Message}",
-                FlowRunLevers.PerformAgain(step.Name));
+            return new Called<T>(default, failure, Stopped: false);
         }
         finally
         {
-            UnwatchSystemStep(flowRun.Id, stopped);
+            UnwatchSystemStep(flowRunId, stopped);
         }
 
-        if (stopped.IsCancellationRequested)
+        return new Called<T>(default, null, Stopped: true);
+    }
+
+    /// <summary>
+    /// Stops the dispatch <paramref name="replaced"/> that a resume replaces, which holds no outcome,
+    /// before the step is dispatched again under a new id, so the step does not run twice. True when
+    /// the step stopped it; a stop that fails pauses the flow run rather than dispatch the step beside
+    /// a dispatch that would not stop, and its resume asks the stop again.
+    /// </summary>
+    private async Task<bool> StopReplacedDispatchAsync(
+        Principal principal, string project, Guid flowRunId, FlowStep step, string systemStep, Guid replaced, CancellationToken cancellationToken)
+    {
+        try
         {
-            // Stopped as the system step finished: what it found is not recorded on a stopped flow run.
-            return null;
+            await systemSteps.StopAsync(systemStep, replaced, cancellationToken);
+            return true;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception failure)
+        {
+            await PauseAsync(
+                principal, project, flowRunId,
+                $"Step '{step.Name}' could not stop dispatch {Ids.Short(replaced)} of the system step '{systemStep}', which the resume replaces, so it was not dispatched again: {failure.Message}",
+                FlowRunLevers.PerformAgain(step.Name),
+                cancellationToken);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Tells the system step of a stopped flow run's current visit to stop the dispatch it holds with
+    /// no outcome and no call in progress (it answered running, or a person paused the flow run while
+    /// it ran), before the flow run's worktree is removed; it records nothing for the step. A dispatch
+    /// whose dispatch call the stop ended, or that this runner already told to stop, is passed over. A stop
+    /// that fails is logged, since the flow run's stop is already recorded.
+    /// </summary>
+    private async Task StopHeldDispatchAsync(FlowRun flowRun, CancellationToken cancellationToken)
+    {
+        if (flowRun is not { Status: FlowRunStatus.Stopped, Current: { HoldsDispatch: true, DispatchId: Guid held } entry })
+        {
+            return;
         }
 
-        switch (outcome)
+        lock (gate)
         {
-            case SystemStepAnswer.Done done:
-                FlowRun recorded = await flowRuns.RecordResultAsync(principal, project, flowRun.Id, step.Name, step.SystemStep ?? string.Empty, done.Result, cancellationToken);
-                return new Recording(recorded, done.Result);
-            case SystemStepAnswer.Paused paused:
-                await PauseAsync(principal, project, flowRun.Id, paused.Reason, paused.Lever, cancellationToken);
-                return null;
-            default:
-                throw new InvalidOperationException($"A system step ended in an outcome the runner does not know: {outcome.GetType().Name}.");
+            if (!endedByStop.Add(held))
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await systemSteps.StopAsync(entry.Performer, held, cancellationToken);
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception failure)
+        {
+            logger.LogError(
+                failure, "Stopping dispatch {Dispatch} of the system step '{SystemStep}' on stopped flow run {FlowRun} failed.",
+                Ids.Short(held), entry.Performer, Ids.Short(flowRun.Id));
         }
     }
 
@@ -1409,7 +1623,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         /// <summary>Cancelled by a person's pause or stop to end the agent step this worker runs; null while it runs none.</summary>
         public CancellationTokenSource? AgentStepInProgress { get; set; }
 
-        /// <summary>Cancelled by a person's stop to end the system step this worker performs; null while it performs none.</summary>
+        /// <summary>Cancelled by a person's stop to end the call on a system step this worker makes; null while it makes none.</summary>
         public CancellationTokenSource? Acting { get; set; }
 
         /// <summary>A person's stop of the flow run was saved, so a system step this worker starts from now on is cancelled at once.</summary>

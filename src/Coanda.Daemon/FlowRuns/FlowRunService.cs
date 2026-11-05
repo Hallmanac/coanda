@@ -11,6 +11,7 @@ using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.SystemSteps;
 using Fisher;
 using JasperFx;
 using JasperFx.Events;
@@ -177,6 +178,49 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, systemStep, result, clock.GetUtcNow()),
             (flowRun, completed) => flowRun.Apply(completed),
             cancellationToken);
+
+    /// <summary>
+    /// Records the id the system step <paramref name="step"/> is dispatched under, minted for this
+    /// dispatch, before the step is called; the flow run it returns holds that id on its current visit.
+    /// </summary>
+    public Task<FlowRun> DispatchedAsync(Principal principal, string project, Guid flowRunId, string step, CancellationToken cancellationToken) =>
+        WriteAsync(
+            "flow-run.dispatch", principal, project, flowRunId,
+            (flow, flowRun) => FlowRunDecider.Dispatch(flow, flowRun, step, clock.GetUtcNow()),
+            (flowRun, dispatched) => flowRun.Apply(dispatched),
+            cancellationToken);
+
+    /// <summary>
+    /// Records the outcome of the dispatch <paramref name="dispatchId"/> of the flow run's current
+    /// system step: a result, which the flow run routes on, or a pause with its reason and lever. It
+    /// is refused unless the flow run is running and the dispatch is its current visit's, holds no
+    /// outcome yet, and has not been replaced by a resume. Once the outcome is saved the flow run is
+    /// handed to the <see cref="IFlowRunAdvancer"/>, when the service has one, which routes on it as
+    /// it would on the same answer given at the dispatch; the record does not wait for that.
+    /// </summary>
+    public async Task<FlowRun> RecordOutcomeAsync(
+        Principal principal, string project, Guid flowRunId, Guid dispatchId, SystemStepAnswer outcome, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flow-run.outcome", principal);
+        FlowRun recorded = outcome switch
+        {
+            SystemStepAnswer.Done done => await WriteAsync(
+                "flow-run.outcome", principal, project, flowRunId,
+                (flow, flowRun) => FlowRunDecider.CompleteDispatch(flow, flowRun, dispatchId, done.Result, clock.GetUtcNow()),
+                (flowRun, completed) => flowRun.Apply(completed),
+                cancellationToken),
+            SystemStepAnswer.Paused paused => await WriteAsync(
+                "flow-run.outcome", principal, project, flowRunId,
+                (flow, flowRun) => FlowRunDecider.PauseDispatch(flow, flowRun, dispatchId, paused.Reason, paused.Lever, principal.Id, clock.GetUtcNow()),
+                (flowRun, recordedPause) => flowRun.Apply(recordedPause),
+                cancellationToken),
+            _ => throw new DomainException(
+                $"Dispatch {Ids.Short(dispatchId)} is recorded with its outcome, a result or a pause; running is no outcome."),
+        };
+
+        _ = advancer?.RequestAdvance(project.Trim(), recorded.Id);
+        return recorded;
+    }
 
     /// <summary>Pauses a running flow run and, once the pause is saved, ends the agent step it was running.</summary>
     public async Task<FlowRun> PauseAsync(Principal principal, string project, Guid flowRunId, string reason, string lever, CancellationToken cancellationToken)

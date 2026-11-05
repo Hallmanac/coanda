@@ -384,7 +384,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
 
         Func<Task> takeover = async () => await systemStep.DispatchAsync(
-            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, Step, Resumed: false), stop.Token);
+            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, Step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), stop.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(takeover);
     }
@@ -522,7 +522,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     public async Task A_project_with_no_record_pauses_naming_the_step_and_the_project_and_runs_nothing()
     {
         SystemStepAnswer outcome = await systemStep.DispatchAsync(
-            new SystemStepDispatch(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
+            new SystemStepDispatch(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedFlows.Build, Step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
         SystemStepAnswer.Paused paused = Paused(outcome);
         Assert.StartsWith("Step 'worktree'", paused.Reason, StringComparison.Ordinal);
@@ -724,7 +724,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     private string[] ExcludeLines() => File.ReadAllText(ExcludePath).ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
 
     private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcelId, Guid flowRunId) =>
-        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
     private static JsonElement Done(SystemStepAnswer outcome)
     {

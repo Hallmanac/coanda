@@ -113,14 +113,14 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Build on the reviewer's update");
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid first = Ids.New();
-        await worktree.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, first, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
+        await worktree.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, first, parcel.Id, ShippedFlows.Build, checkoutStep, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
         Opened(await DispatchAsync(parcel.Id, first));
         await clones.RemoveAsync(Project, first, None);
         runner.SetRemoteBranch(Clone, branch, Theirs);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Theirs);
         Guid second = Ids.New();
 
-        SystemStepAnswer checkedOut = await worktree.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, second, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
+        SystemStepAnswer checkedOut = await worktree.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, second, parcel.Id, ShippedFlows.Build, checkoutStep, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
         runner.AddBranch(Clone, branch, Built);
         Opened(await DispatchAsync(parcel.Id, second));
 
@@ -426,7 +426,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         });
 
         Task<SystemStepAnswer> checkout = worktree.DispatchAsync(
-            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedFlows.Build, Step with { Name = "worktree", SystemStep = SoftwareSystemSteps.Worktree }, false), None).AsTask();
+            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedFlows.Build, Step with { Name = "worktree", SystemStep = SoftwareSystemSteps.Worktree }, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None).AsTask();
         await fetching.Task;
         Task<SystemStepAnswer> push = DispatchAsync(parcel.Id, Ids.New()).AsTask();
         await WhenReadAsync(runner, () => runner.Commands.Any(c => c.Program == "gh"));
@@ -471,12 +471,12 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
     }
 
     private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcelId, Guid flowRunId, string project = Project) =>
-        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
     private ValueTask<SystemStepAnswer> PerformUnderAsync(Flow flow, Guid parcelId)
     {
         FlowStep openPr = flow.Step("open-pr") ?? throw new InvalidOperationException("The flow has no open-pr step.");
-        return systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, flow, openPr, Resumed: false), None);
+        return systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, flow, openPr, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
     }
 
     private static FlowRunMove Decide(Flow flow, JsonElement answer)

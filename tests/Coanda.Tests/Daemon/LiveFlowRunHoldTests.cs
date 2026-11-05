@@ -109,7 +109,7 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
         var systemStep = new MoveParcelSystemStep(parcels);
 
         SystemStepAnswer outcome = await systemStep.DispatchAsync(
-            new SystemStepDispatch(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
+            new SystemStepDispatch(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"),
             None);
 
         Assert.IsType<SystemStepAnswer.Done>(outcome);
