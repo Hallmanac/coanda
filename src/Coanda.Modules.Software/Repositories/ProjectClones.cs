@@ -521,8 +521,10 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     /// changes in it included, logging the paths of the changes it discards; the branch and its commits
     /// stay in the clone. A project with no clones, or whose clones do not list the path, is left alone.
     /// Returns whether a worktree was removed. A failing git command in one clone does not keep the others
-    /// from being looked at; once they all have been, the first failure is thrown as the
-    /// <see cref="GitCommandException"/> it was.
+    /// from being looked at. Once they all have been, a failure is logged and passed over when the worktree
+    /// was removed from another clone, since a path is one clone's worktree at most; otherwise the first
+    /// failure is thrown as the <see cref="GitCommandException"/> it was, because the worktree may be in
+    /// the clone that failed.
     /// </summary>
     public async Task<bool> RemoveAsync(string project, Guid flowRunId, string workPath, CancellationToken cancellationToken)
     {
@@ -546,9 +548,14 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
             }
         }
 
-        if (failed is not null)
+        if (failed is not null && !removed)
         {
             ExceptionDispatchInfo.Throw(failed);
+        }
+
+        if (failed is not null)
+        {
+            logger.LogWarning(failed, "A clone of project '{Project}' could not be looked at while removing the worktree of flow run {FlowRun}, which was removed from another clone.", project, ShortId.Of(flowRunId));
         }
 
         return removed;
