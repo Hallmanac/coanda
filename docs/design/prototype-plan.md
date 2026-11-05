@@ -1,14 +1,15 @@
-# Coanda prototype plan
+# Coanda first version plan
 
 Written 2026-11-03 11:21 EST from the rulings in `journal.md`; replaces the plan of 2026-11-02, kept as
-`prototype-plan.md.*.prev`. The design is `design.md`. This plan is read by the coanda project's
-orchestrator window; Brian stays hands-off beyond the four duties in section 5.
+`prototype-plan.md.*.prev`. Amended on 2026-11-04 to place the module work that design.md section
+14.12 orders and to rename the first scope. The design is `design.md`. This plan is read by the
+coanda project's orchestrator window; Brian stays hands-off beyond the four duties in section 5.
 
-## 1. What the box proves
+## 1. What the first version proves
 
-Coanda is a full replacement for hall9k. The box is the first step, not the destination: three
-weeks, hard stop at four, that prove the store, the definitions-as-data loop layer, the transport,
-and the second node. Everything after it is parity work in the order of section 8.
+Coanda is a full replacement for hall9k. The first version is the first step, not the destination:
+three weeks, hard stop at four, that prove the store, the definitions-as-data loop layer, the
+transport, and the second node. Everything after it is parity work in the order of section 8.
 
 Exit scenario. On the Mac, from a cold install of one binary, a project is registered on the coanda
 repository with nothing configured. An idea parcel goes through a flow run of the discovery flow and
@@ -23,10 +24,10 @@ its measurement events. No file in a project home is edited by hand.
 
 ## 2. Repository and stack
 
-Local: `/Users/brianhallmanac/code/coanda`. GitHub: `Hallmanac/coanda`, private through the box,
-public at the first release (the ledger refs go public with it, as hall9k's do). License: Apache
-2.0 with NOTICE, in the first commit with a one-paragraph README. Created only on Brian's go at a
-terminal.
+Local: `/Users/brianhallmanac/code/coanda`. GitHub: `Hallmanac/coanda`, private through the first
+version, public at the first release (the ledger refs go public with it, as hall9k's do). License:
+Apache 2.0 with NOTICE, in the first commit with a one-paragraph README. Created only on Brian's go
+at a terminal.
 
 Stack: C# on .NET 10, one self-contained executable per platform that is both daemon and CLI
 (`coa`). Projects: `Coanda.Core` (meta-model, definitions, interpreter, registry), `Coanda.Daemon`
@@ -44,14 +45,15 @@ then the coanda repository carries `decisions.md` rendered from the list in desi
 | 0 Skeleton | Repository, solution, build and test gate, CI on Mac and Windows runners, the binary, the Fisher store with tenancy, the registry with principals, the thin CLI that starts the daemon, a parcel aggregate with the two shipped types as data | A parcel is created and shown through `coa` and survives a daemon restart | One session from the hall9k project window, by hand |
 | 1 Definitions and interpreter | Parcel types, flows, agents as aggregates with draft and published and scopes and the fork-base field; the routing-only interpreter; triggers; typed outcomes with depth and budget caps; the scripted adapter; core system steps | A flow run of the shipped build flow runs end to end on canned answers with every cap enforced and refused at load without them | hall9k tasks dispatched on the Mac node |
 | 2 Real sessions | Claude Code adapter with profiles, resume, reattach, rendered files, the software system steps (worktree, gates, open PR, gated merge, rebase), measurement events | The build and merge flows land a merged PR on the coanda repository | hall9k tasks |
-| 3 Replication | Signed JSONL export and import by scope, the hash chain, verification on import, members and vouches and succession event shapes, arbitration, join, ledger home setting | The second node (the Windows machine, Brian's call on 2026-11-03 11:26 EST) clones, verifies, claims by arbitration, and builds | hall9k tasks; from this gate Coanda builds itself |
-| 4 Judgment | Discovery flow, review-on-assignment flow (one step), window recipe as a stored agent definition, courier push, measurement queries, migration of decisions and lessons | The exit scenario minus Windows | Coanda |
-| 5 Platform | Windows through the process seam, update, doctor, release pipeline with all assets | The exit scenario on Windows | Coanda |
+| Carve-out (after 2, before 3) | The software engineering module's contents moved into a module project that references only the SDK, hosted in process by the daemon through the constrained adapter; the Module principal, the dispatch id on the flow run, module-owned fields, two-scope settings with credential profiles, and the project reduced to a name plus a repos list; the wire contract's JSON schemas, with the SDK checked against them; the flow run's work path, worktree release through the feed, and the task type's module-owned repos field; the test that the module references only the SDK and the test that the adapter's surface is the schemas' surface | The build and merge flows land a merged PR on the coanda repository with every software step reached through the constrained adapter, and both tests pass | hall9k tasks |
+| 3 Replication | Signed JSONL export and import by scope, the hash chain, verification on import, members and vouches and succession event shapes, arbitration, join, ledger home setting, the event tag filled from the task type's repos field, the retag event's shape (forwarding waits for multi-repo push and import) | The second node (the Windows machine, Brian's call on 2026-11-03 11:26 EST) clones, verifies, claims by arbitration, and builds | hall9k tasks; from this gate Coanda builds itself |
+| 4 Discovery, window, and triggers | Discovery flow, review-on-assignment flow (one step), window recipe as a stored agent definition, courier push, measurement queries, migration of decisions and lessons; the trigger-model work: triggers as definitions a module ships, a trigger that targets the parcel an event names, the external id with idempotent event recording, a matching event resuming a waiting step, and the in-process module reporting events through watch requests | The exit scenario minus Windows | Coanda |
+| 5 Platform | Windows through the process seam, update, doctor, release pipeline with all assets; the module boundary on the wire: module mode, the HTTP and JSON contract, supervision with backoff and pausing, the feed over the wire, install from the release archive on first run, verification against the registry key and the owner's root key, and doctor checking modules | The exit scenario on Windows with the software engineering module installed as a separate artifact from the release archive, started and supervised by the daemon, verified against the registry key | Coanda |
 
-Estimated size: phase 0 about 4,000 lines; phases 1 to 5 about 20,000 more; the box about 25,000
-lines of source. Parity after the box is a multiple of that and well under hall9k's 277,000
-source lines, because engines become definitions, grammars become schemas, envelopes vanish, and
-the CLI loses its logic.
+Estimated size: phase 0 about 4,000 lines; phases 1 to 5 about 20,000 more; the first version about
+25,000 lines of source. Parity after the first version is a multiple of that and well under hall9k's
+277,000 source lines, because engines become definitions, grammars become schemas, envelopes vanish,
+and the CLI loses its logic.
 
 ## 4. How the work runs
 
@@ -84,11 +86,13 @@ hall9k decision per day is being rediscovered rather than carried; replication o
 turns out to need a catch-up protocol; the interpreter needs an expression beyond equality and a
 visit count to express a shipped flow.
 
-## 8. After the box, in order
+## 8. After the first version, in order
 
-Jira and Linear adapters; succession commands; portal; ledger move and forwarding ref; credential
-profile commands; fork notices and three-way diff; courier binding parameters; challenge and walk
-flows; export and import of definitions; type migrate command; service registration; MCP last.
+First, before any second module: the owner-signed module path with per-node acceptance, module
+sharing through a ref, module export and install from a file, and the credential profile commands.
+Then Jira and Linear adapters; succession commands; portal; ledger move and forwarding ref; fork
+notices and three-way diff; courier binding parameters; challenge and walk flows; export and import
+of definitions; type migrate command; service registration; MCP last.
 
 ## 9. Replacement set (phase 6)
 
@@ -109,12 +113,12 @@ finish on hall9k. Closed history stays in the hall9k repository, which is archiv
 Sunset criterion: Coanda has run both nodes' real work for two weeks with no fall back to hall9k,
 the replacement set is complete, and the migration has landed. Then hall9k's daemons stop.
 
-## 11. hall9k during the box
+## 11. hall9k during the first version
 
 Feature freeze: work already under way finishes, no new drafts are published, fixes only, and hall9k keeps
 dispatching Coanda's phases 1 and 2.
 
-## 12. Out of scope for the box
+## 12. Out of scope for the first version
 
 Relay, portal, MCP, Jira and Linear, cross-project relations, business lifecycles, other vendors,
 template sharing, service installers.
