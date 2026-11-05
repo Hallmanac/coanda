@@ -32,15 +32,52 @@ public static class StoreConfiguration
         options.Connection($"Data Source={databasePath}");
         options.Events.TenancyStyle = TenancyStyle.Conjoined;
         options.Policies.AllDocumentsAreMultiTenanted();
-        options.Projections.Snapshot<Project>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<ProjectProfile>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<ModuleSettings>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<ModuleProfileSelection>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<Parcel>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<Definition>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<FlowRun>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<ExternalEvent>(SnapshotLifecycle.Inline);
-        options.Projections.Snapshot<Subscription>(SnapshotLifecycle.Inline);
+        foreach (InlineSnapshot snapshot in InlineSnapshots)
+        {
+            snapshot.Register(options);
+        }
+
         EarlierRecords.Configure(options);
     }
+
+    /// <summary>
+    /// The documents the store keeps as inline snapshots of their streams, regenerated whenever an event
+    /// is appended to one: every other document the store holds is written by the daemon itself and is
+    /// not derived from the events.
+    /// </summary>
+    public static IReadOnlyList<InlineSnapshot> InlineSnapshots { get; } =
+    [
+        InlineSnapshot.Of<Project>(),
+        InlineSnapshot.Of<ProjectProfile>(),
+        InlineSnapshot.Of<ModuleSettings>(),
+        InlineSnapshot.Of<ModuleProfileSelection>(),
+        InlineSnapshot.Of<Parcel>(),
+        InlineSnapshot.Of<Definition>(),
+        InlineSnapshot.Of<FlowRun>(),
+        InlineSnapshot.Of<ExternalEvent>(),
+        InlineSnapshot.Of<Subscription>(),
+    ];
+
+    /// <summary>The document table the store keeps documents of <paramref name="type"/> in.</summary>
+    public static string DocumentTableOf(Type type) => $"fi_doc_{type.Name.ToLowerInvariant()}";
+}
+
+/// <summary>
+/// One document type the store snapshots inline: its type, how the store is told of it, and how its
+/// document for one stream is regenerated from that stream's events.
+/// </summary>
+public sealed record InlineSnapshot(
+    Type Type,
+    Action<StoreOptions> Register,
+    Func<IDocumentStore, Guid, string, CancellationToken, Task> RebuildStreamAsync)
+{
+    /// <summary>The name a stream of this document's aggregate is recorded under in the streams table.</summary>
+    public string StreamType => Type.Name;
+
+    public static InlineSnapshot Of<T>()
+        where T : class =>
+        new(
+            typeof(T),
+            options => options.Projections.Snapshot<T>(SnapshotLifecycle.Inline),
+            (store, stream, tenant, cancellationToken) => store.Advanced.RebuildSingleStreamAsync<T>(stream, tenant, cancellationToken));
 }
