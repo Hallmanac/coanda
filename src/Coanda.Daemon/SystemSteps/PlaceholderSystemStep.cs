@@ -9,6 +9,6 @@ public sealed class PlaceholderSystemStep(string name) : IFlowSystemStep
 {
     public string Name { get; } = name;
 
-    public ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken) =>
-        ValueTask.FromResult<SystemStepOutcome>(SystemStepOutcome.DoneWith(Name, ("placeholder", true)));
+    public ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<SystemStepAnswer>(SystemStepAnswer.DoneWith(Name, ("placeholder", true)));
 }

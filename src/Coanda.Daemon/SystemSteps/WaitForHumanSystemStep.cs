@@ -12,12 +12,12 @@ public sealed class WaitForHumanSystemStep : IFlowSystemStep
 
     public string Name => CoreSystemSteps.WaitForHuman;
 
-    public ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string lever = SystemStepArguments.RequireString(request.Step, LeverArgument);
-        SystemStepOutcome outcome = request.Resumed
-            ? SystemStepOutcome.DoneWith(Name)
-            : new SystemStepOutcome.Paused($"Step '{request.Step.Name}' waits for a person.", lever);
+        SystemStepAnswer outcome = request.Resumed
+            ? SystemStepAnswer.DoneWith(Name)
+            : new SystemStepAnswer.Paused($"Step '{request.Step.Name}' waits for a person.", lever);
         return ValueTask.FromResult(outcome);
     }
 }

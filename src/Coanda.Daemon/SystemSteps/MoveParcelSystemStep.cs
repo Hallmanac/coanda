@@ -19,7 +19,7 @@ public sealed class MoveParcelSystemStep(ParcelService parcels) : IFlowSystemSte
 
     public string Name => CoreSystemSteps.MoveParcel;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string stage = SystemStepArguments.RequireString(request.Step, StageArgument);
         Parcel parcel = await parcels.ShowAsync(request.Principal, request.Project, request.ParcelId, cancellationToken)
@@ -27,7 +27,7 @@ public sealed class MoveParcelSystemStep(ParcelService parcels) : IFlowSystemSte
 
         if (string.Equals(parcel.Stage, stage, StringComparison.Ordinal))
         {
-            return SystemStepOutcome.DoneWith(Name, (StageArgument, stage), ("moved", false));
+            return SystemStepAnswer.DoneWith(Name, (StageArgument, stage), ("moved", false));
         }
 
         try
@@ -36,11 +36,11 @@ public sealed class MoveParcelSystemStep(ParcelService parcels) : IFlowSystemSte
         }
         catch (DomainException refused)
         {
-            return new SystemStepOutcome.Paused(
+            return new SystemStepAnswer.Paused(
                 $"Step '{request.Step.Name}' could not move parcel {Ids.Short(request.ParcelId)} to '{stage}': {refused.Message}",
                 FlowRunLevers.PerformAgain(request.Step.Name));
         }
 
-        return SystemStepOutcome.DoneWith(Name, (StageArgument, stage), ("moved", true));
+        return SystemStepAnswer.DoneWith(Name, (StageArgument, stage), ("moved", true));
     }
 }

@@ -7,7 +7,7 @@ namespace Coanda.Daemon.SystemSteps;
 /// How a system step ended: a result document recorded on the flow run and routed on, or a pause
 /// with a reason and a lever. The private constructor closes the hierarchy.
 /// </summary>
-public abstract record SystemStepOutcome
+public abstract record SystemStepAnswer
 {
     /// <summary>The field every system step result routes on.</summary>
     public const string Verdict = "verdict";
@@ -18,15 +18,15 @@ public abstract record SystemStepOutcome
     /// <summary>The verdict of a system step that ran and found the work failing, which a flow routes on like any other.</summary>
     public const string FailedVerdict = "failed";
 
-    private SystemStepOutcome()
+    private SystemStepAnswer()
     {
     }
 
     /// <summary>The system step finished, whatever its verdict; <paramref name="Result"/> is the document the step routes on.</summary>
-    public sealed record Done(JsonElement Result) : SystemStepOutcome;
+    public sealed record Done(JsonElement Result) : SystemStepAnswer;
 
     /// <summary>The system step stopped the flow run to wait; <paramref name="Lever"/> is what a person acts on.</summary>
-    public sealed record Paused(string Reason, string Lever) : SystemStepOutcome;
+    public sealed record Paused(string Reason, string Lever) : SystemStepAnswer;
 
     /// <summary>A result whose verdict is <c>done</c>, naming the system step, with any further fields given.</summary>
     public static Done DoneWith(string systemStep, params (string Field, JsonNode? Value)[] fields) =>

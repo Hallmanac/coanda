@@ -12,10 +12,10 @@ public sealed class TimerSystemStep(TimeProvider clock) : IFlowSystemStep
 
     public string Name => CoreSystemSteps.Timer;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         double seconds = SystemStepArguments.RequireNonNegativeNumber(request.Step, SecondsArgument);
         await Task.Delay(TimeSpan.FromSeconds(seconds), clock, cancellationToken);
-        return SystemStepOutcome.DoneWith(Name, (SecondsArgument, seconds));
+        return SystemStepAnswer.DoneWith(Name, (SecondsArgument, seconds));
     }
 }

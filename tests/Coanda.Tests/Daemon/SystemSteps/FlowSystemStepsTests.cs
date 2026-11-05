@@ -68,7 +68,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
+        SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
         JsonElement result = DoneResult(outcome);
         Assert.True(result.GetProperty("moved").GetBoolean());
@@ -83,7 +83,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("build"))), parcel.Id);
+        SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("build"))), parcel.Id);
 
         Assert.False(DoneResult(outcome).GetProperty("moved").GetBoolean());
         // only the arrange step's move to build is recorded
@@ -95,9 +95,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Still refining", null, CancellationToken.None);
 
-        SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
+        SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
-        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(outcome);
+        SystemStepAnswer.Paused paused = Assert.IsType<SystemStepAnswer.Paused>(outcome);
         Assert.StartsWith("Step 'act' could not move parcel", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("does not allow a move from 'refine' to 'review'", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
@@ -106,7 +106,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public async Task Timer_waits_its_seconds_on_the_daemons_clock_and_answers_done()
     {
-        SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.Timer, ("seconds", FlowValue.Of(2.5))), Ids.New());
+        SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.Timer, ("seconds", FlowValue.Of(2.5))), Ids.New());
 
         Assert.Equal(2.5, DoneResult(outcome).GetProperty("seconds").GetDouble());
         Assert.Equal([TimeSpan.FromSeconds(2.5)], clock.Waits);
@@ -117,11 +117,11 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         FlowStep step = Step(CoreSystemSteps.WaitForHuman, ("lever", FlowValue.Of("Approve the plan in the journal.")));
 
-        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(await PerformAsync(step, Ids.New()));
+        SystemStepAnswer.Paused paused = Assert.IsType<SystemStepAnswer.Paused>(await DispatchAsync(step, Ids.New()));
         Assert.Contains("Step 'act'", paused.Reason, StringComparison.Ordinal);
         Assert.Equal("Approve the plan in the journal.", paused.Lever);
 
-        DoneResult(await PerformAsync(step, Ids.New(), resumed: true));
+        DoneResult(await DispatchAsync(step, Ids.New(), resumed: true));
     }
 
     [Fact]
@@ -129,18 +129,18 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         FlowStep step = Step(CoreSystemSteps.WaitForExternalEvent, ("event", FlowValue.Of("ci-finished")));
 
-        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(await PerformAsync(step, Ids.New()));
+        SystemStepAnswer.Paused paused = Assert.IsType<SystemStepAnswer.Paused>(await DispatchAsync(step, Ids.New()));
         Assert.Contains("'ci-finished'", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("Step 'act'", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
 
-        Assert.Equal("ci-finished", DoneResult(await PerformAsync(step, Ids.New(), resumed: true)).GetProperty("event").GetString());
+        Assert.Equal("ci-finished", DoneResult(await DispatchAsync(step, Ids.New(), resumed: true)).GetProperty("event").GetString());
     }
 
     [Fact]
     public async Task Emit_outcome_answers_done_with_the_flows_declared_outcome()
     {
-        SystemStepOutcome outcome = await PerformAsync(Step(CoreSystemSteps.EmitOutcome), Ids.New());
+        SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.EmitOutcome), Ids.New());
 
         Assert.Equal(ShippedFlows.Build.Outcome, DoneResult(outcome).GetProperty("outcome").GetString());
     }
@@ -150,7 +150,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
 
-        JsonElement result = DoneResult(await PerformAsync(Step(SoftwareSystemSteps.Worktree), parcelId));
+        JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSystemSteps.Worktree), parcelId));
 
         Assert.Equal(SoftwareSystemSteps.Worktree, result.GetProperty("systemStep").GetString());
         Assert.Equal($"coanda/{Ids.Short(parcelId)}", result.GetProperty("branch").GetString());
@@ -161,7 +161,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public async Task Gates_answers_done_once_the_build_and_test_commands_pass()
     {
-        JsonElement result = DoneResult(await PerformAsync(Step(SoftwareSystemSteps.Gates), Ids.New()));
+        JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSystemSteps.Gates), Ids.New()));
 
         Assert.Equal(SoftwareSystemSteps.Gates, result.GetProperty("systemStep").GetString());
         Assert.False(result.TryGetProperty("placeholder", out _));
@@ -173,7 +173,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAtAsync("build");
 
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(await PerformAsync(OpenPrStep, parcel.Id)).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(await DispatchAsync(OpenPrStep, parcel.Id)).Result;
 
         Assert.Equal(OpenPrSystemStep.OpenedVerdict, result.GetProperty("verdict").GetString());
         Assert.Equal(SoftwareSystemSteps.OpenPr, result.GetProperty("systemStep").GetString());
@@ -187,7 +187,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [InlineData(CoreSystemSteps.DeriveParcels)]
     public async Task A_placeholder_answers_done_naming_itself_as_a_placeholder(string systemStep)
     {
-        SystemStepOutcome outcome = await PerformAsync(Step(systemStep), Ids.New());
+        SystemStepAnswer outcome = await DispatchAsync(Step(systemStep), Ids.New());
 
         JsonElement result = DoneResult(outcome);
         Assert.Equal(systemStep, result.GetProperty("systemStep").GetString());
@@ -208,9 +208,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         FlowStep step = value is null ? Step(systemStep) : Step(systemStep, (argument, JsonSerializer.SerializeToElement(value)));
 
-        SystemStepOutcome outcome = await PerformAsync(step, Ids.New());
+        SystemStepAnswer outcome = await DispatchAsync(step, Ids.New());
 
-        SystemStepOutcome.Paused paused = Assert.IsType<SystemStepOutcome.Paused>(outcome);
+        SystemStepAnswer.Paused paused = Assert.IsType<SystemStepAnswer.Paused>(outcome);
         Assert.Contains("Step 'act'", paused.Reason, StringComparison.Ordinal);
         Assert.Contains($"argument '{argument}'", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
@@ -233,14 +233,14 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
         return [.. events.Select(e => e.Data).OfType<ParcelMoved>()];
     }
 
-    private ValueTask<SystemStepOutcome> PerformAsync(FlowStep step, Guid parcelId, bool resumed = false) =>
-        systemSteps.PerformAsync(
-            new SystemStepRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, step, resumed),
+    private ValueTask<SystemStepAnswer> DispatchAsync(FlowStep step, Guid parcelId, bool resumed = false) =>
+        systemSteps.DispatchAsync(
+            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, step, resumed),
             CancellationToken.None);
 
-    private static JsonElement DoneResult(SystemStepOutcome outcome)
+    private static JsonElement DoneResult(SystemStepAnswer outcome)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal("done", result.GetProperty("verdict").GetString());
         return result;
     }

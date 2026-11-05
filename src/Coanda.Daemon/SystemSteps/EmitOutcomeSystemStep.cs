@@ -7,6 +7,6 @@ public sealed class EmitOutcomeSystemStep : IFlowSystemStep
 {
     public string Name => CoreSystemSteps.EmitOutcome;
 
-    public ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken) =>
-        ValueTask.FromResult<SystemStepOutcome>(SystemStepOutcome.DoneWith(Name, ("outcome", request.Flow.Outcome)));
+    public ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<SystemStepAnswer>(SystemStepAnswer.DoneWith(Name, ("outcome", request.Flow.Outcome)));
 }

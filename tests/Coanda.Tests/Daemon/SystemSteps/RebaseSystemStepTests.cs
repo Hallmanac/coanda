@@ -92,7 +92,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
     {
         (Guid parcel, Guid flowRun, string branch, string workPath) = await ArrangeAsync();
 
-        JsonElement result = Done(await PerformAsync(parcel, flowRun));
+        JsonElement result = Done(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
         Assert.Equal(branch, result.GetProperty("branch").GetString());
@@ -110,7 +110,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
     {
         (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
 
-        Done(await PerformAsync(parcel, flowRun));
+        Done(await DispatchAsync(parcel, flowRun));
 
         IReadOnlyList<string> calls = runner.GitCalls;
         int push = IndexOf(calls, "push ");
@@ -126,7 +126,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
     {
         (Guid parcel, Guid flowRun, _, _) = await ArrangeAsync();
 
-        Done(await PerformAsync(parcel, flowRun));
+        Done(await DispatchAsync(parcel, flowRun));
 
         Assert.NotEmpty(runner.Commands);
         Assert.All(runner.Commands, c => Assert.True(c.Program == "git"
@@ -142,7 +142,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, string branch, string workPath) = await ArrangeAsync();
         runner.ConflictOnRebase("src/Program.cs", "docs/a b.md");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.StartsWith("Step 'rebase' rebased nothing", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("stopped on a conflict", paused.Reason, StringComparison.Ordinal);
@@ -172,7 +172,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
         runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(1, $" ! [rejected]        {Rebased} -> {branch} (stale info)\nerror: failed to push some refs\n"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains("someone else updated branch", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("(stale info)", paused.Reason, StringComparison.Ordinal);
@@ -187,7 +187,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, _, _) = await ArrangeAsync();
         runner.On(c => c.IsGit("status"), ScriptedCommandRunner.Ok(" M src/Program.cs\n?? notes.txt\n"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains("has changes", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("src/Program.cs", paused.Reason, StringComparison.Ordinal);
@@ -202,7 +202,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
         runner.AddBranch(Clone, branch, Moved);
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains($"is at {Moved}, not {Recorded}", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.RebaseRefused("rebase"), paused.Lever);
@@ -216,9 +216,9 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Moved);
 
-        SystemStepOutcome outcome = await PerformAsync(parcel, flowRun);
+        SystemStepAnswer outcome = await DispatchAsync(parcel, flowRun);
 
-        SystemStepOutcome.Paused paused = Paused(outcome);
+        SystemStepAnswer.Paused paused = Paused(outcome);
         Assert.Equal(FlowRunLevers.RebaseRefused("rebase"), paused.Lever);
         Assert.Contains($"the remote's branch, at {Moved}, is no commit this step noted and pushed", paused.Reason, StringComparison.Ordinal);
         NothingFetchedRebasedOrPushed();
@@ -232,7 +232,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         string error = string.Join('\n', Enumerable.Range(1, 30).Select(i => $"remote line {i:D2}")) + "\nfatal: unable to access 'https://someone:secret@github.com/example/repo.git/'\n";
         runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(128, error));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
         Assert.StartsWith("Step 'rebase' could not push", paused.Reason, StringComparison.Ordinal);
@@ -244,7 +244,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         runner.On(c => c.IsGit("push"), (command, _) => Task.FromResult(ScriptedCommandRunner.Ok()));
         runner.SetRemoteBranch(Clone, branch, Recorded);
         int before = runner.Commands.Count;
-        JsonElement again = Done(await PerformAsync(parcel, flowRun));
+        JsonElement again = Done(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(Rebased, again.GetProperty("head").GetString());
         IEnumerable<string> actual = runner.GitCalls.Skip(before);
@@ -263,14 +263,14 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
             throw new OperationCanceledException("The daemon stopped.");
         });
 
-        Func<Task> first = async () => await PerformAsync(parcel, flowRun);
+        Func<Task> first = async () => await DispatchAsync(parcel, flowRun);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
         Assert.Equal(Recorded, runner.Branch(Clone, branch));
         // the rebase ran on a detached head
         Assert.Null(runner.CheckedOut(Clone, workPath));
 
         int before = runner.Commands.Count;
-        JsonElement result = Done(await PerformAsync(parcel, flowRun));
+        JsonElement result = Done(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
         Assert.Contains($"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", runner.GitCalls.Skip(before));
@@ -289,14 +289,14 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
             throw new OperationCanceledException("The daemon stopped.");
         });
 
-        Func<Task> first = async () => await PerformAsync(parcel, flowRun);
+        Func<Task> first = async () => await DispatchAsync(parcel, flowRun);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
         // the push went through before the stop
         Assert.Equal(Rebased, runner.RemoteBranch(Clone, branch));
         Assert.Equal(Recorded, runner.Branch(Clone, branch));
 
         int before = runner.Commands.Count;
-        JsonElement result = Done(await PerformAsync(parcel, flowRun));
+        JsonElement result = Done(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
         Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("fetch", StringComparison.Ordinal) || c.Contains(" rebase --quiet", StringComparison.Ordinal));
@@ -306,7 +306,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
 
         // Once the branch has moved too, performing it again still answers the noted commit.
         before = runner.Commands.Count;
-        Assert.Equal(Rebased, Done(await PerformAsync(parcel, flowRun)).GetProperty("head").GetString());
+        Assert.Equal(Rebased, Done(await DispatchAsync(parcel, flowRun)).GetProperty("head").GetString());
         Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("update-ref refs/heads/", StringComparison.Ordinal));
     }
 
@@ -321,12 +321,12 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
             interrupted = true;
             throw new OperationCanceledException("The daemon stopped.");
         });
-        Func<Task> first = async () => await PerformAsync(parcel, flowRun);
+        Func<Task> first = async () => await DispatchAsync(parcel, flowRun);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
         runner.ConflictOnRebase();
 
         int before = runner.Commands.Count;
-        JsonElement result = Done(await PerformAsync(parcel, flowRun));
+        JsonElement result = Done(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal("rebase --abort", GitCallAt(before));
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
@@ -341,7 +341,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, _, _) = await ArrangeAsync();
         runner.On(c => c.IsGit("rebase", "--abort"), ScriptedCommandRunner.Fails(128, wording));
 
-        Done(await PerformAsync(parcel, flowRun));
+        Done(await DispatchAsync(parcel, flowRun));
     }
 
     [Fact]
@@ -350,7 +350,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, _, _) = await ArrangeAsync();
         runner.On(c => c.IsGit("rebase", "--abort"), ScriptedCommandRunner.Fails(128, "fatal: cannot lock ref 'HEAD'\n"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
         Assert.Contains("cannot lock ref", paused.Reason, StringComparison.Ordinal);
@@ -363,7 +363,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Rebase me", null, None);
         FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, Recorder.Name, None);
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, started.Id));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, started.Id));
 
         Assert.Contains("no open-pr or rebase result with a head is recorded", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
@@ -376,7 +376,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun, _, _) = await ArrangeAsync();
         runner.On(c => c.IsGit("fetch"), ScriptedCommandRunner.Fails(128, "fatal: could not read from remote repository\n"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
         Assert.StartsWith("Step 'rebase' could not rebase", paused.Reason, StringComparison.Ordinal);
@@ -403,8 +403,8 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
         return (parcel.Id, started.Id, branch, workPath);
     }
 
-    private ValueTask<SystemStepOutcome> PerformAsync(Guid parcel, Guid flowRun) =>
-        systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
+    private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcel, Guid flowRun) =>
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
 
     private void NothingFetchedRebasedOrPushed()
     {
@@ -421,13 +421,13 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
     private static int IndexOf(IReadOnlyList<string> calls, string prefix) =>
         calls.Select((c, i) => (c, i)).Where(p => p.c.StartsWith(prefix, StringComparison.Ordinal)).Select(p => p.i).DefaultIfEmpty(-1).First();
 
-    private static JsonElement Done(SystemStepOutcome outcome)
+    private static JsonElement Done(SystemStepAnswer outcome)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal("done", result.GetProperty("verdict").GetString());
         Assert.Equal(SoftwareSystemSteps.Rebase, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
+    private static SystemStepAnswer.Paused Paused(SystemStepAnswer outcome) => Assert.IsType<SystemStepAnswer.Paused>(outcome);
 }

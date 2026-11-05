@@ -90,7 +90,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         string workPath = temp.Home.FlowRunWorkPath(Project, flowRunId);
         string partial = temp.Home.ProjectClonePartialPath(Project);
 
-        JsonElement result = Done(await PerformAsync(parcelId, flowRunId));
+        JsonElement result = Done(await DispatchAsync(parcelId, flowRunId));
 
         Assert.Equal(branch, result.GetProperty("branch").GetString());
         Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
@@ -105,7 +105,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     [Fact]
     public async Task Every_git_command_runs_with_terminal_prompts_off_ssh_in_batch_mode_and_the_C_locale()
     {
-        await PerformAsync(Ids.New(), Ids.New());
+        await DispatchAsync(Ids.New(), Ids.New());
 
         Assert.NotEmpty(runner.Commands);
         Assert.All(runner.Commands, c => Assert.True(c.Program == "git"
@@ -119,11 +119,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         Guid flowRunId = Ids.New();
-        await PerformAsync(parcelId, flowRunId);
+        await DispatchAsync(parcelId, flowRunId);
         DateTime written = File.GetLastWriteTimeUtc(ExcludePath);
         int before = runner.Commands.Count;
 
-        JsonElement again = Done(await PerformAsync(parcelId, flowRunId));
+        JsonElement again = Done(await DispatchAsync(parcelId, flowRunId));
 
         Assert.Equal($"coanda/{Ids.Short(parcelId)}", again.GetProperty("branch").GetString());
         Assert.Equal(ScriptedCommandRunner.PrimaryHead, again.GetProperty("head").GetString());
@@ -139,14 +139,14 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         Guid earlier = Ids.New();
-        await PerformAsync(parcelId, earlier);
+        await DispatchAsync(parcelId, earlier);
         await EndAsync(earlier);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Moved);
         int before = runner.Commands.Count;
         Guid later = Ids.New();
 
-        JsonElement result = Done(await PerformAsync(parcelId, later));
+        JsonElement result = Done(await DispatchAsync(parcelId, later));
 
         // the branch is checked out at its own tip, not the primary's
         Assert.Equal(Moved, result.GetProperty("head").GetString());
@@ -161,7 +161,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         Guid earlier = Ids.New();
-        await PerformAsync(parcelId, earlier);
+        await DispatchAsync(parcelId, earlier);
         await EndAsync(earlier);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Moved);
@@ -169,7 +169,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         runner.AddAncestry(Moved, Ahead);
         Guid later = Ids.New();
 
-        JsonElement result = Done(await PerformAsync(parcelId, later));
+        JsonElement result = Done(await DispatchAsync(parcelId, later));
 
         // a commit someone added on the remote is built on
         Assert.Equal(Ahead, result.GetProperty("head").GetString());
@@ -191,13 +191,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         Guid earlier = Ids.New();
-        await PerformAsync(parcelId, earlier);
+        await DispatchAsync(parcelId, earlier);
         await EndAsync(earlier);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, ScriptedCommandRunner.PrimaryHead);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Moved);
 
-        JsonElement result = Done(await PerformAsync(parcelId, Ids.New()));
+        JsonElement result = Done(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Equal(Moved, result.GetProperty("head").GetString());
         Assert.Equal(Moved, runner.Branch(Clone, branch));
@@ -211,13 +211,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         Guid earlier = Ids.New();
-        await PerformAsync(parcelId, earlier);
+        await DispatchAsync(parcelId, earlier);
         await EndAsync(earlier);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
         int before = runner.Commands.Count;
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains($"Branch {branch}", paused.Reason, StringComparison.Ordinal);
         Assert.Contains(Moved, paused.Reason, StringComparison.Ordinal);
@@ -234,11 +234,11 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(Ids.New(), Ids.New());
+        await DispatchAsync(Ids.New(), Ids.New());
         runner.SetRemoteBranch(Clone, branch, Moved);
         int before = runner.Commands.Count;
 
-        JsonElement result = Done(await PerformAsync(parcelId, Ids.New()));
+        JsonElement result = Done(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Equal(Moved, result.GetProperty("head").GetString());
         Assert.Equal(Moved, runner.Branch(Clone, branch));
@@ -257,7 +257,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         runner.AddAncestry(Moved, Ahead);
         int before = runner.Commands.Count;
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains($"flow run {holder}", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("still live", paused.Reason, StringComparison.Ordinal);
@@ -273,13 +273,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(Ids.New(), Ids.New());
+        await DispatchAsync(Ids.New(), Ids.New());
         runner.AddBranch(Clone, branch, Moved);
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
         string mine = Path.Combine(temp.Home.ClonesPath, "someones-own-worktree");
         runner.AddWorktree(Clone, mine, branch, Moved);
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains(mine, paused.Reason, StringComparison.Ordinal);
         Assert.Contains("no work path of a flow run the node holds", paused.Reason, StringComparison.Ordinal);
@@ -293,13 +293,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(Ids.New(), Ids.New());
+        await DispatchAsync(Ids.New(), Ids.New());
         runner.AddBranch(Clone, branch, Moved);
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
         string unknown = temp.Home.FlowRunWorkPath(Project, Ids.New());
         runner.AddWorktree(Clone, unknown, branch, Moved);
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains(unknown, paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
@@ -315,7 +315,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         string workPath = temp.Home.FlowRunWorkPath(Project, taker);
         int before = runner.Commands.Count;
 
-        JsonElement result = Done(await PerformAsync(parcelId, taker));
+        JsonElement result = Done(await DispatchAsync(parcelId, taker));
 
         Assert.Equal(branch, result.GetProperty("branch").GetString());
         SequenceAssert.ContainsInOrder(
@@ -343,7 +343,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Assert.True(await Clones().RemoveAsync(Project, holder, None), "the stopped flow run's own removal runs first");
         Guid taker = Ids.New();
 
-        JsonElement result = Done(await PerformAsync(parcelId, taker));
+        JsonElement result = Done(await DispatchAsync(parcelId, taker));
 
         Assert.Equal(branch, result.GetProperty("branch").GetString());
         Assert.Equal([temp.Home.FlowRunWorkPath(Project, taker)], runner.Worktrees(Clone));
@@ -359,7 +359,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid taker = Ids.New();
         int before = runner.Commands.Count;
 
-        Task<SystemStepOutcome> takeover = PerformAsync(parcelId, taker).AsTask();
+        Task<SystemStepAnswer> takeover = DispatchAsync(parcelId, taker).AsTask();
         await FlowRunDriver.UntilAsync(() => runner.GitCalls.Skip(before).Any(c => c == "worktree list --porcelain"), "the takeover has listed the worktrees");
         await Task.Delay(TimeSpan.FromMilliseconds(100));
 
@@ -383,8 +383,8 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         workers.Started(holder, new TaskCompletionSource().Task);
         using var stop = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
 
-        Func<Task> takeover = async () => await systemStep.PerformAsync(
-            new SystemStepRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, Step, Resumed: false), stop.Token);
+        Func<Task> takeover = async () => await systemStep.DispatchAsync(
+            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, Step, Resumed: false), stop.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(takeover);
     }
@@ -395,7 +395,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = await TaskAsync();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         Guid earlier = Ids.New();
-        await PerformAsync(parcelId, earlier);
+        await DispatchAsync(parcelId, earlier);
         await EndAsync(earlier);
         await RecordedPushAsync(parcelId, Ahead);
         runner.AddBranch(Clone, branch, Moved);
@@ -403,7 +403,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         int before = runner.Commands.Count;
         Guid later = Ids.New();
 
-        JsonElement result = Done(await PerformAsync(parcelId, later));
+        JsonElement result = Done(await DispatchAsync(parcelId, later));
 
         // the clone's branch is checked out as it stands
         Assert.Equal(Moved, result.GetProperty("head").GetString());
@@ -421,13 +421,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = await TaskAsync();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         Guid earlier = Ids.New();
-        await PerformAsync(parcelId, earlier);
+        await DispatchAsync(parcelId, earlier);
         await EndAsync(earlier);
         await RecordedPushAsync(parcelId, ScriptedCommandRunner.PrimaryHead);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains("Reconcile them by hand", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("not the commit last recorded as pushed", paused.Reason, StringComparison.Ordinal);
@@ -439,13 +439,13 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(Ids.New(), Ids.New());
+        await DispatchAsync(Ids.New(), Ids.New());
         runner.AddBranch(Clone, branch, ScriptedCommandRunner.PrimaryHead);
 
-        SystemStepOutcome.Paused unowned = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused unowned = Paused(await DispatchAsync(parcelId, Ids.New()));
         Guid other = Ids.New();
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), other.ToString());
-        SystemStepOutcome.Paused owned = Paused(await PerformAsync(parcelId, Ids.New()));
+        SystemStepAnswer.Paused owned = Paused(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains($"Branch {branch} already exists", unowned.Reason, StringComparison.Ordinal);
         Assert.Contains("names no parcel as its owner", unowned.Reason, StringComparison.Ordinal);
@@ -462,7 +462,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         string branch = $"coanda/{Ids.Short(parcelId)}";
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), Ids.New().ToString());
 
-        Done(await PerformAsync(parcelId, Ids.New()));
+        Done(await DispatchAsync(parcelId, Ids.New()));
 
         Assert.Contains(runner.GitCalls, c => c.StartsWith("fetch ", StringComparison.Ordinal));
         Assert.Equal(parcelId.ToString(), runner.Config(Clone, ProjectClones.OwnerKeyOf(branch)));
@@ -474,7 +474,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         string error = string.Join('\n', Enumerable.Range(1, 30).Select(n => $"remote line {n}")) + "\n";
         runner.On(c => c.IsGit("fetch"), ScriptedCommandRunner.Fails(128, error));
 
-        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => PerformAsync(Ids.New(), Ids.New()).AsTask());
+        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => DispatchAsync(Ids.New(), Ids.New()).AsTask());
 
         Assert.StartsWith("git --git-dir=", failed.Message, StringComparison.Ordinal);
         Assert.Contains(" fetch ", failed.Message, StringComparison.Ordinal);
@@ -488,7 +488,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     [Fact]
     public async Task Every_git_command_runs_with_the_limit_for_one_git_command()
     {
-        Done(await PerformAsync(Ids.New(), Ids.New()));
+        Done(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.NotEmpty(runner.Commands);
         Assert.All(runner.Commands, c => Assert.True(c.Program != "git" || c.Limit == Git.Limit));
@@ -499,7 +499,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsGit("fetch"), CommandResult.LimitReached(string.Empty, "remote: Counting objects\n", "remote: Counting objects\n"));
 
-        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => PerformAsync(Ids.New(), Ids.New()).AsTask());
+        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => DispatchAsync(Ids.New(), Ids.New()).AsTask());
 
         Assert.Contains(" fetch ", failed.Message, StringComparison.Ordinal);
         Assert.Contains("was still running after 30 minutes and was ended", failed.Message, StringComparison.Ordinal);
@@ -511,7 +511,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsGit("ls-tree"), ScriptedCommandRunner.Ok(string.Empty) with { Truncated = true });
 
-        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => PerformAsync(Ids.New(), Ids.New()).AsTask());
+        GitCommandException failed = await Assert.ThrowsAsync<GitCommandException>(() => DispatchAsync(Ids.New(), Ids.New()).AsTask());
 
         Assert.Contains(" ls-tree ", failed.Message, StringComparison.Ordinal);
         Assert.Contains("wrote more output than the daemon keeps", failed.Message, StringComparison.Ordinal);
@@ -521,10 +521,10 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     [Fact]
     public async Task A_project_with_no_record_pauses_naming_the_step_and_the_project_and_runs_nothing()
     {
-        SystemStepOutcome outcome = await systemStep.PerformAsync(
-            new SystemStepRequest(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(
+            new SystemStepDispatch(FlowRunPrincipal, "nowhere", Ids.New(), Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
 
-        SystemStepOutcome.Paused paused = Paused(outcome);
+        SystemStepAnswer.Paused paused = Paused(outcome);
         Assert.StartsWith("Step 'worktree'", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("Project 'nowhere' is not registered", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
@@ -544,7 +544,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
             return Task.FromResult(ScriptedCommandRunner.Ok());
         });
 
-        Done(await PerformAsync(Ids.New(), Ids.New()));
+        Done(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.False(File.Exists(Path.Combine(Clone, "objects", "half")));
         Assert.False(Directory.Exists(partial));
@@ -557,7 +557,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         await File.WriteAllTextAsync(Path.Combine(Clone, "notes.txt"), "not a repository", None);
         runner.On(c => c.IsGit("rev-parse", "--is-bare-repository"), ScriptedCommandRunner.Fails(128, $"fatal: not a git repository: '{Clone}'"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.Contains(Clone, paused.Reason, StringComparison.Ordinal);
         Assert.Contains("does not recognize", paused.Reason, StringComparison.Ordinal);
@@ -571,7 +571,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Guid parcelId = Ids.New();
         Guid flowRunId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        await PerformAsync(Ids.New(), Ids.New());
+        await DispatchAsync(Ids.New(), Ids.New());
         runner.AddBranch(Clone, branch, ScriptedCommandRunner.PrimaryHead);
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
         string workPath = temp.Home.FlowRunWorkPath(Project, flowRunId);
@@ -580,7 +580,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         runner.AddWorktree(Clone, earlier, branch, ScriptedCommandRunner.PrimaryHead, "prunable gitdir file points to non-existent location");
         int before = runner.Commands.Count;
 
-        Done(await PerformAsync(parcelId, flowRunId));
+        Done(await DispatchAsync(parcelId, flowRunId));
 
         SequenceAssert.ContainsConsecutively(
             [
@@ -601,7 +601,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Tracks(".coanda", ".coanda/task.md\0.coanda/notes/a.md\0");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.Contains(".coanda/task.md, .coanda/notes/a.md", paused.Reason, StringComparison.Ordinal);
         Assert.Contains(ScriptedCommandRunner.PrimaryHead, paused.Reason, StringComparison.Ordinal);
@@ -617,7 +617,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Tracks(".coanda", ".coanda/na\u00efve \"x\".md\0");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.Contains(".coanda/na\u00efve \"x\".md", paused.Reason, StringComparison.Ordinal);
     }
@@ -628,7 +628,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         // ls-tree -r lists a .coanda that is no directory as the one entry .coanda.
         Tracks(".coanda", ".coanda\0");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.Contains("tracks .coanda", paused.Reason, StringComparison.Ordinal);
         Assert.Contains(ScriptedCommandRunner.PrimaryHead, paused.Reason, StringComparison.Ordinal);
@@ -640,7 +640,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsGit("ls-tree", "-z"), ScriptedCommandRunner.Ok("src\0.coanda-notes\0.coanda.md\0"));
 
-        Done(await PerformAsync(Ids.New(), Ids.New()));
+        Done(await DispatchAsync(Ids.New(), Ids.New()));
         // no root entry matched, so nothing is listed under one
         Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("ls-tree -r", StringComparison.Ordinal));
     }
@@ -652,7 +652,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Tracks(name, $"{name}/task.md\0");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(Ids.New(), Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.Contains($"{name}/task.md", paused.Reason, StringComparison.Ordinal);
         Assert.Contains($"ls-tree -r -z --name-only {ScriptedCommandRunner.PrimaryHead} -- {name}", runner.GitCalls);
@@ -672,7 +672,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
         Directory.CreateDirectory(Path.Combine(Clone, "info"));
         await File.WriteAllTextAsync(ExcludePath, $"# kept\n{ProjectClones.ExcludeLine}\n*.log\n{ProjectClones.ExcludeLine}\n", None);
 
-        Done(await PerformAsync(Ids.New(), Ids.New()));
+        Done(await DispatchAsync(Ids.New(), Ids.New()));
 
         Assert.Equal(["# kept", "*.log", ProjectClones.ExcludeLine], ExcludeLines());
     }
@@ -715,7 +715,7 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
     {
         Guid parcelId = await TaskAsync();
         FlowRun holder = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcelId, Recorder.Name, None);
-        Done(await PerformAsync(parcelId, holder.Id));
+        Done(await DispatchAsync(parcelId, holder.Id));
         return (parcelId, $"coanda/{Ids.Short(parcelId)}", holder.Id, temp.Home.FlowRunWorkPath(Project, holder.Id));
     }
 
@@ -723,16 +723,16 @@ public sealed class WorktreeSystemStepTests : IAsyncLifetime
 
     private string[] ExcludeLines() => File.ReadAllText(ExcludePath).ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
 
-    private ValueTask<SystemStepOutcome> PerformAsync(Guid parcelId, Guid flowRunId) =>
-        systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
+    private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcelId, Guid flowRunId) =>
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
 
-    private static JsonElement Done(SystemStepOutcome outcome)
+    private static JsonElement Done(SystemStepAnswer outcome)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal("done", result.GetProperty("verdict").GetString());
         Assert.Equal(SoftwareSystemSteps.Worktree, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
+    private static SystemStepAnswer.Paused Paused(SystemStepAnswer outcome) => Assert.IsType<SystemStepAnswer.Paused>(outcome);
 }

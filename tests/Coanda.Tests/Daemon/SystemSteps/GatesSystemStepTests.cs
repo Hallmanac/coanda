@@ -46,7 +46,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         Guid flowRunId = Ids.New();
 
-        SystemStepOutcome outcome = await PerformAsync(Project, flowRunId);
+        SystemStepAnswer outcome = await DispatchAsync(Project, flowRunId);
 
         JsonElement result = Result(outcome, "done");
         Assert.Equal(ProjectDefaults.DefaultBuild, result.GetProperty("build").GetString());
@@ -62,7 +62,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     [Fact]
     public async Task Each_command_is_run_with_the_limit_for_one_gates_command()
     {
-        Result(await PerformAsync(Project, Ids.New()), "done");
+        Result(await DispatchAsync(Project, Ids.New()), "done");
 
         Assert.Equal(2, runner.Commands.Count);
         Assert.All(runner.Commands, c => Assert.True(c.Limit == Limit));
@@ -73,7 +73,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsShell(ProjectDefaults.DefaultTest), CommandResult.LimitReached("Running 12 tests\n", string.Empty, "Running 12 tests\n"));
 
-        JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
+        JsonElement result = Result(await DispatchAsync(Project, Ids.New()), "failed");
 
         string? actual = result.GetProperty("reason").GetString();
         Assert.StartsWith("The test command 'dotnet test' was still running after 45 minutes, the limit for one gates command, and was ended.", actual, StringComparison.Ordinal);
@@ -85,7 +85,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         await projects.AddAsync(Principal.LocalOwner, "beta", RegisteredProjects.Remote, "main", "make all", "make check", None);
 
-        Result(await PerformAsync("beta", Ids.New()), "done");
+        Result(await DispatchAsync("beta", Ids.New()), "done");
 
         Assert.Equal(["make all", "make check"], runner.ShellLines);
     }
@@ -95,7 +95,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), new CommandResult(1, "Build FAILED.\n", "error CS1002\n", "error CS1002\nBuild FAILED.\n"));
 
-        JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
+        JsonElement result = Result(await DispatchAsync(Project, Ids.New()), "failed");
 
         string? actual = result.GetProperty("reason").GetString();
         Assert.StartsWith("The build command 'dotnet build' exited with code 1.", actual, StringComparison.Ordinal);
@@ -108,7 +108,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     {
         runner.On(c => c.IsShell(ProjectDefaults.DefaultTest), new CommandResult(127, string.Empty, "sh: dotnet: not found\n", "sh: dotnet: not found\n"));
 
-        JsonElement result = Result(await PerformAsync(Project, Ids.New()), "failed");
+        JsonElement result = Result(await DispatchAsync(Project, Ids.New()), "failed");
 
         string? actual = result.GetProperty("reason").GetString();
         Assert.StartsWith("The test command 'dotnet test' exited with code 127.", actual, StringComparison.Ordinal);
@@ -121,7 +121,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
         string output = string.Join('\n', Enumerable.Range(1, 150).Select(n => $"line {n}")) + "\n";
         runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), new CommandResult(2, output, string.Empty, output));
 
-        string reason = Result(await PerformAsync(Project, Ids.New()), "failed").GetProperty("reason").GetString() ?? string.Empty;
+        string reason = Result(await DispatchAsync(Project, Ids.New()), "failed").GetProperty("reason").GetString() ?? string.Empty;
 
         Assert.Contains("The last 100 lines of its output:\nline 51\n", reason, StringComparison.Ordinal);
         Assert.EndsWith("line 150", reason, StringComparison.Ordinal);
@@ -134,7 +134,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
         const string Output = "fatal: unable to access 'https://bot:s3cret@example.invalid/repo.git/'\nfrom git@example.invalid:team/repo.git\n";
         runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), new CommandResult(1, Output, string.Empty, Output));
 
-        string reason = Result(await PerformAsync(Project, Ids.New()), "failed").GetProperty("reason").GetString() ?? string.Empty;
+        string reason = Result(await DispatchAsync(Project, Ids.New()), "failed").GetProperty("reason").GetString() ?? string.Empty;
 
         Assert.Contains("https://example.invalid/repo.git/", reason, StringComparison.Ordinal);
         Assert.Contains("git@example.invalid:team/repo.git", reason, StringComparison.Ordinal);
@@ -147,7 +147,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
         runner.On(c => c.IsShell(ProjectDefaults.DefaultBuild), (command, _) =>
             Task.FromException<CommandResult>(new CommandNotStartedException(command, "No such file or directory")));
 
-        SystemStepOutcome.Paused paused = AsPaused(await PerformAsync(Project, Ids.New()));
+        SystemStepAnswer.Paused paused = AsPaused(await DispatchAsync(Project, Ids.New()));
 
         Assert.StartsWith("Step 'gates' could not start the shell to run the build command 'dotnet build'", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("No such file or directory", paused.Reason, StringComparison.Ordinal);
@@ -157,7 +157,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     [Fact]
     public async Task A_project_with_no_record_pauses_naming_the_step_and_the_project_and_runs_nothing()
     {
-        SystemStepOutcome.Paused paused = AsPaused(await PerformAsync("nowhere", Ids.New()));
+        SystemStepAnswer.Paused paused = AsPaused(await DispatchAsync("nowhere", Ids.New()));
 
         Assert.StartsWith("Step 'gates'", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("project 'nowhere'", paused.Reason, StringComparison.Ordinal);
@@ -166,16 +166,16 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
         Assert.Empty(runner.Commands);
     }
 
-    private ValueTask<SystemStepOutcome> PerformAsync(string project, Guid flowRunId) =>
-        systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
+    private ValueTask<SystemStepAnswer> DispatchAsync(string project, Guid flowRunId) =>
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
 
-    private static JsonElement Result(SystemStepOutcome outcome, string verdict)
+    private static JsonElement Result(SystemStepAnswer outcome, string verdict)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal(verdict, result.GetProperty("verdict").GetString());
         Assert.Equal(SoftwareSystemSteps.Gates, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused AsPaused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
+    private static SystemStepAnswer.Paused AsPaused(SystemStepAnswer outcome) => Assert.IsType<SystemStepAnswer.Paused>(outcome);
 }

@@ -8,7 +8,7 @@ namespace Coanda.Daemon.SystemSteps;
 /// the flow and the step. <paramref name="Resumed"/> is true when the flow run was resumed while this
 /// visit was its current step, which is the event a wait step waits for.
 /// </summary>
-public sealed record SystemStepRequest(
+public sealed record SystemStepDispatch(
     Principal Principal,
     string Project,
     Guid FlowRunId,

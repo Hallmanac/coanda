@@ -106,7 +106,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
     {
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
 
-        JsonElement result = Merged(await PerformAsync(parcel, flowRun));
+        JsonElement result = Merged(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(FakeGitHub.MergeCommit, result.GetProperty("commit").GetString());
         Assert.Equal(SoftwareSystemSteps.GatedMerge, result.GetProperty("systemStep").GetString());
@@ -133,7 +133,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsRepositoryRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.MergeMethods(merge, squash, rebase)));
 
-        Merged(await PerformAsync(parcel, flowRun));
+        Merged(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(expected, (string?)JsonNode.Parse(MergeRequest().Body ?? "{}")?["merge_method"]);
     }
@@ -145,7 +145,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, merged: true, baseRef: "elsewhere", head: Other)));
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["behind_by"] = 4 }));
 
-        JsonElement result = Merged(await PerformAsync(parcel, flowRun));
+        JsonElement result = Merged(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(FakeGitHub.MergeCommit, result.GetProperty("commit").GetString());
         // a merged pull request is answered before any guard or check is read
@@ -159,7 +159,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel, Recorder.Name, None);
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, merged: true)));
 
-        Merged(await PerformAsync(parcel, started.Id));
+        Merged(await DispatchAsync(parcel, started.Id));
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         RunsAre(FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, "in_progress", null));
 
-        string reason = Pending(await PerformAsync(parcel, flowRun));
+        string reason = Pending(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' is in_progress", reason, StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
@@ -183,7 +183,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
             FakeGitHub.CheckRun(1, "build-test (ubuntu-latest)", "completed", "success"),
             FakeGitHub.CheckRun(2, "build-test (windows-latest)", "queued", null));
 
-        string reason = Pending(await PerformAsync(parcel, flowRun));
+        string reason = Pending(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains("'build-test (windows-latest)' is queued", reason, StringComparison.Ordinal);
         Assert.DoesNotContain("ubuntu", reason, StringComparison.Ordinal);
@@ -196,7 +196,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         RunsAre();
 
-        Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' has not been reported", Pending(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' has not been reported", Pending(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -206,10 +206,10 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         RunsAre();
         StatusesAre(FakeGitHub.Status(1, RegisteredProjects.RequiredCheck, "pending"));
 
-        Assert.Contains("is pending", Pending(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("is pending", Pending(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
 
         StatusesAre(FakeGitHub.Status(1, RegisteredProjects.RequiredCheck, "pending"), FakeGitHub.Status(2, RegisteredProjects.RequiredCheck, "success"));
-        Merged(await PerformAsync(parcel, flowRun));
+        Merged(await DispatchAsync(parcel, flowRun));
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         RunsAre(FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, "completed", "success"), FakeGitHub.CheckRun(2, "lint", "in_progress", null));
         StatusesAre(FakeGitHub.Status(3, "ci/legacy", "pending"));
 
-        string actual = Pending(await PerformAsync(parcel, flowRun));
+        string actual = Pending(await DispatchAsync(parcel, flowRun));
         Assert.Contains("the check 'lint' is in_progress", actual, StringComparison.Ordinal);
         Assert.Contains("the check 'ci/legacy' is pending", actual, StringComparison.Ordinal);
     }
@@ -230,7 +230,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, mergeable: null)));
 
-        Assert.Contains("has not yet computed whether pull request #17", Pending(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("has not yet computed whether pull request #17", Pending(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -244,7 +244,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
             FakeGitHub.CheckRun(3, "skipped-one", "completed", "skipped"));
         StatusesAre(FakeGitHub.Status(4, "ci/legacy", "success"));
 
-        Merged(await PerformAsync(parcel, flowRun));
+        Merged(await DispatchAsync(parcel, flowRun));
     }
 
     [Fact]
@@ -256,7 +256,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
             FakeGitHub.CheckRun(3, RegisteredProjects.RequiredCheck, "completed", "failure"));
         StatusesAre(FakeGitHub.Status(9, "ci/legacy", "success"), FakeGitHub.Status(5, "ci/legacy", "failure"));
 
-        Merged(await PerformAsync(parcel, flowRun));
+        Merged(await DispatchAsync(parcel, flowRun));
     }
 
     [Fact]
@@ -275,7 +275,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
             _ => new JsonArray(),
         }));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel, flowRun));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
 
         // the failure is on the second page of statuses
         Assert.Contains("the check 'late-context' reported the status 'failure'", paused.Reason, StringComparison.Ordinal);
@@ -289,7 +289,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         Guid parcel = await TaskAsync(pullRequest: false);
         FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel, Recorder.Name, None);
 
-        Assert.Contains("the task's pull-request field has no value", PausedToPerformAgain(await PerformAsync(parcel, started.Id)), StringComparison.Ordinal);
+        Assert.Contains("the task's pull-request field has no value", PausedToPerformAgain(await DispatchAsync(parcel, started.Id)), StringComparison.Ordinal);
         Assert.Empty(github.Requests);
     }
 
@@ -299,7 +299,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         Guid parcel = await TaskAsync();
         FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel, Recorder.Name, None);
 
-        Assert.Contains("no open-pr or rebase result with a head is recorded", PausedToPerformAgain(await PerformAsync(parcel, started.Id)), StringComparison.Ordinal);
+        Assert.Contains("no open-pr or rebase result with a head is recorded", PausedToPerformAgain(await DispatchAsync(parcel, started.Id)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -309,7 +309,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         runner.On(c => c.Program == "gh", ScriptedCommandRunner.Fails(1, "no oauth token found for github.com"));
 
-        Assert.Contains("no GitHub token is available", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("no GitHub token is available", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.Empty(github.Requests);
     }
 
@@ -321,7 +321,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "elsewhere", "task", "Merge me", null, None);
         await parcels.SetFieldAsync(Principal.LocalOwner, "elsewhere", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
 
-        SystemStepOutcome outcome = await systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, "elsewhere", Ids.New(), parcel.Id, Recorder, Step, false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "elsewhere", Ids.New(), parcel.Id, Recorder, Step, false), None);
 
         Assert.Contains("is not a github.com repository", PausedToPerformAgain(outcome), StringComparison.Ordinal);
         Assert.Empty(github.Requests);
@@ -335,7 +335,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
         Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
 
-        SystemStepOutcome outcome = await systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false), None);
 
         Assert.Contains("project 'unchecked' names no check for a merge to wait for", PausedToPerformAgain(outcome), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
@@ -347,7 +347,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, state: "closed")));
 
-        Assert.Contains("pull request #17 in example/repo is closed without being merged", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("pull request #17 in example/repo is closed without being merged", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -357,7 +357,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, baseRef: "release")));
 
-        Assert.Contains("targets 'release', not the primary branch 'main'", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("targets 'release', not the primary branch 'main'", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -367,7 +367,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, head: Other)));
 
-        Assert.Contains($"the head of pull request #17 in example/repo is {Other}, not {Head}", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains($"the head of pull request #17 in example/repo is {Other}, not {Head}", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -377,7 +377,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync(head: Other);
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, head: Other)));
 
-        Merged(await PerformAsync(parcel, flowRun));
+        Merged(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(Other, (string?)JsonNode.Parse(MergeRequest().Body ?? "{}")?["sha"]);
     }
@@ -388,7 +388,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 2 }));
 
-        JsonElement result = Behind(await PerformAsync(parcel, flowRun));
+        JsonElement result = Behind(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains("is behind the primary branch 'main' by 2 commits", result.GetProperty("reason").GetString(), StringComparison.Ordinal);
         Assert.Equal(2, result.GetProperty("behind").GetInt32());
@@ -404,7 +404,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         RunsAre(FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, status, conclusion));
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 1 }));
 
-        Behind(await PerformAsync(parcel, flowRun));
+        Behind(await DispatchAsync(parcel, flowRun));
     }
 
     [Theory]
@@ -416,7 +416,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, mergeable: mergeable)));
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 1 }));
 
-        Behind(await PerformAsync(parcel, flowRun));
+        Behind(await DispatchAsync(parcel, flowRun));
     }
 
     [Fact]
@@ -433,7 +433,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
             return FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = behind });
         });
 
-        JsonElement result = Behind(await PerformAsync(parcel, flowRun));
+        JsonElement result = Behind(await DispatchAsync(parcel, flowRun));
 
         Assert.Contains("is behind the primary branch 'main' by 1 commit,", result.GetProperty("reason").GetString(), StringComparison.Ordinal);
         // the primary branch is compared again after the checks and methods are read
@@ -450,7 +450,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
 
-        SystemStepOutcome outcome = await systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false), None);
 
         Assert.Contains("names no check", PausedToPerformAgain(outcome), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsCompare);
@@ -466,7 +466,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, state: state, baseRef: baseRef, head: head)));
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
 
-        PausedToPerformAgain(await PerformAsync(parcel, flowRun));
+        PausedToPerformAgain(await DispatchAsync(parcel, flowRun));
         Assert.DoesNotContain(github.Requests, r => r.IsCompare);
     }
 
@@ -485,7 +485,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
             JsonSerializer.SerializeToElement(new { verdict = "done", systemStep = SoftwareSystemSteps.Worktree, head = Other }), None);
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, head: Rebased)));
 
-        Merged(await PerformAsync(parcel, flowRun));
+        Merged(await DispatchAsync(parcel, flowRun));
 
         Assert.Equal(Rebased, (string?)JsonNode.Parse(MergeRequest().Body ?? "{}")?["sha"]);
     }
@@ -496,7 +496,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsPullRequestRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.PullRequestState(17, mergeable: false)));
 
-        Assert.Contains("has a conflict with 'main'", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("has a conflict with 'main'", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -510,7 +510,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         RunsAre(FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, "completed", conclusion));
 
-        Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' completed with the conclusion '{conclusion}'", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' completed with the conclusion '{conclusion}'", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -523,7 +523,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         RunsAre();
         StatusesAre(FakeGitHub.Status(1, RegisteredProjects.RequiredCheck, state));
 
-        Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' reported the status '{state}'", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains($"the required check '{RegisteredProjects.RequiredCheck}' reported the status '{state}'", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -536,7 +536,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         RunsAre(FakeGitHub.CheckRun(1, RegisteredProjects.RequiredCheck, "completed", "success"), FakeGitHub.CheckRun(2, "lint", "completed", conclusion));
 
-        Assert.Contains($"the check 'lint' completed with the conclusion '{conclusion}'", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains($"the check 'lint' completed with the conclusion '{conclusion}'", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -546,7 +546,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         StatusesAre(FakeGitHub.Status(1, "ci/legacy", "error"));
 
-        Assert.Contains("the check 'ci/legacy' reported the status 'error'", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("the check 'ci/legacy' reported the status 'error'", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -555,7 +555,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.On(r => r.IsRepositoryRead, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.MergeMethods(false, false, false)));
 
-        Assert.Contains("allows none of the merge methods", PausedToPerformAgain(await PerformAsync(parcel, flowRun)), StringComparison.Ordinal);
+        Assert.Contains("allows none of the merge methods", PausedToPerformAgain(await DispatchAsync(parcel, flowRun)), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -565,7 +565,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.Refuse(r => r.IsMerge, HttpStatusCode.Conflict, "Head branch was modified. Review and try the merge again.");
 
-        string actual = PausedToPerformAgain(await PerformAsync(parcel, flowRun))
+        string actual = PausedToPerformAgain(await DispatchAsync(parcel, flowRun))
             ;
         Assert.Contains("the head of pull request #17 in example/repo moved after it was inspected", actual, StringComparison.Ordinal);
         Assert.Contains("Head branch was modified", actual, StringComparison.Ordinal);
@@ -577,7 +577,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.Refuse(r => r.IsMerge, HttpStatusCode.MethodNotAllowed, "Pull Request is not mergeable");
 
-        string actual = PausedToPerformAgain(await PerformAsync(parcel, flowRun));
+        string actual = PausedToPerformAgain(await DispatchAsync(parcel, flowRun));
         Assert.Contains("status 405", actual, StringComparison.Ordinal);
         Assert.Contains("Pull Request is not mergeable", actual, StringComparison.Ordinal);
     }
@@ -588,7 +588,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
         github.Refuse(r => r.IsPullRequestRead, HttpStatusCode.NotFound, "Not Found");
 
-        string actual = PausedToPerformAgain(await PerformAsync(parcel, flowRun));
+        string actual = PausedToPerformAgain(await DispatchAsync(parcel, flowRun));
         Assert.Contains("status 404", actual, StringComparison.Ordinal);
         Assert.Contains("Not Found", actual, StringComparison.Ordinal);
     }
@@ -628,8 +628,8 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         return started.Id;
     }
 
-    private ValueTask<SystemStepOutcome> PerformAsync(Guid parcel, Guid flowRun) =>
-        systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
+    private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcel, Guid flowRun) =>
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
 
     private void RunsAre(params JsonObject[] runs) =>
         github.On(r => r.IsCheckRuns, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.CheckRuns(runs, runs.Length)));
@@ -639,33 +639,33 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
 
     private FakeGitHub.Sent MergeRequest() => Assert.Single(github.Requests, r => r.IsMerge);
 
-    private static JsonElement Merged(SystemStepOutcome outcome)
+    private static JsonElement Merged(SystemStepAnswer outcome)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal(GatedMergeSystemStep.MergedVerdict, result.GetProperty("verdict").GetString());
         return result;
     }
 
-    private static string Pending(SystemStepOutcome outcome)
+    private static string Pending(SystemStepAnswer outcome)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal(GatedMergeSystemStep.PendingVerdict, result.GetProperty("verdict").GetString());
         return result.GetProperty("reason").GetString() ?? string.Empty;
     }
 
-    private static JsonElement Behind(SystemStepOutcome outcome)
+    private static JsonElement Behind(SystemStepAnswer outcome)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal(GatedMergeSystemStep.BehindVerdict, result.GetProperty("verdict").GetString());
         Assert.Equal(SoftwareSystemSteps.GatedMerge, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
+    private static SystemStepAnswer.Paused Paused(SystemStepAnswer outcome) => Assert.IsType<SystemStepAnswer.Paused>(outcome);
 
-    private static string PausedToPerformAgain(SystemStepOutcome outcome)
+    private static string PausedToPerformAgain(SystemStepAnswer outcome)
     {
-        SystemStepOutcome.Paused paused = Paused(outcome);
+        SystemStepAnswer.Paused paused = Paused(outcome);
         Assert.StartsWith("Step 'gated-merge' ", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("gated-merge"), paused.Lever);
         return paused.Reason;
