@@ -86,9 +86,9 @@ public sealed class IdentityVerdict
 
     /// <summary>
     /// What the live root-set key <paramref name="namer"/> may name for <paramref name="nodeId"/>: the key
-    /// a counting vouch from a root-set key at or above its rank gives that node, and whether naming that
-    /// pairing counts. Null when no such vouch gives the node a key, or <paramref name="namer"/> is not a
-    /// live root-set key.
+    /// a direct vouch from a root-set key at or above its rank gives that node, or failing one the key
+    /// trust at its rank gives it, and whether naming that pairing counts. Null when neither gives the
+    /// node a key, or <paramref name="namer"/> is not a live root-set key.
     /// </summary>
     internal Nomination? NominationOf(string namer, Guid nodeId) =>
         nominations.TryGetValue(namer, out IReadOnlyDictionary<Guid, Nomination>? nameable)

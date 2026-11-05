@@ -14,13 +14,15 @@ namespace Coanda.Core.Identity;
 /// node it names. The ranked root set is then settled one rank at a time from the original root (rank
 /// 0): the acts of the key at rank r (node revocations, successor namings, successor revocations, member
 /// changes) are applied, and the key at rank r + 1 is the successor that key named earliest in its own
-/// chain whose rotation superseding it counts. A named successor counts only when a key at rank r or
-/// above vouched its node directly with the named key, read from those keys' vouches alone, conflicts
-/// included, so no vouch from outside the root set can make or unseat a successor. Because a
-/// revocation of a key that outranks its signer, or of the signer itself, is ignored, no key's acts can
-/// undo the standing of a key that outranks it or its own, which is what keeps the rule well founded: a
-/// key's standing is settled by the keys above it alone. A live key of the ranked root set may sign for
-/// the node its rank was settled on.
+/// chain whose rotation superseding it counts. A named successor counts only when it names a node with
+/// the exact key a counting vouch gives it. When a key at rank r or above vouched that node directly,
+/// that vouch is read from those keys' vouches alone, conflicts included, so no vouch from outside the
+/// root set can unseat it; otherwise the pairing must be one the trust graph at rank r trusts, so a
+/// clash from below can stop only a successor vouched through another node. Because a revocation of a
+/// key that outranks its signer, or of the signer itself, is ignored, no key's acts can undo the
+/// standing of a key that outranks it or its own, and a key once ranked keeps its rank whatever lower
+/// keys sign later, which is what keeps the rule well founded. A live key of the ranked root set may
+/// sign for the node its rank was settled on.
 /// </para>
 /// <para>
 /// Trust follows vouches transitively from the root-set keys and from the root keys of members a
@@ -73,8 +75,8 @@ public static class IdentityTrust
             RankedKey current = chain[^1];
             ApplyActs(current, chain, all, acts);
 
-            // What the current key may name: the pairings the root set so far vouched, read from its vouches alone.
-            Dictionary<Guid, Nomination> nameable = TrustGraph.RootSetVouches(all, chain, acts)
+            // What the current key may name: the root set's own direct vouches first, then what trust reaches.
+            Dictionary<Guid, Nomination> nameable = TrustGraph.SuccessorPairings(all, chain, acts)
                 .ToDictionary(v => v.Key, v => new Nomination(v.Value, StandingOf(v.Key, v.Value, chain, acts)));
             nominations[current.Key] = nameable;
 

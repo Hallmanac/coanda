@@ -125,20 +125,31 @@ public sealed class IdentityDeciderTests
         IReadOnlyList<IdentityRecord> records = Ranked();
 
         RefusedWith(
-            $"Node {A.Node} was named a successor with the key {X.Key}, but the root set's counting vouch gives it {A.Key}; a successor is named with the exact key that vouch gives it.",
+            $"Node {A.Node} was named a successor with the key {X.Key}, but its counting vouch gives it {A.Key}; a successor is named with the exact key a counting vouch gives its node.",
             () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, A.Node, X.Key, Now));
         RefusedWith(
-            $"Node {X.Node} has no counting vouch from a root-set key at or above the rank of {Root.Key}, so it cannot be named a successor; a successor is a node the root set vouched, named with the exact key that vouch gives it.",
+            $"Node {X.Node} has no counting vouch that gives it a key at the rank of {Root.Key}, so it cannot be named a successor; a successor is named with the exact key a counting vouch gives its node.",
             () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, X.Node, X.Key, Now));
     }
 
     [Fact]
-    public void A_successor_vouched_only_through_a_node_outside_the_root_set_is_refused()
+    public void A_successor_vouched_through_a_node_outside_the_root_set_may_be_named_with_the_key_trust_gives_it()
     {
         IReadOnlyList<IdentityRecord> records = new Ledger().Root(Root).Vouch(Root, A).Vouch(A, B).Records;
 
+        Assert.Equal(new SuccessorNamed(B.Node, B.Key, Now), IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, B.Node, B.Key, Now));
         RefusedWith(
-            $"Node {B.Node} has no counting vouch from a root-set key at or above the rank of {Root.Key}, so it cannot be named a successor; a successor is a node the root set vouched, named with the exact key that vouch gives it.",
+            $"Node {B.Node} was named a successor with the key {X.Key}, but its counting vouch gives it {B.Key}; a successor is named with the exact key a counting vouch gives its node.",
+            () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, B.Node, X.Key, Now));
+    }
+
+    [Fact]
+    public void A_successor_vouched_only_through_a_node_outside_the_root_set_is_refused_once_a_clash_conflicts_it()
+    {
+        IReadOnlyList<IdentityRecord> records = new Ledger().Root(Root).Vouch(Root, A).Vouch(Root, C).Vouch(A, B).Vouch(C, B.Node, X.Key).Records;
+
+        RefusedWith(
+            $"Node {B.Node} has no counting vouch that gives it a key at the rank of {Root.Key}, so it cannot be named a successor; a successor is named with the exact key a counting vouch gives its node.",
             () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, B.Node, B.Key, Now));
     }
 

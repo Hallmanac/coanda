@@ -214,11 +214,13 @@ project, so this version changes those inherited rules into forms that need none
   was signed. The recovery from a mistaken revocation is a fresh node through join.
 - Rank follows the rotation chain from the original root: the original root ranks 0, and a counting
   rotation, signed by a successor its superseded key named, ranks the successor one below the key it
-  supersedes. The rank of a key is settled by the keys that outrank it alone, since a revocation of a
-  key that outranks its signer, or of the signer itself, is ignored. For the same reason a successor
-  counts only when a key that outranks it vouched its node directly with the named key, and that vouch
-  is read from the vouches of the keys that outrank it alone: a vouch from any other key, conflicting
-  or not, neither makes nor unseats a successor.
+  supersedes. No key's acts undo the rank of a key that outranks it, since a revocation of a key that
+  outranks its signer, or of the signer itself, is ignored, and a key once ranked keeps its rank
+  whatever lower keys sign later. A successor counts when it names a node with the exact key a counting
+  vouch gives it. When a key that outranks it vouched its node directly, that vouch is read from the
+  vouches of the keys that outrank it alone, so a vouch from any other key, conflicting or not, cannot
+  unseat it. Otherwise the pairing must be one trust reaches at the namer's rank, so a clash from below
+  can stop only a successor vouched through some other node.
 - Revoking a successor voids every root-set act its key signed (revocations, namings, successor
   revocations, member changes, and its rotation), whenever made. The vouch that admitted its node,
   and the vouches its key signed, stand unless a node revocation revokes its key.
