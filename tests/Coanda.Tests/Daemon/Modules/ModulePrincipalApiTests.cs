@@ -66,13 +66,13 @@ public sealed class ModulePrincipalApiTests
     [InlineData("")]
     [InlineData("software/build")]
     [InlineData("two words")]
-    public async Task A_token_for_a_name_that_is_not_a_plain_name_is_refused_and_nothing_is_stored(string name)
+    public async Task A_token_for_a_name_that_is_not_a_module_name_is_refused_and_nothing_is_stored(string name)
     {
         await using ModuleNode node = await ModuleNode.StartAsync();
 
         DomainException refused = await Assert.ThrowsAsync<DomainException>(() => node.TokenAsync(name));
 
-        Assert.Equal($"A module's name is a plain name (letters, digits, hyphens, and underscores); '{name}' is not.", refused.Message);
+        Assert.Equal($"A module's name is lowercase letters and digits in runs joined by single hyphens; '{name}' is not.", refused.Message);
         await using IQuerySession session = node.Services.GetRequiredService<IDocumentStore>().QuerySession(Tenants.Node);
         // only the token the daemon issued the software module it hosts at its start is held
         Assert.Equal(["software"], (await session.Query<ModuleTokenRecord>().ToListAsync(None)).Select(r => r.Module));

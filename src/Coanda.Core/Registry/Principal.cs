@@ -19,8 +19,8 @@ public sealed record Principal(string Id, Role Role, SessionBinding? Session = n
     }
 
     /// <summary>
-    /// The Module-role principal of the module <paramref name="module"/>, a plain name; any other name
-    /// is refused.
+    /// The Module-role principal of the module <paramref name="module"/>, a module's name
+    /// (<see cref="ModuleNames.IsModuleName"/>); any other name is refused.
     /// </summary>
     public static Principal ForModule(string module)
     {

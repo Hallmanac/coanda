@@ -19,8 +19,9 @@ public sealed class ModuleTokens(IDocumentStore store)
     private const int TokenBytes = 32;
 
     /// <summary>
-    /// Issues a fresh token for the module <paramref name="module"/>, a plain name, stores its hash, and
-    /// returns its plain value, which is kept nowhere here. Any other name is refused and nothing is stored.
+    /// Issues a fresh token for the module <paramref name="module"/>, a module's name
+    /// (<see cref="ModuleNames.IsModuleName"/>), stores its hash, and returns its plain value, which is
+    /// kept nowhere here. Any other name is refused and nothing is stored.
     /// </summary>
     public async Task<string> IssueAsync(string module, CancellationToken cancellationToken)
     {

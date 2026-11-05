@@ -59,7 +59,7 @@ public sealed class ModuleSettingsTests
         { "a value of another kind", Strict, "channel", "3", "The value given for setting 'channel' of module 'test' does not meet the setting's schema: StringExpected at #/." },
         { "a module the node holds no settings schema for", StandInModules.Unknown, "channel", "\"x\"", "This node holds no settings schema for module 'unknown', so it has no settings this node can set or show; a module declares its settings." },
         { "a module not switched on for the project", "dormant", "channel", "\"x\"", "Module 'dormant' is not switched on for project 'alpha'; a module's settings are set and shown only in a project it is switched on for." },
-        { "a module whose name is not plain", "../test", "channel", "\"x\"", "A module's name is a plain name (letters, digits, hyphens, and underscores); '../test' is not." },
+        { "a module whose name is not a module name", "../test", "channel", "\"x\"", "A module's name is lowercase letters and digits in runs joined by single hyphens; '../test' is not." },
     };
 
     [Theory]

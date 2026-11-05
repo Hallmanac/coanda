@@ -7,9 +7,10 @@ namespace Coanda.Daemon.Modules;
 
 /// <summary>
 /// The settings schemas of a fixed set of modules, by module name, each checked when it is given: the
-/// module's name is a plain name, and each replicated setting has a plain name, unique among them, that
-/// is not <see cref="ModuleSettingsService.CredentialProfileName"/>, which names the credential profile
-/// setting wherever settings are listed by name.
+/// module's name is lowercase letters and digits in runs joined by single hyphens, and each replicated
+/// setting has a plain name, unique among them, that is not
+/// <see cref="ModuleSettingsService.CredentialProfileName"/>, which names the credential profile setting
+/// wherever settings are listed by name.
 /// </summary>
 public sealed class ModuleSettingsSchemas : IModuleSettingsSchemas
 {

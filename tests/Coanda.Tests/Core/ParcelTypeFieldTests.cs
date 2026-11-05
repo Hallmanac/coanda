@@ -49,14 +49,16 @@ public sealed class ParcelTypeFieldTests
     [InlineData("software/github")]
     [InlineData("two words")]
     [InlineData("../software")]
-    public void A_field_whose_owner_is_not_a_plain_module_name_is_refused(string owner)
+    [InlineData("Software")]
+    [InlineData("soft_ware")]
+    public void A_field_whose_owner_is_not_a_module_name_is_refused(string owner)
     {
         ParcelType type = WithObjectiveOwnedBy(owner);
 
         DomainException exception = Assert.Throws<DomainException>(() => type.Validate(Gates));
 
         Assert.Equal(
-            $"Field 'objective' of parcel type 'task' names '{owner}' as the module that owns it; a field's owner is a module's plain name: letters, digits, hyphens, and underscores, and not empty.",
+            $"Field 'objective' of parcel type 'task' names '{owner}' as the module that owns it; a field's owner is a module's name: lowercase letters and digits in runs joined by single hyphens.",
             exception.Message);
     }
 
