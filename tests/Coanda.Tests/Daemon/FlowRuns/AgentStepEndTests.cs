@@ -176,7 +176,7 @@ public sealed class AgentStepEndTests
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        Assert.StartsWith("Step 'build' got no judgment from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'build' got no answer from agent 'build':", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(InProgress, paused.PauseUsage);
         Assert.Equal(InProgress.CostUsd, paused.Cost);
 

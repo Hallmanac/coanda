@@ -87,7 +87,7 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, "build")).Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        Assert.Equal("Step 'build' got no judgment from agent 'build': The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($3)", paused.PauseReason);
+        Assert.Equal("Step 'build' got no answer from agent 'build': The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($3)", paused.PauseReason);
         Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
         Assert.Equal(new Measurement(10, 3.1m, 5, TimeSpan.FromSeconds(20)), paused.PauseUsage);
         Assert.Equal(3.1m, paused.Cost);
@@ -282,7 +282,7 @@ public sealed class ClaudeCodeFlowRunTests
         FlowRunView started = await FlowRunDriver.StartAsync(client, Project, parcel.Id, (await PublishAsync(daemon, outsider.Name)).Name);
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
 
-        Assert.StartsWith($"Step 'build' got no judgment from agent 'outsider': {rule}", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith($"Step 'build' got no answer from agent 'outsider': {rule}", paused.PauseReason, StringComparison.Ordinal);
         Assert.Empty(fake.Starts);
 
         await daemon.StopAsync(None);
@@ -301,7 +301,7 @@ public sealed class ClaudeCodeFlowRunTests
     };
 
     private static string NotApplied(string version) =>
-        $"Step 'build' got no judgment from agent 'build': The session's settings document, and with it its tool guard, was not applied by claude CLI {version}: "
+        $"Step 'build' got no answer from agent 'build': The session's settings document, and with it its tool guard, was not applied by claude CLI {version}: "
         + "its init event came without the evidence the document's SessionStart hook prints, so its process was stopped and no answer was collected from it. "
         + "A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.";
 
