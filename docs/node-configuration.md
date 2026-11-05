@@ -314,3 +314,35 @@ names no profile, the spawn receives none. When it names one the configuration n
 that vendor (because the file changed between starts), nothing is spawned and the flow run pauses with a
 reason naming the profile and the vendor; name a held profile with `coa project set-profile` and
 `coa flow-run resume` performs the step again.
+
+## A module's settings in a project
+
+```
+coa project module set try-coanda software primary-branch main
+coa project module select-profile try-coanda software work
+coa project module show try-coanda software
+```
+
+A module switched on for a project has settings there in two scopes, which its settings schema
+declares. Its replicated settings are what the project agrees on: `coa project module set` gives one
+of them a value, read as JSON when it is JSON and as text otherwise, and the value must meet the
+schema the module declares for that name. The value is recorded in the project's own record, so it
+replicates with the project, and a later value for the name replaces the earlier one. The node's owner
+may set them, and so may the module itself.
+
+Its node-local setting is the credential profile it acts under on this node. The profiles this node
+holds for a module are the entries directly inside `modules-private/<module>/` in the node home, each
+named by the profile, holding whatever secret material the module keeps there. Coanda records only
+the name of the profile `coa project module select-profile` selects, in this node's own record, and
+never reads what the profile holds. Only the node's owner selects one, and the name must be an entry in
+the module's area when the command runs. The daemon creates `modules-private/` owner-only and narrows
+everything under it to owner-only at every start.
+
+`coa project module show` prints each replicated setting with its value, its default marked as the
+default, or unset; the selected profile, or the node's default identity when the module defaults to it,
+or none; and whether the module is configured on this node. A module is on and unconfigured when a
+setting it requires has no value and no default. A selected profile that is no longer in the module's
+area counts as no value, and the module's default never stands in for it.
+
+No module is hosted by the daemon yet, so until one is, these commands refuse every module, as one
+not switched on for the project or as one this node holds no settings schema for.
