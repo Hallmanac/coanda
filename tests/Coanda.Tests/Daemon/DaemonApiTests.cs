@@ -80,11 +80,11 @@ public sealed class DaemonApiTests
         string refusal = $"*held by flow run {Ids.Short(flowRun.Id)}*(flow-run.stop)*";
 
         using var http = new HttpClient { BaseAddress = new Uri(daemon.Info.BaseAddress) };
-        await RefusedAsync(http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), "brian", refusal + "before moving the parcel.");
+        await RefusedAsync(http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), Environment.UserName, refusal + "before moving the parcel.");
         await RefusedAsync(
-            http, daemon, "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "completed", "Done by hand."), "brian", refusal + "before closing the parcel.");
+            http, daemon, "/parcels/close", new ParcelCloseRequest("coanda", parcel.Id, "completed", "Done by hand."), Environment.UserName, refusal + "before closing the parcel.");
         await RefusedAsync(
-            http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), FlowRunAdvancer.PrincipalFor(flowRun.Id).Id, refusal + "before moving the parcel.");
+            http, daemon, "/parcels/move", new ParcelMoveRequest("coanda", parcel.Id, "build"), null, refusal + "before moving the parcel.");
 
         ParcelView after = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project=coanda", CancellationToken.None);
         // every refusal leaves the parcel as it was
@@ -138,16 +138,80 @@ public sealed class DaemonApiTests
         await daemon.StopAsync(CancellationToken.None);
     }
 
-    private static async Task RefusedAsync(HttpClient http, RunningDaemon daemon, string path, object body, string principal, string message)
+    [Fact]
+    public async Task A_call_holding_only_the_daemon_token_whose_principal_header_names_anyone_but_the_owner_is_refused_and_records_nothing()
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body, body.GetType()) };
-        request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
-        request.Headers.Add(DaemonHost.PrincipalHeader, principal);
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
+        using var http = new HttpClient { BaseAddress = new Uri(daemon.Info.BaseAddress) };
+        string stranger = $"not-{Environment.UserName}";
+        string refusal = $"The {DaemonHost.PrincipalHeader} header names '{stranger}', but a call holding only the daemon token acts as the node's owner, '{Environment.UserName}'; send '{Environment.UserName}' or no header.";
 
-        using HttpResponseMessage response = await http.SendAsync(request, CancellationToken.None);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        ErrorView? error = await response.Content.ReadFromJsonAsync<ErrorView>(CancellationToken.None);
+        // A command and a query are both refused, and so is an id differing from the owner's only in case.
+        await RefusedAsync(http, daemon, "/parcels", new ParcelAddRequest("coanda", "idea", "Not the owner's", null), stranger, refusal);
+        (HttpStatusCode queried, ErrorView? queryError) = await SendAsync<ErrorView>(http, daemon, HttpMethod.Get, "/parcels?project=coanda", null, stranger);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, queried);
+        Assert.Equal(refusal, queryError?.Error);
+        string shouted = Environment.UserName.ToUpperInvariant();
+        if (!string.Equals(shouted, Environment.UserName, StringComparison.Ordinal))
+        {
+            (HttpStatusCode cased, _) = await SendAsync<ErrorView>(
+                http, daemon, HttpMethod.Post, "/parcels", new ParcelAddRequest("coanda", "idea", "Not quite the owner's", null), shouted);
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, cased);
+        }
+
+        using var client = new DaemonClient(temp.Home);
+        Assert.Empty(await client.GetAsync<List<ParcelView>>("/parcels?project=coanda", CancellationToken.None));
+
+        await daemon.StopAsync(CancellationToken.None);
+    }
+
+    public static TheoryData<string?> OwnersHeaders => [null, "", " ", Environment.UserName];
+
+    [Theory]
+    [MemberData(nameof(OwnersHeaders))]
+    public async Task A_call_holding_only_the_daemon_token_records_as_the_owner_whose_id_is_the_account_the_daemon_runs_as(string? header)
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, CancellationToken.None);
+        await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
+        using var http = new HttpClient { BaseAddress = new Uri(daemon.Info.BaseAddress) };
+
+        (HttpStatusCode status, ParcelView? added) = await SendAsync<ParcelView>(
+            http, daemon, HttpMethod.Post, "/parcels", new ParcelAddRequest("coanda", "idea", "The owner's", null), header);
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        Assert.Equal(Environment.UserName, added?.CreatedBy);
+
+        await daemon.StopAsync(CancellationToken.None);
+    }
+
+    private static async Task RefusedAsync(HttpClient http, RunningDaemon daemon, string path, object body, string? principal, string message)
+    {
+        (HttpStatusCode status, ErrorView? error) = await SendAsync<ErrorView>(http, daemon, HttpMethod.Post, path, body, principal);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, status);
         Assert.NotNull(error);
         Assert.Matches(WildcardPattern.ToRegex(message), error.Error);
+    }
+
+    /// <summary>Sends a call holding the daemon token, carrying <paramref name="principal"/> in the principal header when it is given.</summary>
+    private static async Task<(HttpStatusCode Status, T? Body)> SendAsync<T>(
+        HttpClient http, RunningDaemon daemon, HttpMethod method, string path, object? body, string? principal)
+    {
+        using var request = new HttpRequestMessage(method, path);
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body, body.GetType());
+        }
+
+        request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
+        if (principal is not null)
+        {
+            request.Headers.Add(DaemonHost.PrincipalHeader, principal);
+        }
+
+        using HttpResponseMessage response = await http.SendAsync(request, CancellationToken.None);
+        return (response.StatusCode, await response.Content.ReadFromJsonAsync<T>(CancellationToken.None));
     }
 }
