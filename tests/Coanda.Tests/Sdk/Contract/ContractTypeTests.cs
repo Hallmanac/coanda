@@ -74,6 +74,43 @@ public sealed class ContractTypeTests
         }
     }
 
+    [Theory]
+    [InlineData("feed delivery", "$.events[0]")]
+    [InlineData("manifest", "$.start[0]")]
+    [InlineData("describe", "$.steps[0]")]
+    [InlineData("describe", "$.eventKinds[0].watchableFields[0]")]
+    [InlineData("watch request", "$.watches[0]")]
+    [InlineData("watch request", "$.watches[0].filters[0]")]
+    [InlineData("recorded event", "$.fields.repo")]
+    public void A_null_in_a_list_or_map_the_schema_refuses_is_refused_on_read(string name, string at)
+    {
+        (string address, Type type, string json) = ContractDocuments.Example(name);
+        JsonNode document = JsonNode.Parse(json) ?? throw new InvalidOperationException($"The {name} example is null.");
+        SetNull(document, at);
+        string withNull = document.ToJsonString();
+
+        Assert.NotEmpty(ModuleSchemas.Load(address).Validate(withNull));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(withNull, type, Options));
+    }
+
+    [Fact]
+    public void A_step_result_whose_fields_hold_a_verdict_is_not_written()
+    {
+        var result = new StepResult("pass") { Fields = new() { ["verdict"] = JsonSerializer.SerializeToElement("x") } };
+
+        Assert.Throws<InvalidOperationException>(() => JsonSerializer.Serialize(result, Options));
+    }
+
+    [Fact]
+    public void An_approval_writes_its_date_back_as_the_signer_wrote_it()
+    {
+        string json = ContractDocuments.Example("approval").Json;
+        ApprovalRecord approval = JsonSerializer.Deserialize<ApprovalRecord>(json, Options) ?? throw new InvalidOperationException("The approval read as null.");
+
+        Assert.Equal("2026-11-04T17:42:00Z", approval.IssuedAt);
+        Assert.Equal("2026-11-04T17:42:00Z", JsonNode.Parse(JsonSerializer.Serialize(approval, Options))?["issuedAt"]?.GetValue<string>());
+    }
+
     [Fact]
     public void A_property_the_type_writes_and_the_schema_lacks_is_a_disagreement()
     {
@@ -186,6 +223,26 @@ public sealed class ContractTypeTests
                 }
 
                 break;
+        }
+    }
+
+    /// <summary>Sets the value at <paramref name="path"/>, a <c>$</c> path of names and indexes, to null.</summary>
+    private static void SetNull(JsonNode document, string path)
+    {
+        string[] steps = [.. path.Replace("[", ".", StringComparison.Ordinal).Replace("]", string.Empty, StringComparison.Ordinal).Split('.').Skip(1)];
+        JsonNode parent = document;
+        foreach (string step in steps[..^1])
+        {
+            parent = (int.TryParse(step, out int index) ? parent[index] : parent[step]) ?? throw new InvalidOperationException($"{path} does not lead anywhere.");
+        }
+
+        if (int.TryParse(steps[^1], out int last))
+        {
+            parent[last] = null;
+        }
+        else
+        {
+            parent[steps[^1]] = null;
         }
     }
 

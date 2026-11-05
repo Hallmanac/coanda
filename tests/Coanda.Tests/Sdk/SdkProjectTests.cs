@@ -48,7 +48,7 @@ public sealed class SdkProjectTests
     }
 
     [Fact]
-    public void Every_contract_type_is_sealed_but_the_base_of_a_document_with_several_kinds()
+    public void Every_contract_type_is_sealed_but_the_base_of_an_answer_or_feed_event_with_several_kinds()
     {
         Type[] contract = [.. typeof(ModuleApi).Assembly.GetTypes().Where(type => type.Namespace == typeof(ModuleApi).Namespace && type.IsClass && !type.IsAbstract && !type.IsSealed && !IsStatic(type))];
         Assert.Empty(contract);
