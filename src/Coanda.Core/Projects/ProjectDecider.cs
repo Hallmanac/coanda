@@ -58,8 +58,9 @@ public static class ProjectDecider
 
     /// <summary>
     /// Names the set of modules switched on for the project, replacing the set it held. The project must
-    /// have a record and each module must be named by a plain name; a module named twice is recorded
-    /// once, and the set is recorded in ordinal order. An empty set switches every module off.
+    /// have a record and each module must be named by a module's name (lowercase letters and digits in
+    /// runs joined by single hyphens); a module named twice is recorded once, and the set is recorded in
+    /// ordinal order. An empty set switches every module off.
     /// </summary>
     public static ProjectModulesSet SetModules(
         string project, Project? registered, IReadOnlyList<string>? modules, string setBy, DateTimeOffset now)
@@ -77,7 +78,7 @@ public static class ProjectDecider
             if (!ModuleNames.IsModuleName(module))
             {
                 throw new DomainException(
-                    $"Project '{registered.Name}' was given '{module}' as a module to switch on; a module's name is a plain name (letters, digits, hyphens, and underscores).");
+                    $"Project '{registered.Name}' was given '{module}' as a module to switch on; a module's name is {ModuleNames.Rule}.");
             }
         }
 

@@ -313,7 +313,7 @@ public sealed record ParcelType
             if (field.Owner is not null && !ModuleNames.IsModuleName(field.Owner))
             {
                 throw new DomainException(
-                    $"Field '{field.Name}' of parcel type '{Name}' names '{field.Owner}' as the module that owns it; a field's owner is a module's plain name: letters, digits, hyphens, and underscores, and not empty.");
+                    $"Field '{field.Name}' of parcel type '{Name}' names '{field.Owner}' as the module that owns it; a field's owner is a module's name: {ModuleNames.Rule}.");
             }
 
             foreach (string? stage in field.RequiredToLeave)

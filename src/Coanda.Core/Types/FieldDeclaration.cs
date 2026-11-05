@@ -20,10 +20,11 @@ public sealed record FieldDeclaration
     public IReadOnlyList<string> RequiredToLeave { get; init; } = [];
 
     /// <summary>
-    /// The module that owns the field, by its plain name, or null when no module does. A field a module
-    /// owns is set by that module, on any parcel of a project it is switched on for, and by an
-    /// Owner-role principal, and by nobody else. It is written into the type's content only when it
-    /// names a module, so a type whose fields name none reads and hashes as it did before owners existed.
+    /// The module that owns the field, by its name (<see cref="Registry.ModuleNames.IsModuleName"/>), or
+    /// null when no module does. A field a module owns is set by that module, on any parcel of a project
+    /// it is switched on for, and by an Owner-role principal, and by nobody else. It is written into the
+    /// type's content only when it names a module, so a type whose fields name none reads and hashes as
+    /// it did before owners existed.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Owner { get; init; }

@@ -110,7 +110,7 @@ public sealed class ProjectDeciderTests
     }
 
     [Fact]
-    public void Switching_on_a_module_that_is_not_a_plain_name_or_in_an_unregistered_project_is_refused()
+    public void Switching_on_a_module_that_is_not_a_module_name_or_in_an_unregistered_project_is_refused()
     {
         Project project = Project.Create(ProjectDecider.Register("coanda", "https://example.invalid/a.git", null, "brian", Now));
 
@@ -118,7 +118,7 @@ public sealed class ProjectDeciderTests
         DomainException unregistered = Assert.Throws<DomainException>(() => ProjectDecider.SetModules("other", null, ["software"], "brian", Now));
 
         Assert.Equal(
-            "Project 'coanda' was given 'software/build' as a module to switch on; a module's name is a plain name (letters, digits, hyphens, and underscores).",
+            "Project 'coanda' was given 'software/build' as a module to switch on; a module's name is lowercase letters and digits in runs joined by single hyphens.",
             notPlain.Message);
         Assert.Equal(ProjectDecider.Unregistered("other"), unregistered.Message);
     }

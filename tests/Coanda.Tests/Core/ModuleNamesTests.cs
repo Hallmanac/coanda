@@ -7,18 +7,27 @@ public sealed class ModuleNamesTests
 {
     [Theory]
     [InlineData("software")]
-    [InlineData("mail_2")]
     [InlineData("jira-sync")]
-    public void A_plain_name_names_a_module_and_its_principal(string name)
+    [InlineData("mail2")]
+    [InlineData("a-1-b")]
+    public void A_module_name_names_a_module_and_its_principal(string name)
     {
         Principal principal = Principal.ForModule(name);
 
+        Assert.True(ModuleNames.IsModuleName(name));
+        Assert.Equal(name, ModuleNames.Require(name));
         Assert.Equal(new Principal($"module:{name}", Role.Module, Module: name), principal);
         Assert.Null(principal.Session);
     }
 
     [Theory]
     [InlineData("")]
+    [InlineData("Mail")]
+    [InlineData("mail_2")]
+    [InlineData("-mail")]
+    [InlineData("mail-")]
+    [InlineData("mail--sync")]
+    [InlineData("mail\n")]
     [InlineData("software/build")]
     [InlineData("two words")]
     [InlineData("dot.ted")]
@@ -26,13 +35,21 @@ public sealed class ModuleNamesTests
     {
         DomainException refused = Assert.Throws<DomainException>(() => Principal.ForModule(name));
 
-        Assert.Equal($"A module's name is a plain name (letters, digits, hyphens, and underscores); '{name}' is not.", refused.Message);
+        Assert.False(ModuleNames.IsModuleName(name));
+        Assert.Equal(
+            $"A module's name is lowercase letters and digits in runs joined by single hyphens; '{name}' is not.",
+            refused.Message);
+        Assert.Equal(refused.Message, Assert.Throws<DomainException>(() => ModuleNames.Require(name)).Message);
     }
+
+    [Fact]
+    public void No_name_is_a_module_name() => Assert.False(ModuleNames.IsModuleName(null));
 
     [Theory]
     [InlineData("software/open-pr", "software")]
     [InlineData("test/answers-running", "test")]
-    [InlineData("a_1/b-2", "a_1")]
+    [InlineData("jira-sync/issue", "jira-sync")]
+    [InlineData("a1/b_2", "a1")]
     public void A_prefixed_name_gives_its_module(string name, string module) =>
         Assert.Equal(module, ModuleNames.PrefixOf(name));
 
@@ -44,6 +61,12 @@ public sealed class ModuleNamesTests
     [InlineData("soft ware/open-pr")]
     [InlineData("software/open pr")]
     [InlineData("")]
+    [InlineData("Mail/issue")]
+    [InlineData("mail_2/issue")]
+    [InlineData("-mail/issue")]
+    [InlineData("mail-/issue")]
+    [InlineData("mail--sync/issue")]
+    [InlineData("mail\n/issue")]
     public void A_name_not_of_the_one_prefixed_form_gives_none(string name)
     {
         Assert.Null(ModuleNames.PrefixOf(name));

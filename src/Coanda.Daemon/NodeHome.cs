@@ -42,8 +42,8 @@ public sealed record NodeHome(string Path)
 
     /// <summary>
     /// The module's own area, <c>modules-private/&lt;module&gt;</c> under the home: the entries directly
-    /// inside it are the credential profiles the node holds for the module. The module must be a plain
-    /// name, so the path never leaves the module area.
+    /// inside it are the credential profiles the node holds for the module. The module must be named by
+    /// <see cref="ModuleNames.IsModuleName"/>, so the path never leaves the module area.
     /// </summary>
     public string ModuleAreaOf(string module) =>
         System.IO.Path.Combine(ModuleAreaPath, ModuleNames.Require(module));
