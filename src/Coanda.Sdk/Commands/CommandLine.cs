@@ -1,4 +1,4 @@
-namespace Coanda.Daemon.Commands;
+namespace Coanda.Sdk.Commands;
 
 /// <summary>
 /// One external command for an <see cref="ICommandRunner"/> to run: the program, its arguments, the

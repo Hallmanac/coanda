@@ -1,6 +1,6 @@
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 
-namespace Coanda.Daemon.Repositories;
+namespace Coanda.Sdk.Repositories;
 
 /// <summary>
 /// Builds and runs the git commands the worktree system step and a worktree's removal run, through the

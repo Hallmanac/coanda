@@ -3,7 +3,7 @@ using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 using Coanda.Daemon.GitHub;
 using Spectre.Console;
 using Spectre.Console.Cli;

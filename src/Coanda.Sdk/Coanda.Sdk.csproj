@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The module SDK: the contract types of the module API, a client for the core's loopback API, and
+    the command runner and git wrapper a module needs. It references no other Coanda project, so a
+    module that references only the SDK cannot reach into the core; a test over this file holds that.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Coanda.Sdk</RootNamespace>
+  </PropertyGroup>
+
+</Project>

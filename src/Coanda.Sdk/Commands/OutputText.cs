@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Coanda.Daemon.Commands;
+namespace Coanda.Sdk.Commands;
 
 /// <summary>
 /// What is done to a command's output before any of it is stored on a flow run: cut to its last lines,

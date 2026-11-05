@@ -1,4 +1,4 @@
-namespace Coanda.Daemon.Commands;
+namespace Coanda.Sdk.Commands;
 
 /// <summary>
 /// The one seam every external command the daemon's system steps run goes through: the worktree, gates,

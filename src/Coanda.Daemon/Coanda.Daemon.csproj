@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Coanda.Core\Coanda.Core.csproj" />
+    <ProjectReference Include="..\Coanda.Sdk\Coanda.Sdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>

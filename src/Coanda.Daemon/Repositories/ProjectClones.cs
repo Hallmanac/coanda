@@ -2,7 +2,8 @@ using System.Collections.Concurrent;
 using Coanda.Core;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Projects;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
+using Coanda.Sdk.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace Coanda.Daemon.Repositories;

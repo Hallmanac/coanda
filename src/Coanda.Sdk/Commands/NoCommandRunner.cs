@@ -1,4 +1,4 @@
-namespace Coanda.Daemon.Commands;
+namespace Coanda.Sdk.Commands;
 
 /// <summary>
 /// The runner a daemon host uses when its options supply none: it starts nothing and fails every

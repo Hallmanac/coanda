@@ -1,4 +1,4 @@
-namespace Coanda.Daemon.Commands;
+namespace Coanda.Sdk.Commands;
 
 /// <summary>
 /// How a command ended: its exit code, what it wrote to its standard output and to its standard

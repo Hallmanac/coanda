@@ -3,6 +3,7 @@ using Coanda.Core.Software;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
+using Coanda.Sdk.Repositories;
 
 namespace Coanda.Daemon.SystemSteps;
 

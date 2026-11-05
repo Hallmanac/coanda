@@ -1,6 +1,6 @@
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 
-namespace Coanda.Tests.Daemon.Commands;
+namespace Coanda.Tests.Sdk.Commands;
 
 public sealed class OutputTextTests
 {

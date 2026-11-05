@@ -5,7 +5,7 @@ using Coanda.Core.Software;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
