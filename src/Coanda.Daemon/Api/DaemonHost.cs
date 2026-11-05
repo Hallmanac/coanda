@@ -14,6 +14,7 @@ using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.GitHub;
@@ -50,6 +51,10 @@ public sealed class DaemonHost
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.AgentStepLimit, TimeSpan.Zero, nameof(options));
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.GatesCommandLimit, TimeSpan.Zero, nameof(options));
+        if (options.ExportInterval is { } exportInterval)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(exportInterval, TimeSpan.Zero, nameof(options));
+        }
 
         // Narrows what an earlier run left wider, then takes the home's lock before anything touches the
         // database, holding it until the daemon stops, so a record export or rebuild never runs beside a
@@ -168,6 +173,10 @@ public sealed class DaemonHost
         // Registered after the runner, so it stops first: a start it makes while stopping is advanced on the next start.
         builder.Services.AddHostedService(services => services.GetRequiredService<TriggerLoop>());
 
+        // A round the stop interrupts has saved only whole pages of lines, and the next start writes and pushes them.
+        builder.Services.AddSingleton<LedgerExport>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<LedgerExport>());
+
         // Registered last, so it stops first: a delivery a stop interrupts is not counted as handled and comes again.
         builder.Services.AddSingleton<ModuleFeed>();
         builder.Services.AddHostedService(services => services.GetRequiredService<ModuleFeed>());
@@ -256,6 +265,10 @@ public sealed class DaemonHost
             await triggers.FixPositionAsync(cancellationToken);
             triggers.Begin();
             feed.Begin();
+            if (options.ExportInterval is { } interval)
+            {
+                app.Services.GetRequiredService<LedgerExport>().Begin(interval);
+            }
         }
         catch
         {
