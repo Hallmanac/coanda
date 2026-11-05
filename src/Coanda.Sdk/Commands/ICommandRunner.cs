@@ -1,8 +1,8 @@
 namespace Coanda.Sdk.Commands;
 
 /// <summary>
-/// The one seam every external command the daemon's system steps run goes through: the worktree, gates,
-/// and open-pr system steps (git, and gh for the GitHub token) and a worktree's removal. A runner closes
+/// The SDK's seam for running external commands: the daemon supplies the runner, and modules run their
+/// commands through it, as the software module runs git, and gh for the GitHub token. A runner closes
 /// the command's standard input, so nothing it starts waits on input, and logs none of its output,
 /// because a command run through it may print a credential. Cancelling the token ends the command
 /// and every process it started that is still its descendant; one that detached from its process
