@@ -690,9 +690,13 @@ when the project is registered and, for any repo still without one, at every sta
 repository whose `origin` is the repo's recorded remote, made beside its path and moved there once
 complete, with no contact with the remote. A clone a build before the per-repo layout kept at
 `clones/<project>/repo.git` moves to its project's one repo at the first start of a build that has
-the layout. The start lists the clone's worktrees before the move and runs `git worktree repair` at
-the new path for each whose directory exists, so a flow run paused across the upgrade resumes in its
-worktree. Both happen before any module starts and before any live flow run is advanced. What the
+the layout. The start lists the clone's worktrees before the move, and does not move a clone whose
+worktrees cannot be listed. At every start, after any move, it runs `git worktree repair` from each
+clone for every linked worktree the clone lists whose directory exists, so a flow run paused across
+the upgrade resumes in its worktree. The repair changes nothing for a worktree whose links are sound,
+and running it at every start means a start stopped between the move and the repairs, or a repair
+that failed, is finished by the next start. All of this happens before any module starts and before
+any live flow run is advanced. What the
 core cannot place or make, it logs and leaves; it never deletes or overwrites a clone.
 
 A module finds a repo's clone by the layout, which the SDK writes once (`RepoLayout`) and the core
@@ -701,8 +705,8 @@ finds something git does not recognize, pauses naming the path and the next daem
 a clone there. It cuts a flow run's worktree from the clone at the work path the dispatch carries
 (section 14.3), not in its own per-project workspace. Outside a dispatch, when the feed delivers a
 flow run's end or stop and in its start sweep, it reads that flow run's work path from the core's flow
-run view (`GET /flow-runs/{id}`, field `workPath`, absent for a project whose name is not a plain
-directory name). That view is the core's API, not the module wire schemas. A worktree a clone lists
+run view (`GET /flow-runs/{id}`, field `workPath`, which is present and `null` for a project whose name is not
+a plain directory name). That view is the core's API, not the module wire schemas. A worktree a clone lists
 counts as a flow run's only at the path the view gives that flow run, and a worktree anywhere else is
 never removed.
 
