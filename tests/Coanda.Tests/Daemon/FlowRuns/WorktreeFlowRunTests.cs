@@ -11,6 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Coanda.Modules.Software;
 using Coanda.Daemon.Modules;
 using Coanda.Core.Registry;
+using Coanda.Daemon.Store;
+using Fisher;
 using Microsoft.Extensions.Logging;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
@@ -401,6 +403,17 @@ public sealed class WorktreeFlowRunTests
             holder = (await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcelId)).Id, "paused")).Id;
             await FlowRunDriver.StopAsync(client, Project, holder, "Start again.");
             await FlowRunDriver.UntilAsync(() => failing.GitCalls.Any(c => c.StartsWith("worktree remove", StringComparison.Ordinal)), "the stop's delivery tried the removal");
+
+            // The feed's position is written past the stop before the daemon stops, so the next start does not deliver it again.
+            IDocumentStore store = first.Services.GetRequiredService<IDocumentStore>();
+            long head = await store.Database.FetchHighestEventSequenceNumber(None);
+            await FlowRunDriver.UntilAsync(
+                async () =>
+                {
+                    await using IQuerySession session = store.QuerySession(Tenants.Node);
+                    return (await session.LoadAsync<FeedPosition>(FeedPosition.IdOf(SoftwareSteps.Module), None))?.Sequence >= head;
+                },
+                "the feed has written its position past the stop");
             await first.StopAsync(None);
         }
 
