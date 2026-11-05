@@ -114,15 +114,24 @@ files are a wire format; SQLite is the truth. Events go on the wire once; there 
 and no transport bookkeeping events. Large artifacts (transcripts, logs, prompts, reports) are
 never events, only referenced. Messages between nodes are events in the same stream.
 
-Partial access inside a multi-repo project: every event carries the project's repos that carry
-it, a tag a module-owned field fills, or "project-wide" for membership, definitions, and decisions
-(decision f11d3247). The software engineering module fills the tag from the task type's
-module-owned repos field, and the core never computes it. Each repo's ref namespace carries the
-project-wide events plus the events whose tag names that repo; a node pushes to and imports from
-every repo of the project it holds, and the import's idempotency on origin plus sequence stores an
-event that arrives through two repos once (decision 1c6c858b). A teammate who holds one repo sees
-the project's membership, definitions, and decisions, and that repo's parcels, nothing else. The
-tag is filled in phase 3; multi-repo push and import arrive with multi-repo projects.
+Partial access inside a multi-repo project: every event carries a tag, either the names of the
+project's repos that carry it or "project-wide" (decision f11d3247). The tag comes from the field the
+parcel's type declares as its tag field, a module-owned text-list whose values are repo names (the
+software engineering module's task type marks its `repos` field), and it is read when the node
+exports the event. An event of a parcel's stream, or of the stream of one of that parcel's flow runs,
+carries the repo names the field holds at export, read from the field the type version the parcel was
+created under declares. A parcel whose type version declares no tag field, or whose field holds no
+value, is project-wide, and so is every event of no parcel: membership, definitions, decisions. A
+retag is not an event of its own: it is a field set on the tag field, and its line carries the union
+of the repos the field held before the set and those it holds at export, so the old repo set and the
+new one both carry it. The tag is inside the signed bytes, so the node keeps it with the line and
+never reads it again. Each repo's ref namespace carries the project-wide events plus the events whose
+tag names that repo; a node pushes to and imports from every repo of the project it holds, and the
+import's idempotency on origin plus sequence stores an event that arrives through two repos once
+(decision 1c6c858b). A teammate who holds one repo sees the project's membership, definitions, and
+decisions, and that repo's parcels, nothing else. In phase 3 every repo of a project carries the
+whole chain, tags included, since one chain per project cannot be verified from part of it; filtering
+by tag waits for multi-repo push and import, which arrive with multi-repo projects.
 
 A project's repos follow section 14.9. The rule: a node receives the events the repos it holds
 carry (decision f11d3247). The guidance (Brian, 2026-11-04): every member of a multi-repo project
@@ -130,11 +139,11 @@ holds every repo, even one they do not work in, unless they want none of its eve
 deferred to multi-repo push and import (decision f11d3247): forwarding, where a node holding
 several repos pushes into each the segments of other origins that repo lacks and whose tag admits,
 as the same signed bytes under the origin's own ref, with no envelope, the chain intact, and import
-unchanged. With it come a retag event, one event the author pushes to both the old and the new repo
-sets when a module narrows a parcel's repos, so a node losing sight of the parcel learns it moved
-rather than seeing it freeze, and an import that tolerates a parcel stream a node holds a prefix of,
-with surfaces showing the parcel as continuing in a repository this node does not hold. A dumb
-pass-through relay cannot give partial access without reading the tag or per-repo-set encryption;
+unchanged. A retag needs no event of its own there either: the field set that narrows a parcel's repos
+is tagged with the old and the new repos, so a node losing sight of the parcel learns it moved rather
+than seeing it freeze. With forwarding comes an import that tolerates a parcel stream a node holds a
+prefix of, with surfaces showing the parcel as continuing in a repository this node does not hold. A
+dumb pass-through relay cannot give partial access without reading the tag or per-repo-set encryption;
 that is a later reopening (section 14.9).
 
 Volume, from hall9k's own record: 62 MB raw over about 80 days across two nodes; about 12 MB per
@@ -168,6 +177,10 @@ A line is one JSON object on one line, UTF-8, with these members in this order a
 - `tag`: an array of the names of the repos that carry the event, in ordinal order with none
   repeated, or the string `"project-wide"`, which no array, an empty one included, can equal.
 - `stream`: the event's stream id.
+- `event`: the id the authoring node's store gave the event.
+- `recorded`: the time the authoring node's store recorded the event, in UTC, written
+  `yyyy-MM-ddTHH:mm:ss.fffffffZ` with every digit. With `stream` and `event`, it is what an importer
+  appends the event with, so it lands in the same stream as the same event.
 - `type`: the event's type name as the events table stores it (for example `definition_drafted`).
 - `data`: the event's data, exactly the JSON text the events table stores with only the whitespace
   outside its strings removed, so every number keeps its digits and every string its characters and
@@ -189,6 +202,26 @@ never truncated, of the whole line as written, signature included, without its l
 A node's identity is its node id, a UUIDv7, and its ed25519 key pair, made at the daemon's first start
 on a home and kept in the home's owner-only `node-identity.json`, never rewritten. A home holding part
 of one, or one that does not parse, is refused at start rather than given a second identity.
+
+The export (`Coanda.Daemon/Transport/LedgerExport.cs`). In each project tenant, never the node
+tenant, every event this node has not yet put on a line becomes the next line of its chain, in store
+order, with its data in this build's current shape: what the store's upgrades read (section 5's earlier
+shapes), a registration from before repos given its repo and none of the fields this build no longer
+reads, an event this build has no type for left unwritten, and a fork base in the earlier shape named by
+the name, module, module version, and content hash of the module-scope definition of its kind it
+resolves to on this node; a project whose fork base resolves to none stops exporting before that line
+and says why, and other projects still export. Each line is recorded in the store as it is written,
+with its origin, sequence, previous hash, tag, signature, hash, and segment, in a record an importer
+writes too for another origin's lines; an event the store records on any origin's line is never written
+again. The files are one per UTC month of the recorded time (or the month of the line before, when a
+clock stepped back across a month's end), `yyyy-MM.jsonl` on `refs/coanda/nodes/<node-id>` in every
+clone of the project, made from those records each time the chain grows, so a ref deleted or rewound in
+a clone is written again byte for byte. A push sends that ref alone, only when every file the remote's
+ref holds is a prefix of this node's file of the same name, and leased on the commit the remote was
+seen at, so a ref rebuilt with no shared history still pushes and no line the remote holds is removed
+or changed. A failed push is logged and tried again the next round. The daemon exports every 15
+seconds, and a command that must publish before it answers asks the export for one project at once. A
+store that exported under one node id exports nothing under another.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
@@ -312,7 +345,9 @@ saved for later. A parcel with a live flow run, running or paused, is closed by 
 by that flow run's own steps; a person stops the flow run (`coa flow-run stop`) before moving or closing the
 parcel. The words idea and task survive as type names; nobody relearns hall9k's vocabulary. The
 task type also carries a repos field the module owns and sets outside any dispatch (decision
-09a3372e), and that field is what fills the event tag of section 6 (decision f11d3247). Nothing
+09a3372e), and marks it as the type's tag field, which the core reads at export to tag the parcel's
+events (section 6, decision f11d3247). A type marks at most one tag field, and only a module-owned
+text-list; a type that marks none tags its parcels project-wide. Nothing
 software-specific (branch, worktree, the build-and-test gates step, PR) leaks into the meta-model or
 the interpreter; those are fields of the software engineering module's types and its system steps
 (decision 269e586e).
@@ -614,7 +649,8 @@ What the role allows:
 - **Module-owned fields.** A type a module ships may declare fields the module owns; the module may
   set those on any parcel in a project it is switched on for, with no dispatch. This is how inbound
   sync (a Jira title changes, the parcel's field follows) and the software task type's repos field
-  work. The repos field is what the core reads to fill the replication tag (14.9).
+  work. The repos field is the task type's tag field, which the core reads to tag a parcel's events
+  for replication (14.9).
 - **Its own settings**, set and shown, in two scopes (14.6).
 
 What it refuses: parcel add, move, and close; flow run start, resume, and stop; definition publish;
@@ -778,8 +814,11 @@ of it. Section 6's rules hold: each repo's ref namespace carries the project-wid
 imports from every repo it holds; import is idempotent on origin plus sequence, so an event that
 arrives through two repos is stored once. An archived or removed repo loses nothing project-wide,
 and a node regenerates that repo's own events to any destination from its own table: move before you
-archive. The tag on an event is the project's repos that carry it, and the software module fills it
-from the task type's module-owned repos field; the core never computes it.
+archive. The tag on an event holds repo names, read at export from the field the parcel's type
+declares as its tag field (the software module's task type marks its module-owned `repos` field); a
+parcel with no value in it, and every event of no parcel, is project-wide. A retag is a field set on
+the tag field, not an event of its own, and carries the union of the old and the new repos. In phase 3
+every repo of a project carries the whole chain until multi-repo push filters by tag.
 
 Section 6 carries this in its repos paragraph. The rule: a node receives the events the repos it
 holds carry. The guidance (Brian, 2026-11-04): every member of a multi-repo project holds every
@@ -787,10 +826,10 @@ repo, even one they do not work in, unless they want none of its events. The int
 where section 6 already places multi-repo push and import: forwarding, where a node holding several
 repos pushes into each the segments of other origins that repo lacks and whose tag admits, as the
 same signed bytes under the origin's own ref, with no envelope, the chain intact, and import
-unchanged. With it come a retag event, one event the author pushes to both the old and the new repo
-sets when a module narrows a parcel's repos, so a node losing sight of the parcel learns it moved
-rather than seeing it freeze, and an import that tolerates a parcel stream a node holds a prefix of,
-with surfaces showing the parcel as continuing in a repository this node does not hold. A dumb
+unchanged. The field set that narrows a parcel's repos is tagged with the old and the new repos, so
+forwarding pushes it to both sets and a node losing sight of the parcel learns it moved rather than
+seeing it freeze. With forwarding comes an import that tolerates a parcel stream a node holds a prefix
+of, with surfaces showing the parcel as continuing in a repository this node does not hold. A dumb
 pass-through relay cannot give partial access without reading the tag or per-repo-set encryption;
 that is a later reopening.
 
@@ -858,8 +897,10 @@ model changes come first and the transport waits.
    project reduced to a name plus a repos list land with it; the schemas are written and the SDK
    checked; the two tests exist. The work path, worktree release through the feed, and the
    module-owned repos field are answered in this code.
-2. Phase 3 fills the event tag from the repos field, as section 6's repos paragraph describes; the
-   retag event's shape is in code; forwarding is deferred to multi-repo push and import.
+2. Phase 3 tags each event at export from the field the parcel's type declares as its tag field, the
+   task type's repos field, as section 6's repos paragraph describes; a retag is a field set on that
+   field, tagged with the old and the new repos, not an event of its own; every repo of a project
+   carries the whole chain, and forwarding is deferred to multi-repo push and import.
 3. Phase 4 does the trigger-model work: triggers as definitions a module ships, a trigger that
    targets the parcel an event names, the external id with idempotent event recording, a matching
    event resuming a waiting step; the in-process module reports events through watch requests.
