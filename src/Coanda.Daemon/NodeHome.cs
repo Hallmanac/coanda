@@ -62,20 +62,6 @@ public sealed record NodeHome(string Path)
     public string ClonesPath => System.IO.Path.Combine(Path, "clones");
 
     /// <summary>
-    /// The node's one clone of the project's repository, which every flow run's worktree in the project
-    /// is cut from: <c>clones/&lt;project&gt;/repo.git</c> under the home. The project must be a plain
-    /// directory name, as for <see cref="FlowRunWorkPath"/>.
-    /// </summary>
-    public string ProjectClonePath(string project) =>
-        System.IO.Path.Combine(ClonesPath, RequirePlain(project, "clone of its repository"), "repo.git");
-
-    /// <summary>
-    /// Where the project's clone is made before it is moved to <see cref="ProjectClonePath"/>, beside
-    /// it, so a clone ended part way never sits at the clone's path.
-    /// </summary>
-    public string ProjectClonePartialPath(string project) => ProjectClonePath(project) + ".partial";
-
-    /// <summary>
     /// Where the transcripts of a flow run's sessions are kept: <c>transcripts/&lt;project&gt;/&lt;flow run id&gt;</c>
     /// under the home, outside the flow run's work directory, so a session never finds them among its
     /// files. The project must be a plain directory name, as for <see cref="FlowRunWorkPath"/>.
@@ -108,8 +94,8 @@ public sealed record NodeHome(string Path)
             : throw new DomainException($"{flowRunWorkPath} is not a flow run's working directory under the node home {Path}, so it has no transcript directory.");
     }
 
-    /// <summary>Whether the project's name is a plain directory name, which is what gives its flow runs work paths and a clone under the home.</summary>
-    public static bool IsPlain(string project) =>
+    /// <summary>Whether the project's name is a plain directory name, which is what gives its flow runs work paths and transcript directories under the home.</summary>
+    private static bool IsPlain(string project) =>
         project is not ("" or "." or "..")
             && project.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0
             && project.IndexOfAny(['/', '\\']) < 0;

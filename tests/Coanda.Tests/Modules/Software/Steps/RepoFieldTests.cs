@@ -165,7 +165,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
         JsonElement opened = JsonSerializer.SerializeToElement(new { verdict = "opened", systemStep = SoftwareSteps.OpenPr, number = 17, url = "https://github.com/example/repo/pull/17", head = ScriptedCommandRunner.PrimaryHead });
         await node.FlowRuns.RecordResultAsync(Principal.LocalOwner, "unchecked", rebasing.Id, "open-pr", SoftwareSteps.OpenPr, opened, None);
         await node.FlowRuns.StartStepAsync(Principal.LocalOwner, "unchecked", rebasing.Id, "rebase", None);
-        string clone = node.Home.ProjectClonePath("unchecked");
+        string clone = node.Home.Clones().ProjectClonePath("unchecked");
         string branch = ProjectClones.BranchOf(task.Id);
         runner.AddWorktree(clone, node.Home.FlowRunWorkPath("unchecked", rebasing.Id), branch, ScriptedCommandRunner.PrimaryHead);
         runner.SetRemoteBranch(clone, branch, ScriptedCommandRunner.PrimaryHead);

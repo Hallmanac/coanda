@@ -59,7 +59,7 @@ public sealed class RebaseStepTests : IAsyncLifetime
     private ParcelService parcels = null!;
     private FlowRunService flowRuns = null!;
 
-    private string Clone => node.Home.ProjectClonePath(Project);
+    private string Clone => node.Home.Clones().ProjectClonePath(Project);
 
     private static string Rebased => ScriptedCommandRunner.RebasedOnto(Recorded, ScriptedCommandRunner.PrimaryHead);
 

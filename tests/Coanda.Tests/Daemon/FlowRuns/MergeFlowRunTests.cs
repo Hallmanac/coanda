@@ -283,7 +283,7 @@ public sealed class MergeFlowRunTests
 
         await FlowRunDriver.StopAsync(harness.Client, Project, merge.Id, "resolving the conflict by hand");
         await FlowRunDriver.UntilAsync(harness.Client, Project, merge.Id, "stopped");
-        string clone = harness.Home.ProjectClonePath(Project);
+        string clone = harness.Home.Clones().ProjectClonePath(Project);
         await FlowRunDriver.UntilAsync(() => !runner.Worktrees(clone).Any(), "the stopped merge flow run's worktree is removed");
         runner.ConflictOnRebase();
         runner.AddBranch(clone, pr.Branch, ByHand);
@@ -591,7 +591,7 @@ public sealed class MergeFlowRunTests
         public async Task<(FlowRunView Build, FlowRunView Merge)> BuildThenMergeAsync(string title, string status, RemotePullRequest? pullRequest = null)
         {
             ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(Client, Project, title);
-            pullRequest?.Track(Home.ProjectClonePath(Project), parcel.Id);
+            pullRequest?.Track(Home.Clones().ProjectClonePath(Project), parcel.Id);
             FlowRunView build = await FlowRunDriver.BoundAsync(Client, Project, parcel.Id);
             build = await FlowRunDriver.UntilAsync(Client, Project, build.Id, "ended");
             FlowRunView merge = await FlowRunDriver.FollowerAsync(Client, Project, parcel.Id, build.Id, "merge");

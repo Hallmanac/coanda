@@ -52,7 +52,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     private ParcelService parcels = null!;
     private FlowRunService flowRuns = null!;
 
-    private string Clone => node.Home.ProjectClonePath(Project);
+    private string Clone => node.Home.Clones().ProjectClonePath(Project);
 
     public async Task InitializeAsync()
     {
@@ -71,7 +71,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
         Guid flowRunId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         string workPath = node.Home.FlowRunWorkPath(Project, flowRunId);
-        string partial = node.Home.ProjectClonePartialPath(Project);
+        string partial = node.Home.Clones().ProjectClonePartialPath(Project);
 
         JsonElement result = Done(await DispatchAsync(parcelId, flowRunId));
 
@@ -515,7 +515,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     [Fact]
     public async Task A_temporary_clone_an_earlier_clone_left_part_way_is_deleted_before_the_next_clone_starts()
     {
-        string partial = node.Home.ProjectClonePartialPath(Project);
+        string partial = node.Home.Clones().ProjectClonePartialPath(Project);
         Directory.CreateDirectory(Path.Combine(partial, "objects"));
         await File.WriteAllTextAsync(Path.Combine(partial, "objects", "half"), "left by a clone ended part way", None);
         runner.On(c => c.IsGit("init"), (command, _) =>

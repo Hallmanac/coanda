@@ -63,10 +63,9 @@ public sealed class UnprefixedStepTests
         var paths = new ClonePaths(home.ClonesPath, home.WorkPath);
         Guid flowRunId = Ids.New();
 
-        Assert.Equal(home.ProjectClonePath(Project), paths.ProjectClonePath(Project));
-        Assert.Equal(home.ProjectClonePartialPath(Project), paths.ProjectClonePartialPath(Project));
         Assert.Equal(home.FlowRunWorkPath(Project, flowRunId), paths.FlowRunWorkPath(Project, flowRunId));
         Assert.Equal(Path.Combine(home.Path, "clones", Project, "repo.git"), paths.ProjectClonePath(Project));
+        Assert.Equal(Path.Combine(home.Path, "clones", Project, "repo.git.partial"), paths.ProjectClonePartialPath(Project));
         Assert.Equal(Path.Combine(home.Path, "work", Project, flowRunId.ToString()), paths.FlowRunWorkPath(Project, flowRunId));
     }
 
@@ -166,7 +165,7 @@ public sealed class UnprefixedStepTests
         Parcel parcel = await node.TaskAsync("Rebase me");
         Guid flowRunId = await RecordedAsync(node, parcel.Id, "open-pr", Recorded);
         await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRunId, "rebase", None);
-        string clone = node.Home.ProjectClonePath(Project);
+        string clone = node.Home.Clones().ProjectClonePath(Project);
         string branch = ProjectClones.BranchOf(parcel.Id);
         runner.AddBranch(clone, branch, Recorded);
         runner.AddWorktree(clone, node.Home.FlowRunWorkPath(Project, flowRunId), branch, Recorded);
@@ -189,7 +188,7 @@ public sealed class UnprefixedStepTests
         var runner = new ScriptedCommandRunner();
         await using SoftwareNode node = await LegacyNodeAsync(runner);
         Parcel parcel = await node.TaskAsync("Check me out");
-        string clone = node.Home.ProjectClonePath(Project);
+        string clone = node.Home.Clones().ProjectClonePath(Project);
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid earlier = Ids.New();
         await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, earlier);

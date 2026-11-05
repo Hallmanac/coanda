@@ -43,7 +43,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     private ParcelService parcels = null!;
     private ProjectService projects = null!;
 
-    private string Clone => node.Home.ProjectClonePath(Project);
+    private string Clone => node.Home.Clones().ProjectClonePath(Project);
 
     public async Task InitializeAsync() => await StartAsync();
 
