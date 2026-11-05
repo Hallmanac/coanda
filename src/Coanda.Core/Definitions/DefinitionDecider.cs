@@ -87,9 +87,9 @@ public static class DefinitionDecider
     /// <paramref name="moduleVersion"/>: the drafted and published events together, in module scope,
     /// carrying the module's name and version. The only road into that scope. <paramref name="held"/>
     /// is every module-scope definition of the same kind and name the store holds, of any module: the
-    /// import is refused when another module's is among them, is null when the highest of the module's
-    /// own versions already has the content hash, and is otherwise the next version after the highest of
-    /// them, so content an earlier version held governs again when a later module version brings it back. Each
+    /// import is refused when another module's is among them, is null when any of the module's own
+    /// versions already has the content hash, as seeding did, and is otherwise the next version after
+    /// the highest of them. Each
     /// definition passes the validation a draft of no project does: a parcel type is validated against
     /// <paramref name="knownGates"/>, the gates the daemon runs (the shipped gate set's when null), and
     /// may name only its own module as a field's owner; a flow is validated against
@@ -121,8 +121,7 @@ public static class DefinitionDecider
                 $"Module '{module}' brings the {Describe(definition.Kind)} '{definition.Name}', which module '{other.Module}' already brought; a definition's name is held by one module in module scope.");
         }
 
-        if (versions.MaxBy(d => d.VersionNumber) is { } latest
-            && string.Equals(latest.ContentHash, definition.ContentHash, StringComparison.Ordinal))
+        if (versions.Any(d => string.Equals(d.ContentHash, definition.ContentHash, StringComparison.Ordinal)))
         {
             return null;
         }
