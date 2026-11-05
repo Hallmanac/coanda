@@ -40,8 +40,14 @@ public sealed record NodeHome(string Path)
     /// <summary>The files SQLite keeps beside the database: the write-ahead log, the shared-memory file, and the rollback journal.</summary>
     public IReadOnlyList<string> DatabaseCompanionPaths => [DatabasePath + "-wal", DatabasePath + "-shm", DatabasePath + "-journal"];
 
+    /// <summary>
+    /// The file a daemon holds locked from the start of its start until it stops, and a record export or
+    /// rebuild holds while it runs (<see cref="HomeLock"/>). It holds nothing.
+    /// </summary>
+    public string LockPath => System.IO.Path.Combine(Path, "home.lock");
+
     /// <summary>Every file in the home that only its owner may read or write.</summary>
-    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath, NodeIdentityPath];
+    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath, NodeIdentityPath, LockPath];
 
     /// <summary>
     /// The module area: <c>modules-private/</c> under the home, holding one directory per module, each

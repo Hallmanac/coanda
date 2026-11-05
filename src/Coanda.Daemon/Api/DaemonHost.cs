@@ -50,9 +50,28 @@ public sealed class DaemonHost
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.AgentStepLimit, TimeSpan.Zero, nameof(options));
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.GatesCommandLimit, TimeSpan.Zero, nameof(options));
-        // Narrows what an earlier run left wider and creates the database owner-only, before the
+
+        // Narrows what an earlier run left wider, then takes the home's lock before anything touches the
+        // database, holding it until the daemon stops, so a record export or rebuild never runs beside a
+        // daemon, even one still starting.
+        home.EnsureExists();
+        HomeLock homeLock = HomeLock.Take(home, "the daemon");
+        try
+        {
+            return await StartLockedAsync(home, port, options, homeLock, cancellationToken);
+        }
+        catch
+        {
+            homeLock.Dispose();
+            throw;
+        }
+    }
+
+    private static async Task<RunningDaemon> StartLockedAsync(NodeHome home, int port, DaemonOptions options, HomeLock homeLock, CancellationToken cancellationToken)
+    {
+        // The home was narrowed before the lock was taken; the database is created owner-only before the
         // check below or the store opens it.
-        home.EnsureExists().EnsureDatabase();
+        home.EnsureDatabase();
         // Made at the first start on a home and read at every later one; a home holding part of one is refused here.
         NodeIdentity identity = await NodeIdentity.EnsureAsync(home, cancellationToken);
         string[] moduleAreas = [SoftwareSteps.Module, .. options.Modules.Keys, .. options.ModuleSettingsSchemas?.Modules ?? []];
@@ -245,9 +264,13 @@ public sealed class DaemonHost
 
         var info = new DaemonInfo(Environment.ProcessId, boundPort, token, startedAt, Version);
         info.Save(home);
-        app.Lifetime.ApplicationStopped.Register(() => DaemonInfo.Delete(home));
+        app.Lifetime.ApplicationStopped.Register(() =>
+        {
+            DaemonInfo.Delete(home);
+            homeLock.Dispose();
+        });
 
-        return new RunningDaemon(app, info);
+        return new RunningDaemon(app, info, homeLock);
     }
 
     /// <summary>
@@ -280,7 +303,7 @@ public sealed class DaemonHost
     }
 }
 
-public sealed class RunningDaemon(WebApplication app, DaemonInfo info) : IAsyncDisposable
+public sealed class RunningDaemon(WebApplication app, DaemonInfo info, HomeLock homeLock) : IAsyncDisposable
 {
     public DaemonInfo Info { get; } = info;
 
@@ -291,5 +314,16 @@ public sealed class RunningDaemon(WebApplication app, DaemonInfo info) : IAsyncD
 
     public async Task StopAsync(CancellationToken cancellationToken) => await app.StopAsync(cancellationToken);
 
-    public async ValueTask DisposeAsync() => await app.DisposeAsync();
+    /// <summary>Disposes the daemon, then releases the home's lock it held from the start of its start.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await app.DisposeAsync();
+        }
+        finally
+        {
+            homeLock.Dispose();
+        }
+    }
 }
