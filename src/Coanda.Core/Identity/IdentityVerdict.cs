@@ -11,6 +11,7 @@ public sealed class IdentityVerdict
     private readonly Acts acts;
     private readonly TrustGraph trust;
     private readonly IReadOnlyDictionary<string, List<string>> namers;
+    private readonly IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, Nomination>> nominations;
 
     private IdentityVerdict(
         string trustedRoot,
@@ -18,7 +19,8 @@ public sealed class IdentityVerdict
         IReadOnlyList<RankedKey> rootSet,
         Acts acts,
         TrustGraph trust,
-        IReadOnlyDictionary<string, List<string>> namers)
+        IReadOnlyDictionary<string, List<string>> namers,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, Nomination>> nominations)
     {
         this.trustedRoot = trustedRoot;
         this.rootNodes = rootNodes;
@@ -26,6 +28,7 @@ public sealed class IdentityVerdict
         this.acts = acts;
         this.trust = trust;
         this.namers = namers;
+        this.nominations = nominations;
     }
 
     /// <summary>Whether the records hold a root record signed by the trusted root key.</summary>
@@ -35,18 +38,19 @@ public sealed class IdentityVerdict
     public IReadOnlyList<RankedKey> RootSet { get; }
 
     internal static IdentityVerdict WithoutRoot(string trustedRoot) =>
-        new(trustedRoot, [], [], new Acts(), TrustGraph.Compute([], [], new Acts()), new Dictionary<string, List<string>>());
+        new(trustedRoot, [], [], new Acts(), TrustGraph.Compute([], [], new Acts()), new Dictionary<string, List<string>>(), NoNominations);
 
     internal static IdentityVerdict WithConflictedRoot(string trustedRoot, IReadOnlyList<Guid> rootNodes, TrustGraph trust) =>
-        new(trustedRoot, rootNodes, [], new Acts(), trust, new Dictionary<string, List<string>>());
+        new(trustedRoot, rootNodes, [], new Acts(), trust, new Dictionary<string, List<string>>(), NoNominations);
 
     internal static IdentityVerdict Settled(
         string trustedRoot,
         IReadOnlyList<RankedKey> rootSet,
         Acts acts,
         TrustGraph trust,
-        IReadOnlyDictionary<string, List<string>> namers) =>
-        new(trustedRoot, [rootSet[0].NodeId], [.. rootSet], acts, trust, namers);
+        IReadOnlyDictionary<string, List<string>> namers,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, Nomination>> nominations) =>
+        new(trustedRoot, [rootSet[0].NodeId], [.. rootSet], acts, trust, namers, nominations);
 
     /// <summary>Whether <paramref name="key"/> may sign for the origin <paramref name="origin"/>, and when it may not, why.</summary>
     public SigningAnswer MaySign(string key, Guid origin) =>
@@ -80,8 +84,16 @@ public sealed class IdentityVerdict
                 .Select(a => (MemberRole?)a.Role)
                 .FirstOrDefault();
 
-    /// <summary>The key a counting vouch gives <paramref name="nodeId"/>, if one does.</summary>
-    public string? VouchedKeyOf(Guid nodeId) => trust.VouchedKeyOf(nodeId);
+    /// <summary>
+    /// What the live root-set key <paramref name="namer"/> may name for <paramref name="nodeId"/>: the key
+    /// a counting vouch from a root-set key at or above its rank gives that node, and whether naming that
+    /// pairing counts. Null when no such vouch gives the node a key, or <paramref name="namer"/> is not a
+    /// live root-set key.
+    /// </summary>
+    internal Nomination? NominationOf(string namer, Guid nodeId) =>
+        nominations.TryGetValue(namer, out IReadOnlyDictionary<Guid, Nomination>? nameable)
+            ? nameable.GetValueOrDefault(nodeId)
+            : null;
 
     /// <summary>The live root-set keys whose successor naming of <paramref name="key"/> counts.</summary>
     public IReadOnlyList<string> NamersOf(string key) =>
@@ -92,4 +104,7 @@ public sealed class IdentityVerdict
     /// <summary>Whether a counting rotation already supersedes <paramref name="key"/>: some live root-set key ranks one below it.</summary>
     public bool IsSuperseded(string key) =>
         RankOf(key) is int rank && RootSet.Any(k => k.Rank == rank + 1);
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, Nomination>> NoNominations { get; } =
+        new Dictionary<string, IReadOnlyDictionary<Guid, Nomination>>();
 }
