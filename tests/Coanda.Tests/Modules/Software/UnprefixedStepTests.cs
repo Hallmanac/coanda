@@ -30,9 +30,9 @@ namespace Coanda.Tests.Modules.Software;
 /// What a node home written before the software module was carved out holds keeps working: its clones
 /// and work paths are where the module looks, the branch, owner, and note names come out the same, and
 /// a flow run that started under a flow version naming the software steps without the prefix runs them
-/// on the module, reads the heads they recorded under those names, and writes the pull request field.
-/// Each starts from what main writes today: flows naming the unprefixed steps, and the steps their flow
-/// runs record under those names.
+/// on the module, reads the heads they recorded, and writes the pull request field. Such a flow version
+/// keeps its content and hash, while every step its flow runs record from this build on, and every
+/// visit an earlier build recorded, reads by the step's prefixed name.
 /// </summary>
 public sealed class UnprefixedStepTests
 {
@@ -94,7 +94,9 @@ public sealed class UnprefixedStepTests
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         Assert.Equal(PreviousFlows.Build.Hash, ended.FlowHash);
-        Assert.Equal(["worktree", "gates", "open-pr"], ended.Steps.Where(s => s.Kind == "system-step" && s.Performer != CoreSystemSteps.MoveParcel).Select(s => s.Performer));
+        Assert.Equal(
+            [SoftwareSteps.Worktree, SoftwareSteps.Gates, SoftwareSteps.OpenPr],
+            ended.Steps.Where(s => s.Kind == "system-step" && s.Performer != CoreSystemSteps.MoveParcel).Select(s => s.Performer));
         Assert.Equal(OpenPrStep.OpenedVerdict, ended.Steps.Single(s => s.Step == "open-pr").Result?.GetProperty("verdict").GetString());
         ParcelView shown = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
         Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), shown.Fields.Single(f => f.Name == TaskFields.PullRequest).Value?.Reference);
@@ -108,21 +110,28 @@ public sealed class UnprefixedStepTests
         using var temp = new TemporaryHome();
         Guid flowRunId;
         Guid dispatchId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.EnsureExists().EnsureDatabase().DatabasePath, SoftwareDefinitions.All))
+        int seeded;
+        string database = temp.Home.EnsureExists().EnsureDatabase().DatabasePath;
+        await using (IDocumentStore store = await SeededStore.OpenAsync(database, SoftwareDefinitions.All))
         {
-            // What main leaves when its daemon stops while the worktree step of a build flow run is dispatched.
+            // What main leaves when its daemon stops while the worktree step of a build flow run is dispatched,
+            // appended as main appended it rather than through this build's flow run service.
             await RegisteredProjects.AddAsync(store, Project, None);
             await PreviousFlows.PublishAsync(store, Project, PreviousFlows.Build);
             var parcels = new ParcelService(store, TimeProvider.System);
             Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Interrupted", null, None);
             await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, pullRequest: false, cancellationToken: None);
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
-            var flowRuns = new FlowRunService(store, TimeProvider.System);
-            FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, PreviousFlows.Build.Name, None);
-            FlowRun dispatched = await flowRuns.DispatchedAsync(Principal.LocalOwner, Project, started.Id, "worktree", None);
-            flowRunId = started.Id;
-            dispatchId = dispatched.Current?.DispatchId ?? throw new InvalidOperationException("No dispatch was recorded.");
-            Assert.Equal("worktree", dispatched.Current.Performer);
+            (flowRunId, dispatchId) = await EarlierFlowRuns.DispatchedAsync(store, Project, parcel.Id, None);
+            seeded = EarlierFlowRuns.Rows(database, flowRunId).Count;
+            Assert.Equal(["worktree", "worktree"], EarlierFlowRuns.Rows(database, flowRunId).Select(EarlierFlowRuns.SystemStepOf));
+
+            // Read from the stored document and by replaying the stream, the visit names the step prefixed.
+            await using IQuerySession session = store.QuerySession(Project);
+            FlowRun stored = await session.LoadAsync<FlowRun>(flowRunId, None) ?? throw new InvalidOperationException("The flow run has no document.");
+            FlowRun replayed = await session.Events.AggregateStreamAsync<FlowRun>(flowRunId, token: None) ?? throw new InvalidOperationException("The flow run has no events.");
+            Assert.Equal((SoftwareSteps.Worktree, dispatchId), (stored.Current?.Performer, stored.Current?.DispatchId));
+            Assert.Equal((SoftwareSteps.Worktree, dispatchId), (replayed.Current?.Performer, replayed.Current?.DispatchId));
         }
 
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
@@ -131,11 +140,19 @@ public sealed class UnprefixedStepTests
         FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
 
         FlowRunStepView worktree = ended.Steps.First(s => s.Step == "worktree");
-        Assert.Equal("worktree", worktree.Performer);
+        Assert.Equal(SoftwareSteps.Worktree, worktree.Performer);
         Assert.Equal(Results.DoneVerdict, worktree.Result?.GetProperty("verdict").GetString());
         FlowRun recorded = await new FlowRunService(Store(daemon), TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowRunId, None)
             ?? throw new InvalidOperationException("The flow run is gone.");
         Assert.Equal(dispatchId, recorded.Steps.First(s => s.Step == "worktree").DispatchId);
+
+        // The seed's rows are as main wrote them, and every row the daemon appended names a system step by its current name.
+        IReadOnlyList<StoredRow> rows = EarlierFlowRuns.Rows(database, flowRunId);
+        Assert.Equal(["worktree", "worktree"], rows.Take(seeded).Select(EarlierFlowRuns.SystemStepOf));
+        IReadOnlyList<string?> appended = [.. rows.Skip(seeded).Select(EarlierFlowRuns.SystemStepOf).OfType<string>()];
+        Assert.Contains(SoftwareSteps.Worktree, appended);
+        Assert.DoesNotContain(appended, step => SoftwareSteps.Unprefixed.Contains(step));
+        Assert.Equal(SoftwareSteps.Worktree, EarlierFlowRuns.SystemStepOf(rows.Skip(seeded).First(r => r.Type == "system_step_completed")));
 
         await daemon.StopAsync(None);
     }
@@ -251,7 +268,7 @@ public sealed class UnprefixedStepTests
         return node;
     }
 
-    /// <summary>Starts a flow run of <see cref="Recorder"/> on the parcel, records a result of <paramref name="step"/> carrying <paramref name="head"/> under the step's unprefixed name, and gives its id.</summary>
+    /// <summary>Starts a flow run of <see cref="Recorder"/> on the parcel, records a result of <paramref name="step"/> carrying <paramref name="head"/> given under the step's unprefixed name, and gives its id.</summary>
     private static async Task<Guid> RecordedAsync(SoftwareNode node, Guid parcelId, string step, string head)
     {
         FlowRun started = await node.FlowRuns.StartAsync(Principal.LocalOwner, Project, parcelId, Recorder.Name, None);
@@ -263,7 +280,7 @@ public sealed class UnprefixedStepTests
     {
         JsonElement result = JsonSerializer.SerializeToElement(new { verdict = step == "open-pr" ? "opened" : "done", systemStep = step, number = 17, url = FakeGitHub.Url, head });
         FlowRun recorded = await node.FlowRuns.RecordResultAsync(Principal.LocalOwner, Project, flowRunId, step, step, result, None);
-        Assert.Equal(step, recorded.Steps.Last(s => s.Step == step).Performer);
+        Assert.Equal(SoftwareSteps.Canonical(step), recorded.Steps.Last(s => s.Step == step).Performer);
     }
 
     /// <summary>Starts a flow run of <paramref name="flow"/> on the parcel, moves it into <paramref name="step"/>, and records a dispatch it then holds.</summary>

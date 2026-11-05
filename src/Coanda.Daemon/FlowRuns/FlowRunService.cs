@@ -69,8 +69,9 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         await using IDocumentSession session = store.LightweightSession(tenant);
         var parcelStream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parcelId, tenant);
-        (FlowRunStarted started, ParcelFlowRunAttached attached) =
+        (FlowRunStarted decided, ParcelFlowRunAttached attached) =
             FlowRunDecider.Start(flow, published.VersionNumber, parcel, principal.Id, clock.GetUtcNow());
+        FlowRunStarted started = EarlierRecords.Current(decided);
         parcelStream.AppendOne(attached);
         session.Events.StartStream<FlowRun>(started.FlowRunId, started);
         await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
@@ -97,8 +98,9 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         FlowRun parent = await session.LoadAsync<FlowRun>(parentFlowRunId, cancellationToken) ?? throw FlowRunNotFound(parentFlowRunId, tenant);
         var parcelStream = await session.Events.FetchForWriting<Parcel>(parent.ParcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parent.ParcelId, tenant);
-        (FlowRunStarted started, ParcelFlowRunAttached attached) =
+        (FlowRunStarted decided, ParcelFlowRunAttached attached) =
             FlowRunDecider.Follow(flow, published.VersionNumber, parcel, parent, principal.Id, clock.GetUtcNow());
+        FlowRunStarted started = EarlierRecords.Current(decided);
         parcelStream.AppendOne(attached);
         session.Events.StartStream<FlowRun>(started.FlowRunId, started);
         await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
@@ -173,11 +175,16 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             (flowRun, recorded) => flowRun.Apply(recorded),
             cancellationToken);
 
+    /// <summary>
+    /// Records the result <paramref name="systemStep"/> returned for the step <paramref name="step"/>; one of
+    /// the five steps an earlier flow version names unprefixed is recorded by its prefixed name
+    /// (<see cref="EarlierRecords.CurrentStepName"/>), as the visit reads it.
+    /// </summary>
     public Task<FlowRun> RecordResultAsync(
         Principal principal, string project, Guid flowRunId, string step, string systemStep, JsonElement result, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.result", principal, project, flowRunId,
-            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, systemStep, result, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, EarlierRecords.CurrentStepName(systemStep), result, clock.GetUtcNow()),
             (flowRun, completed) => flowRun.Apply(completed),
             cancellationToken);
 
@@ -438,7 +445,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 FlowRun flowRun = stream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
                 RequireBoundLaunch(principal, flowRun);
                 Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
-                TEvent recorded = decide(flow, flowRun);
+                TEvent recorded = EarlierRecords.Current(decide(flow, flowRun));
                 stream.AppendOne(recorded);
                 await session.SaveChangesAsync(token);
 

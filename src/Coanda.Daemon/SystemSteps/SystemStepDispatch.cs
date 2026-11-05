@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
+using Coanda.Daemon.Store;
 using Coanda.Sdk.Contract;
 
 namespace Coanda.Daemon.SystemSteps;
@@ -37,10 +38,10 @@ public sealed record SystemStepDispatch(
 
     /// <summary>
     /// The module API's dispatch request for this dispatch: ids and the step's arguments only, with
-    /// the system step's name as the step a module's describe lists, prefixed when the flow names one of
-    /// the five steps the binary shipped unprefixed. The principal, the flow, and the flow step's own
+    /// the system step's name as the step a module's describe lists, prefixed when an earlier flow version
+    /// names one of the five steps unprefixed (<see cref="EarlierRecords.CurrentStepName"/>). The principal, the flow, and the flow step's own
     /// name stay with the daemon.
     /// </summary>
     public DispatchRequest ToContract() =>
-        new(Project, ParcelId, FlowRunId, UnprefixedSteps.Canonical(SystemStep), Visit, DispatchId, Resumed, WorkPath, Arguments);
+        new(Project, ParcelId, FlowRunId, EarlierRecords.CurrentStepName(SystemStep), Visit, DispatchId, Resumed, WorkPath, Arguments);
 }

@@ -17,7 +17,7 @@ namespace Coanda.Tests.Daemon;
 /// <summary>
 /// A node home main wrote at e86428f, the commit this change started from, begins and reads normally:
 /// its definitions were recorded in shipped scope, and they read as module-scope definitions of the
-/// software module at version 0.1.0 (<see cref="EarlierShippedRecords"/>), resolve as they did, and
+/// software module at version 0.1.0 (<see cref="EarlierRecords"/>), resolve as they did, and
 /// lose nothing. The fixture is that home's database as <c>sqlite3 .dump</c> wrote it. Main seeded it
 /// over a store holding the build flow as the last build before the step prefix shipped it, so the
 /// build flow is at version 2; then it registered alpha, published in alpha a fork of build version 2

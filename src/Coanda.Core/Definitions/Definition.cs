@@ -10,9 +10,6 @@ namespace Coanda.Core.Definitions;
 /// </summary>
 public sealed class Definition
 {
-    private string? module;
-    private string? moduleVersion;
-
     [JsonInclude]
     public Guid Id { get; private set; }
     [JsonInclude]
@@ -40,27 +37,13 @@ public sealed class Definition
     [JsonInclude]
     public ForkBase? ForkBase { get; private set; }
 
-    /// <summary>
-    /// The module a module-scope definition was imported from; null in any other scope. A record
-    /// written before module scope names none, and reads as <see cref="EarlierShippedRecords.Module"/>.
-    /// </summary>
+    /// <summary>The module a module-scope definition was imported from; null in any other scope.</summary>
     [JsonInclude]
-    public string? Module
-    {
-        get => module ?? (Scope == DefinitionScope.Module ? EarlierShippedRecords.Module : null);
-        private set => module = value;
-    }
+    public string? Module { get; private set; }
 
-    /// <summary>
-    /// The version of <see cref="Module"/> a module-scope definition was imported from; null in any other
-    /// scope. A record written before module scope names none, and reads as <see cref="EarlierShippedRecords.Version"/>.
-    /// </summary>
+    /// <summary>The version of <see cref="Module"/> a module-scope definition was imported from; null in any other scope.</summary>
     [JsonInclude]
-    public string? ModuleVersion
-    {
-        get => moduleVersion ?? (Scope == DefinitionScope.Module ? EarlierShippedRecords.Version : null);
-        private set => moduleVersion = value;
-    }
+    public string? ModuleVersion { get; private set; }
     [JsonInclude]
     public string DraftedBy { get; private set; } = string.Empty;
     [JsonInclude]

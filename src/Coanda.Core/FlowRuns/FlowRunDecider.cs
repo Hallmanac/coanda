@@ -254,9 +254,7 @@ public static class FlowRunDecider
             throw new DomainException($"Step '{current.Step}' is an agent step; it takes an answer, not a result.");
         }
 
-        // A step that recorded one of the five unprefixed names before they were prefixed takes a
-        // result under either name.
-        if (!string.Equals(UnprefixedSteps.Canonical(current.Performer), UnprefixedSteps.Canonical(systemStep), StringComparison.Ordinal))
+        if (!string.Equals(current.Performer, systemStep, StringComparison.Ordinal))
         {
             throw new DomainException($"Step '{current.Step}' names the system step '{current.Performer}'; a result from '{systemStep}' is not its result.");
         }
@@ -317,14 +315,13 @@ public static class FlowRunDecider
     /// The current visit of <paramref name="flowRun"/> when the module <paramref name="module"/> holds
     /// its dispatch <paramref name="dispatchId"/>: the visit would take an outcome under that id now
     /// (<see cref="RequireOutcomeAccepted"/>), and the system step it performs, as the visit recorded it,
-    /// has the form <c>&lt;module&gt;/&lt;step&gt;</c> with that module before the slash. A visit that
-    /// recorded one of the five steps the binary shipped unprefixed is the software module's
-    /// (<see cref="UnprefixedSteps"/>); no other unprefixed system step is any module's.
+    /// has the form <c>&lt;module&gt;/&lt;step&gt;</c> with that module before the slash; an unprefixed
+    /// system step is no module's.
     /// </summary>
     public static FlowRunStepEntry RequireHeldBy(FlowRun flowRun, Guid dispatchId, string module)
     {
         FlowRunStepEntry current = RequireOutcomeAccepted(flowRun, dispatchId);
-        if (string.Equals(ModuleNames.PrefixOf(UnprefixedSteps.Canonical(current.Performer)), module, StringComparison.Ordinal))
+        if (string.Equals(ModuleNames.PrefixOf(current.Performer), module, StringComparison.Ordinal))
         {
             return current;
         }
