@@ -9,6 +9,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- ed25519 for the node key and the signed line; .NET has no standalone Ed25519 type. -->
+    <PackageReference Include="BouncyCastle.Cryptography" />
     <PackageReference Include="Fisher" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
   </ItemGroup>
