@@ -90,7 +90,7 @@ public sealed class AgentListTests
             var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
             Definition draft = await definitions.DraftAsync(
                 Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, "alpha", "fix",
-                AgentDefinition.CanonicalJson(custom), custom.Hash, new ForkBase("fix", 1), CancellationToken.None);
+                AgentDefinition.CanonicalJson(custom), custom.Hash, new ForkBase("fix", "software", SoftwareDefinitions.Manifest.Version, SoftwareAgents.Fix.Hash), CancellationToken.None);
             await definitions.PublishAsync(Principal.LocalOwner, "alpha", draft.Id, CancellationToken.None);
         }
 

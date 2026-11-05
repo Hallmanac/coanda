@@ -23,13 +23,23 @@ public sealed class DefinitionDeciderTests
     private static Definition Draft(int latest = 0, DefinitionScope scope = DefinitionScope.Project) =>
         Definition.Create(DraftTask(scope: scope, latest: latest));
 
+    private static readonly ParcelType ForkedTask = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
+
+    private static DefinitionDrafted DraftFork(ForkBase? forkBase, IReadOnlyCollection<Definition>? moduleVersions, ParcelType? fork = null, DefinitionScope scope = DefinitionScope.Project)
+    {
+        ParcelType type = fork ?? ForkedTask;
+        return DefinitionDecider.Draft(
+            DefinitionKind.ParcelType, type.Name, scope, scope == DefinitionScope.Project ? "alpha" : null, 0,
+            ParcelType.CanonicalJson(type), type.Hash, forkBase, "brian", Now, moduleVersions: moduleVersions);
+    }
+
     [Fact]
     public void Draft_records_every_field_and_the_next_version()
     {
-        ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
+        Definition taskBase = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
         DefinitionDrafted drafted = DefinitionDecider.Draft(
             DefinitionKind.ParcelType, "task", DefinitionScope.Project, " alpha ", 2,
-            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask))]);
+            ParcelType.CanonicalJson(ForkedTask), ForkedTask.Hash, ForkBase.Of(taskBase), "brian", Now, moduleVersions: [taskBase]);
 
         Definition definition = Definition.Create(drafted);
         Assert.Equal(DefinitionKind.ParcelType, definition.Kind);
@@ -37,41 +47,107 @@ public sealed class DefinitionDeciderTests
         Assert.Equal(DefinitionScope.Project, definition.Scope);
         Assert.Equal("alpha", definition.Project);
         Assert.Equal(3, definition.VersionNumber);
-        Assert.Equal(fork.Hash, definition.ContentHash);
-        Assert.Equal(ParcelType.CanonicalJson(fork), definition.Content);
-        Assert.Equal(new ForkBase("task", 1), definition.ForkBase);
+        Assert.Equal(ForkedTask.Hash, definition.ContentHash);
+        Assert.Equal(ParcelType.CanonicalJson(ForkedTask), definition.Content);
+        Assert.Equal(new ForkBase("task", "software", "0.1.0", SoftwareTypes.UnownedTask.Hash), definition.ForkBase);
+        Assert.Null(definition.ForkBase?.Version);
         Assert.Equal(DefinitionStatus.Draft, definition.Status);
     }
 
-    [Theory]
-    [InlineData("task", 2)]
-    [InlineData("bug", 1)]
-    [InlineData("build", 1)]
-    public void A_fork_base_naming_no_module_scope_definition_of_the_drafts_kind_is_refused_naming_it(string baseName, int baseVersion)
+    /// <summary>Fork bases that each miss the one module-scope task type on exactly one of the four values, or name another kind's definition.</summary>
+    public static TheoryData<string, string, string, string> UnmatchedForkBases() => new()
     {
-        ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
-        Definition[] shipped = [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask)), ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea))];
+        { "bug", "software", "0.1.0", SoftwareTypes.UnownedTask.Hash },
+        { "task", "cms", "0.1.0", SoftwareTypes.UnownedTask.Hash },
+        { "task", "software", "0.2.0", SoftwareTypes.UnownedTask.Hash },
+        { "task", "software", "0.1.0", SoftwareTypes.Idea.Hash },
+        { "build", "software", "0.1.0", SoftwareFlows.Build.Hash },
+    };
 
-        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
-                DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
-                ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase(baseName, baseVersion), "brian", Now, moduleVersions: shipped));
-        Assert.StartsWith($"The fork base '{baseName}' version {baseVersion} of 'task' names no module-scope parcel type", exception.Message, StringComparison.Ordinal);
+    [Theory]
+    [MemberData(nameof(UnmatchedForkBases))]
+    public void A_fork_base_matching_no_module_scope_definition_of_the_drafts_kind_on_all_four_values_is_refused_naming_it(
+        string name, string module, string moduleVersion, string contentHash)
+    {
+        Definition[] held =
+        [
+            ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask)),
+            ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea)),
+            ModuleVersions.Of(ModuleDefinition.FromFlow(SoftwareFlows.Build)),
+        ];
+        var forkBase = new ForkBase(name, module, moduleVersion, contentHash);
+
+        DomainException exception = Assert.Throws<DomainException>(() => DraftFork(forkBase, held));
+        Assert.Equal(
+            $"The fork base '{name}' of module '{module}' version {moduleVersion} with content hash '{contentHash}' of 'task' names no module-scope parcel type; a fork base names a module-scope definition of the draft's own kind, by name, module, module version, and content hash.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void A_draft_whose_fork_base_records_a_store_given_version_number_or_lacks_a_value_is_refused()
+    {
+        Definition taskBase = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
+        ForkBase[] invalid =
+        [
+            ForkBase.Earlier("task", 1),
+            ForkBase.Of(taskBase) with { Version = 1 },
+            ForkBase.Of(taskBase) with { Module = null },
+            ForkBase.Of(taskBase) with { ModuleVersion = " " },
+            ForkBase.Of(taskBase) with { ContentHash = "" },
+        ];
+
+        Assert.All(invalid, forkBase => Assert.StartsWith(
+            "A fork base names the module-scope definition a customization came from by its name, module, module version, and content hash, and records no version number a store gave it; 'task' has an invalid one.",
+            Assert.Throws<DomainException>(() => DraftFork(forkBase, [taskBase])).Message,
+            StringComparison.Ordinal));
     }
 
     [Fact]
     public void A_fork_base_is_refused_when_no_module_versions_are_given_and_matched_by_name_without_case()
     {
+        Definition taskBase = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
+        ForkBase forkBase = ForkBase.Of(taskBase) with { Name = "Task" };
+
+        DomainException exception = Assert.Throws<DomainException>(() => DraftFork(forkBase, null, scope: DefinitionScope.Owner));
+        Assert.StartsWith("The fork base 'Task' of module 'software' version 0.1.0", exception.Message, StringComparison.Ordinal);
+
+        Assert.Equal(forkBase, DraftFork(forkBase, [taskBase], scope: DefinitionScope.Owner).ForkBase);
+    }
+
+    [Fact]
+    public void A_fork_base_names_the_definition_with_its_content_hash_among_two_of_one_name_module_and_module_version()
+    {
+        // As an upgraded store holds today: the task type before and after the repos field, both at 0.1.0.
+        Definition before = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
+        Definition after = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task), version: 2);
         ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
-        string content = ParcelType.CanonicalJson(fork);
 
-        DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
-                DefinitionKind.ParcelType, "task", DefinitionScope.Owner, null, 0, content, fork.Hash, new ForkBase("task", 1), "brian", Now));
-        Assert.StartsWith("The fork base 'task' version 1", exception.Message, StringComparison.Ordinal);
+        Definition drafted = Definition.Create(DraftFork(ForkBase.Of(before), [after, before], fork));
 
-        Assert.Equal(new ForkBase("Task", 1), DefinitionDecider.Draft(
-                DefinitionKind.ParcelType, "task", DefinitionScope.Owner, null, 0, content, fork.Hash, new ForkBase("Task", 1), "brian", Now,
-                moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask))])
-            .ForkBase);
+        Assert.Equal(SoftwareTypes.UnownedTask.Hash, drafted.ForkBase?.ContentHash);
+        Assert.Same(before, new[] { after, before }.Single(d => drafted.ForkBase?.IsBaseOf(d) == true));
+    }
+
+    [Fact]
+    public void A_fork_that_keeps_a_fields_owner_keeps_its_kind_too()
+    {
+        ParcelType moduleTask = SoftwareTypes.Task;
+        Definition taskBase = ModuleVersions.Of(ModuleDefinition.FromParcelType(moduleTask));
+        FieldDeclaration repos = moduleTask.Fields.Single(f => f.Owner is not null);
+        ParcelType keepsKind = moduleTask with { Stages = [.. moduleTask.Stages, "qa"] };
+        ParcelType changesKind = keepsKind with
+        {
+            Fields = [.. keepsKind.Fields.Select(f => f.Name == repos.Name ? f with { Kind = FieldKinds.Text } : f)],
+        };
+
+        Assert.Equal(keepsKind.Hash, DraftFork(ForkBase.Of(taskBase), [taskBase], keepsKind).ContentHash);
+        foreach (DefinitionScope scope in new[] { DefinitionScope.Project, DefinitionScope.Owner })
+        {
+            DomainException exception = Assert.Throws<DomainException>(() => DraftFork(ForkBase.Of(taskBase), [taskBase], changesKind, scope));
+            Assert.Equal(
+                $"Field '{repos.Name}' of parcel type 'task' keeps the module 'software' as its owner but declares the kind 'text', and its fork base {ForkBase.Of(taskBase).Describe()} declares that field of the kind '{repos.Kind}'; a type that keeps a field's owner from its fork base keeps the field's kind too.",
+                exception.Message);
+        }
     }
 
     [Fact]

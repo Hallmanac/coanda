@@ -326,7 +326,7 @@ public sealed class ModuleImportTests
         Flow fork = SoftwareFlows.Build with { Budget = 40m };
 
         Definition drafted = await definitions.DraftAsync(
-            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, "alpha", fork.Name, Flow.CanonicalJson(fork), fork.Hash, new ForkBase("build", 1), None);
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, "alpha", fork.Name, Flow.CanonicalJson(fork), fork.Hash, new ForkBase("build", "software", SoftwareDefinitions.Manifest.Version, SoftwareFlows.Build.Hash), None);
 
         Definition forkedFrom = await new DefinitionResolver(store).ForkedFromAsync(drafted, None) ?? throw new InvalidOperationException("The fork's base resolves to nothing.");
         Assert.Equal((DefinitionScope.Module, "build", 1, SoftwareFlows.Build.Hash), (forkedFrom.Scope, forkedFrom.Name, forkedFrom.VersionNumber, forkedFrom.ContentHash));
@@ -334,29 +334,34 @@ public sealed class ModuleImportTests
         Assert.Equal((null, null), (drafted.Module, drafted.ModuleVersion));
     }
 
-    /// <summary>Owned fields in a user's type: only a field its fork base declares owned by that same module.</summary>
-    public static TheoryData<string, ForkBase?, string?> UserOwners() => new()
+    /// <summary>The stand-in cms module's article type, owning its slug field as text, as a fork base names it.</summary>
+    private static readonly ForkBase ArticleBase = new("article", "cms", "1.0.0", Article(new FieldDeclaration { Name = "slug", Kind = FieldKinds.Text, Owner = "cms" }).Hash);
+
+    /// <summary>Owned fields in a user's type: only a field its fork base declares owned by that same module, of the kind it declares.</summary>
+    public static TheoryData<string, string, ForkBase?, string?> UserOwners() => new()
     {
-        // The fork keeps its base's owned field: recorded.
-        { "slug", new ForkBase("article", 1), null },
+        // The fork keeps its base's owned field and its kind: recorded.
+        { "slug", FieldKinds.Text, ArticleBase, null },
         // The fork names a different owner for that field.
-        { "slug", new ForkBase("article", 1), "Field 'slug' of parcel type 'article' names the module 'software' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and its fork base 'article' version 1 declares no field 'slug' owned by 'software'." },
+        { "slug", FieldKinds.Text, ArticleBase, $"Field 'slug' of parcel type 'article' names the module 'software' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and its fork base {ArticleBase.Describe()} declares no field 'slug' owned by 'software'." },
         // The fork names an owner for a field its base does not own.
-        { "summary", new ForkBase("article", 1), "Field 'summary' of parcel type 'article' names the module 'cms' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and its fork base 'article' version 1 declares no field 'summary' owned by 'cms'." },
+        { "summary", FieldKinds.Text, ArticleBase, $"Field 'summary' of parcel type 'article' names the module 'cms' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and its fork base {ArticleBase.Describe()} declares no field 'summary' owned by 'cms'." },
+        // The fork keeps the field's owner but changes its kind.
+        { "slug", FieldKinds.TextList, ArticleBase, $"Field 'slug' of parcel type 'article' keeps the module 'cms' as its owner but declares the kind 'text-list', and its fork base {ArticleBase.Describe()} declares that field of the kind 'text'; a type that keeps a field's owner from its fork base keeps the field's kind too." },
         // A type with no fork base names an owner.
-        { "slug", null, "Field 'slug' of parcel type 'article' names the module 'cms' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and 'article' has no fork base." },
+        { "slug", FieldKinds.Text, null, "Field 'slug' of parcel type 'article' names the module 'cms' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and 'article' has no fork base." },
     };
 
     [Theory]
     [MemberData(nameof(UserOwners))]
-    public async Task A_users_type_names_a_fields_owner_only_as_its_fork_base_declares_it(string field, ForkBase? forkBase, string? refusal)
+    public async Task A_users_type_names_a_fields_owner_only_as_its_fork_base_declares_it(string field, string kind, ForkBase? forkBase, string? refusal)
     {
         using var temp = new TemporaryHome();
         using StandInModuleDirectory cms = StandInModuleDirectory.Write(
             "cms", "1.0.0", ModuleDefinition.FromParcelType(Article(new FieldDeclaration { Name = "slug", Kind = FieldKinds.Text, Owner = "cms" })));
         await StartAndStopAsync(temp.Home, new DaemonOptions { ModulePaths = [cms.Path] });
-        string owner = refusal?.Contains("'software'", StringComparison.Ordinal) == true ? "software" : "cms";
-        ParcelType article = Article(new FieldDeclaration { Name = field, Kind = FieldKinds.Text, Owner = owner }) with { Resolutions = [.. SoftwareTypes.UnownedTask.Resolutions, "spiked"] };
+        string owner = refusal?.Contains("module 'software'", StringComparison.Ordinal) == true ? "software" : "cms";
+        ParcelType article = Article(new FieldDeclaration { Name = field, Kind = kind, Owner = owner }) with { Resolutions = [.. SoftwareTypes.UnownedTask.Resolutions, "spiked"] };
         await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
 

@@ -62,12 +62,14 @@ public sealed class DefinitionResolver(IDocumentStore store)
     }
 
     /// <summary>
-    /// The module-scope definition <paramref name="fork"/>'s fork base names, by kind, name, and the
-    /// version number the store gave it, whose <see cref="Definition.Module"/> and
-    /// <see cref="Definition.ModuleVersion"/> are the module and version the fork came from. Null when
-    /// the definition has no fork base or the store holds none it names. No product path calls this
-    /// yet: it is the read the fork notice will make, and until then only tests use it, so it stays
-    /// internal to the daemon.
+    /// The module-scope definition of <paramref name="fork"/>'s kind its fork base names: the one with
+    /// the fork base's name, module, and content hash. The module version the fork base records is not
+    /// matched, because a node records an unchanged content under the first module version it imported
+    /// it at, so two nodes can hold the same base under different module versions. A fork base recorded
+    /// before it carried a content hash names its base by the version number this node's store gave it,
+    /// and resolves by that number, as it always did. Null when the definition has no fork base or the
+    /// store holds none it names. No product path calls this yet: it is the read the fork notice will
+    /// make, and until then only tests use it, so it stays internal to the daemon.
     /// </summary>
     internal async Task<Definition?> ForkedFromAsync(Definition fork, CancellationToken cancellationToken)
     {
@@ -77,9 +79,7 @@ public sealed class DefinitionResolver(IDocumentStore store)
         }
 
         IReadOnlyList<Definition> fromNode = await HeldInAsync(Tenants.Node, fork.Kind, cancellationToken);
-        return fromNode.FirstOrDefault(d => d.Scope == DefinitionScope.Module
-            && DefinitionResolution.SameName(d.Name, forkBase.Name.Trim())
-            && d.VersionNumber == forkBase.Version);
+        return fromNode.FirstOrDefault(forkBase.IsBaseOf);
     }
 
     public async Task<IReadOnlyList<ParcelType>> ResolveParcelTypesAsync(string project, CancellationToken cancellationToken)
