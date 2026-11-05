@@ -2,6 +2,7 @@ using Coanda.Core;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Executors.ClaudeCode;
+using Coanda.Daemon.Transport;
 
 namespace Coanda.Tests.Daemon;
 
@@ -19,6 +20,30 @@ public sealed class NodeConfigurationTests
         Assert.Empty(options.Profiles);
         Assert.Empty(options.Gates);
         Assert.Equal(DaemonOptions.DefaultAgentStepLimit, options.AgentStepLimit);
+        Assert.Equal(LedgerExport.DefaultInterval, options.ExportInterval);
+    }
+
+    [Theory]
+    [InlineData("", true)]
+    [InlineData(""", "ledgerExport": true""", true)]
+    [InlineData(""", "ledgerExport": false""", false)]
+    public void The_ledger_export_runs_unless_the_configuration_turns_it_off(string setting, bool exports)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted"{{setting}} }""");
+
+        DaemonOptions options = NodeConfiguration.Load(temp.Home);
+
+        Assert.Equal(exports ? LedgerExport.DefaultInterval : (TimeSpan?)null, options.ExportInterval);
+    }
+
+    [Fact]
+    public void A_ledger_export_that_is_not_true_or_false_is_refused()
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, """{ "executor": "scripted", "ledgerExport": "no" }""");
+
+        Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
     }
 
     [Fact]

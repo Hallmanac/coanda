@@ -215,13 +215,17 @@ with its origin, sequence, previous hash, tag, signature, hash, and segment, in 
 writes too for another origin's lines; an event the store records on any origin's line is never written
 again. The files are one per UTC month of the recorded time (or the month of the line before, when a
 clock stepped back across a month's end), `yyyy-MM.jsonl` on `refs/coanda/nodes/<node-id>` in every
-clone of the project, made from those records each time the chain grows, so a ref deleted or rewound in
-a clone is written again byte for byte. A push sends that ref alone, only when every file the remote's
+clone of the project, made from those records, so a ref deleted or rewound in a clone is written again
+byte for byte. A round in which the chain has not grown, and each clone's ref is still the commit last
+written and pushed, reads no record and asks git only for each ref; when the chain has grown, only the
+files of the last segment written and the ones after it are read and written onto that commit's tree,
+and the whole chain is written once at each start or when a ref was changed by anything else. A push sends that ref alone, only when every file the remote's
 ref holds is a prefix of this node's file of the same name, and leased on the commit the remote was
 seen at, so a ref rebuilt with no shared history still pushes and no line the remote holds is removed
 or changed. A failed push is logged and tried again the next round. The daemon exports every 15
-seconds, and a command that must publish before it answers asks the export for one project at once. A
-store that exported under one node id exports nothing under another.
+seconds unless the node configuration sets `ledgerExport` to false, and a command that must publish
+before it answers asks the export for one project at once. A store that exported a line under one node
+id exports nothing under another; a store that has exported no line yet binds no id.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
