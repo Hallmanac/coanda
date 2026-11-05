@@ -321,8 +321,9 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
 
     /// <summary>
     /// Stops a live flow run and, once the stop is saved, ends the agent step or system step it was running and
-    /// has its worktree removed. It needs no flow, so a flow run whose flow is no longer held can
-    /// still be stopped.
+    /// has a dispatch it holds stopped. The stop is marked as being saved until the advancer has been told
+    /// of it, so the module feed holds its delivery until then. It needs no flow, so a flow run whose flow
+    /// is no longer held can still be stopped.
     /// </summary>
     public async Task<FlowRun> StopAsync(Principal principal, string project, Guid flowRunId, string reason, CancellationToken cancellationToken)
     {
@@ -330,6 +331,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         string tenant = Tenants.RequireProject(project);
         RequireBoundFlowRun(principal, tenant, flowRunId);
 
+        using IDisposable? marked = advancer?.Stopping(flowRunId);
         FlowRun stopped = await DecidingAgainAsync(
             async token =>
             {

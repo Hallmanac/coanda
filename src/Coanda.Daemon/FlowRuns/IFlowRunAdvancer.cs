@@ -30,4 +30,11 @@ public interface IFlowRunAdvancer
     /// no call in progress is stopped, and the flow run's worktree is removed once the worker has returned from its step. It returns without waiting for any of that.
     /// </summary>
     void Stopped(string project, Guid flowRunId);
+
+    /// <summary>
+    /// Marks a person's stop of the flow run as being saved, from before it is saved until the mark is
+    /// disposed, which the caller does once it has called <see cref="Stopped"/> or the stop was refused.
+    /// Until then the module feed holds the flow run's stopped delivery, as it does while a worker advances it.
+    /// </summary>
+    IDisposable Stopping(Guid flowRunId);
 }

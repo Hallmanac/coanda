@@ -1,5 +1,6 @@
 using System.Reflection;
 using Coanda.Daemon.Modules;
+using Coanda.Sdk.Hosting;
 using Coanda.Tests.Sdk.Contract;
 
 namespace Coanda.Tests.Daemon.Modules;
@@ -24,9 +25,20 @@ public sealed class ModuleHostAdapterTests
     }
 
     [Fact]
-    public void The_adapter_offers_health_describe_dispatch_status_and_stop()
+    public void The_adapter_offers_health_describe_dispatch_status_stop_and_the_feed()
     {
-        Assert.Equal(["describe", "dispatch", "health", "status", "stop"], CallsOf(typeof(ModuleHostAdapter)).Order(StringComparer.Ordinal));
+        Assert.Equal(["describe", "dispatch", "feed", "health", "status", "stop"], CallsOf(typeof(ModuleHostAdapter)).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void A_hosted_module_is_called_through_exactly_the_calls_the_adapter_offers()
+    {
+        IReadOnlySet<string> listed = ModuleSchemas.Calls.Select(c => c.Call).ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(CallsOf(typeof(ModuleHostAdapter)).Order(StringComparer.Ordinal), CallsOf(typeof(IModule)).Order(StringComparer.Ordinal));
+        Assert.All(CallsOf(typeof(IModule)), call => Assert.Contains(call, listed));
+        Assert.Empty(typeof(IModule).GetInterfaces());
+        Assert.Empty(typeof(IModule).GetProperties());
     }
 
     [Fact]
@@ -43,7 +55,7 @@ public sealed class ModuleHostAdapterTests
     /// <c>Async</c> suffix, from camel case into the index's kebab case (<c>DispatchAsync</c> carries
     /// <c>dispatch</c>). Methods every object has are not the adapter's.
     /// </summary>
-    private static IReadOnlyList<string> CallsOf(Type adapter) =>
+    internal static IReadOnlyList<string> CallsOf(Type adapter) =>
     [
         .. adapter.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
             .Where(m => !m.IsSpecialName)
