@@ -13,7 +13,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
-using Coanda.Daemon.Repositories;
+using Coanda.Daemon.Modules;
 using Coanda.Sdk;
 using Fisher;
 using Microsoft.Extensions.Hosting;
@@ -83,7 +83,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     private readonly FlowSystemSteps systemSteps;
     private readonly IAgentExecutor executor;
     private readonly CredentialProfiles profiles;
-    private readonly ProjectClones clones;
+    private readonly InterimWorktreeLink worktrees;
     private readonly NodeHome home;
     private readonly SessionTokens sessionTokens;
     private readonly TimeProvider clock;
@@ -113,7 +113,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         FlowSystemSteps systemSteps,
         IAgentExecutor executor,
         CredentialProfiles profiles,
-        ProjectClones clones,
+        InterimWorktreeLink worktrees,
         NodeHome home,
         SessionTokens sessionTokens,
         TimeProvider clock,
@@ -130,7 +130,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         this.systemSteps = systemSteps;
         this.executor = executor;
         this.profiles = profiles;
-        this.clones = clones;
+        this.worktrees = worktrees;
         this.home = home;
         this.sessionTokens = sessionTokens;
         this.clock = clock;
@@ -203,15 +203,16 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     }
 
     /// <summary>
-    /// Removes the worktree of every flow run an existing project clone lists that has ended or been
-    /// stopped, as an end or a stop would have, leaving the worktrees of live flow runs as they are. The
-    /// daemon runs it at start, before any live flow run is advanced; a sweep that fails is logged.
+    /// Asks the software module, through the interim seam it registered its sweep with, to remove the
+    /// worktree of every flow run an existing project clone lists that has ended or been stopped, as an
+    /// end or a stop would have, leaving the worktrees of live flow runs as they are. The daemon runs it at
+    /// start, before any live flow run is advanced; a sweep that fails is logged.
     /// </summary>
     public async Task SweepWorktreesAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await clones.SweepAsync(
+            await worktrees.SweepAsync(
                 async (project, flowRunId, token) =>
                     await flowRuns.ShowAsync(ScanPrincipal, project, flowRunId, token) is { Status: FlowRunStatus.Ended or FlowRunStatus.Stopped },
                 cancellationToken);
@@ -1206,15 +1207,16 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     }
 
     /// <summary>
-    /// Removes the flow run's worktree once the flow run has ended or been stopped and its worker is between
-    /// steps. A flow run that never made one is left alone; a removal that fails is logged, since the end
-    /// or the stop is already recorded, and the next start's sweep tries again.
+    /// Asks the software module, through the interim seam, to remove the flow run's worktree once the flow
+    /// run has ended or been stopped and its worker is between steps. A flow run that never made one is
+    /// left alone; a removal that fails is logged, since the end or the stop is already recorded, and the
+    /// next start's sweep tries again.
     /// </summary>
     private async Task RemoveWorktreeAsync(string project, Guid flowRunId, CancellationToken cancellationToken)
     {
         try
         {
-            if (await clones.RemoveAsync(project, flowRunId, cancellationToken))
+            if (await worktrees.RemoveAsync(project, flowRunId, cancellationToken))
             {
                 logger.LogInformation("Removed the worktree of flow run {FlowRun} in project {Project}.", Ids.Short(flowRunId), project);
             }
@@ -1293,7 +1295,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         {
             dispatchId = awaited;
             Called<SystemStepStatus> asked = await CallWatchedAsync(
-                flowRun.Id, step, token => systemSteps.StatusAsync(step.Name, current.Performer, awaited, token), cancellationToken);
+                flowRun.Id, step, token => systemSteps.StatusAsync(project, step, current.Performer, awaited, token), cancellationToken);
             switch (asked)
             {
                 case { Stopped: true }:

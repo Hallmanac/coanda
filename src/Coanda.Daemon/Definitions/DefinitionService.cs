@@ -16,12 +16,22 @@ namespace Coanda.Daemon.Definitions;
 /// save. Project-scope definitions live in their project's tenant; owner-scope and shipped-scope
 /// definitions live in the node tenant (<see cref="Tenants.Node"/>). Writes are serialized so that
 /// two drafts of one name cannot be handed the same version. A drafted parcel type is validated
-/// against the names of the gates the daemon runs, and a drafted or seeded flow against the
-/// names of the system steps it registered; the shipped gate set when it is given no gates, and no
-/// system steps when it is given none.
+/// against the names of the gates the daemon runs, and a drafted or seeded flow against the system
+/// step names <see cref="SystemStepNames"/> gives for the definition's project, or for no project when
+/// the definition belongs to none (an owner-scope or shipped-scope one); the shipped gate set when it
+/// is given no gates, and no system steps when it is given none.
 /// </summary>
-public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null, IReadOnlySet<string>? systemSteps = null)
+public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates, DefinitionService.SystemStepNames? systemSteps)
 {
+    /// <summary>The system step names a flow of <paramref name="project"/>, or of no project when it is null, may name.</summary>
+    public delegate Task<IReadOnlySet<string>> SystemStepNames(string? project, CancellationToken cancellationToken);
+
+    /// <summary>A definition service whose flows may name the system steps <paramref name="systemSteps"/>, whatever their project.</summary>
+    public DefinitionService(IDocumentStore store, TimeProvider clock, GateSet? gates = null, IReadOnlySet<string>? systemSteps = null)
+        : this(store, clock, gates, systemSteps is null ? null : (_, _) => Task.FromResult(systemSteps))
+    {
+    }
+
     /// <summary>
     /// The principal seeding acts as: the daemon itself, in the Owner role, because seeding is the
     /// publication of the definitions the binary carries.
@@ -58,9 +68,12 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             IReadOnlyCollection<ForkBase> shippedVersions = forkBase is null
                 ? []
                 : await ShippedVersionsAsync(kind, cancellationToken);
+            IReadOnlySet<string>? known = kind == DefinitionKind.Flow && systemSteps is not null
+                ? await systemSteps(scope == DefinitionScope.Project ? project : null, cancellationToken)
+                : null;
             DefinitionDrafted drafted = DefinitionDecider.Draft(
                 kind, name, scope, project, latest, content, contentHash, forkBase, principal.Id, clock.GetUtcNow(),
-                (gates ?? GateSet.Shipped).Names, systemSteps, shippedVersions);
+                (gates ?? GateSet.Shipped).Names, known, shippedVersions);
 
             session.Events.StartStream<Definition>(drafted.DefinitionId, drafted);
             await session.SaveChangesAsync(cancellationToken);
@@ -139,6 +152,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
             IReadOnlyList<Definition> inNode = await session.Query<Definition>().ToListAsync(cancellationToken);
             List<Definition> known = [.. inNode.Where(d => d.Scope == DefinitionScope.Shipped)];
             List<Definition> seeded = [];
+            IReadOnlySet<string>? stepNames = systemSteps is null ? null : await systemSteps(null, cancellationToken);
 
             foreach (ShippedDefinition definition in shipped)
             {
@@ -149,7 +163,7 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
                 }
 
                 (DefinitionDrafted drafted, DefinitionPublished published) = DefinitionDecider.Seed(
-                    definition, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(), SeedPrincipal.Id, clock.GetUtcNow(), systemSteps);
+                    definition, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(), SeedPrincipal.Id, clock.GetUtcNow(), stepNames);
                 session.Events.StartStream<Definition>(drafted.DefinitionId, drafted, published);
 
                 Definition created = Definition.Create(drafted);

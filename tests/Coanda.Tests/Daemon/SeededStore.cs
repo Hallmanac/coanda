@@ -2,13 +2,15 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Software;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
+using Coanda.Tests.Core;
 using Fisher;
 
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
 /// Opens a store the way the daemon leaves it: the shipped parcel types seeded. Parcel types come
-/// from the store, so a test that opens one without starting the daemon seeds it first.
+/// from the store, so a test that opens one without starting the daemon seeds it first. A flow it seeds
+/// may name the software steps as this build names them or as builds before the prefix did.
 /// </summary>
 public static class SeededStore
 {
@@ -19,7 +21,7 @@ public static class SeededStore
     public static async Task<IDocumentStore> OpenAsync(string databasePath, IReadOnlyCollection<ShippedDefinition> shipped)
     {
         IDocumentStore store = StoreConfiguration.Open(databasePath);
-        await new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names).SeedAsync(shipped, CancellationToken.None);
+        await new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps).SeedAsync(shipped, CancellationToken.None);
         return store;
     }
 }

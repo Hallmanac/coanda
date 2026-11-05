@@ -8,6 +8,7 @@ using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Software;
+using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -30,7 +31,7 @@ public sealed class FlowRunChainTests
             new FlowStep
             {
                 Name = "look",
-                SystemStep = SoftwareSystemSteps.Worktree,
+                SystemStep = SoftwareSteps.Worktree,
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],

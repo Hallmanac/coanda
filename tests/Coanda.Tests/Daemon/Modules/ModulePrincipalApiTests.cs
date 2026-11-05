@@ -74,7 +74,8 @@ public sealed class ModulePrincipalApiTests
 
         Assert.Equal($"A module's name is a plain name (letters, digits, hyphens, and underscores); '{name}' is not.", refused.Message);
         await using IQuerySession session = node.Services.GetRequiredService<IDocumentStore>().QuerySession(Tenants.Node);
-        Assert.Empty(await session.Query<ModuleTokenRecord>().ToListAsync(None));
+        // only the token the daemon issued the software module it hosts at its start is held
+        Assert.Equal(["software"], (await session.Query<ModuleTokenRecord>().ToListAsync(None)).Select(r => r.Module));
     }
 
     [Fact]

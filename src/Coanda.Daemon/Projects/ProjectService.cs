@@ -6,6 +6,7 @@ using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
+using JasperFx.Events;
 using JasperFx.Events.Documents;
 
 namespace Coanda.Daemon.Projects;
@@ -35,7 +36,17 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     public Task<Project> AddAsync(Principal principal, string name, string remote, string primaryBranch, CancellationToken cancellationToken) =>
         AddAsync(principal, name, remote, primaryBranch, buildCommand: null, testCommand: null, cancellationToken);
 
-    /// <summary>Registers a project; a null build or test command leaves its gates on the default.</summary>
+    /// <summary>
+    /// The principal that switches the default modules on for a project registered before modules
+    /// were: the daemon itself, in the Owner role.
+    /// </summary>
+    public static readonly Principal UpgradePrincipal = new("coanda-upgrade", Role.Owner);
+
+    /// <summary>
+    /// Registers a project, switching on for it the modules the daemon hosts by default
+    /// (<see cref="HostedModules.Defaults"/>), with nothing configured; a null build or test command
+    /// leaves its gates on the default.
+    /// </summary>
     public async Task<Project> AddAsync(
         Principal principal,
         string name,
@@ -56,10 +67,14 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
             ProjectRegistered registered = ProjectDecider.Register(
                 tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow(), buildCommand, testCommand, registeredNames);
 
+            Project project = Project.Create(registered);
+            ProjectModulesSet switchedOn = ProjectDecider.SetModules(tenant, project, HostedModules.Defaults, principal.Id, registered.RegisteredAt);
+
             await using IDocumentSession session = store.LightweightSession(tenant);
-            session.Events.StartStream<Project>(registered.ProjectId, registered);
+            session.Events.StartStream<Project>(registered.ProjectId, registered, switchedOn);
             await session.SaveChangesAsync(cancellationToken);
-            return Project.Create(registered);
+            project.Apply(switchedOn);
+            return project;
         }
         finally
         {
@@ -210,6 +225,44 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
 
             project.Apply(set);
             return project;
+        }
+        finally
+        {
+            writes.Release();
+        }
+    }
+
+    /// <summary>
+    /// Switches the modules the daemon hosts by default on for every project registered on the node
+    /// before modules were, which is every project whose record has never named its modules, with
+    /// nothing configured, so such a project runs the shipped flows as it did. A project whose modules
+    /// were named, even as none, is left as it is. The daemon runs it at start.
+    /// </summary>
+    public async Task SwitchOnDefaultsAsync(CancellationToken cancellationToken)
+    {
+        await writes.WaitAsync(cancellationToken);
+        try
+        {
+            IReadOnlyList<Project> projects;
+            await using (IQuerySession query = store.QuerySession(Tenants.Node))
+            {
+                projects = await query.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
+            }
+
+            foreach (Project project in projects)
+            {
+                await using IDocumentSession session = store.LightweightSession(project.Name);
+                IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(project.Id, token: cancellationToken);
+                if (events.Any(e => e.Data is ProjectModulesSet))
+                {
+                    continue;
+                }
+
+                ProjectModulesSet set = ProjectDecider.SetModules(
+                    project.Name, project, [.. project.Modules, .. HostedModules.Defaults], UpgradePrincipal.Id, clock.GetUtcNow());
+                session.Events.Append(project.Id, set);
+                await session.SaveChangesAsync(cancellationToken);
+            }
         }
         finally
         {

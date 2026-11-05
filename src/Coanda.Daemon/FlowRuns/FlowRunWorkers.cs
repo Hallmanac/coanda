@@ -1,9 +1,9 @@
 namespace Coanda.Daemon.FlowRuns;
 
 /// <summary>
-/// The flow run advancer's workers as the system steps see them: which flow runs have a worker advancing them, and
-/// a wait for one to return. The system steps are built before the advancer and handed to it, so they share
-/// this rather than the advancer itself.
+/// The flow run advancer's workers as the software module's worktree step sees them, through the interim
+/// seam: which flow runs have a worker advancing them, and a wait for one to return. The module is built
+/// before the advancer, so the seam shares this rather than the advancer itself.
 /// </summary>
 public sealed class FlowRunWorkers
 {

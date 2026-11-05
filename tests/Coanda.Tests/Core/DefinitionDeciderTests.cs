@@ -5,6 +5,7 @@ using Coanda.Core.Flows;
 using Coanda.Core.Software;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
+using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -250,11 +251,11 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_flow_naming_a_system_step_absent_from_the_names_passed_in_is_refused_even_when_a_catalog_holds_it()
     {
-        var withoutGates = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != SoftwareSystemSteps.Gates), StringComparer.Ordinal);
+        var withoutGates = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != SoftwareSteps.Gates), StringComparer.Ordinal);
         var withoutMove = new HashSet<string>(ShippedSystemSteps.Names.Where(a => a != CoreSystemSteps.MoveParcel), StringComparer.Ordinal);
 
         DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(ShippedFlows.Build, systemSteps: withoutGates));
-        Assert.Contains("names the system step 'gates', which is not a known system step", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("names the system step 'software/gates', which is not a known system step", exception.Message, StringComparison.Ordinal);
         DomainException exception2 = Assert.Throws<DomainException>(() => DraftFlow(ShippedFlows.Build, systemSteps: withoutMove));
         Assert.Contains("names the system step 'move-parcel', which is not a known system step", exception2.Message, StringComparison.Ordinal);
     }
@@ -262,9 +263,9 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_flow_naming_a_system_step_among_the_names_passed_in_is_drafted_even_when_neither_catalog_holds_it()
     {
-        FlowStep[] steps = [.. ShippedFlows.Build.Steps.Select(s => s.SystemStep == SoftwareSystemSteps.Gates ? s with { SystemStep = "teleport" } : s)];
+        FlowStep[] steps = [.. ShippedFlows.Build.Steps.Select(s => s.SystemStep == SoftwareSteps.Gates ? s with { SystemStep = "teleport" } : s)];
         Flow teleporting = ShippedFlows.Build with { Steps = steps };
-        Assert.DoesNotContain("teleport", CoreSystemSteps.All.Concat(SoftwareSystemSteps.All));
+        Assert.DoesNotContain("teleport", CoreSystemSteps.All.Concat(SoftwareSteps.All));
 
         DomainException exception = Assert.Throws<DomainException>(() => DraftFlow(teleporting));
         Assert.Contains("names the system step 'teleport', which is not a known system step", exception.Message, StringComparison.Ordinal);

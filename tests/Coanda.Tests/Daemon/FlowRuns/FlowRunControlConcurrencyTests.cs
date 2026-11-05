@@ -8,6 +8,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
+using Coanda.Modules.Software;
 using Fisher;
 using Fisher.Services;
 
@@ -111,7 +112,7 @@ public sealed class FlowRunControlConcurrencyTests
         var parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Raced", null, None);
         FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
         await flowRuns.RecordResultAsync(
-            Runner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
+            Runner, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
         await flowRuns.StartStepAsync(Runner, Project, flowRun.Id, "build", None);
         return await flowRuns.SpawnedAsync(Runner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
     }

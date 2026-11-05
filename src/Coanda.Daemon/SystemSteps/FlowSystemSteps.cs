@@ -1,23 +1,39 @@
+using System.Text.Json;
 using Coanda.Core.Flows;
-using Coanda.Sdk.Commands;
+using Coanda.Core.Projects;
+using Coanda.Core.Registry;
 using Coanda.Daemon.FlowRuns;
-using Coanda.Daemon.GitHub;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
-using Coanda.Daemon.Repositories;
+using Coanda.Daemon.Store;
+using Coanda.Sdk.Contract;
+using Fisher;
 
 namespace Coanda.Daemon.SystemSteps;
 
 /// <summary>
-/// The registered system steps, one implementation per name, and the one place a system step is
-/// dispatched, asked a dispatch's status, or told to stop one: it finds the step's system step and
-/// turns a missing or ill-kinded argument into a pause.
+/// The one place a system step is dispatched, asked a dispatch's status, or told to stop one. The core's
+/// own steps, and any a test registers beside them, are implemented here, one implementation per name;
+/// every other step is a module's, named <c>&lt;module&gt;/&lt;step&gt;</c>, and is dispatched through
+/// that module's host adapter when the module is switched on for the flow run's project and describes
+/// the step. A flow run that started under a flow naming one of the five steps the binary shipped
+/// unprefixed (<see cref="UnprefixedSteps"/>) dispatches that step to the software module. A step no
+/// switched-on module provides pauses naming it, a done result its step's result schema refuses pauses
+/// as a step that threw does, and a missing or ill-kinded argument of a core step pauses.
 /// </summary>
 public sealed class FlowSystemSteps
 {
     private readonly Dictionary<string, IFlowSystemStep> systemSteps = new(StringComparer.Ordinal);
+    private readonly HostedModules modules;
+    private readonly IDocumentStore? store;
 
-    public FlowSystemSteps(IEnumerable<IFlowSystemStep> registered)
+    /// <summary>
+    /// The steps <paramref name="registered"/>, and the steps of <paramref name="modules"/>, which are
+    /// dispatched in a project whose record, read from <paramref name="store"/>, switches their module on.
+    /// With no modules or no store, only the registered steps are dispatched.
+    /// </summary>
+    public FlowSystemSteps(IEnumerable<IFlowSystemStep> registered, HostedModules? modules = null, IDocumentStore? store = null)
     {
         foreach (IFlowSystemStep systemStep in registered)
         {
@@ -26,37 +42,19 @@ public sealed class FlowSystemSteps
                 throw new InvalidOperationException($"The system step '{systemStep.Name}' is registered twice; each name has one implementation.");
             }
         }
+
+        this.modules = modules ?? new HostedModules(new Dictionary<string, ModuleHostAdapter>());
+        this.store = store;
     }
 
-    /// <summary>The names of the registered system steps.</summary>
+    /// <summary>The names of the steps implemented here: the core's and any a test registered.</summary>
     public IReadOnlySet<string> Names => systemSteps.Keys.ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>These system steps and <paramref name="more"/> beside them; a name registered twice is refused.</summary>
-    public FlowSystemSteps With(IEnumerable<IFlowSystemStep> more) => new([.. systemSteps.Values, .. more]);
-
     /// <summary>
-    /// The system steps the daemon ships: every name in the core catalog and the software catalog. The
-    /// worktree, gates, open-pr, and rebase system steps run their commands through <paramref name="runner"/>, the
-    /// gates system step ending each of its commands after <paramref name="gatesCommandLimit"/>; open-pr and
-    /// gated-merge read their token through it too and reach GitHub through the client
-    /// <paramref name="github"/> gives them for each dispatch. Gated-merge and rebase read the head
-    /// the flow run's chain recorded as pushed, and the worktree system step the head last pushed for the
-    /// parcel and the status of a flow run whose worktree holds its branch, through <paramref name="flowRuns"/>,
-    /// a service of their own, since the daemon's own flow run service hands resumes to the runner that
-    /// dispatches these system steps; for the same reason the worktree system step waits on another flow run's worker
-    /// through <paramref name="workers"/>, which the runner publishes to. Derive-parcels is still a placeholder.
+    /// The core's system steps, with the move-parcel step writing through <paramref name="parcels"/> and
+    /// the timer reading <paramref name="clock"/>; derive-parcels is still a placeholder.
     /// </summary>
-    public static FlowSystemSteps Shipped(
-        ParcelService parcels,
-        ProjectService projects,
-        ProjectClones clones,
-        ICommandRunner runner,
-        NodeHome home,
-        TimeProvider clock,
-        TimeSpan gatesCommandLimit,
-        Func<GitHubClient> github,
-        FlowRunService flowRuns,
-        FlowRunWorkers workers) => new(
+    public static IReadOnlyList<IFlowSystemStep> Core(ParcelService parcels, TimeProvider clock) =>
     [
         new MoveParcelSystemStep(parcels),
         new TimerSystemStep(clock),
@@ -64,53 +62,171 @@ public sealed class FlowSystemSteps
         new WaitForExternalEventSystemStep(),
         new EmitOutcomeSystemStep(),
         new PlaceholderSystemStep(CoreSystemSteps.DeriveParcels),
-        new WorktreeSystemStep(projects, clones, flowRuns, workers),
-        new GatesSystemStep(projects, runner, home, gatesCommandLimit),
-        new OpenPrSystemStep(parcels, projects, clones, new GitHubToken(runner, home), github),
-        new GatedMergeSystemStep(parcels, projects, flowRuns, new GitHubToken(runner, home), github),
-        new RebaseSystemStep(projects, clones, flowRuns),
-    ]);
+    ];
+
+    /// <summary>
+    /// The system step names a flow may name: the steps implemented here, and the steps described by the
+    /// modules switched on for <paramref name="project"/>, or, for a definition that belongs to no
+    /// project, by every module the daemon hosts.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> NamesAsync(string? project, CancellationToken cancellationToken)
+    {
+        IEnumerable<string> switchedOn = project is null
+            ? modules.Names
+            : (await ProjectOfAsync(project, cancellationToken))?.Modules ?? [];
+        return new HashSet<string>([.. systemSteps.Keys, .. modules.StepsOf(switchedOn)], StringComparer.Ordinal);
+    }
 
     public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string name = request.SystemStep;
-        if (!systemSteps.TryGetValue(name, out IFlowSystemStep? systemStep))
+        if (systemSteps.TryGetValue(name, out IFlowSystemStep? systemStep))
         {
-            return new SystemStepAnswer.Paused(Unimplemented(request.Step.Name, name), FlowRunLevers.PerformAgain(request.Step.Name));
+            try
+            {
+                return await systemStep.DispatchAsync(request, cancellationToken);
+            }
+            catch (SystemStepArgumentException refused)
+            {
+                return new SystemStepAnswer.Paused(refused.Message, FlowRunLevers.PerformAgain(refused.Step));
+            }
         }
 
-        try
+        (ModuleHostAdapter? adapter, string? unprovided) = await ResolveAsync(request.Project, request.Step.Name, name, cancellationToken);
+        if (adapter is null)
         {
-            return await systemStep.DispatchAsync(request, cancellationToken);
+            return new SystemStepAnswer.Paused(unprovided ?? string.Empty, FlowRunLevers.PerformAgain(request.Step.Name));
         }
-        catch (SystemStepArgumentException refused)
+
+        DispatchAnswer answer = await adapter.DispatchAsync(request.ToContract(), cancellationToken);
+        return answer switch
         {
-            return new SystemStepAnswer.Paused(refused.Message, FlowRunLevers.PerformAgain(refused.Step));
-        }
+            DispatchAnswer.Done done => Done(request.Step, name, done.Result),
+            DispatchAnswer.Paused paused => new SystemStepAnswer.Paused(paused.Reason, paused.Lever),
+            DispatchAnswer.Running => new SystemStepAnswer.Running(),
+            _ => throw new InvalidOperationException($"A module answered a dispatch in a way the daemon does not know: {answer.GetType().Name}."),
+        };
     }
 
     /// <summary>
     /// Asks the system step <paramref name="name"/> of the flow step <paramref name="step"/> where its
-    /// dispatch <paramref name="dispatchId"/> stands; a name this daemon has no implementation of
-    /// pauses, as its dispatch would.
+    /// dispatch <paramref name="dispatchId"/> stands; a step no switched-on module provides pauses, as
+    /// its dispatch would.
     /// </summary>
-    public async ValueTask<SystemStepStatus> StatusAsync(string step, string name, Guid dispatchId, CancellationToken cancellationToken) =>
-        systemSteps.TryGetValue(name, out IFlowSystemStep? systemStep)
-            ? await systemStep.StatusAsync(dispatchId, cancellationToken)
-            : new SystemStepStatus.Paused(Unimplemented(step, name), FlowRunLevers.PerformAgain(step));
+    public async ValueTask<SystemStepStatus> StatusAsync(string project, FlowStep step, string name, Guid dispatchId, CancellationToken cancellationToken)
+    {
+        if (systemSteps.TryGetValue(name, out IFlowSystemStep? systemStep))
+        {
+            return await systemStep.StatusAsync(dispatchId, cancellationToken);
+        }
+
+        (ModuleHostAdapter? adapter, string? unprovided) = await ResolveAsync(project, step.Name, name, cancellationToken);
+        if (adapter is null)
+        {
+            return new SystemStepStatus.Paused(unprovided ?? string.Empty, FlowRunLevers.PerformAgain(step.Name));
+        }
+
+        StatusAnswer answer = await adapter.StatusAsync(new StatusRequest(dispatchId), cancellationToken);
+        return answer switch
+        {
+            StatusAnswer.Running running => new SystemStepStatus.Running(running.Progress),
+            StatusAnswer.Done done => Done(step, name, done.Result) switch
+            {
+                SystemStepAnswer.Done met => new SystemStepStatus.Done(met.Result),
+                SystemStepAnswer.Paused refused => new SystemStepStatus.Paused(refused.Reason, refused.Lever),
+                _ => throw new InvalidOperationException("A result is either met or refused."),
+            },
+            StatusAnswer.Paused paused => new SystemStepStatus.Paused(paused.Reason, paused.Lever),
+            StatusAnswer.Unknown => new SystemStepStatus.Unknown(),
+            _ => throw new InvalidOperationException($"A module answered a status in a way the daemon does not know: {answer.GetType().Name}."),
+        };
+    }
 
     /// <summary>
     /// Tells the system step <paramref name="name"/> to stop its dispatch <paramref name="dispatchId"/>;
-    /// a name this daemon has no implementation of has nothing running here to stop.
+    /// a step no module the daemon hosts provides has nothing running here to stop.
     /// </summary>
     public async ValueTask StopAsync(string name, Guid dispatchId, CancellationToken cancellationToken)
     {
         if (systemSteps.TryGetValue(name, out IFlowSystemStep? systemStep))
         {
             await systemStep.StopAsync(dispatchId, cancellationToken);
+            return;
+        }
+
+        string step = UnprefixedSteps.Canonical(name);
+        if (ModuleNames.PrefixOf(step) is { } module && modules.Provides(module, step) && modules.AdapterOf(module) is { } adapter)
+        {
+            await adapter.StopAsync(new StopRequest(dispatchId), cancellationToken);
         }
     }
 
-    private static string Unimplemented(string step, string name) =>
-        $"Step '{step}' names the system step '{name}', which this daemon has no implementation of.";
+    /// <summary>
+    /// The host adapter that dispatches the system step <paramref name="name"/> in
+    /// <paramref name="project"/>, or the reason none does: the step's module is not switched on for
+    /// the project, the daemon hosts no such module, or the module does not describe the step.
+    /// </summary>
+    private async Task<(ModuleHostAdapter? Adapter, string? Unprovided)> ResolveAsync(
+        string project, string step, string name, CancellationToken cancellationToken)
+    {
+        string canonical = UnprefixedSteps.Canonical(name);
+        string unprovided = $"Step '{step}' names the system step '{name}', which no module switched on for project '{project}' provides";
+        if (ModuleNames.PrefixOf(canonical) is not { } module)
+        {
+            return (null, $"{unprovided}; it names no module.");
+        }
+
+        Project? record = await ProjectOfAsync(project, cancellationToken);
+        if (record is null || !record.IsSwitchedOn(module))
+        {
+            return (null, $"{unprovided}; it names module '{module}', which is not switched on for the project.");
+        }
+
+        if (modules.AdapterOf(module) is not { } adapter)
+        {
+            return (null, $"{unprovided}; it names module '{module}', which this node does not host.");
+        }
+
+        return modules.Provides(module, canonical)
+            ? (adapter, null)
+            : (null, $"{unprovided}; it names module '{module}', which describes no such step.");
+    }
+
+    /// <summary>
+    /// A module's done result as the flow run records it, once it meets its step's result schema, or the
+    /// pause a step that threw gets when it does not. A flow run that started under a flow version written
+    /// before step names were prefixed may route open-pr on <c>done</c>, which open-pr answered before it
+    /// answered <c>opened</c>; such a step is answered <c>done</c>.
+    /// </summary>
+    private SystemStepAnswer Done(FlowStep step, string name, StepResult result)
+    {
+        string canonical = UnprefixedSteps.Canonical(name);
+        string module = ModuleNames.PrefixOf(canonical) ?? string.Empty;
+        JsonElement document = JsonSerializer.SerializeToElement(result, ModuleJson.Options);
+        IReadOnlyList<string> refusals = modules.RefusalsOf(module, canonical, document);
+        if (refusals.Count > 0)
+        {
+            return new SystemStepAnswer.Paused(
+                $"Step '{step.Name}' could not perform the system step '{name}': module '{module}' answered a result its step's result schema refuses: {string.Join("; ", refusals)}.",
+                FlowRunLevers.PerformAgain(step.Name));
+        }
+
+        return name == UnprefixedOpenPr && result.Verdict == OpenedVerdict && RoutesOn(step, SystemStepAnswer.DoneVerdict) && !RoutesOn(step, OpenedVerdict)
+            ? new SystemStepAnswer.Done(JsonSerializer.SerializeToElement(result with { Verdict = SystemStepAnswer.DoneVerdict }, ModuleJson.Options))
+            : new SystemStepAnswer.Done(document);
+    }
+
+    private const string UnprefixedOpenPr = "open-pr";
+    private const string OpenedVerdict = "opened";
+
+    private static bool RoutesOn(FlowStep step, string verdict) =>
+        step.Transitions.Any(t =>
+            t.Field == SystemStepAnswer.Verdict
+            && t.Value.ValueKind == JsonValueKind.String
+            && t.Value.GetString() == verdict);
+
+    private async Task<Project?> ProjectOfAsync(string project, CancellationToken cancellationToken) =>
+        store is null
+            ? null
+            : await ProjectService.FindAsync(store, Tenants.RequireProject(project), cancellationToken);
 }

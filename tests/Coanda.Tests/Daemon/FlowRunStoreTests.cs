@@ -12,6 +12,7 @@ using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
+using Coanda.Modules.Software;
 using Fisher;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -35,7 +36,7 @@ public sealed class FlowRunStoreTests
     {
         CancellationToken none = CancellationToken.None;
         FlowRun flowRun = await flowRuns.StartAsync(Owner, Project, parcelId, "build", none);
-        await flowRuns.RecordResultAsync(Owner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, Json("""{"verdict":"done","path":"/tmp/wt","reused":false}"""), none);
+        await flowRuns.RecordResultAsync(Owner, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, Json("""{"verdict":"done","path":"/tmp/wt","reused":false}"""), none);
         await flowRuns.StartStepAsync(Owner, Project, flowRun.Id, "build", none);
         Guid session = Ids.New();
         await flowRuns.SpawnedAsync(Owner, Project, flowRun.Id, "build", "agenthash1", Model, none);
@@ -197,7 +198,7 @@ public sealed class FlowRunStoreTests
         // A flow binding's start acts in the Agent role, so starting is open to it as well as to people.
         await flowRuns.StartAsync(member, Project, bySomeone.Id, "build", none);
         FlowRun flowRun = await flowRuns.StartAsync(agent, Project, parcel.Id, "build", none);
-        await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, Json("""{"verdict":"done"}"""), none);
+        await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, Json("""{"verdict":"done"}"""), none);
         await flowRuns.StartStepAsync(agent, Project, flowRun.Id, "build", none);
         await flowRuns.PauseAsync(agent, Project, flowRun.Id, "Asked a question.", "Answer it.", none);
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.ResumeAsync(agent, Project, flowRun.Id, null, none));
@@ -234,7 +235,7 @@ public sealed class FlowRunStoreTests
         Assert.Contains("Reason  The build agent asked a question.", lines);
         Assert.Contains("Lever   Answer it in the journal.", lines);
         int steps = lines.ToList().IndexOf("Steps");
-        Assert.Equal(["  worktree  system-step worktree  verdict=done  path=/tmp/wt  reused=false", "  build  agent-step build  verdict=done  files=3  tokens 1200, cost $0.42, 63s"], lines.Skip(steps + 1));
+        Assert.Equal(["  worktree  system-step software/worktree  verdict=done  path=/tmp/wt  reused=false", "  build  agent-step build  verdict=done  files=3  tokens 1200, cost $0.42, 63s"], lines.Skip(steps + 1));
 
         List<FlowRunView> listed = await client.GetAsync<List<FlowRunView>>($"/flow-runs?project={Project}&parcel={parcel.Id}", none);
         FlowRunView row = Assert.Single(listed);

@@ -69,7 +69,7 @@ public sealed class DaemonSeedingTests
         ParcelType qa = ShippedTypes.Task with { EntryStages = ["refine", "build"] };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+            var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
             await RegisteredProjects.AddAsync(store, "alpha", CancellationToken.None);
             Definition draft = await definitions.DraftParcelTypeAsync(Principal.LocalOwner, DefinitionScope.Project, "alpha", qa, null, CancellationToken.None);
             await definitions.PublishAsync(Principal.LocalOwner, "alpha", draft.Id, CancellationToken.None);
@@ -141,7 +141,7 @@ public sealed class DaemonSeedingTests
         Flow quick = ShippedFlows.ReviewOnAssignment with { Budget = 1m };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+            var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
             Definition draft = await definitions.DraftAsync(
                 Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, "alpha",
                 quick.Name, Flow.CanonicalJson(quick), quick.Hash, null, CancellationToken.None);
@@ -170,7 +170,7 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         ShippedDefinition[] earlier = [.. ShippedFlows.All.Where(c => c.Name != "merge").Select(ShippedDefinition.FromFlow)];
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [.. ShippedDefinitions.ParcelTypes, .. earlier]);
-        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
         await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
@@ -189,7 +189,7 @@ public sealed class DaemonSeedingTests
         Flow previous = PreviousFlows.BuildWithGatedMerge;
         Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Fields = [] })] };
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
-        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
@@ -206,7 +206,7 @@ public sealed class DaemonSeedingTests
         Flow before = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
         Assert.NotEqual(previous.Hash, before.Hash);
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(before)]);
-        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 
@@ -222,7 +222,7 @@ public sealed class DaemonSeedingTests
         Flow previous = PreviousFlows.BuildWithGatedMerge;
         Flow beforeSources = previous with { Steps = [.. previous.Steps.Select(s => s with { Sources = [] })] };
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(beforeSources)]);
-        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
         await definitions.SeedAsync([ShippedDefinition.FromFlow(previous)], CancellationToken.None);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
@@ -241,7 +241,7 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         Flow previous = PreviousFlows.MergeWithoutRebase;
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, [ShippedDefinition.FromFlow(previous)]);
-        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);
 
         IReadOnlyList<Definition> seeded = await definitions.SeedAsync(ShippedDefinitions.All, CancellationToken.None);
 

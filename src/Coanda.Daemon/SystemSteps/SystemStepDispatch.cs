@@ -37,9 +37,10 @@ public sealed record SystemStepDispatch(
 
     /// <summary>
     /// The module API's dispatch request for this dispatch: ids and the step's arguments only, with
-    /// the system step's name as the step a module's describe lists. The principal, the flow, and
-    /// the flow step's own name stay with the daemon.
+    /// the system step's name as the step a module's describe lists, prefixed when the flow names one of
+    /// the five steps the binary shipped unprefixed. The principal, the flow, and the flow step's own
+    /// name stay with the daemon.
     /// </summary>
     public DispatchRequest ToContract() =>
-        new(Project, ParcelId, FlowRunId, SystemStep, Visit, DispatchId, Resumed, WorkPath, Arguments);
+        new(Project, ParcelId, FlowRunId, UnprefixedSteps.Canonical(SystemStep), Visit, DispatchId, Resumed, WorkPath, Arguments);
 }

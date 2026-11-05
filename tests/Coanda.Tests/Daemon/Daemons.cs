@@ -1,7 +1,7 @@
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Tests.Daemon.Commands;
-using Coanda.Tests.Daemon.GitHub;
+using Coanda.Tests.Modules.Software.GitHub;
 
 namespace Coanda.Tests.Daemon;
 

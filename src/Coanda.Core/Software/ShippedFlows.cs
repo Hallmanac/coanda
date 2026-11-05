@@ -6,8 +6,8 @@ namespace Coanda.Core.Software;
 /// <summary>
 /// The flows the binary carries: build, merge, discovery, and review on assignment. Each is ordinary
 /// <see cref="Flow"/> data with no privileges a user's flow lacks. Every answer and
-/// every system step result routes on a string field named <c>verdict</c>. The worktree and gates system steps
-/// and move-parcel answer <c>done</c> on success, gates answers <c>failed</c> when the build or tests
+/// every system step result routes on a string field named <c>verdict</c>. The software module's worktree and gates
+/// steps and move-parcel answer <c>done</c> on success, gates answers <c>failed</c> when the build or tests
 /// fail, and open-pr answers <c>opened</c> once its pull request is open. The build flow ends
 /// there: it opens the pull request, moves the task to review, and ends with the outcome
 /// <c>pr-opened</c>, and the merge is a flow of its own that follows. The merge flow holds the
@@ -23,6 +23,14 @@ namespace Coanda.Core.Software;
 public static class ShippedFlows
 {
     public const string Verdict = "verdict";
+
+    // The software module's steps, by the prefixed names its describe lists. The core cannot reference
+    // the module, so the names are written here, and a test holds them to the module's own list.
+    private const string Worktree = "software/worktree";
+    private const string Gates = "software/gates";
+    private const string OpenPr = "software/open-pr";
+    private const string GatedMerge = "software/gated-merge";
+    private const string Rebase = "software/rebase";
 
     private const int ReviewToFixCap = 3;
     private const int DefaultCap = 5;
@@ -76,14 +84,14 @@ public static class ShippedFlows
         SpawnCap = 12,
         Steps =
         [
-            SystemStep("worktree", SoftwareSystemSteps.Worktree, On("done", "build")),
+            SystemStep("worktree", Worktree, On("done", "build")),
             AgentStep("build", "build", "build", On("done", "gates"), On("blocked", Flow.Pause)) with { Fields = Brief },
-            SystemStep("gates", SoftwareSystemSteps.Gates, On("done", "adversarial-review"), On("failed", "fix")),
+            SystemStep("gates", Gates, On("done", "adversarial-review"), On("failed", "fix")),
             AgentStep("adversarial-review", "reviewer-adversarial", "review",
                 On("clean", "conformance-review"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
             AgentStep("conformance-review", "reviewer-conformance", "review",
                 On("clean", "open-pr"), On("not-clean", "fix", ReviewToFixCap)) with { Fields = Brief },
-            SystemStep("open-pr", SoftwareSystemSteps.OpenPr, On("opened", "move-to-review")),
+            SystemStep("open-pr", OpenPr, On("opened", "move-to-review")),
             new FlowStep
             {
                 Name = "move-to-review",
@@ -106,7 +114,7 @@ public static class ShippedFlows
         Closes = "completed",
         Steps =
         [
-            SystemStep("gated-merge", SoftwareSystemSteps.GatedMerge,
+            SystemStep("gated-merge", GatedMerge,
                 On("merged", Flow.End, MergedCap),
                 On("pending", "wait-for-checks", MergePendingCap),
                 On("behind", "worktree", MergePendingCap)),
@@ -117,8 +125,8 @@ public static class ShippedFlows
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(MergeWaitSeconds) },
                 Transitions = [On("done", "gated-merge", MergePendingCap)],
             },
-            SystemStep("worktree", SoftwareSystemSteps.Worktree, On("done", "rebase", MergeRebaseCap)),
-            SystemStep("rebase", SoftwareSystemSteps.Rebase, On("done", "wait-for-checks", MergeRebaseCap)),
+            SystemStep("worktree", Worktree, On("done", "rebase", MergeRebaseCap)),
+            SystemStep("rebase", Rebase, On("done", "wait-for-checks", MergeRebaseCap)),
         ],
     };
 

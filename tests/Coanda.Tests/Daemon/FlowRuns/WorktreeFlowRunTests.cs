@@ -297,7 +297,7 @@ public sealed class WorktreeFlowRunTests
 
         Assert.Equal("worktree", paused.CurrentStep);
         Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
-        Assert.StartsWith("Step 'worktree' could not perform the system step 'worktree': git --git-dir=", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'worktree' could not perform the system step 'software/worktree': git --git-dir=", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("exited with code 128", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("fatal: unable to access 'https://example.invalid/repo.git/': Could not resolve host", paused.PauseReason, StringComparison.Ordinal);
         Assert.DoesNotContain("s3cret", paused.PauseReason, StringComparison.Ordinal);

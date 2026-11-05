@@ -3,7 +3,8 @@ namespace Coanda.Core.Flows;
 /// <summary>
 /// The names of the domain-free system steps only the daemon performs. A catalog is names only: what a
 /// system step does lives in the daemon, and a flow's validation takes the known names as an input.
-/// Anything specific to a domain is a separate catalog that the caller passes in beside this one.
+/// A step specific to a domain is a module's, named with the module's prefix, and the daemon learns it
+/// from the module's describe answer.
 /// </summary>
 public static class CoreSystemSteps
 {

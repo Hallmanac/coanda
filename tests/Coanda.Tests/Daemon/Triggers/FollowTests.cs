@@ -1,10 +1,10 @@
 using Coanda.Cli;
 using Coanda.Cli.Commands;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Triggers;
+using Coanda.Modules.Software;
 using Coanda.Tests.Daemon.FlowRuns;
 
 namespace Coanda.Tests.Daemon.Triggers;
@@ -39,7 +39,7 @@ public sealed class FollowTests
             new FlowStep
             {
                 Name = "look",
-                SystemStep = SoftwareSystemSteps.Worktree,
+                SystemStep = SoftwareSteps.Worktree,
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],

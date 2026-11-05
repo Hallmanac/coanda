@@ -5,64 +5,63 @@ using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Software;
-using Coanda.Daemon.SystemSteps;
-using Coanda.Daemon.Api;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
-using Coanda.Daemon.Projects;
-using Coanda.Daemon.Repositories;
+using Coanda.Daemon.SystemSteps;
+using Coanda.Modules.Software;
+using Coanda.Modules.Software.Steps;
 using Coanda.Tests.Daemon.Commands;
-using Coanda.Tests.Daemon.GitHub;
+using Coanda.Tests.Modules.Software;
+using Coanda.Tests.Modules.Software.GitHub;
 using Fisher;
 using JasperFx.Events;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon.SystemSteps;
 
+/// <summary>
+/// The daemon's one place a system step is dispatched: the core's steps, implemented in the daemon and
+/// run here on a clock of the test's own, and the software module's, dispatched through the daemon's
+/// host adapter for a project the module is switched on for.
+/// </summary>
 public sealed class FlowSystemStepsTests : IAsyncLifetime
 {
-    private const string Project = "alpha";
+    private const string Project = SoftwareNode.Project;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
 
-    private readonly TemporaryHome temp = new();
     private readonly RecordingClock clock = new();
-    private IDocumentStore store = null!;
-    private ParcelService parcels = null!;
     private readonly ScriptedCommandRunner runner = new();
     private readonly FakeGitHub github = new();
+    private SoftwareNode node = null!;
+    private ParcelService parcels = null!;
+    private FlowSystemSteps core = null!;
     private FlowSystemSteps systemSteps = null!;
 
     public async Task InitializeAsync()
     {
-        store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
-        parcels = new ParcelService(store, TimeProvider.System);
-        var projects = new ProjectService(store, TimeProvider.System);
-        var clones = new ProjectClones(temp.Home, runner, NullLogger<ProjectClones>.Instance);
-        systemSteps = FlowSystemSteps.Shipped(parcels, projects, clones, runner, temp.Home, clock, DaemonOptions.DefaultGatesCommandLimit, github.Client,
-            new FlowRunService(store, TimeProvider.System), new FlowRunWorkers());
+        node = await SoftwareNode.StartAsync(runner, github);
+        parcels = node.Parcels;
+        core = new FlowSystemSteps(FlowSystemSteps.Core(parcels, clock));
+        systemSteps = node.Services.GetRequiredService<FlowSystemSteps>();
     }
 
-    public async Task DisposeAsync()
-    {
-        await store.DisposeAsync();
-        temp.Dispose();
-    }
+    public async Task DisposeAsync() => await node.DisposeAsync();
 
     [Fact]
-    public void The_registered_names_are_the_core_and_software_catalogs_together()
+    public async Task The_names_a_flow_may_name_are_the_core_steps_and_the_software_modules_together()
     {
-        string[] expected = [.. CoreSystemSteps.All, .. SoftwareSystemSteps.All];
-        Assert.Equivalent(expected, systemSteps.Names, strict: true);
+        string[] expected = [.. CoreSystemSteps.All, .. SoftwareSteps.All];
+        Assert.Equivalent(expected, await systemSteps.NamesAsync(Project, CancellationToken.None), strict: true);
+        Assert.Equivalent(CoreSystemSteps.All, systemSteps.Names, strict: true);
     }
 
     [Fact]
     public async Task Every_shipped_step_answers_unknown_to_a_status_and_does_nothing_on_a_stop()
     {
-        foreach (string name in systemSteps.Names)
+        foreach (string name in await systemSteps.NamesAsync(Project, CancellationToken.None))
         {
             Guid dispatchId = Ids.New();
-            Assert.IsType<SystemStepStatus.Unknown>(await systemSteps.StatusAsync("step", name, dispatchId, CancellationToken.None));
+            Assert.IsType<SystemStepStatus.Unknown>(await systemSteps.StatusAsync(Project, Step(name), name, dispatchId, CancellationToken.None));
             await systemSteps.StopAsync(name, dispatchId, CancellationToken.None);
         }
 
@@ -164,9 +163,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
 
-        JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSystemSteps.Worktree), parcelId));
+        JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSteps.Worktree), parcelId));
 
-        Assert.Equal(SoftwareSystemSteps.Worktree, result.GetProperty("systemStep").GetString());
+        Assert.Equal(SoftwareSteps.Worktree, result.GetProperty("systemStep").GetString());
         Assert.Equal($"coanda/{Ids.Short(parcelId)}", result.GetProperty("branch").GetString());
         Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
         Assert.False(result.TryGetProperty("placeholder", out _));
@@ -175,9 +174,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public async Task Gates_answers_done_once_the_build_and_test_commands_pass()
     {
-        JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSystemSteps.Gates), Ids.New()));
+        JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSteps.Gates), Ids.New()));
 
-        Assert.Equal(SoftwareSystemSteps.Gates, result.GetProperty("systemStep").GetString());
+        Assert.Equal(SoftwareSteps.Gates, result.GetProperty("systemStep").GetString());
         Assert.False(result.TryGetProperty("placeholder", out _));
         Assert.Equal([Coanda.Core.Projects.Project.DefaultBuild, Coanda.Core.Projects.Project.DefaultTest], runner.ShellLines);
     }
@@ -186,11 +185,12 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     public async Task Open_pr_answers_opened_with_the_pull_requests_number_and_url_and_the_head_it_pushed()
     {
         Parcel parcel = await TaskAtAsync("build");
+        (Guid flowRunId, Guid dispatchId) = await node.HeldAsync(parcel.Id, "open-pr");
 
-        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(await DispatchAsync(OpenPrStep, parcel.Id)).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(await DispatchAsync(OpenPrFlowStep, parcel.Id, flowRunId: flowRunId, dispatchId: dispatchId)).Result;
 
-        Assert.Equal(OpenPrSystemStep.OpenedVerdict, result.GetProperty("verdict").GetString());
-        Assert.Equal(SoftwareSystemSteps.OpenPr, result.GetProperty("systemStep").GetString());
+        Assert.Equal(OpenPrStep.OpenedVerdict, result.GetProperty("verdict").GetString());
+        Assert.Equal(SoftwareSteps.OpenPr, result.GetProperty("systemStep").GetString());
         Assert.Equal(FakeGitHub.Number, result.GetProperty("number").GetInt32());
         Assert.Equal(FakeGitHub.Url, result.GetProperty("url").GetString());
         Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
@@ -242,15 +242,19 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
     private async Task<IReadOnlyList<ParcelMoved>> MovesAsync(Guid parcelId)
     {
-        await using IQuerySession session = store.QuerySession(Project);
+        await using IQuerySession session = node.Store.QuerySession(Project);
         IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: CancellationToken.None);
         return [.. events.Select(e => e.Data).OfType<ParcelMoved>()];
     }
 
-    private ValueTask<SystemStepAnswer> DispatchAsync(FlowStep step, Guid parcelId, bool resumed = false) =>
-        systemSteps.DispatchAsync(
-            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, ShippedFlows.Build, step, resumed, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"),
-            CancellationToken.None);
+    /// <summary>Dispatches a core step on the test's clock, and a module's step through the daemon.</summary>
+    private ValueTask<SystemStepAnswer> DispatchAsync(FlowStep step, Guid parcelId, bool resumed = false, Guid? flowRunId = null, Guid? dispatchId = null)
+    {
+        Guid flowRun = flowRunId ?? Ids.New();
+        var request = new SystemStepDispatch(
+            FlowRunPrincipal, Project, flowRun, parcelId, ShippedFlows.Build, step, resumed, Visit: 1, DispatchId: dispatchId ?? Ids.New(), WorkPath: node.Home.FlowRunWorkPath(Project, flowRun));
+        return (CoreSystemSteps.All.Contains(step.SystemStep) ? core : systemSteps).DispatchAsync(request, CancellationToken.None);
+    }
 
     private static JsonElement DoneResult(SystemStepAnswer outcome)
     {
@@ -259,9 +263,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
         return result;
     }
 
-    private static FlowStep OpenPrStep => Step(SoftwareSystemSteps.OpenPr) with
+    private static FlowStep OpenPrFlowStep => Step(SoftwareSteps.OpenPr) with
     {
-        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of(OpenPrSystemStep.OpenedVerdict), VisitCap = 1, Target = Flow.End }],
+        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of(OpenPrStep.OpenedVerdict), VisitCap = 1, Target = Flow.End }],
     };
 
     private static FlowStep Step(string systemStep, params (string Name, JsonElement Value)[] arguments) => new()

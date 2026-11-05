@@ -1,5 +1,5 @@
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
+using Coanda.Modules.Software;
 
 namespace Coanda.Tests;
 
@@ -10,5 +10,5 @@ namespace Coanda.Tests;
 internal static class ShippedSystemSteps
 {
     public static readonly IReadOnlySet<string> Names =
-        new HashSet<string>([.. CoreSystemSteps.All, .. SoftwareSystemSteps.All], StringComparer.Ordinal);
+        new HashSet<string>([.. CoreSystemSteps.All, .. SoftwareSteps.All], StringComparer.Ordinal);
 }

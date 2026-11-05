@@ -3,12 +3,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Cli;
 using Coanda.Core;
-using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.FlowRuns;
+using Coanda.Modules.Software.Steps;
 using Coanda.Tests.Daemon.Commands;
-using Coanda.Tests.Daemon.GitHub;
+using Coanda.Tests.Modules.Software.GitHub;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
 
@@ -33,7 +33,7 @@ public sealed class OpenPrFlowRunTests
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         JsonElement opened = flowRun.Steps.Single(s => s.Step == "open-pr").Result.GetValueOrDefault();
-        Assert.Equal(OpenPrSystemStep.OpenedVerdict, opened.GetProperty("verdict").GetString());
+        Assert.Equal(OpenPrStep.OpenedVerdict, opened.GetProperty("verdict").GetString());
         Assert.Equal(FakeGitHub.Number, opened.GetProperty("number").GetInt32());
         Assert.Equal(FakeGitHub.Url, opened.GetProperty("url").GetString());
         Assert.Equal(ScriptedCommandRunner.PrimaryHead, opened.GetProperty("head").GetString());

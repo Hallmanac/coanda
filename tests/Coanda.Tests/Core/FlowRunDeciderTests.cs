@@ -7,6 +7,7 @@ using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Software;
+using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -135,7 +136,7 @@ public sealed class FlowRunDeciderTests
         Assert.Equal(Build.Hash, started.FlowHash);
         Assert.Equal("worktree", started.FirstStep);
         Assert.Equal(StepKind.SystemStep, started.FirstStepKind);
-        Assert.Equal(SoftwareSystemSteps.Worktree, started.FirstStepPerformer);
+        Assert.Equal(SoftwareSteps.Worktree, started.FirstStepPerformer);
         Assert.Equal(started.FlowRunId, attached.FlowRunId);
         Assert.Equal(parcel.Id, attached.ParcelId);
     }
@@ -197,7 +198,7 @@ public sealed class FlowRunDeciderTests
         {
             "step" => () => FlowRunDecider.StartStep(Build, flowRun, "build", Now),
             "answer" => () => FlowRunDecider.Answer(Build, flowRun, "worktree", "build", Ids.New(), "agenthash", Model, Json("{}"), Spend, Now),
-            "result" => () => FlowRunDecider.Complete(Build, flowRun, "worktree", SoftwareSystemSteps.Worktree, Json("{}"), Now),
+            "result" => () => FlowRunDecider.Complete(Build, flowRun, "worktree", SoftwareSteps.Worktree, Json("{}"), Now),
             "pause" => () => FlowRunDecider.Pause(Build, flowRun, "why", "lever", "owner", Now),
             "end" => () => FlowRunDecider.End(Build, flowRun, Build.Outcome, "owner", Now),
             _ => throw new ArgumentOutOfRangeException(nameof(intent)),
@@ -228,7 +229,7 @@ public sealed class FlowRunDeciderTests
     [Fact]
     public void A_result_for_a_step_other_than_the_current_one_is_refused()
     {
-        Action result = () => FlowRunDecider.Complete(Build, Started(), "gates", SoftwareSystemSteps.Gates, Json("{}"), Now);
+        Action result = () => FlowRunDecider.Complete(Build, Started(), "gates", SoftwareSteps.Gates, Json("{}"), Now);
 
         DomainException exception = Assert.Throws<DomainException>(result);
         Assert.EndsWith("is at step 'worktree'; a result is recorded only for the current step, not 'gates'.", exception.Message, StringComparison.Ordinal);
