@@ -46,6 +46,12 @@ public sealed record NodeHome(string Path)
     /// </summary>
     public string LockPath => System.IO.Path.Combine(Path, "home.lock");
 
+    /// <summary>
+    /// Where <c>coa record export</c> writes its exports: <c>exports/</c> under the home, created
+    /// owner-only, each export owner-only from its creation.
+    /// </summary>
+    public string ExportsPath => System.IO.Path.Combine(Path, "exports");
+
     /// <summary>Every file in the home that only its owner may read or write.</summary>
     public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath, NodeIdentityPath, LockPath];
 

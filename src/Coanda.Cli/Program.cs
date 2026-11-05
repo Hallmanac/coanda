@@ -47,6 +47,14 @@ app.Configure(config =>
         daemon.AddCommand<DaemonStatusCommand>("status").WithDescription("Report the daemon's address, pid, and home.").WithExample("daemon", "status");
     });
 
+    config.AddBranch("record", record =>
+    {
+        record.SetDescription("The node's record: export it in this build's current shapes, and rebuild it from such an export. Both refuse while a daemon runs on the home.");
+        record.AddCommand<RecordExportCommand>("export").WithDescription("Write a full export of the record to an owner-only file under the node home.").WithExample("record", "export");
+        record.AddCommand<RecordRebuildCommand>("rebuild").WithDescription("Rebuild the record from an export, moving the existing database aside.")
+            .WithExample("record", "rebuild", "~/.coanda/exports/record-20261105T120000000Z.json");
+    });
+
     config.AddBranch("project", project =>
     {
         project.SetDescription("A project is a name and the repos its work acts on, each a git remote; a module's settings for it are set with coa project module.");
