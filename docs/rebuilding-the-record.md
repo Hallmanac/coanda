@@ -12,8 +12,8 @@ Two commands do the work:
   node home. The file is readable and writable by its owner alone from the moment it is created. It
   holds every event of every project and of the node, each in this build's current shape, and every
   document the daemon keeps that is not regenerated from the events (the trigger loop's and the
-  module feeds' positions, deferred follows, and the session and module token records, which hold
-  token hashes only). It names the record's last event by its id and its sequence. The export is
+  module feeds' positions, the ledger's line records, deferred follows, and the session and module
+  token records, which hold token hashes only). It names the record's last event by its id and its sequence. The export is
   never pushed anywhere, and the command writes nothing to any clone or remote.
 - `coa record rebuild <export>` builds a new record from the export, moves the existing database and
   its companion files (`coanda.db-wal`, `coanda.db-shm`, `coanda.db-journal`, whichever exist) into
@@ -46,7 +46,10 @@ the time the store recorded it. Three kinds of event change shape on the way:
 Because an event can be left out, the export numbers its events afresh. Each loop position is moved
 with them: it names the same event it named before, or, when that event was left out, the last
 exported event before it. The loops therefore handle no event a second time and pass over none they
-had not reached.
+had not reached. The ledger's line records are carried as they are, each line's bytes, chain sequence,
+and hash unchanged, except for the store sequence each one records, which is where the next ledger
+export reads from: it is moved the same way, so the export after a rebuild writes every event that
+had not yet reached a line.
 
 ## Before you start
 
