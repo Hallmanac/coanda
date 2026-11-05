@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 
 namespace Coanda.Daemon.GitHub;
 

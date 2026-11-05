@@ -1,5 +1,5 @@
 using System.Text;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 
 namespace Coanda.Tests.Daemon.Commands;
 

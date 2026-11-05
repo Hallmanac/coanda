@@ -14,6 +14,7 @@ using Coanda.Daemon.Executors;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Repositories;
+using Coanda.Sdk;
 using Fisher;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

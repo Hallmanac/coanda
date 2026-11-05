@@ -3,6 +3,7 @@
     <Project Path="src/Coanda.Cli/Coanda.Cli.csproj" />
     <Project Path="src/Coanda.Core/Coanda.Core.csproj" />
     <Project Path="src/Coanda.Daemon/Coanda.Daemon.csproj" />
+    <Project Path="src/Coanda.Sdk/Coanda.Sdk.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Coanda.FakeClaude/Coanda.FakeClaude.csproj" />

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Coanda.Daemon;
+namespace Coanda.Sdk;
 
 /// <summary>How a limit reads in a reason stored on a flow run.</summary>
 public static class Durations

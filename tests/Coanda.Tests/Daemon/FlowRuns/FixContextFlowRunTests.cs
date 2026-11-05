@@ -3,7 +3,7 @@ using Coanda.Cli;
 using ProjectDefaults = Coanda.Core.Projects.Project;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Tests.Daemon.Commands;
 

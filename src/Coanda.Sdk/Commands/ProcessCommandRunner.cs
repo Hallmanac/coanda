@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
-namespace Coanda.Daemon.Commands;
+namespace Coanda.Sdk.Commands;
 
 /// <summary>
 /// The runner that starts real processes, which <c>coa daemon run</c> supplies. The command's

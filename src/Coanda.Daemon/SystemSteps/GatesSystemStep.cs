@@ -1,6 +1,7 @@
 using Coanda.Core.Projects;
 using Coanda.Core.Software;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk;
+using Coanda.Sdk.Commands;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Projects;
 

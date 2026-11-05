@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
-using Coanda.Daemon.Commands;
+using Coanda.Sdk.Commands;
 using Coanda.Tests.Daemon.Executors;
 
-namespace Coanda.Tests.Daemon.Commands;
+namespace Coanda.Tests.Sdk.Commands;
 
 /// <summary>
 /// The command runner that starts real processes, run only against the fake executable built from
