@@ -840,6 +840,70 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_session_that_answered_whose_process_id_now_names_another_process_is_collected_and_that_process_is_left_running()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        await Until(() => fake.Starts.Count == 1);
+        await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
+        using Process other = StartOtherProcess(fake);
+        try
+        {
+            RecordProcessId(handle, other.Id);
+
+            // the recorded process exited as surely as one whose id is free, so its answer is still collected
+            ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+            Assert.Equal([handle], await restarted.ListAsync(None));
+            Assert.Equal(ReattachedSession.OnSpawn(handle) with { Finished = true }, await restarted.ReattachAsync(handle, access: null, None));
+            CollectedAnswer collected = await restarted.CollectAsync(handle, None);
+
+            Assert.Equal(ValidBuild, collected.Answer);
+            Assert.Equal(0.3m, collected.Usage.CostUsd);
+            Assert.Null(await restarted.StopAsync(handle, None));
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            Assert.True(FakeClaude.Running(other.Id), "a process the executor did not start is never ended");
+        }
+        finally
+        {
+            other.Kill(entireProcessTree: true);
+        }
+    }
+
+    [Fact]
+    public async Task A_retry_that_answered_whose_process_id_now_names_another_process_is_reattached_finished_and_its_stop_leaves_that_process_running()
+    {
+        using var fake = new FakeClaude(
+            FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000),
+            FakeClaude.Answering("Still undecided.", cost: 0.25m, totalCost: 1.00m, input: 1, output: 2, cacheCreation: 3, cacheRead: 4, turns: 1, durationMs: 1000));
+        ClaudeCodeExecutor first = fake.Executor(temp.Home);
+        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        CollectedAnswer invalid = await first.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        await first.ResumeAsync(handle, "Answer in the schema.", None);
+        await Until(() => fake.Starts.Count == 2);
+        await Until(() => FakeClaude.Finished(fake.Starts[1].Pid));
+        using Process other = StartOtherProcess(fake);
+        try
+        {
+            RecordProcessId(handle, other.Id);
+
+            ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+            Assert.Equal([handle], await restarted.ListAsync(None));
+            Assert.Equal(new ReattachedSession(handle, 2, invalid.Usage, Finished: true), await restarted.ReattachAsync(handle, access: null, None));
+            // the stop reaches the kill, which leaves alone the process now holding the recorded id
+            StopReport? stopped = await restarted.StopAsync(handle, None);
+
+            Assert.Equal(new StopReport(new Measurement(10, 0.25m, 1, TimeSpan.FromMilliseconds(1000))), stopped);
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            Assert.True(FakeClaude.Running(other.Id), "a process the executor did not start is never ended");
+            Assert.Equal(2, fake.Starts.Count);
+        }
+        finally
+        {
+            other.Kill(entireProcessTree: true);
+        }
+    }
+
+    [Fact]
     public async Task The_daemons_stop_leaves_a_session_in_progress_running_for_a_reattach()
     {
         using var fake = new FakeClaude(new { result = "hang", child = true });
@@ -1219,6 +1283,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         (int otherCode, string otherOutput, string otherError) = await RunAsync(coa, [SettingsEvidence.Command, "something-else"]);
         Assert.NotEqual(0, otherCode);
         Assert.Empty(otherOutput + otherError);
+    }
+
+    /// <summary>A live process the executor did not start, whose id a test writes into a session's record.</summary>
+    private static Process StartOtherProcess(FakeClaude fake) =>
+        Process.Start(new ProcessStartInfo(FakeClaude.Executable, [Coanda.Testing.FakeClaude.Program.ChildFlag, Path.Combine(fake.Control, "other.pid")]) { UseShellExecute = false })
+            ?? throw new InvalidOperationException("The other process did not start.");
+
+    /// <summary>Rewrites the session record's attempt to name the process id, as when the system has given the id to another process.</summary>
+    private void RecordProcessId(SessionHandle handle, int processId)
+    {
+        string path = temp.Home.SessionRecordPath(handle.Id);
+        JsonNode record = JsonNode.Parse(File.ReadAllText(path)) ?? throw new InvalidOperationException("An empty record.");
+        JsonNode attempt = record["attempt"] ?? throw new InvalidOperationException("A record with no attempt.");
+        attempt["processId"] = processId;
+        File.WriteAllText(path, record.ToJsonString());
     }
 
     private static async Task<(int Code, string Output, string Error)> RunAsync(string executable, IReadOnlyList<string> arguments)

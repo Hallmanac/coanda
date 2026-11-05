@@ -36,8 +36,9 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// its processes are started with, what its collects have taken, and its latest process's id, start
 /// time, and where its output begins in the transcript. A new daemon's executor, holding nothing in
 /// memory, finds a session again from its record: one whose process still runs, or exited after
-/// printing its result, is held, and one whose process exited without a result, or whose recorded
-/// process id now names another process, is not, and its record is let go. A stopped session's
+/// printing its result, is held, and one whose process exited without a result is not, and its
+/// record is let go. A recorded process id that now names another process means the recorded
+/// process has exited, and the process holding the id is never signalled. A stopped session's
 /// record is removed and only its id is kept, so a second stop of it still succeeds.
 /// </remarks>
 public sealed class ClaudeCodeExecutor : IAgentExecutor
@@ -491,9 +492,10 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     /// <summary>
     /// The live session with the id: the one in memory, or the one its record names when its process
-    /// still runs, or exited after printing its result. A record whose process exited without a
-    /// result, whose process id now names another process, or that cannot be read, is let go. Null
-    /// for a stopped session or one that is not held.
+    /// still runs, or exited after printing its result. A record whose process id now names another
+    /// process is treated as one whose process has exited, and that other process is never signalled.
+    /// A record whose process exited without a result, or that cannot be read, is let go. Null for a
+    /// stopped session or one that is not held.
     /// </summary>
     private Session? Find(Guid id)
     {
@@ -557,7 +559,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         DetachedProcess? process = DetachedProcess.Find(recorded.ProcessId, recorded.Identity) switch
         {
             DetachedProcess.Found.Running running => running.Process,
-            DetachedProcess.Found.Gone => DetachedProcess.Exited(recorded.ProcessId, recorded.Identity),
+            // An id now naming another process says the recorded one exited too; that other process is never touched.
+            DetachedProcess.Found.Gone or DetachedProcess.Found.Replaced => DetachedProcess.Exited(recorded.ProcessId, recorded.Identity),
             _ => null,
         };
         var session = new Session(
