@@ -12,7 +12,8 @@ namespace Coanda.Daemon.Triggers;
 /// The daemon's side of recording external events and subscriptions: pass the registry, ask
 /// <see cref="TriggerDecider"/>, append, save. Both live in their project's tenant. Nothing records
 /// an external event yet except tests; adapters arrive later. A Module principal records only in a
-/// project its module is switched on for, and only kinds prefixed with its own module's name.
+/// project its module is switched on for, and only kinds prefixed with its own module's name; a kind
+/// prefixed with a module's name is recorded by that module alone.
 /// </summary>
 public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
 {
@@ -23,7 +24,7 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
         string tenant = Tenants.RequireProject(project);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         ModuleScope.RequireOwnKind(principal, kind);
-        ExternalEventRecorded recorded = TriggerDecider.RecordExternalEvent(tenant, kind, fields, principal.Id, clock.GetUtcNow());
+        ExternalEventRecorded recorded = TriggerDecider.RecordExternalEvent(tenant, kind, fields, principal, clock.GetUtcNow());
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         session.Events.StartStream<ExternalEvent>(recorded.EventId, recorded);

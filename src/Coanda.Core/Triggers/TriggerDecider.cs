@@ -10,11 +10,14 @@ namespace Coanda.Core.Triggers;
 /// <see cref="TriggerEvent.ParcelEnteredKind"/> or <see cref="TriggerEvent.FlowRunEndedKind"/>: those
 /// are what the daemon's own record reads as, a subscription that created parcels from them could
 /// feed itself, and a recorded event of either kind would pass for a parcel entry or a flow run end.
+/// An external event of a module-prefixed kind (<c>&lt;module&gt;/&lt;name&gt;</c>) is recorded only by
+/// the Module principal of the module the prefix names; the owner is refused too, and repairs a
+/// module's record through the module.
 /// </summary>
 public static class TriggerDecider
 {
     public static ExternalEventRecorded RecordExternalEvent(
-        string project, string kind, IReadOnlyDictionary<string, string> fields, string recordedBy, DateTimeOffset now)
+        string project, string kind, IReadOnlyDictionary<string, string> fields, Principal recordedBy, DateTimeOffset now)
     {
         string trimmedProject = RequireProject(project);
 
@@ -22,6 +25,13 @@ public static class TriggerDecider
         {
             throw new DomainException(
                 $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores) or a module's name and a plain name joined by a slash (<module>/<name>); '{kind}' is not.");
+        }
+
+        if (ModuleNames.PrefixOf(kind) is { } prefix
+            && !(recordedBy.Role == Role.Module && string.Equals(recordedBy.Module, prefix, StringComparison.Ordinal)))
+        {
+            throw new DomainException(
+                $"Only module '{prefix}' records external events of kinds prefixed '{prefix}/'; '{recordedBy.Id}' cannot record '{kind}'.");
         }
 
         if (string.Equals(kind, TriggerEvent.ParcelEnteredKind, StringComparison.Ordinal))
@@ -44,7 +54,7 @@ public static class TriggerDecider
         }
 
         return new ExternalEventRecorded(
-            Ids.New(), trimmedProject, kind, new Dictionary<string, string>(fields, StringComparer.Ordinal), recordedBy, now);
+            Ids.New(), trimmedProject, kind, new Dictionary<string, string>(fields, StringComparer.Ordinal), recordedBy.Id, now);
     }
 
     public static SubscriptionRecorded RecordSubscription(
