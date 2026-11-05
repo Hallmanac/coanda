@@ -50,13 +50,16 @@ internal sealed class ModuleNode : IAsyncDisposable
 
     public IServiceProvider Services => Daemon.Services;
 
-    /// <summary>Starts the node; <paramref name="settingsSchemas"/> are the stand-in modules' settings schemas, none when it is null.</summary>
-    public static async Task<ModuleNode> StartAsync(IModuleSettingsSchemas? settingsSchemas = null)
+    /// <summary>
+    /// Starts the node; <paramref name="settingsSchemas"/> are the stand-in modules' settings schemas, none when it is null,
+    /// and <paramref name="modulePaths"/> the directories of stand-in modules whose definitions it imports, none when it is null.
+    /// </summary>
+    public static async Task<ModuleNode> StartAsync(IModuleSettingsSchemas? settingsSchemas = null, IReadOnlyList<string>? modulePaths = null)
     {
         var temp = new TemporaryHome();
         var step = new RunningSystemStep();
         RunningDaemon daemon = await Daemons.StartAsync(
-            temp.Home, new DaemonOptions { SystemSteps = [step], ModuleSettingsSchemas = settingsSchemas }, None);
+            temp.Home, new DaemonOptions { SystemSteps = [step], ModuleSettingsSchemas = settingsSchemas, ModulePaths = modulePaths ?? [] }, None);
         var node = new ModuleNode(temp, daemon, step);
         foreach (string project in new[] { On, Off })
         {
@@ -73,15 +76,19 @@ internal sealed class ModuleNode : IAsyncDisposable
     public Task SwitchOnAsync(string project, params string[] modules) =>
         Services.GetRequiredService<ProjectService>().SetModulesAsync(Principal.LocalOwner, project, modules, None);
 
-    public async Task<Parcel> ParcelAsync(string project, string title = "For the module") =>
-        await Services.GetRequiredService<ParcelService>().AddAsync(Principal.LocalOwner, project, "task", title, null, None);
+    public async Task<Parcel> ParcelAsync(string project, string title = "For the module", string type = "task") =>
+        await Services.GetRequiredService<ParcelService>().AddAsync(Principal.LocalOwner, project, type, title, null, None);
 
-    /// <summary>Starts the dispatching flow on a new parcel and waits for its step to answer running.</summary>
-    public async Task<(Guid ParcelId, Guid FlowRunId, Guid DispatchId)> DispatchedAsync(string project, string title = "Dispatched")
+    /// <summary>
+    /// Starts the dispatching flow, or the flow <paramref name="flow"/>, on a new parcel of
+    /// <paramref name="type"/> and waits for its step to answer running.
+    /// </summary>
+    public async Task<(Guid ParcelId, Guid FlowRunId, Guid DispatchId)> DispatchedAsync(
+        string project, string title = "Dispatched", string type = "task", string? flow = null)
     {
-        Parcel parcel = await ParcelAsync(project, title);
+        Parcel parcel = await ParcelAsync(project, title, type);
         FlowRunService flowRuns = Services.GetRequiredService<FlowRunService>();
-        FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, project, parcel.Id, Dispatching.Name, None);
+        FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, project, parcel.Id, flow ?? Dispatching.Name, None);
         await Services.GetRequiredService<IFlowRunAdvancer>().RequestAdvance(project, started.Id).WaitAsync(Patience);
         await Services.GetRequiredService<FlowRunWorkers>().ReturnedAsync(started.Id, None).WaitAsync(Patience);
         FlowRun running = await flowRuns.ShowAsync(Principal.LocalOwner, project, started.Id, None)

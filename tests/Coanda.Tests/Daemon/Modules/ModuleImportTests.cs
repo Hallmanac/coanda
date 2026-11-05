@@ -269,6 +269,22 @@ public sealed class ModuleImportTests
     }
 
     [Fact]
+    public async Task A_modules_type_naming_another_module_as_a_fields_owner_is_refused_at_import()
+    {
+        using var temp = new TemporaryHome();
+        using StandInModuleDirectory cms = StandInModuleDirectory.Write(
+            "cms", "1.0.0", ModuleDefinition.FromParcelType(Article(new FieldDeclaration { Name = "repos", Kind = FieldKinds.TextList, Owner = "software" })));
+
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new DaemonOptions { ModulePaths = [cms.Path] }));
+
+        Assert.EndsWith(
+            "breaks a rule: Field 'repos' of parcel type 'article' of module 'cms' names the module 'software' as its owner; a module's type names only its own module as a field's owner.",
+            exception.Message);
+        Assert.Contains(Path.Combine(cms.DefinitionsPath, "types", "article.json"), exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(await InNodeAsync(temp.Home), d => d.Module == "cms");
+    }
+
+    [Fact]
     public async Task A_project_fork_of_the_build_flow_reads_the_module_and_version_it_came_from_from_its_base()
     {
         using var temp = new TemporaryHome();
@@ -284,5 +300,53 @@ public sealed class ModuleImportTests
         Assert.Equal((DefinitionScope.Module, "build", 1, SoftwareFlows.Build.Hash), (forkedFrom.Scope, forkedFrom.Name, forkedFrom.VersionNumber, forkedFrom.ContentHash));
         Assert.Equal(("software", SoftwareDefinitions.Manifest.Version), (forkedFrom.Module, forkedFrom.ModuleVersion));
         Assert.Equal((null, null), (drafted.Module, drafted.ModuleVersion));
+    }
+
+    /// <summary>Owned fields in a user's type: only a field its fork base declares owned by that same module.</summary>
+    public static TheoryData<string, ForkBase?, string?> UserOwners() => new()
+    {
+        // The fork keeps its base's owned field: recorded.
+        { "slug", new ForkBase("article", 1), null },
+        // The fork names a different owner for that field.
+        { "slug", new ForkBase("article", 1), "Field 'slug' of parcel type 'article' names the module 'software' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and its fork base 'article' version 1 declares no field 'slug' owned by 'software'." },
+        // The fork names an owner for a field its base does not own.
+        { "summary", new ForkBase("article", 1), "Field 'summary' of parcel type 'article' names the module 'cms' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and its fork base 'article' version 1 declares no field 'summary' owned by 'cms'." },
+        // A type with no fork base names an owner.
+        { "slug", null, "Field 'slug' of parcel type 'article' names the module 'cms' as its owner; a type of project or owner scope names a field's owner only for a field its fork base declares owned by that same module, and 'article' has no fork base." },
+    };
+
+    [Theory]
+    [MemberData(nameof(UserOwners))]
+    public async Task A_users_type_names_a_fields_owner_only_as_its_fork_base_declares_it(string field, ForkBase? forkBase, string? refusal)
+    {
+        using var temp = new TemporaryHome();
+        using StandInModuleDirectory cms = StandInModuleDirectory.Write(
+            "cms", "1.0.0", ModuleDefinition.FromParcelType(Article(new FieldDeclaration { Name = "slug", Kind = FieldKinds.Text, Owner = "cms" })));
+        await StartAndStopAsync(temp.Home, new DaemonOptions { ModulePaths = [cms.Path] });
+        string owner = refusal?.Contains("'software'", StringComparison.Ordinal) == true ? "software" : "cms";
+        ParcelType article = Article(new FieldDeclaration { Name = field, Kind = FieldKinds.Text, Owner = owner }) with { Resolutions = [.. SoftwareTypes.Task.Resolutions, "spiked"] };
+        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
+
+        foreach ((DefinitionScope scope, string? project) in new[] { (DefinitionScope.Project, "alpha"), (DefinitionScope.Owner, (string?)null) })
+        {
+            Task<Definition> draft = definitions.DraftParcelTypeAsync(Principal.LocalOwner, scope, project, article, forkBase, None);
+            if (refusal is null)
+            {
+                Definition recorded = await draft;
+                Assert.Equal(owner, ParcelType.FromJson(recorded.Content).Field(field)?.Owner);
+                continue;
+            }
+
+            DomainException exception = await Assert.ThrowsAsync<DomainException>(() => draft);
+            Assert.Equal(refusal, exception.Message);
+        }
+
+        if (refusal is not null)
+        {
+            await using IQuerySession alpha = store.QuerySession("alpha");
+            Assert.Empty(await alpha.Query<Definition>().ToListAsync(None));
+            Assert.DoesNotContain(await InNodeAsync(temp.Home), d => d.Scope == DefinitionScope.Owner);
+        }
     }
 }
