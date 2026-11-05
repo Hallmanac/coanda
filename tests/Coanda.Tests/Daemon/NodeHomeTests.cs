@@ -32,6 +32,18 @@ public sealed class NodeHomeTests
         Assert.StartsWith($"Project '{project}' is not a plain directory name", exception.Message, StringComparison.Ordinal);
         DomainException exception2 = Assert.Throws<DomainException>(transcripts);
         Assert.StartsWith($"Project '{project}' is not a plain directory name", exception2.Message, StringComparison.Ordinal);
+        // the flow run's view carries no work path for it, and the clone layout gives it no clone
+        Assert.Null(Home.WorkPathOf(project, Ids.New()));
+        Assert.Throws<ArgumentException>(() => Home.RepoClonePath(project, "repo"));
+    }
+
+    [Fact]
+    public void A_repos_clone_sits_under_its_projects_repos_directory_and_a_flow_runs_view_carries_its_work_path()
+    {
+        Guid flowRunId = Ids.New();
+
+        Assert.Equal(Path.Combine(Home.Path, "projects", "alpha", "repos", "coanda"), Home.RepoClonePath("alpha", "coanda"));
+        Assert.Equal(Home.FlowRunWorkPath("alpha", flowRunId), Home.WorkPathOf("alpha", flowRunId));
     }
 
     [Fact]

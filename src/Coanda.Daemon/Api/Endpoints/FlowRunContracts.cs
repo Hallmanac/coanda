@@ -19,7 +19,10 @@ public sealed record FlowRunResumeRequest(string Project, string? Note);
 /// carries its <see cref="ParentFlowRunId"/>, and every flow run its <see cref="RootFlowRunId"/> and
 /// <see cref="Depth"/>, zero for a root. <see cref="Working"/> is true while a worker of the daemon
 /// advances the flow run or a person's stop of it is being saved, so an ended or stopped flow run that is
-/// not working has nothing of the core's still running in its work path.
+/// not working has nothing of the core's still running in its work path. <see cref="WorkPath"/> is the
+/// flow run's work path (<see cref="NodeHome.FlowRunWorkPath"/>), which every dispatch of it also carries,
+/// so a module that tidies a flow run's workspace outside a dispatch reads it here; it is null for a
+/// project whose name is not a plain directory name, which gives its flow runs none.
 /// </summary>
 public sealed record FlowRunView(
     Guid Id,
@@ -44,14 +47,15 @@ public sealed record FlowRunView(
     int Depth,
     decimal Cost,
     Measurement? PauseUsage,
-    bool Working)
+    bool Working,
+    string? WorkPath)
 {
-    public static FlowRunView From(string project, FlowRun flowRun, FlowRunWorkers workers) => new(
+    public static FlowRunView From(string project, FlowRun flowRun, FlowRunWorkers workers, NodeHome home) => new(
         flowRun.Id, project, flowRun.ParcelId, flowRun.FlowName, flowRun.FlowVersion, flowRun.FlowHash,
         StatusName(flowRun.Status), flowRun.CurrentStep, flowRun.Spawns, flowRun.StartedBy, flowRun.StartedAt, flowRun.UpdatedAt,
         [.. flowRun.Steps.Select(FlowRunStepView.From)], flowRun.PauseReason, flowRun.Lever, flowRun.Outcome, flowRun.StopReason,
         flowRun.ParentFlowRunId, flowRun.RootFlowRunId, flowRun.Depth, flowRun.Cost, flowRun.PauseUsage,
-        workers.IsWorking(flowRun.Id));
+        workers.IsWorking(flowRun.Id), home.WorkPathOf(project, flowRun.Id));
 
     public static string StatusName(FlowRunStatus status) => status switch
     {
