@@ -54,10 +54,11 @@ namespace Coanda.Daemon.Store;
 /// <para>Earlier shapes still read elsewhere, which this type lists and does not hold:</para>
 /// <list type="bullet">
 /// <item>A <c>project_registered</c> that carries a remote in place of repos, last written by the build
-/// before 48b326e (2026-11-05), read by <c>ProjectRegistered.ReposRecorded</c> in the core.</item>
+/// before 48b326e (2026-11-05), read by <c>ProjectRegistered.ReposRecorded</c> in the core, and written
+/// by the ledger export with its repo and without its remote (<c>Transport.LedgerExport</c>).</item>
 /// <item>A fork base of a name and a store-given version, last written by the build before 4faa812
 /// (2026-11-05), read through <see cref="ForkBase.Earlier"/> and <see cref="ForkBase.IsEarlierShape"/>
-/// in the core.</item>
+/// in the core, and written by the ledger export resolved on this node to the current shape.</item>
 /// <item>An <c>agent_step_spawned</c> with no agent hash and model spec, last written by the build
 /// before 996e069 (2026-11-03), or with no launch id, last written by the build before 3e72284
 /// (2026-11-04), read through the nullable members of <c>AgentStepSpawned</c> in the core.</item>

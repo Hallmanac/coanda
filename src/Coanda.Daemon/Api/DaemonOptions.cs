@@ -95,6 +95,13 @@ public sealed record DaemonOptions
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }
 
+    /// <summary>
+    /// How often the daemon exports the events it authored in each project and pushes them from every
+    /// clone of the project's repos; null runs no export loop, though a service call still exports a
+    /// project at once. <c>coa daemon run</c> supplies <see cref="Transport.LedgerExport.DefaultInterval"/>.
+    /// </summary>
+    public TimeSpan? ExportInterval { get; init; }
+
     /// <summary>How long one agent step, its retry included, may run before its session is stopped and the flow run pauses.</summary>
     public TimeSpan AgentStepLimit { get; init; } = DefaultAgentStepLimit;
 
