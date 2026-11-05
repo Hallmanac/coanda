@@ -46,6 +46,9 @@ code, and `decisions.md` in its worktree carries the binding rules.
 - `src/Coanda.Sdk`: the module SDK, referencing no other Coanda project: the module API's
   contract types, a client for the core's loopback API, and the command runner and git wrapper,
   which the daemon uses too.
+- `src/Coanda.Modules.Software`: the software engineering module: the worktree, gates, open-pr,
+  gated-merge, and rebase steps, the GitHub client, and the clones and worktrees they act on. It
+  references the SDK and no other Coanda project, and the daemon hosts it in process until phase 5.
 - `schemas/module/v1`: the module API's JSON schemas, with `index.json` naming each call's documents.
 - `src/Coanda.Cli`: the `coa` executable, thin; also hosts the daemon under `coa daemon`.
 - `tests/Coanda.Tests`: unit tests. No test creates a branch or touches GitHub.
