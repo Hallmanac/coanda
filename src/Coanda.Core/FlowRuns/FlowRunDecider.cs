@@ -5,6 +5,7 @@ using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Registry;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.FlowRuns;
@@ -294,9 +295,38 @@ public static class FlowRunDecider
     public static SystemStepCompleted CompleteDispatch(Flow flow, FlowRun flowRun, Guid dispatchId, JsonElement result, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
-        RequireRunning(flowRun, "record a dispatch's outcome");
-        FlowRunStepEntry current = RequireDispatch(flowRun, dispatchId);
+        FlowRunStepEntry current = RequireOutcomeAccepted(flowRun, dispatchId);
         return new SystemStepCompleted(flowRun.Id, current.Step, current.Performer, result.Clone(), now, dispatchId);
+    }
+
+    /// <summary>
+    /// The current visit of <paramref name="flowRun"/> when it would take an outcome under
+    /// <paramref name="dispatchId"/> now: the flow run is running, and the dispatch is the visit's
+    /// latest, holds no outcome yet, and has not been replaced by a resume. Otherwise it refuses with
+    /// the rule the outcome command quotes.
+    /// </summary>
+    public static FlowRunStepEntry RequireOutcomeAccepted(FlowRun flowRun, Guid dispatchId)
+    {
+        RequireRunning(flowRun, "record a dispatch's outcome");
+        return RequireDispatch(flowRun, dispatchId);
+    }
+
+    /// <summary>
+    /// The current visit of <paramref name="flowRun"/> when the module <paramref name="module"/> holds
+    /// its dispatch <paramref name="dispatchId"/>: the visit would take an outcome under that id now
+    /// (<see cref="RequireOutcomeAccepted"/>), and the system step it performs, as the visit recorded it,
+    /// has the form <c>&lt;module&gt;/&lt;step&gt;</c> with that module before the slash.
+    /// </summary>
+    public static FlowRunStepEntry RequireHeldBy(FlowRun flowRun, Guid dispatchId, string module)
+    {
+        FlowRunStepEntry current = RequireOutcomeAccepted(flowRun, dispatchId);
+        if (string.Equals(ModuleNames.PrefixOf(current.Performer), module, StringComparison.Ordinal))
+        {
+            return current;
+        }
+
+        throw new DomainException(
+            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRun.Id)} performs the system step '{current.Performer}', which is not module '{module}''s; a module writes only on a dispatch of one of its own steps.");
     }
 
     /// <summary>
