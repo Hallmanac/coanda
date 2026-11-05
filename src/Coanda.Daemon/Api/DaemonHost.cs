@@ -10,6 +10,7 @@ using Coanda.Daemon.Flows;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
@@ -102,6 +103,7 @@ public sealed class DaemonHost
             new FlowRunService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
             services.GetRequiredService<FlowRunWorkers>()).With(options.SystemSteps));
         builder.Services.AddSingleton<SessionTokens>();
+        builder.Services.AddSingleton<ModuleTokens>();
         builder.Services.AddSingleton<FlowRunAdvancer>();
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
         builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunAdvancer>());
@@ -118,7 +120,7 @@ public sealed class DaemonHost
 
         // The token check runs first for everything but /health; the DomainException mapping sits
         // inside it, wrapping the endpoints.
-        app.UseDaemonToken(token, app.Services.GetRequiredService<SessionTokens>());
+        app.UseDaemonToken(token, app.Services.GetRequiredService<SessionTokens>(), app.Services.GetRequiredService<ModuleTokens>());
         app.UseDomainExceptionMapping();
 
         app.MapDaemonEndpoints();

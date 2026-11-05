@@ -7,9 +7,11 @@ using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Projects;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.SystemSteps;
 using Fisher;
@@ -196,22 +198,33 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     /// is refused unless the flow run is running and the dispatch is its current visit's, holds no
     /// outcome yet, and has not been replaced by a resume. Once the outcome is saved the flow run is
     /// handed to the <see cref="IFlowRunAdvancer"/>, when the service has one, which routes on it as
-    /// it would on the same answer given at the dispatch; the record does not wait for that.
+    /// it would on the same answer given at the dispatch; the record does not wait for that. A Module
+    /// principal records an outcome only in a project its module is switched on for, and only under a
+    /// dispatch it holds (<see cref="FlowRunDecider.RequireHeldBy"/>).
     /// </summary>
     public async Task<FlowRun> RecordOutcomeAsync(
         Principal principal, string project, Guid flowRunId, Guid dispatchId, SystemStepAnswer outcome, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.outcome", principal);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, Tenants.RequireProject(project), cancellationToken);
         FlowRun recorded = outcome switch
         {
             SystemStepAnswer.Done done => await WriteAsync(
                 "flow-run.outcome", principal, project, flowRunId,
-                (flow, flowRun) => FlowRunDecider.CompleteDispatch(flow, flowRun, dispatchId, done.Result, clock.GetUtcNow()),
+                (flow, flowRun) =>
+                {
+                    RequireModuleHold(principal, flowRun, dispatchId);
+                    return FlowRunDecider.CompleteDispatch(flow, flowRun, dispatchId, done.Result, clock.GetUtcNow());
+                },
                 (flowRun, completed) => flowRun.Apply(completed),
                 cancellationToken),
             SystemStepAnswer.Paused paused => await WriteAsync(
                 "flow-run.outcome", principal, project, flowRunId,
-                (flow, flowRun) => FlowRunDecider.PauseDispatch(flow, flowRun, dispatchId, paused.Reason, paused.Lever, principal.Id, clock.GetUtcNow()),
+                (flow, flowRun) =>
+                {
+                    RequireModuleHold(principal, flowRun, dispatchId);
+                    return FlowRunDecider.PauseDispatch(flow, flowRun, dispatchId, paused.Reason, paused.Lever, principal.Id, clock.GetUtcNow());
+                },
                 (flowRun, recordedPause) => flowRun.Apply(recordedPause),
                 cancellationToken),
             _ => throw new DomainException(
@@ -343,6 +356,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         CommandRegistry.Require("flow-run.list", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<FlowRun> flowRuns = parcelId is Guid parcel
@@ -355,6 +369,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         CommandRegistry.Require("flow-run.show", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         return await session.LoadAsync<FlowRun>(flowRunId, cancellationToken);
@@ -374,12 +389,15 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     public async Task<Flow> FlowOfAsync(Principal principal, string project, FlowRun flowRun, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.show", principal);
-        return await RequireStartedUnderFlowAsync(Tenants.RequireProject(project), flowRun, cancellationToken);
+        string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await RequireStartedUnderFlowAsync(tenant, flowRun, cancellationToken);
     }
 
     /// <summary>
     /// Every live flow run on the node, in every project, as the project and the flow run id: the
-    /// flow run each parcel names as its live one.
+    /// flow run each parcel names as its live one. A Module principal gets those of the projects its
+    /// module is switched on for.
     /// </summary>
     public async Task<IReadOnlyList<(string Project, Guid FlowRunId)>> ListLiveAsync(Principal principal, CancellationToken cancellationToken)
     {
@@ -387,8 +405,12 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
 
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Parcel> parcels = await session.Query<Parcel>().AnyTenant().ToListAsync(cancellationToken);
+        IReadOnlyList<Project> projects = principal.Role == Role.Module
+            ? await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken)
+            : [];
         return [.. parcels
             .Where(p => p.LiveFlowRunId is not null)
+            .Where(p => ModuleScope.IsSwitchedOn(principal, projects.FirstOrDefault(r => string.Equals(r.Name, p.Project, StringComparison.Ordinal))))
             .Select(p => (p.Project, p.LiveFlowRunId.GetValueOrDefault()))];
     }
 
@@ -460,6 +482,18 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         if (principal.Session is { } bound && !flowRun.ExpectsLaunch(bound.LaunchId))
         {
             throw new DomainException($"{BoundRule(bound)}; that launch has ended, so it records nothing more.");
+        }
+    }
+
+    /// <summary>
+    /// A Module principal writes under a dispatch only when its module holds it, as the flow run this
+    /// write fetched stands. Every other principal passes.
+    /// </summary>
+    private static void RequireModuleHold(Principal principal, FlowRun flowRun, Guid dispatchId)
+    {
+        if (principal.Role == Role.Module)
+        {
+            FlowRunDecider.RequireHeldBy(flowRun, dispatchId, principal.Module ?? string.Empty);
         }
     }
 

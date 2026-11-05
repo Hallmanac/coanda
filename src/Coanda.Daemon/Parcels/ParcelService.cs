@@ -1,9 +1,11 @@
 using Coanda.Core;
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Fisher;
@@ -72,15 +74,36 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     }
 
     /// <summary>Records a value in one of the parcel's fields, replacing the value it held, under the type version the parcel was created under.</summary>
+    public Task<Parcel> SetFieldAsync(
+        Principal principal, string project, Guid parcelId, string field, FieldValue value, CancellationToken cancellationToken) =>
+        SetFieldAsync(principal, project, parcelId, field, value, dispatch: null, cancellationToken);
+
+    /// <summary>
+    /// Records a value in one of the parcel's fields under <paramref name="dispatch"/>, when it names
+    /// one: the flow run that recorded it would take an outcome under its id now, and runs on this
+    /// parcel. A Module principal sets a field only by naming a dispatch, and only one of its own
+    /// module's steps (<see cref="FlowRunDecider.RequireHeldBy"/>).
+    /// </summary>
     public async Task<Parcel> SetFieldAsync(
-        Principal principal, string project, Guid parcelId, string field, FieldValue value, CancellationToken cancellationToken)
+        Principal principal, string project, Guid parcelId, string field, FieldValue value, NamedDispatch? dispatch, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.set-field", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        if (principal.Role == Role.Module && dispatch is null)
+        {
+            throw new DomainException(
+                $"Module '{principal.Module}' sets a parcel's field only by naming a dispatch of one of its own steps that it holds; this set-field named none.");
+        }
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
+        if (dispatch is not null)
+        {
+            await RequireDispatchOnAsync(session, principal, tenant, parcel, dispatch, cancellationToken);
+        }
+
         ParcelType type = await RequireCreatedUnderTypeAsync(tenant, parcel, cancellationToken);
         ParcelFieldSet set = ParcelDecider.SetField(type, parcel, field, value, principal.Id, clock.GetUtcNow());
         stream.AppendOne(set);
@@ -111,6 +134,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.list", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<Parcel> parcels = await session.Query<Parcel>().OrderBy(p => p.CreatedAt).ToListAsync(cancellationToken);
@@ -121,6 +145,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.show", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         return await session.LoadAsync<Parcel>(parcelId, cancellationToken);
@@ -134,6 +159,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.show", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         return await session.Events.AggregateStreamAsync<Parcel>(parcelId, version, token: cancellationToken);
@@ -144,6 +170,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.list", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<Parcel> found = await session.Query<Parcel>().Where(p => p.Origin == origin).ToListAsync(cancellationToken);
@@ -154,21 +181,27 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     public async Task<ParcelType?> ResolveTypeAsync(Principal principal, string project, string name, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("type.list", principal);
-        return await definitions.ResolveParcelTypeAsync(Tenants.RequireProject(project), name, cancellationToken);
+        string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await definitions.ResolveParcelTypeAsync(tenant, name, cancellationToken);
     }
 
     /// <summary>The version of a parcel type that the project holds by its hash, or null when it holds none; a parcel reads its fields from the version it was created under.</summary>
     public async Task<ParcelType?> TypeVersionAsync(Principal principal, string project, string typeHash, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.show", principal);
-        return await definitions.ResolveParcelTypeByHashAsync(Tenants.RequireProject(project), typeHash, cancellationToken);
+        string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await definitions.ResolveParcelTypeByHashAsync(tenant, typeHash, cancellationToken);
     }
 
     /// <summary>The parcel types that resolution returns for the project, ordered by name.</summary>
     public async Task<IReadOnlyList<ParcelType>> TypesAsync(Principal principal, string project, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("type.list", principal);
-        return await definitions.ResolveParcelTypesAsync(Tenants.RequireProject(project), cancellationToken);
+        string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await definitions.ResolveParcelTypesAsync(tenant, cancellationToken);
     }
 
     /// <summary>A parcel is created only in a registered project, so the software system steps have a repository to act on.</summary>
@@ -198,6 +231,34 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         ParcelType? type = await definitions.ResolveParcelTypeByHashAsync(project, parcel.TypeHash, cancellationToken);
         return type
             ?? throw new DomainException($"The '{parcel.TypeName}' type version {parcel.TypeHash} that parcel {Ids.Short(parcel.Id)} was created under is no longer held.");
+    }
+
+    /// <summary>
+    /// Refuses a write on <paramref name="parcel"/> under <paramref name="dispatch"/> unless the flow run
+    /// that names it would take an outcome under its id now, holding it for the principal's module when
+    /// the principal is a Module principal, and that flow run runs on <paramref name="parcel"/>.
+    /// </summary>
+    private static async Task RequireDispatchOnAsync(
+        IQuerySession session, Principal principal, string tenant, Parcel parcel, NamedDispatch dispatch, CancellationToken cancellationToken)
+    {
+        FlowRun flowRun = await session.LoadAsync<FlowRun>(dispatch.FlowRunId, cancellationToken)
+            ?? throw new DomainException(
+                $"No flow run {Ids.Short(dispatch.FlowRunId)} in project '{tenant}', so it holds no dispatch {Ids.Short(dispatch.DispatchId)}.");
+
+        if (principal.Role == Role.Module)
+        {
+            FlowRunDecider.RequireHeldBy(flowRun, dispatch.DispatchId, principal.Module ?? string.Empty);
+        }
+        else
+        {
+            FlowRunDecider.RequireOutcomeAccepted(flowRun, dispatch.DispatchId);
+        }
+
+        if (flowRun.ParcelId != parcel.Id)
+        {
+            throw new DomainException(
+                $"Dispatch {Ids.Short(dispatch.DispatchId)} is flow run {Ids.Short(flowRun.Id)}'s, which runs on parcel {Ids.Short(flowRun.ParcelId)}, not parcel {Ids.Short(parcel.Id)}; a write under a dispatch is made on its flow run's parcel only.");
+        }
     }
 
     /// <summary>

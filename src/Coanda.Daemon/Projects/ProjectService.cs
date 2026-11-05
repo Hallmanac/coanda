@@ -3,6 +3,7 @@ using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events.Documents;
@@ -12,7 +13,8 @@ namespace Coanda.Daemon.Projects;
 /// <summary>
 /// The daemon's side of every project command and query: pass the registry, check the name the way
 /// every project command does, ask the decider, append, save. A project's record lives in its own
-/// tenant; the credential profile it names is a node-local setting in the node tenant. Writes are
+/// tenant, and so do the modules switched on for it; the credential profile it names is a node-local
+/// setting in the node tenant. Writes are
 /// serialized so that two concurrent adds of one name cannot both pass the duplicate check, and two
 /// settings of one project's profile cannot both start its stream.
 /// </summary>
@@ -136,35 +138,94 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     public async Task<string?> ProfileOfAsync(Principal principal, string name, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("project.show", principal);
-        ProjectProfile? setting = await FindProfileAsync(store, Tenants.RequireProject(name), cancellationToken);
+        string tenant = Tenants.RequireProject(name);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        ProjectProfile? setting = await FindProfileAsync(store, tenant, cancellationToken);
         return setting?.Profile;
     }
 
-    /// <summary>The credential profile every project that names one names, keyed by project.</summary>
+    /// <summary>
+    /// The credential profile every project that names one names, keyed by project; for a Module
+    /// principal, only those of the projects its module is switched on for.
+    /// </summary>
     public async Task<IReadOnlyDictionary<string, string>> ProfilesAsync(Principal principal, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("project.list", principal);
 
-        await using IQuerySession session = store.QuerySession(Tenants.Node);
-        IReadOnlyList<ProjectProfile> settings = await session.Query<ProjectProfile>().ToListAsync(cancellationToken);
-        return settings.ToDictionary(s => s.Project, s => s.Profile, StringComparer.Ordinal);
+        IReadOnlyList<ProjectProfile> settings;
+        await using (IQuerySession session = store.QuerySession(Tenants.Node))
+        {
+            settings = await session.Query<ProjectProfile>().ToListAsync(cancellationToken);
+        }
+
+        IReadOnlySet<string>? visible = principal.Role == Role.Module
+            ? (await VisibleAsync(principal, cancellationToken)).Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
+            : null;
+        return settings
+            .Where(s => visible is null || visible.Contains(s.Project))
+            .ToDictionary(s => s.Project, s => s.Profile, StringComparer.Ordinal);
     }
 
     /// <summary>The project's record, or null when the name has none.</summary>
     public async Task<Project?> ShowAsync(Principal principal, string name, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("project.show", principal);
-        return await FindAsync(store, Tenants.RequireProject(name), cancellationToken);
+        string tenant = Tenants.RequireProject(name);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await FindAsync(store, tenant, cancellationToken);
     }
 
-    /// <summary>Every project registered on the node, ordered by name with ordinal comparison.</summary>
+    /// <summary>
+    /// Every project registered on the node, ordered by name with ordinal comparison; for a Module
+    /// principal, every project its module is switched on for.
+    /// </summary>
     public async Task<IReadOnlyList<Project>> ListAsync(Principal principal, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("project.list", principal);
+        IReadOnlyList<Project> projects = await VisibleAsync(principal, cancellationToken);
+        return [.. projects.OrderBy(p => p.Name, StringComparer.Ordinal)];
+    }
 
+    /// <summary>
+    /// Replaces the set of modules switched on for the project with <paramref name="modules"/>, recorded
+    /// in the project's own record, so the set replicates with the project.
+    /// </summary>
+    public async Task<Project> SetModulesAsync(
+        Principal principal, string name, IReadOnlyList<string> modules, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("project.set-modules", principal);
+        string tenant = Tenants.RequireProject(name);
+
+        await writes.WaitAsync(cancellationToken);
+        try
+        {
+            Project? registered = await FindAsync(store, tenant, cancellationToken);
+            ProjectModulesSet set = ProjectDecider.SetModules(tenant, registered, modules, principal.Id, clock.GetUtcNow());
+
+            await using IDocumentSession session = store.LightweightSession(tenant);
+            var stream = await session.Events.FetchForWriting<Project>(set.ProjectId, cancellationToken);
+            Project project = stream.Aggregate ?? throw new DomainException(ProjectDecider.Unregistered(tenant));
+            stream.AppendOne(set);
+            await session.SaveChangesAsync(cancellationToken);
+
+            project.Apply(set);
+            return project;
+        }
+        finally
+        {
+            writes.Release();
+        }
+    }
+
+    /// <summary>
+    /// Every project registered on the node that <paramref name="principal"/> may act in: all of them,
+    /// or for a Module principal those its module is switched on for. Read without a registry check.
+    /// </summary>
+    private async Task<IReadOnlyList<Project>> VisibleAsync(Principal principal, CancellationToken cancellationToken)
+    {
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Project> projects = await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
-        return [.. projects.OrderBy(p => p.Name, StringComparer.Ordinal)];
+        return [.. projects.Where(p => ModuleScope.IsSwitchedOn(principal, p))];
     }
 
     /// <summary>The name of every project registered on the node, read without a registry check.</summary>
