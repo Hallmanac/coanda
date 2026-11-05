@@ -269,22 +269,30 @@ public sealed class DaemonHost
             {
                 app.Services.GetRequiredService<LedgerExport>().Begin(interval);
             }
+
+            // Saved inside the start, so a save that fails disposes the daemon it would have advertised.
+            var info = new DaemonInfo(Environment.ProcessId, boundPort, token, startedAt, Version);
+            info.Save(home);
+            app.Lifetime.ApplicationStopped.Register(() =>
+            {
+                // The home's lock is released even when the address file cannot be deleted.
+                try
+                {
+                    DaemonInfo.Delete(home);
+                }
+                finally
+                {
+                    homeLock.Dispose();
+                }
+            });
+
+            return new RunningDaemon(app, info, homeLock);
         }
         catch
         {
             await app.DisposeAsync();
             throw;
         }
-
-        var info = new DaemonInfo(Environment.ProcessId, boundPort, token, startedAt, Version);
-        info.Save(home);
-        app.Lifetime.ApplicationStopped.Register(() =>
-        {
-            DaemonInfo.Delete(home);
-            homeLock.Dispose();
-        });
-
-        return new RunningDaemon(app, info, homeLock);
     }
 
     /// <summary>
