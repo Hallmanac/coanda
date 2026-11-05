@@ -85,7 +85,10 @@ One SQLite file per node in the node home. Marten's API through Fisher (JasperFx
 SQLite; v1.27.0 as of 2026-11-02, releases several times a week, formally supported). Events are
 the truth; projections produce every view, including the tables a portal or desktop surface reads.
 Project is a tenant key on every stream (conjoined tenancy), so a project is a filter, not a file;
-node-level records (identity, nodes, credential profiles, fleet state) live beside project streams.
+node-level records (the node's own identity file aside, nodes, credential profiles, fleet state) live
+beside project streams. The identity records that decide trust (owner root, vouches, revocations,
+members, succession) are not node-level: they are recorded in each project's tenant and travel with
+the project (section 6), because export carries project tenants only.
 
 The daemon is the only writer. The CLI, the portal, MCP, and the relay call one loopback command
 and query API on the daemon; the CLI starts the daemon when it is not running. This removes the
@@ -187,10 +190,41 @@ A node's identity is its node id, a UUIDv7, and its ed25519 key pair, made at th
 on a home and kept in the home's owner-only `node-identity.json`, never rewritten. A home holding part
 of one, or one that does not parse, is refused at start rather than given a second identity.
 
-Identity: one owner root, one key per node, vouches, root-only revocation, succession by ranked
-keys exactly as hall9k's design (successor named, root rotated, successor revoked; an earlier key
-outranks a later one; first rotation to land wins), carried over as events. An offline heir key is
-a later option for the single-node owner.
+Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
+keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
+identity events (owner root recorded, node vouched, node revoked, member added, member removed,
+successor named, root rotated, successor revoked) are recorded in each project's tenant, never the
+node tenant, and travel with the project in its export, so every node holding the project reads the
+same records. Trust is one pure function in the core over those records, each with its signer key,
+origin, and sequence, and the key the reader trusts as root: it answers whether a key may sign for an
+origin and why not, the ranked root set, and a member key's role, and it reads the records as a set,
+so any arrival order gives the same answers. A record counts only when its signer may sign for the
+record's own origin. An offline heir key is a later option for the single-node owner.
+
+hall9k settled "latest wins", "an earlier key outranks a later one", and "the first rotation to land
+wins" by the order of one shared ledger. Coanda has no shared order, only one chain per origin per
+project, so this version changes those inherited rules into forms that need none:
+
+- A node id and a key are bound one to one. The root record binds the root node to the root key and a
+  member added binds the member's root node to its root key, so a vouch pairing either side with
+  another does not count; when counting vouches pair one node id with two keys, or one key with two
+  node ids, none of those pairings may sign. Because of the binding, every record a key signs sits in
+  one chain, which is what makes "earlier in a chain" well defined.
+- A revoked key stays revoked in this version, and every record it signed stops counting, whenever it
+  was signed. The recovery from a mistaken revocation is a fresh node through join.
+- Rank follows the rotation chain from the original root: the original root ranks 0, and a counting
+  rotation, signed by a successor its superseded key named, ranks the successor one below the key it
+  supersedes. The rank of a key is settled by the keys that outrank it alone, since a revocation of a
+  key that outranks its signer, or of the signer itself, is ignored.
+- Revoking a successor voids every root-set act its key signed (revocations, namings, successor
+  revocations, member changes, and its rotation), whenever made. The vouch that admitted its node,
+  and the vouches its key signed, stand unless a node revocation revokes its key.
+- Competing rotations of one key settle by the order in which that key named their successors in its
+  own chain; a voided rotation takes no part. A node that acted on the losing rotation changes its
+  answers when the winner arrives.
+- A member removal stands in this version, whatever adds are recorded. A member's role is the role of
+  the add signed by the highest-ranked key, and among that key's adds the latest in its chain; the
+  role has no effect on signing, and no member joins the ranked root set.
 
 The relay, when it exists, is a dumb multi-tenant pass-through with no retention. Whether it is
 pure pass-through or an encrypted store-and-forward buffer it cannot read is still open.
