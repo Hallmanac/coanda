@@ -31,9 +31,15 @@ at a terminal.
 
 Stack: C# on .NET 10, one self-contained executable per platform that is both daemon and CLI
 (`coa`). Projects: `Coanda.Core` (meta-model, definitions, interpreter, registry), `Coanda.Daemon`
-(store, loops, adapters, transport), `Coanda.Cli` (thin), `Coanda.Tests` (unit on the scripted
-adapter and an in-memory Fisher store; no git integration tests, a unit test over the generated
-command sequence is the ceiling). Packages pinned centrally; Fisher pinned to one version.
+(store, loops, adapters, transport), `Coanda.Sdk`, `Coanda.Modules.Software`, `Coanda.Cli` (thin),
+`Coanda.Tests` (unit on the scripted adapter and an in-memory Fisher store; no git integration
+tests, a unit test over the generated command sequence is the ceiling). `Coanda.Sdk` is the module
+SDK, which references no other Coanda project: the module API's contract types, the interface an
+in-process module answers through, a client for the core's loopback API, and the command runner and
+git wrapper the daemon also uses. `Coanda.Modules.Software` is the software engineering module: its
+worktree, gates, open-pr, gated-merge, and rebase steps, its GitHub client and clones, and the
+definitions folder of its types, flows, and agents, with the primary branch, build and test commands,
+and required checks as its settings rather than the project's. Packages pinned centrally; Fisher pinned to one version.
 
 Seed decisions: hall9k's decision record migrates in phase 4 with original ids and dates; until
 then the coanda repository carries `decisions.md` rendered from the list in design.md section 3.

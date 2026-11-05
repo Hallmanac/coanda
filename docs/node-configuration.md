@@ -318,7 +318,7 @@ reason naming the profile and the vendor; name a held profile with `coa project 
 ## A module's settings in a project
 
 ```
-coa project module set try-coanda software primary-branch main
+coa project module set try-coanda software primary-branch '{"try-coanda":"main"}'
 coa project module select-profile try-coanda software work
 coa project module show try-coanda software
 ```
@@ -334,7 +334,9 @@ Its node-local setting is the credential profile it acts under on this node. The
 holds for a module are the entries directly inside `modules-private/<module>/` in the node home, each
 named by the profile, holding whatever secret material the module keeps there. Coanda records only
 the name of the profile `coa project module select-profile` selects, in this node's own record, and
-never reads what the profile holds. Only the node's owner selects one, and the name must be an entry in
+never reads what the profile holds; the module does, when a step needs it. A software module profile
+is a directory holding the GitHub token its steps call GitHub's API with, in a file named
+`github-token`. Only the node's owner selects one, and the name must be an entry in
 the module's area when the command runs. The daemon creates `modules-private/` owner-only and narrows
 everything under it to owner-only at every start.
 
