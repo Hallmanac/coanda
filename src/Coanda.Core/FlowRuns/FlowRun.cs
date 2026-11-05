@@ -192,14 +192,37 @@ public sealed class FlowRun
         UpdatedAt = opened.OpenedAt;
     }
 
+    /// <summary>
+    /// The current system step visit is dispatched under a new id, which replaces any it held. The
+    /// visit keeps its resume, which the dispatch carries to the step.
+    /// </summary>
+    public void Apply(SystemStepDispatched dispatched)
+    {
+        Record(entry => entry with
+        {
+            DispatchId = dispatched.DispatchId,
+            DispatchedAt = dispatched.DispatchedAt,
+            DispatchOutcomeAt = null,
+            ResumedSinceDispatch = false,
+        });
+        UpdatedAt = dispatched.DispatchedAt;
+    }
+
     public void Apply(SystemStepCompleted completed)
     {
-        Record(entry => entry with { Result = completed.Result, RecordedAt = completed.CompletedAt, ResumedAt = null });
+        Record(entry => entry with
+        {
+            Result = completed.Result,
+            RecordedAt = completed.CompletedAt,
+            ResumedAt = null,
+            DispatchOutcomeAt = OutcomeOf(entry, completed.DispatchId, completed.CompletedAt),
+        });
         UpdatedAt = completed.CompletedAt;
     }
 
     public void Apply(FlowRunPaused paused)
     {
+        Record(entry => entry with { DispatchOutcomeAt = OutcomeOf(entry, paused.DispatchId, paused.PausedAt) });
         Status = FlowRunStatus.Paused;
         PauseReason = paused.Reason;
         Lever = paused.Lever;
@@ -221,7 +244,12 @@ public sealed class FlowRun
         PauseReason = null;
         Lever = null;
         PauseUsage = null;
-        Record(entry => entry with { ResumedAt = resumed.ResumedAt, RespawnedAt = null });
+        Record(entry => entry with
+        {
+            ResumedAt = resumed.ResumedAt,
+            RespawnedAt = null,
+            ResumedSinceDispatch = entry.DispatchId is not null,
+        });
         UpdatedAt = resumed.ResumedAt;
     }
 
@@ -248,6 +276,12 @@ public sealed class FlowRun
         Steps.Add(new FlowRunStepEntry { Step = step, Kind = kind, Performer = performer, StartedAt = at });
         UpdatedAt = at;
     }
+
+    /// <summary>When the visit's latest dispatch got its outcome: <paramref name="at"/> when the event names that dispatch, as it was otherwise.</summary>
+    private static DateTimeOffset? OutcomeOf(FlowRunStepEntry entry, Guid? dispatchId, DateTimeOffset at) =>
+        dispatchId is Guid named && entry.DispatchId == named
+            ? at
+            : entry.DispatchOutcomeAt;
 
     private void Record(Func<FlowRunStepEntry, FlowRunStepEntry> change)
     {

@@ -262,6 +262,56 @@ public static class FlowRunDecider
     }
 
     /// <summary>
+    /// Records the id the current system step is dispatched under, minted here, before the daemon
+    /// calls the step. A visit that holds a dispatch with no outcome and no resume since is not
+    /// dispatched under a new id: the daemon asks that dispatch's status instead.
+    /// </summary>
+    public static SystemStepDispatched Dispatch(Flow flow, FlowRun flowRun, string step, DateTimeOffset now)
+    {
+        RequireFlow(flow, flowRun);
+        RequireRunning(flowRun, "dispatch a system step");
+        FlowRunStepEntry current = RequireCurrent(flowRun, step, "a dispatch");
+
+        if (current.Kind != StepKind.SystemStep)
+        {
+            throw new DomainException($"Step '{current.Step}' is an agent step; only a system step is dispatched.");
+        }
+
+        if (current is { AwaitsDispatch: true, DispatchId: Guid held })
+        {
+            throw new DomainException(
+                $"Step '{current.Step}' holds dispatch {Ids.Short(held)}, which has no outcome and has not been resumed since; its status is asked, and it is not dispatched under a new id.");
+        }
+
+        return new SystemStepDispatched(flowRun.Id, current.Step, current.Performer, Ids.New(), now);
+    }
+
+    /// <summary>
+    /// Records the result the current system step's dispatch <paramref name="dispatchId"/> finished
+    /// with, as that dispatch's outcome: the flow run is running, and the dispatch is the visit's
+    /// latest, holds no outcome yet, and has not been replaced by a resume.
+    /// </summary>
+    public static SystemStepCompleted CompleteDispatch(Flow flow, FlowRun flowRun, Guid dispatchId, JsonElement result, DateTimeOffset now)
+    {
+        RequireFlow(flow, flowRun);
+        RequireRunning(flowRun, "record a dispatch's outcome");
+        FlowRunStepEntry current = RequireDispatch(flowRun, dispatchId);
+        return new SystemStepCompleted(flowRun.Id, current.Step, current.Performer, result.Clone(), now, dispatchId);
+    }
+
+    /// <summary>
+    /// Pauses the flow run as the outcome of the current system step's dispatch
+    /// <paramref name="dispatchId"/>, under every rule of <see cref="CompleteDispatch"/> and of a pause.
+    /// </summary>
+    public static FlowRunPaused PauseDispatch(
+        Flow flow, FlowRun flowRun, Guid dispatchId, string reason, string lever, string pausedBy, DateTimeOffset now)
+    {
+        FlowRunPaused paused = Pause(flow, flowRun, reason, lever, pausedBy, now);
+        RequireDispatch(flowRun, dispatchId);
+        return paused with { DispatchId = dispatchId };
+    }
+
+    /// <summary>
     /// Records what an agent step on the current step spent when neither its answer nor its pause was
     /// recorded: a person paused or stopped the flow run while it ran, or its visit no longer expects
     /// the session <paramref name="sessionId"/>. A running, paused, or stopped flow run accepts it, and
@@ -450,6 +500,33 @@ public static class FlowRunDecider
         };
         throw new DomainException(
             $"Step '{current.Step}' {expected}; {what} from session {Ids.Short(sessionId)} is not recorded on this visit.");
+    }
+
+    /// <summary>
+    /// The current visit, when it takes an outcome for <paramref name="dispatchId"/>; otherwise a
+    /// refusal naming why: the visit holds another dispatch or none, the dispatch has its outcome, or
+    /// a resume has replaced it.
+    /// </summary>
+    private static FlowRunStepEntry RequireDispatch(FlowRun flowRun, Guid dispatchId)
+    {
+        FlowRunStepEntry current = flowRun.Current
+            ?? throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} has entered no step, so dispatch {Ids.Short(dispatchId)} has no outcome to record.");
+
+        if (current.ExpectsDispatch(dispatchId))
+        {
+            return current;
+        }
+
+        string refusal = current switch
+        {
+            { Kind: StepKind.AgentStep } => "is an agent step, which is not dispatched",
+            { DispatchId: null } => "holds no dispatch",
+            { DispatchId: Guid held } when held != dispatchId => $"holds dispatch {Ids.Short(held)}, not {Ids.Short(dispatchId)}",
+            { IsRecorded: true } or { DispatchOutcomeAt: not null } => $"already holds the outcome of dispatch {Ids.Short(dispatchId)}",
+            _ => $"was resumed after dispatch {Ids.Short(dispatchId)}, so the resume dispatches it again under a new id",
+        };
+        throw new DomainException(
+            $"Step '{current.Step}' of flow run {Ids.Short(flowRun.Id)} {refusal}; an outcome under dispatch {Ids.Short(dispatchId)} is not recorded.");
     }
 
     private static void RequireFlow(Flow flow, FlowRun flowRun)
