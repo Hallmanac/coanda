@@ -69,6 +69,53 @@ public sealed record FlowRunStepEntry
     public Guid? LaunchId { get; init; }
 
     /// <summary>
+    /// The id the daemon minted for this system step visit's latest dispatch and recorded before
+    /// calling the step, or null while the visit has not been dispatched (or was entered before
+    /// dispatches carried an id). A dispatch again after a restart keeps it; a resume's dispatch replaces it.
+    /// </summary>
+    public Guid? DispatchId { get; init; }
+
+    /// <summary>When the dispatch <see cref="DispatchId"/> names was recorded, or null when there is none.</summary>
+    public DateTimeOffset? DispatchedAt { get; init; }
+
+    /// <summary>
+    /// When the outcome of the dispatch <see cref="DispatchId"/> names was recorded, a result or a
+    /// pause the step answered, or null while it has none. A person's pause is no dispatch's outcome.
+    /// </summary>
+    public DateTimeOffset? DispatchOutcomeAt { get; init; }
+
+    /// <summary>
+    /// Whether the flow run was resumed after this visit's latest dispatch was recorded, so the resume
+    /// dispatches the step again under a new id and the dispatch it replaces records no outcome. A
+    /// dispatch clears it.
+    /// </summary>
+    public bool ResumedSinceDispatch { get; init; }
+
+    /// <summary>
+    /// Whether this system step visit holds a dispatch with no outcome: the step answered running, a
+    /// person paused the flow run while it ran, or the call ended without an answer (a daemon stop, a
+    /// call that threw). A resume stops such a dispatch before dispatching the step again.
+    /// </summary>
+    public bool HoldsDispatch =>
+        Kind == StepKind.SystemStep
+        && DispatchId is not null
+        && DispatchOutcomeAt is null
+        && !IsRecorded;
+
+    /// <summary>
+    /// Whether this system step visit holds a dispatch with no outcome that has not been resumed since:
+    /// the state a daemon restart finds a system step in that was running when the daemon stopped, or
+    /// one that answered running. Such a dispatch is asked its status rather than dispatched blindly.
+    /// </summary>
+    public bool AwaitsDispatch => HoldsDispatch && !ResumedSinceDispatch;
+
+    /// <summary>
+    /// Whether this visit takes an outcome for <paramref name="dispatchId"/>: it is a system step whose
+    /// latest dispatch that is, with no outcome recorded and no resume since.
+    /// </summary>
+    public bool ExpectsDispatch(Guid dispatchId) => AwaitsDispatch && DispatchId == dispatchId;
+
+    /// <summary>
     /// Whether a resume of this visit spawns another agent beyond those already counted: an agent step
     /// resumed since its last count whose counted spawn was used, by a launch or by the recorded
     /// answer only a launch gives.

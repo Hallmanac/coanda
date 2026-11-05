@@ -32,6 +32,8 @@ public static class CommandRegistry
         new("flow-run.answer", EntryKind.Command, "Record an agent step's answer and its measurement.", Everyone),
         new("flow-run.usage", EntryKind.Command, "Record what an agent step spent when its answer or its pause was not recorded.", Everyone),
         new("flow-run.result", EntryKind.Command, "Record a system step's result.", Everyone),
+        new("flow-run.dispatch", EntryKind.Command, "Record the id a system step is dispatched under, before the step is called.", Everyone),
+        new("flow-run.outcome", EntryKind.Command, "Record the outcome of a system step's dispatch, a result or a pause, under its dispatch id.", Everyone),
         new("flow-run.pause", EntryKind.Command, "Pause a flow run with a reason and a lever.", Everyone),
         new("flow-run.resume", EntryKind.Command, "Resume a paused flow run.", People),
         new("flow-run.end", EntryKind.Command, "End a flow run with its flow's outcome.", Everyone),
