@@ -15,14 +15,18 @@ namespace Coanda.Daemon.Transport;
 /// seen at, so a ref rebuilt here, with a history the remote's does not share, still pushes over it.
 /// </summary>
 /// <remarks>
-/// What was last written and pushed is kept per clone for the daemon's run alone, so an idle round asks git
-/// one thing per clone and contacts no remote; a start writes and checks every clone once.
+/// What was last written and pushed is kept per clone for the daemon's run alone. A round whose chain ends
+/// where the clone's was last written, and whose ref still names that commit and was pushed, asks git one
+/// thing per clone, reads no line from the store, and contacts no remote. When the chain has grown and the
+/// ref is the commit last written, only the files of the last segment written and those after it are read
+/// and written again, onto that commit's tree, since a later line never lands in an earlier segment. A start,
+/// or a ref deleted, rewound, or changed by anything else, reads and writes the whole chain once.
 /// </remarks>
 internal sealed class LedgerRefs(Git git, Guid nodeId)
 {
     private const string FileMode = "100644";
 
-    private readonly Dictionary<string, (string LastHash, string Commit)> written = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Written> written = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> pushed = new(StringComparer.Ordinal);
 
     /// <summary>The ref this node writes its ledger on.</summary>
@@ -31,25 +35,57 @@ internal sealed class LedgerRefs(Git git, Guid nodeId)
     /// <summary>Where the clone's ledger refspec fetches the remote's copy of this node's ref.</summary>
     private string FetchedRefName => $"{RepoClones.LedgerNamespace}{nodeId:D}";
 
-    /// <summary>Writes the segments onto the ref in <paramref name="clone"/> unless it already holds them, then pushes the ref unless the remote was already given it.</summary>
-    public async Task WriteAndPushAsync(string clone, LedgerSegments segments, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes the chain ending in the line <paramref name="lastHash"/> onto the ref in <paramref name="clone"/>
+    /// unless it already holds it, then pushes the ref unless the remote was already given it.
+    /// <paramref name="segmentsFrom"/> gives the files of the chain's lines from a sequence on, the first
+    /// line of a segment, or 1 for the whole chain; it is asked only for what this write or push reads.
+    /// </summary>
+    public async Task WriteAndPushAsync(
+        string clone,
+        string lastHash,
+        Func<long, CancellationToken, Task<LedgerSegments>> segmentsFrom,
+        CancellationToken cancellationToken)
     {
         string? current = await CommitOfAsync(clone, RefName, cancellationToken);
-        string commit = written.TryGetValue(clone, out (string LastHash, string Commit) last) && last.LastHash == segments.LastHash && last.Commit == current && current is not null
-            ? current
-            : await WriteAsync(clone, segments, current, cancellationToken);
-        written[clone] = (segments.LastHash, commit);
-        if (pushed.TryGetValue(clone, out string? sent) && sent == commit)
+        Written? kept = current is not null && written.TryGetValue(clone, out Written? last) && last.Commit == current ? last : null;
+        LedgerSegments? segments = null;
+        string commit;
+        long lastSegmentStart;
+        if (kept is not null && kept.LastHash == lastHash)
+        {
+            commit = kept.Commit;
+            lastSegmentStart = kept.LastSegmentStart;
+        }
+        else
+        {
+            segments = await segmentsFrom(kept?.LastSegmentStart ?? 1, cancellationToken);
+            commit = await WriteAsync(clone, segments, current, onto: kept is not null, cancellationToken);
+            lastSegmentStart = segments.LastSegmentStart;
+        }
+
+        written[clone] = new Written(lastHash, commit, lastSegmentStart);
+        if (pushed.TryGetValue(clone, out string? given) && given == commit)
         {
             return;
         }
 
-        await PushAsync(clone, commit, segments, cancellationToken);
+        await PushAsync(clone, commit, segments, segmentsFrom, cancellationToken);
         pushed[clone] = commit;
     }
 
-    private async Task<string> WriteAsync(string clone, LedgerSegments segments, string? current, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes <paramref name="segments"/> as the ref's tree: onto <paramref name="current"/>'s tree when
+    /// <paramref name="onto"/> is set, since then they are the chain's later segments and the earlier files
+    /// are already that tree's, and as the whole tree otherwise.
+    /// </summary>
+    private async Task<string> WriteAsync(string clone, LedgerSegments segments, string? current, bool onto, CancellationToken cancellationToken)
     {
+        if (!onto && !segments.Whole)
+        {
+            throw new InvalidOperationException("The ledger's ref is written whole unless it is written onto the commit last written.");
+        }
+
         DirectoryInfo scratch = Directory.CreateTempSubdirectory("coanda-ledger-");
         try
         {
@@ -65,6 +101,11 @@ internal sealed class LedgerRefs(Git git, Guid nodeId)
             {
                 ["GIT_INDEX_FILE"] = Path.Combine(scratch.FullName, "index"),
             };
+            if (onto && current is not null)
+            {
+                await git.RunAsync(Git.Against(clone, "read-tree", current) with { Environment = index }, cancellationToken);
+            }
+
             string[] entries = [.. names.SelectMany((name, i) => new[] { "--cacheinfo", $"{FileMode},{blobs[i]},{name}" })];
             await git.RunAsync(Git.Against(clone, ["update-index", "--add", .. entries]) with { Environment = index }, cancellationToken);
             string tree = (await git.RunAsync(Git.Against(clone, "write-tree") with { Environment = index }, cancellationToken)).Trim();
@@ -97,7 +138,12 @@ internal sealed class LedgerRefs(Git git, Guid nodeId)
     /// Pushes <paramref name="commit"/> to the remote's ref, after checking that every file the remote's
     /// ref holds is a prefix of this node's file of that name; a remote holding anything else is refused.
     /// </summary>
-    private async Task PushAsync(string clone, string commit, LedgerSegments segments, CancellationToken cancellationToken)
+    private async Task PushAsync(
+        string clone,
+        string commit,
+        LedgerSegments? segments,
+        Func<long, CancellationToken, Task<LedgerSegments>> segmentsFrom,
+        CancellationToken cancellationToken)
     {
         string? remote = Lines(await git.RunAsync(Git.Against(clone, "ls-remote", Git.Remote, RefName), cancellationToken))
             .Select(line => line.Split('\t'))
@@ -112,7 +158,7 @@ internal sealed class LedgerRefs(Git git, Guid nodeId)
         if (remote is not null)
         {
             await git.RunAsync(Git.Against(clone, "fetch", "--no-tags", Git.Remote, $"+{RefName}:{FetchedRefName}"), cancellationToken);
-            await RequireHeldAsync(clone, remote, commit, segments, cancellationToken);
+            await RequireHeldAsync(clone, remote, commit, segments, segmentsFrom, cancellationToken);
         }
 
         await git.RunAsync(
@@ -120,20 +166,40 @@ internal sealed class LedgerRefs(Git git, Guid nodeId)
             cancellationToken);
     }
 
-    /// <summary>Throws unless each file of the remote's commit is, at a line's end, a prefix of this node's file of the same name.</summary>
-    private async Task RequireHeldAsync(string clone, string remote, string commit, LedgerSegments segments, CancellationToken cancellationToken)
+    /// <summary>
+    /// Throws unless each file of the remote's commit is, at a line's end, a prefix of this node's file of the
+    /// same name. A file the same as this node's needs no bytes; for any other, the files of
+    /// <paramref name="segments"/> are read when they hold it, and the whole chain's otherwise.
+    /// </summary>
+    private async Task RequireHeldAsync(
+        string clone,
+        string remote,
+        string commit,
+        LedgerSegments? segments,
+        Func<long, CancellationToken, Task<LedgerSegments>> segmentsFrom,
+        CancellationToken cancellationToken)
     {
         IReadOnlyDictionary<string, string> ours = await BlobsAsync(clone, commit, cancellationToken);
         foreach ((string name, string blob) in await BlobsAsync(clone, remote, cancellationToken))
         {
-            if (!segments.Files.TryGetValue(name, out byte[]? bytes))
+            if (!ours.TryGetValue(name, out string? held))
             {
                 throw Refused(name, "which this node's ledger has no file of");
             }
 
-            if (ours.GetValueOrDefault(name) == blob)
+            if (held == blob)
             {
                 continue;
+            }
+
+            if (segments is null || (!segments.Whole && !segments.Files.ContainsKey(name)))
+            {
+                segments = await segmentsFrom(1, cancellationToken);
+            }
+
+            if (!segments.Files.TryGetValue(name, out byte[]? bytes))
+            {
+                throw Refused(name, "which this node's ledger has no file of");
             }
 
             long size = long.Parse((await git.RunAsync(Git.Against(clone, "cat-file", "-s", blob), cancellationToken)).Trim(), CultureInfo.InvariantCulture);
@@ -188,4 +254,7 @@ internal sealed class LedgerRefs(Git git, Guid nodeId)
 
     private static string[] Lines(string output) =>
         output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>What was last written to a clone's ref: the chain's last line, the commit, and where its last segment starts.</summary>
+    private sealed record Written(string LastHash, string Commit, long LastSegmentStart);
 }

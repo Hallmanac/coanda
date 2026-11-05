@@ -79,6 +79,9 @@ public sealed class LedgerExport(
 
     private Task running = Task.CompletedTask;
 
+    /// <summary>Whether the store is known to record this node's id as the one its lines are exported under.</summary>
+    private bool originRecorded;
+
     /// <summary>The ref this node writes its ledger on in every clone.</summary>
     public string RefName => refs.RefName;
 
@@ -168,7 +171,6 @@ public sealed class LedgerExport(
             try
             {
                 await ExportAsync(cancellationToken);
-                await Task.Delay(interval, clock, cancellationToken);
             }
             catch (Exception) when (cancellationToken.IsCancellationRequested)
             {
@@ -177,28 +179,41 @@ public sealed class LedgerExport(
             catch (Exception failure)
             {
                 logger.LogError(failure, "The ledger export could not read the projects; it tries again in {Interval}.", interval);
-                await Task.Delay(interval, clock, CancellationToken.None);
+            }
+
+            try
+            {
+                await Task.Delay(interval, clock, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
             }
         }
     }
 
     /// <summary>
     /// Why nothing may be exported, or null when this node may export: the store records the node id it
-    /// first exported under, and a node whose id differs from it writes and pushes nothing.
+    /// first exported a line under (<see cref="RecordOriginAsync"/>), and a node whose id differs from it
+    /// writes and pushes nothing. A store that has exported no line yet binds no id.
     /// </summary>
     private async Task<string?> RefusalAsync(CancellationToken cancellationToken)
     {
-        await using IDocumentSession session = store.LightweightSession(Tenants.Node);
+        if (originRecorded)
+        {
+            return null;
+        }
+
+        await using IQuerySession session = store.QuerySession(Tenants.Node);
         LedgerOrigin? origin = await session.LoadAsync<LedgerOrigin>(LedgerOrigin.DocumentId, cancellationToken);
         if (origin is null)
         {
-            session.Store(new LedgerOrigin { NodeId = identity.NodeId });
-            await session.SaveChangesAsync(cancellationToken);
             return null;
         }
 
         if (origin.NodeId == identity.NodeId)
         {
+            originRecorded = true;
             return null;
         }
 
@@ -208,20 +223,62 @@ public sealed class LedgerExport(
         return refused;
     }
 
+    /// <summary>
+    /// Records the store's node id as the one this node exports under, before its first line is saved, so a
+    /// line is never in the store without it. Recorded once; <see cref="RefusalAsync"/> has already refused a
+    /// node whose id differs from one recorded.
+    /// </summary>
+    private async Task RecordOriginAsync(CancellationToken cancellationToken)
+    {
+        if (originRecorded)
+        {
+            return;
+        }
+
+        await using IDocumentSession session = store.LightweightSession(Tenants.Node);
+        switch (await session.LoadAsync<LedgerOrigin>(LedgerOrigin.DocumentId, cancellationToken))
+        {
+            case null:
+                session.Store(new LedgerOrigin { NodeId = identity.NodeId });
+                await session.SaveChangesAsync(cancellationToken);
+                break;
+            case { } origin when origin.NodeId != identity.NodeId:
+                throw new InvalidOperationException(
+                    $"This store records its lines as exported by node {origin.NodeId}, and this node is {identity.NodeId}, so no line is written.");
+        }
+
+        originRecorded = true;
+    }
+
+    /// <summary>
+    /// Writes the project's chain into each of its clones and pushes it. The store's lines are read only when
+    /// a clone's write or push needs them, and once a round for all the project's clones; a round whose chain
+    /// every clone already holds and pushed reads none.
+    /// </summary>
     private async Task<LedgerPublication> ExportAsync(Project project, CancellationToken cancellationToken)
     {
         List<string> failures = [];
         int written = 0;
         try
         {
-            written = await AppendAsync(project, failures, cancellationToken);
-            IReadOnlyList<LedgerLine> lines = await LinesAsync(project.Name, cancellationToken);
-            if (lines.Count > 0)
+            (written, LedgerLine? last) = await AppendAsync(project, failures, cancellationToken);
+            if (last is not null)
             {
-                LedgerSegments segments = LedgerSegments.Of(lines);
+                Dictionary<long, LedgerSegments> loaded = [];
+                async Task<LedgerSegments> SegmentsFromAsync(long from, CancellationToken token)
+                {
+                    if (!loaded.TryGetValue(from, out LedgerSegments? segments))
+                    {
+                        segments = LedgerSegments.Of(await LinesAsync(project.Name, from, token));
+                        loaded[from] = segments;
+                    }
+
+                    return segments;
+                }
+
                 foreach (ProjectRepo repo in project.Repos)
                 {
-                    await WriteAndPushAsync(project, repo, segments, failures, cancellationToken);
+                    await WriteAndPushAsync(project, repo, last.Hash, SegmentsFromAsync, failures, cancellationToken);
                 }
             }
         }
@@ -234,7 +291,13 @@ public sealed class LedgerExport(
         return new LedgerPublication(project.Name, written, failures);
     }
 
-    private async Task WriteAndPushAsync(Project project, ProjectRepo repo, LedgerSegments segments, List<string> failures, CancellationToken cancellationToken)
+    private async Task WriteAndPushAsync(
+        Project project,
+        ProjectRepo repo,
+        string lastHash,
+        Func<long, CancellationToken, Task<LedgerSegments>> segmentsFrom,
+        List<string> failures,
+        CancellationToken cancellationToken)
     {
         string? clone = RepoLayout.IsPlain(project.Name) ? home.RepoClonePath(project.Name, repo.Name) : null;
         if (clone is null || !Directory.Exists(clone))
@@ -247,7 +310,7 @@ public sealed class LedgerExport(
 
         try
         {
-            await refs.WriteAndPushAsync(clone, segments, cancellationToken);
+            await refs.WriteAndPushAsync(clone, lastHash, segmentsFrom, cancellationToken);
         }
         catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
         {
@@ -257,20 +320,24 @@ public sealed class LedgerExport(
         }
     }
 
-    /// <summary>This node's lines in the project, in sequence order.</summary>
-    private async Task<IReadOnlyList<LedgerLine>> LinesAsync(string tenant, CancellationToken cancellationToken)
+    /// <summary>This node's lines in the project from sequence <paramref name="from"/> on, in sequence order.</summary>
+    private async Task<IReadOnlyList<LedgerLine>> LinesAsync(string tenant, long from, CancellationToken cancellationToken)
     {
         Guid origin = identity.NodeId;
         await using IQuerySession session = store.QuerySession(tenant);
-        return await session.Query<LedgerLine>().Where(l => l.Origin == origin).OrderBy(l => l.Sequence).ToListAsync(cancellationToken);
+        return await session.Query<LedgerLine>()
+            .Where(l => l.Origin == origin && l.Sequence >= from)
+            .OrderBy(l => l.Sequence)
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
     /// Records the next lines of this node's chain in the project, page by page, each page in one save,
     /// and gives how many. A line that cannot be written stops the project's export before it, with its
-    /// reason added to <paramref name="failures"/>; the lines before it are kept.
+    /// reason added to <paramref name="failures"/>; the lines before it are kept. It also gives this node's
+    /// last line in the project, written now or before, or null when it has none.
     /// </summary>
-    private async Task<int> AppendAsync(Project project, List<string> failures, CancellationToken cancellationToken)
+    private async Task<(int Written, LedgerLine? Last)> AppendAsync(Project project, List<string> failures, CancellationToken cancellationToken)
     {
         string tenant = project.Name;
         Guid origin = identity.NodeId;
@@ -316,6 +383,7 @@ public sealed class LedgerExport(
 
             if (recorded.Count > 0)
             {
+                await RecordOriginAsync(cancellationToken);
                 await using IDocumentSession session = store.LightweightSession(tenant);
                 session.Store([.. recorded]);
                 await session.SaveChangesAsync(cancellationToken);
@@ -333,7 +401,7 @@ public sealed class LedgerExport(
             from = to;
         }
 
-        return written;
+        return (written, last);
     }
 
     private LedgerLine Line(Project project, IEvent entry, long sequence, LedgerLine? last, LineTag tag, StoredEvent current)
