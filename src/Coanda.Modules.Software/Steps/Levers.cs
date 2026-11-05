@@ -62,6 +62,13 @@ public static class Levers
         $"Stop the flow run; performing step '{step}' again would find the branch and its worktree as they are now and pause the same way.";
 
     /// <summary>
+    /// Names the git commands that give <paramref name="user"/>, the user the daemon runs as, the
+    /// committer identity a rebase's commits need, after which a resume performs the step again.
+    /// </summary>
+    public static string CommitterIdentity(string step, string user) =>
+        $"Give the user the daemon runs as ({user}) a committer identity, by running as that user git config --global user.name \"<name>\" and git config --global user.email \"<email>\", then resume the flow run to perform step '{step}' again.";
+
+    /// <summary>
     /// Names the recovery from a rebase onto the primary branch that stopped on a conflict. Resolving
     /// a conflict is a code change, so it goes through build, whose gates and both reviews run on it:
     /// the person rebases the branch in a worktree of their own cut from the node's clone, which is
