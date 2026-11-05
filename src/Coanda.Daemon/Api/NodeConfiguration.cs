@@ -12,7 +12,8 @@ namespace Coanda.Daemon.Api;
 /// daemon starts with: the executor, named by key, the credential profiles the node holds per
 /// vendor, and whether the daemon exports and pushes its ledger. It is read once, when <c>coa daemon run</c>
 /// starts. A missing file is the Claude Code executor running <c>claude</c> from the PATH, with no profiles,
-/// exporting every <see cref="LedgerExport.DefaultInterval"/>, so a cold install runs agent steps.
+/// exporting every <see cref="LedgerExport.DefaultInterval"/>, so a cold install runs agent steps. The
+/// daemon imports its peers' ledgers every <see cref="LedgerImport.DefaultInterval"/> whatever the file says.
 /// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
 /// naming the file and the offending entry.
 /// </summary>
@@ -56,6 +57,7 @@ public static class NodeConfiguration
             {
                 Executor = ClaudeCodeOf(home, Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable, []),
                 ExportInterval = LedgerExport.DefaultInterval,
+                ImportInterval = LedgerImport.DefaultInterval,
             };
         }
 
@@ -104,6 +106,7 @@ public static class NodeConfiguration
             Executor = executor,
             Profiles = profiles,
             ExportInterval = file.LedgerExport == false ? null : LedgerExport.DefaultInterval,
+            ImportInterval = LedgerImport.DefaultInterval,
         };
     }
 

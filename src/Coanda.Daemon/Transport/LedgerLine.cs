@@ -4,9 +4,11 @@ namespace Coanda.Daemon.Transport;
 /// The store's record of one signed line of a project's ledger, kept in the project's tenant: the line
 /// exactly as written, and beside it what a reader looks a line up by. It is keyed by the store event the
 /// line carries, so an event is on at most one line, under one origin. The export writes one for every
-/// line this node authors, and an importer writes the same record for a line from another origin, with the
-/// line as it arrived; either way the ledger's files are written from these records, never from the
-/// events again, so a line's bytes never change once it is recorded.
+/// line this node authors, and the import (<see cref="LedgerImport"/>) writes the same record for a line from
+/// another origin, with the line as it arrived, in the same save as the event, keyed by the id this node's
+/// store gave it; either way the ledger's files are written from these records, never from the events again,
+/// so a line's bytes never change once it is recorded. The line's signer key is the <c>signer</c> member of
+/// <see cref="Line"/>.
 /// </summary>
 public sealed class LedgerLine
 {
@@ -41,6 +43,10 @@ public sealed class LedgerLine
     /// <summary>The line as written, without its line ending.</summary>
     public string Line { get; set; } = string.Empty;
 
-    /// <summary>The event's sequence in this node's store, which is where the next export of its origin reads from.</summary>
+    /// <summary>
+    /// The event's sequence in this node's store, which is where the next export of its origin reads from; 0 for a
+    /// line of another origin, which the export never reads from, since the store gives the sequence only as the
+    /// event and this record are saved together.
+    /// </summary>
     public long StoreSequence { get; set; }
 }

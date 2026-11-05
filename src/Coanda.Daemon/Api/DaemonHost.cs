@@ -56,6 +56,11 @@ public sealed class DaemonHost
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(exportInterval, TimeSpan.Zero, nameof(options));
         }
 
+        if (options.ImportInterval is { } importInterval)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(importInterval, TimeSpan.Zero, nameof(options));
+        }
+
         // Narrows what an earlier run left wider, then takes the home's lock before anything touches the
         // database, holding it until the daemon stops, so a record export or rebuild never runs beside a
         // daemon, even one still starting.
@@ -177,6 +182,10 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<LedgerExport>();
         builder.Services.AddHostedService(services => services.GetRequiredService<LedgerExport>());
 
+        // A round the stop interrupts has stored only whole saves of lines, and the next start reads on from the last.
+        builder.Services.AddSingleton<LedgerImport>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<LedgerImport>());
+
         // Registered last, so it stops first: a delivery a stop interrupts is not counted as handled and comes again.
         builder.Services.AddSingleton<ModuleFeed>();
         builder.Services.AddHostedService(services => services.GetRequiredService<ModuleFeed>());
@@ -268,6 +277,11 @@ public sealed class DaemonHost
             if (options.ExportInterval is { } interval)
             {
                 app.Services.GetRequiredService<LedgerExport>().Begin(interval);
+            }
+
+            if (options.ImportInterval is { } importEvery)
+            {
+                app.Services.GetRequiredService<LedgerImport>().Begin(importEvery);
             }
 
             // Saved inside the start, so a save that fails disposes the daemon it would have advertised.
