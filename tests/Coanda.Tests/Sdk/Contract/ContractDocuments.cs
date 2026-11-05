@@ -5,8 +5,9 @@ namespace Coanda.Tests.Sdk.Contract;
 /// <summary>
 /// Each schema document and the SDK contract type that is it, and for each document an example
 /// that carries every property the document defines at every level the schema closes; an answer
-/// with several kinds has one example per kind. The examples write a date with its offset and a
-/// uuid in lowercase, the way the SDK writes them, so a round trip can be compared as JSON.
+/// with several kinds has one example per kind. The examples write a uuid in lowercase, the way the
+/// SDK writes it, so a round trip can be compared as JSON. The approval's date is written with
+/// <c>Z</c>, which the SDK keeps as the signer wrote it.
 /// </summary>
 public static class ContractDocuments
 {
@@ -133,7 +134,7 @@ public static class ContractDocuments
               "sourceUrl": "https://github.com/Hallmanac/coanda",
               "sourceCommit": "70e9303c4b1f0d5e6a7b8c9d0e1f2a3b4c5d6e7f",
               "signer": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
-              "issuedAt": "2026-11-04T17:42:00+00:00",
+              "issuedAt": "2026-11-04T17:42:00Z",
               "reviewId": "review-0001",
               "signature": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw=="
             }
