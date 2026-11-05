@@ -7,6 +7,7 @@ using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
+using Coanda.Daemon.SystemSteps;
 using Coanda.Sdk.Contract;
 using Coanda.Sdk.Hosting;
 using Coanda.Tests.Daemon.FlowRuns;
@@ -127,6 +128,31 @@ public sealed class ModuleFeedTests
         Assert.NotEqual(before, after.Id);
         await using IQuerySession session = second.Store.QuerySession(Coanda.Daemon.Store.Tenants.Node);
         Assert.NotNull(await session.LoadAsync<FeedPosition>(FeedPosition.IdOf(Watcher), None));
+    }
+
+    [Fact]
+    public async Task On_a_feeds_first_start_the_end_of_a_live_flow_run_the_start_resumes_is_delivered()
+    {
+        using var temp = new TemporaryHome();
+        Guid resumed;
+        await using (Node first = await Node.StartAsync(new Dictionary<string, IModule>(), temp))
+        {
+            await first.SwitchOnAsync(On, Watcher);
+            Parcel parcel = await first.ParcelAsync(On, "Live across the upgrade");
+
+            // The test's own flow run service hands nothing to the advancer, so the flow run is live and undispatched when the daemon stops.
+            resumed = (await first.StartFlowRunAsync(On, parcel.Id)).Id;
+            await first.Daemon.StopAsync(None);
+        }
+
+        var watcher = new FeedModule([CoreEventKind.FlowRunEnded]);
+        var step = new RunningSystemStep { Answer = (_, _) => Task.FromResult<SystemStepAnswer>(RunningSystemStep.Done()) };
+        await using Node second = await Node.StartAsync(new() { [Watcher] = watcher }, temp, register: false, step: step);
+
+        // The start resumes the flow run, which ends at once; its end lands past the feed's first position.
+        await FlowRunDriver.UntilAsync(() => watcher.Events.Count > 0, "the resumed flow run's end is delivered");
+
+        Assert.Equal(resumed, Assert.IsType<FeedEvent.FlowRunEnded>(Assert.Single(watcher.Events)).FlowRunId);
     }
 
     [Fact]
@@ -306,12 +332,17 @@ public sealed class ModuleFeedTests
         public FlowRunService FlowRuns => new(Store, TimeProvider.System);
 
         public static async Task<Node> StartAsync(
-            Dictionary<string, IModule> modules, TemporaryHome? temp = null, bool register = true, RecordingLogger? log = null, string[]? projects = null)
+            Dictionary<string, IModule> modules,
+            TemporaryHome? temp = null,
+            bool register = true,
+            RecordingLogger? log = null,
+            string[]? projects = null,
+            RunningSystemStep? step = null)
         {
             TemporaryHome? owned = temp is null ? new TemporaryHome() : null;
             NodeHome home = (temp ?? owned)!.Home;
             RunningDaemon daemon = await Daemons.StartAsync(
-                home, new DaemonOptions { Modules = modules, SystemSteps = [new RunningSystemStep()], LoggerProvider = log }, None);
+                home, new DaemonOptions { Modules = modules, SystemSteps = [step ?? new RunningSystemStep()], LoggerProvider = log }, None);
             var node = new Node(daemon, home, owned);
             if (register)
             {

@@ -194,6 +194,14 @@ public sealed class DaemonHost
             // the start stands in for it, reading each module's definitions folder from its directory.
             await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
 
+            // Each module's feed position is fixed before any live flow run is advanced, so on a node
+            // where a feed has never run, an end a resumed flow run records lands past the position and
+            // is delivered; everything at or below it ended before this start, and the module's own
+            // start, done above, has already swept what those flow runs left. Fixing it before the
+            // address is advertised also keeps anything recorded through the API from landing below it.
+            ModuleFeed feed = app.Services.GetRequiredService<ModuleFeed>();
+            await feed.FixPositionsAsync(cancellationToken);
+
             // Every live flow run that is not paused carries on from its current step.
             await app.Services.GetRequiredService<FlowRunAdvancer>().AdvanceLiveAsync(cancellationToken);
 
@@ -202,10 +210,6 @@ public sealed class DaemonHost
             TriggerLoop triggers = app.Services.GetRequiredService<TriggerLoop>();
             await triggers.FixPositionAsync(cancellationToken);
             triggers.Begin();
-
-            // Each module's feed position is fixed before the address is advertised too, for the same reason.
-            ModuleFeed feed = app.Services.GetRequiredService<ModuleFeed>();
-            await feed.FixPositionsAsync(cancellationToken);
             feed.Begin();
         }
         catch
