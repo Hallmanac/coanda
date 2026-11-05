@@ -4,8 +4,10 @@ using System.Text.Json.Nodes;
 namespace Coanda.Daemon.SystemSteps;
 
 /// <summary>
-/// How a system step ended: a result document recorded on the flow run and routed on, or a pause
-/// with a reason and a lever. The private constructor closes the hierarchy.
+/// How a system step answers its dispatch: done with a result document recorded on the flow run and
+/// routed on, paused with a reason and a lever, or running, when the step goes on and records its
+/// outcome later under the dispatch id. Done and paused are the outcomes a dispatch is recorded with.
+/// The private constructor closes the hierarchy.
 /// </summary>
 public abstract record SystemStepAnswer
 {
@@ -27,6 +29,12 @@ public abstract record SystemStepAnswer
 
     /// <summary>The system step stopped the flow run to wait; <paramref name="Lever"/> is what a person acts on.</summary>
     public sealed record Paused(string Reason, string Lever) : SystemStepAnswer;
+
+    /// <summary>
+    /// The system step goes on after its answer: the flow run stays running with no worker advancing
+    /// it until the step's outcome is recorded under the dispatch id.
+    /// </summary>
+    public sealed record Running : SystemStepAnswer;
 
     /// <summary>A result whose verdict is <c>done</c>, naming the system step, with any further fields given.</summary>
     public static Done DoneWith(string systemStep, params (string Field, JsonNode? Value)[] fields) =>

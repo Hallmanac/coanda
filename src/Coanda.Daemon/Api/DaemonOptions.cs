@@ -2,6 +2,7 @@ using Coanda.Core.Parcels;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.GitHub;
+using Coanda.Daemon.SystemSteps;
 using Microsoft.Extensions.Logging;
 
 namespace Coanda.Daemon.Api;
@@ -47,6 +48,12 @@ public sealed record DaemonOptions
     /// through them and drafted parcel types are validated against them. None by default.
     /// </summary>
     public IReadOnlyList<IGate> Gates { get; init; } = [];
+
+    /// <summary>
+    /// System steps the daemon registers beside the ones it ships, which it always registers; a name
+    /// that is already registered is refused. None by default: a test brings a step of its own here.
+    /// </summary>
+    public IReadOnlyList<IFlowSystemStep> SystemSteps { get; init; } = [];
 
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }

@@ -321,7 +321,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "elsewhere", "task", "Merge me", null, None);
         await parcels.SetFieldAsync(Principal.LocalOwner, "elsewhere", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
 
-        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "elsewhere", Ids.New(), parcel.Id, Recorder, Step, false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "elsewhere", Ids.New(), parcel.Id, Recorder, Step, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
         Assert.Contains("is not a github.com repository", PausedToPerformAgain(outcome), StringComparison.Ordinal);
         Assert.Empty(github.Requests);
@@ -335,7 +335,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
         Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
 
-        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
         Assert.Contains("project 'unchecked' names no check for a merge to wait for", PausedToPerformAgain(outcome), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
@@ -450,7 +450,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
         Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
         github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
 
-        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false), None);
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, "unchecked", flowRun, parcel.Id, Recorder, Step, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
         Assert.Contains("names no check", PausedToPerformAgain(outcome), StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsCompare);
@@ -629,7 +629,7 @@ public sealed class GatedMergeSystemStepTests : IAsyncLifetime
     }
 
     private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcel, Guid flowRun) =>
-        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
     private void RunsAre(params JsonObject[] runs) =>
         github.On(r => r.IsCheckRuns, _ => FakeGitHub.Json(HttpStatusCode.OK, FakeGitHub.CheckRuns(runs, runs.Length)));

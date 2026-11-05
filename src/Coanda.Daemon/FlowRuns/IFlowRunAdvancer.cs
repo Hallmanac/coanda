@@ -25,9 +25,9 @@ public interface IFlowRunAdvancer
 
     /// <summary>
     /// Tells the worker advancing the flow run that a person's stop of it was saved: the agent step it is
-    /// running ends as for <see cref="EndAgentStep"/>, the system step it is performing is cancelled, ending
-    /// any command the system step runs and every process that command started, and the flow run's worktree is
-    /// removed once the worker has returned from its step. It returns without waiting for any of that.
+    /// running ends as for <see cref="EndAgentStep"/>, the call on a system step it is making is cancelled, ending
+    /// any command the system step runs and every process that command started, a dispatch the flow run holds with
+    /// no call in progress is stopped, and the flow run's worktree is removed once the worker has returned from its step. It returns without waiting for any of that.
     /// </summary>
     void Stopped(string project, Guid flowRunId);
 }

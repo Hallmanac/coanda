@@ -404,7 +404,7 @@ public sealed class RebaseSystemStepTests : IAsyncLifetime
     }
 
     private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcel, Guid flowRun) =>
-        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false), None);
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, flowRun, parcel, Recorder, Step, false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
     private void NothingFetchedRebasedOrPushed()
     {

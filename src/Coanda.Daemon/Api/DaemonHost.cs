@@ -100,7 +100,7 @@ public sealed class DaemonHost
             () => services.GetRequiredService<GitHubClient>(),
             // Its own flow run service, which only reads: the registered one depends on the runner, which depends on these system steps.
             new FlowRunService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
-            services.GetRequiredService<FlowRunWorkers>()));
+            services.GetRequiredService<FlowRunWorkers>()).With(options.SystemSteps));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<FlowRunAdvancer>();
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());

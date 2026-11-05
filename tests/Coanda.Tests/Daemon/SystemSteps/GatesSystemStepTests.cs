@@ -167,7 +167,7 @@ public sealed class GatesSystemStepTests : IAsyncLifetime
     }
 
     private ValueTask<SystemStepAnswer> DispatchAsync(string project, Guid flowRunId) =>
-        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedFlows.Build, Step, Resumed: false), None);
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, project, flowRunId, Ids.New(), ShippedFlows.Build, Step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"), None);
 
     private static JsonElement Result(SystemStepAnswer outcome, string verdict)
     {
