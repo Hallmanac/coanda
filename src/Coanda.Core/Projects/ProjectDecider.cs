@@ -1,9 +1,11 @@
 using Coanda.Core.Projects.Events;
+using Coanda.Core.Registry;
 
 namespace Coanda.Core.Projects;
 
 /// <summary>
-/// The rules for registering a project and for naming the checks its merge waits for, as pure decisions: the event that records it, or a
+/// The rules for registering a project, for naming the checks its merge waits for, and for switching
+/// modules on for it, as pure decisions: the event that records it, or a
 /// <see cref="DomainException"/> quoting the rule. The caller has already checked the name the way
 /// every project command does, and hands in the record the name already has, if any, and the names of
 /// the projects already registered, so a name differing from one of them only in letter case is
@@ -96,5 +98,34 @@ public static class ProjectDecider
         }
 
         return new ProjectRequiredChecksSet(registered.Id, registered.Name, [.. checks], setBy, now);
+    }
+
+    /// <summary>
+    /// Names the set of modules switched on for the project, replacing the set it held. The project must
+    /// have a record and each module must be named by a plain name; a module named twice is recorded
+    /// once, and the set is recorded in ordinal order. An empty set switches every module off.
+    /// </summary>
+    public static ProjectModulesSet SetModules(
+        string project, Project? registered, IReadOnlyList<string>? modules, string setBy, DateTimeOffset now)
+    {
+        if (registered is null)
+        {
+            throw new DomainException(Unregistered(project));
+        }
+
+        IReadOnlyList<string> named = modules ?? [];
+
+        // A request read from the wire can carry a null element, whatever the annotations say.
+        foreach (string module in named)
+        {
+            if (!ModuleNames.IsModuleName(module))
+            {
+                throw new DomainException(
+                    $"Project '{registered.Name}' was given '{module}' as a module to switch on; a module's name is a plain name (letters, digits, hyphens, and underscores).");
+            }
+        }
+
+        return new ProjectModulesSet(
+            registered.Id, registered.Name, [.. named.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)], setBy, now);
     }
 }

@@ -6,7 +6,8 @@ namespace Coanda.Core.Projects;
 /// <summary>
 /// A project's record: the repository its software system steps act on, the build and test commands
 /// its gates run there, which default to <see cref="DefaultBuild"/> and <see cref="DefaultTest"/>,
-/// and the checks a merge waits for, which are none until they are set. It lives in the project's own
+/// the checks a merge waits for, which are none until they are set, and the modules switched on for it,
+/// which are none until they are set. It lives in the project's own
 /// tenant, one per project. State changes only through <c>Apply</c>; the rules live in
 /// <see cref="ProjectDecider"/>. The store snapshots this class inline, so it is also the document
 /// a show or list query reads.
@@ -47,6 +48,13 @@ public sealed class Project
     [JsonInclude]
     public IReadOnlyList<string> RequiredChecks { get; private set; } = [];
 
+    /// <summary>
+    /// The modules switched on for the project, by name, in ordinal order; empty until they are set. A
+    /// module acts in a project only while it is switched on for it.
+    /// </summary>
+    [JsonInclude]
+    public IReadOnlyList<string> Modules { get; private set; } = [];
+
     /// <summary>The build command the gates run: the one named, or <see cref="DefaultBuild"/>.</summary>
     [JsonIgnore]
     public string Build => BuildCommand ?? DefaultBuild;
@@ -75,4 +83,9 @@ public sealed class Project
     }
 
     public void Apply(ProjectRequiredChecksSet set) => RequiredChecks = [.. set.Checks];
+
+    public void Apply(ProjectModulesSet set) => Modules = [.. set.Modules];
+
+    /// <summary>Whether the module <paramref name="module"/> is switched on for the project.</summary>
+    public bool IsSwitchedOn(string module) => Modules.Contains(module, StringComparer.Ordinal);
 }

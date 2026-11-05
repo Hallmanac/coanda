@@ -18,10 +18,10 @@ public static class TriggerDecider
     {
         string trimmedProject = RequireProject(project);
 
-        if (!Flow.IsPlainName(kind))
+        if (!Flow.IsPlainName(kind) && !ModuleNames.IsPrefixed(kind))
         {
             throw new DomainException(
-                $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores); '{kind}' is not.");
+                $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores) or a module's name and a plain name joined by a slash (<module>/<name>); '{kind}' is not.");
         }
 
         if (string.Equals(kind, TriggerEvent.ParcelEnteredKind, StringComparison.Ordinal))

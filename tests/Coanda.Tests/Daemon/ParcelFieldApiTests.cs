@@ -27,13 +27,14 @@ public sealed class ParcelFieldApiTests
         client.PostAsync<ParcelView>("/parcels/set-field", new ParcelSetFieldRequest(Project, parcelId, field, value), None);
 
     [Fact]
-    public void Set_field_is_open_to_the_same_roles_as_move()
+    public void Set_field_is_open_to_the_roles_move_is_open_to_and_to_the_module_role()
     {
         RegistryEntry setField = CommandRegistry.Entries.Single(e => e.Name == "parcel.set-field");
         RegistryEntry move = CommandRegistry.Entries.Single(e => e.Name == "parcel.move");
 
         Assert.Equal(EntryKind.Command, setField.Kind);
-        Assert.Equivalent(move.AllowedRoles, setField.AllowedRoles, strict: true);
+        Assert.Equal([Role.Module], setField.AllowedRoles.Except(move.AllowedRoles));
+        Assert.Empty(move.AllowedRoles.Except(setField.AllowedRoles));
     }
 
     [Fact]

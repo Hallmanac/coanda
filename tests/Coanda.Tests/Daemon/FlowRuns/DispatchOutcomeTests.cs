@@ -41,13 +41,14 @@ public sealed class DispatchOutcomeTests : IAsyncLifetime
     }
 
     [Fact]
-    public void The_outcome_command_is_open_to_the_roles_the_result_command_is_open_to()
+    public void The_outcome_command_is_open_to_the_roles_the_result_command_is_open_to_and_to_the_module_role()
     {
         RegistryEntry result = Assert.Single(CommandRegistry.Entries, e => e.Name == "flow-run.result");
         RegistryEntry outcome = Assert.Single(CommandRegistry.Entries, e => e.Name == "flow-run.outcome");
 
         Assert.Equal(EntryKind.Command, outcome.Kind);
-        Assert.Equivalent(result.AllowedRoles, outcome.AllowedRoles, strict: true);
+        Assert.Equal([Role.Module], outcome.AllowedRoles.Except(result.AllowedRoles));
+        Assert.Empty(result.AllowedRoles.Except(outcome.AllowedRoles));
     }
 
     [Fact]
