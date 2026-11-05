@@ -33,8 +33,8 @@ namespace Coanda.Daemon.Modules;
 /// Each module's position is a document in the node tenant (<see cref="FeedPosition"/>), written only
 /// after the module has handled the delivery it covers, so delivery is at least once and a module reacts
 /// to an event it has seen before as it did the first time. On a node where a module's feed has never
-/// run, its position is fixed at the end of the existing record before the daemon advertises its address,
-/// as the trigger loop's is, so it is delivered nothing recorded before that.
+/// run, its position is fixed at the end of the existing record before the daemon advances any live flow
+/// run or advertises its address, so it is delivered nothing recorded before that and everything after.
 /// </para>
 /// <para>
 /// A flow run's ended or stopped delivery is held until no worker advances that flow run and no person's
@@ -69,7 +69,7 @@ public sealed class ModuleFeed(
     /// <summary>
     /// Reads each subscribing module's position, or, for a module whose feed has never run on this node,
     /// writes the end of the existing record as its position. The daemon calls this once its hosted
-    /// modules have described themselves and before it writes its address file.
+    /// modules have described themselves, and before it advances any live flow run or writes its address file.
     /// </summary>
     public async Task FixPositionsAsync(CancellationToken cancellationToken)
     {
