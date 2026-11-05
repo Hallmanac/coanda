@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:recorded-event",
+  "title": "Recorded event",
+  "description": "An external event a module records through the core's API, under the watches the core handed it. Recording is idempotent on project, kind, and external id. What follows is the user's trigger, never the module's. The event's fields are untrusted text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "kind", "externalId", "fields"],
+  "properties": {
+    "project": {
+      "description": "The project the event happened in.",
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "description": "The event kind, prefixed by the module's name and a slash, as describe lists it.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "externalId": {
+      "description": "The id the outside world gives the event, which makes recording it again a no-op.",
+      "type": "string",
+      "minLength": 1
+    },
+    "parcelId": {
+      "description": "The parcel the event is about, when the module looked it up, so a trigger can target it.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "fields": {
+      "description": "The event's named fields, each a string. It is left open, because each event kind carries its own fields.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:dispatch",
+  "title": "Dispatch",
+  "description": "The daemon's call on a module to do one system step. The file holds two documents: the request at #/definitions/request and the answer at #/definitions/answer. Dispatching again under the same dispatch id must be safe, and the module guarantees it.",
+  "definitions": {
+    "request": {
+      "title": "Dispatch request",
+      "description": "One system step to do. It carries ids and the step's arguments only; the module pulls everything else through the core's query API.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "parcelId", "flowRunId", "step", "visit", "dispatchId", "resumed", "workPath", "arguments"],
+      "properties": {
+        "project": {
+          "description": "The project the flow run belongs to, so the module resolves the project's settings and credential profile.",
+          "type": "string",
+          "minLength": 1
+        },
+        "parcelId": {
+          "description": "The parcel the flow run acts on.",
+          "$ref": "#/definitions/uuid"
+        },
+        "flowRunId": {
+          "description": "The flow run the step belongs to.",
+          "$ref": "#/definitions/uuid"
+        },
+        "step": {
+          "description": "The step's name, prefixed by the module's name and a slash, as describe lists it.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "visit": {
+          "description": "Which visit to the step this is, counting from 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "dispatchId": {
+          "description": "The id the daemon minted for this dispatch and recorded on the flow run before calling.",
+          "$ref": "#/definitions/uuid"
+        },
+        "resumed": {
+          "description": "Whether the flow run was resumed while this visit was its current step, which is what a wait step waits for.",
+          "type": "boolean"
+        },
+        "workPath": {
+          "description": "The flow run's work path, the directory a step that prepares a workspace populates.",
+          "type": "string",
+          "minLength": 1
+        },
+        "arguments": {
+          "description": "The step's arguments, the JSON object the flow author wrote. It is left open here; the step's argument schema in describe governs it.",
+          "type": "object"
+        }
+      }
+    },
+    "answer": {
+      "title": "Dispatch answer",
+      "description": "How the module answers a dispatch: done with a result, paused with a reason and a lever, or running.",
+      "oneOf": [
+        { "$ref": "#/definitions/done" },
+        { "$ref": "#/definitions/paused" },
+        { "$ref": "#/definitions/running" }
+      ]
+    },
+    "done": {
+      "description": "The step finished, whatever its verdict.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer", "result"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["done"] },
+        "result": { "$ref": "#/definitions/result" }
+      }
+    },
+    "paused": {
+      "description": "The step stopped the flow run to wait for a person.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer", "reason", "lever"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["paused"] },
+        "reason": {
+          "description": "Why the flow run is paused, shown to a person.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lever": {
+          "description": "What a person acts on to resume the flow run.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "running": {
+      "description": "The step goes on after the answer; the module records its outcome later through a core command naming the dispatch id.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["running"] }
+      }
+    },
+    "result": {
+      "description": "The step's result document, which the flow's routes read. It carries a verdict; the rest is the step's declared result schema, so it is left open here.",
+      "type": "object",
+      "required": ["verdict"],
+      "properties": {
+        "verdict": {
+          "description": "The value the flow's routes read.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
+  }
+}

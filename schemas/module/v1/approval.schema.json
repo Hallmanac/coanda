@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:approval",
+  "title": "Approval record",
+  "description": "The one signed record that lets a module start: the daemon checks it at install and at every start against the hash of what is on disk. The signature is an ed25519 signature over the UTF-8 bytes of the record with its signature property removed, written in the JSON Canonicalization Scheme (RFC 8785), so it covers every other property here. It is verified with the key the signer property names, which must be the registry key shipped with the binary or the node owner's root key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["module", "version", "artifactHash", "moduleApiVersion", "sourceUrl", "sourceCommit", "signer", "issuedAt", "signature"],
+  "properties": {
+    "module": {
+      "description": "The name of the module approved, as its manifest names it.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "description": "The version of the module approved, as its manifest names it.",
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactHash": {
+      "description": "The hash of the approved artifact, written as the algorithm, a colon, and the digest in lowercase hex. Version 1 has one algorithm, sha256.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "moduleApiVersion": {
+      "description": "The module API version of the approved artifact. This schema is version 1.",
+      "type": "integer",
+      "enum": [1]
+    },
+    "sourceUrl": {
+      "description": "Where the approved module's source can be read.",
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceCommit": {
+      "description": "The commit of the source that was reviewed and that the artifact was built from.",
+      "type": "string",
+      "minLength": 1
+    },
+    "signer": {
+      "description": "The ed25519 public key of the signer, 32 bytes in standard base64 with padding.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "issuedAt": {
+      "description": "When the approval was signed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "reviewId": {
+      "description": "The id of the review behind the approval. An approval the owner signed has none, and reads as approved by owner, not reviewed.",
+      "type": "string",
+      "minLength": 1
+    },
+    "signature": {
+      "description": "The ed25519 signature, 64 bytes in standard base64 with padding.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{86}==$"
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:status",
+  "title": "Status",
+  "description": "The daemon's question about a dispatch, asked after a restart instead of dispatching again. The file holds two documents: the request at #/definitions/request and the answer at #/definitions/answer. On unknown, the daemon dispatches again under the same dispatch id.",
+  "definitions": {
+    "request": {
+      "title": "Status request",
+      "description": "The dispatch the daemon asks about.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dispatchId"],
+      "properties": {
+        "dispatchId": {
+          "description": "The id of the dispatch, as the dispatch request carried it.",
+          "$ref": "#/definitions/uuid"
+        }
+      }
+    },
+    "answer": {
+      "title": "Status answer",
+      "description": "Where the dispatch stands: running with optional progress text, done with a result, paused with a reason and a lever, or unknown to the module.",
+      "oneOf": [
+        { "$ref": "#/definitions/running" },
+        { "$ref": "#/definitions/done" },
+        { "$ref": "#/definitions/paused" },
+        { "$ref": "#/definitions/unknown" }
+      ]
+    },
+    "running": {
+      "description": "The step is still going on.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["running"] },
+        "progress": {
+          "description": "Free text about how far the step has got, shown to a person and never routed on.",
+          "type": "string"
+        }
+      }
+    },
+    "done": {
+      "description": "The step finished, whatever its verdict.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer", "result"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["done"] },
+        "result": { "$ref": "#/definitions/result" }
+      }
+    },
+    "paused": {
+      "description": "The step stopped the flow run to wait for a person.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer", "reason", "lever"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["paused"] },
+        "reason": {
+          "description": "Why the flow run is paused, shown to a person.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lever": {
+          "description": "What a person acts on to resume the flow run.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "unknown": {
+      "description": "The module does not know the dispatch, so the daemon dispatches the step again under the same id.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer"],
+      "properties": {
+        "answer": { "type": "string", "enum": ["unknown"] }
+      }
+    },
+    "result": {
+      "description": "The step's result document, which the flow's routes read. It carries a verdict; the rest is the step's declared result schema, so it is left open here.",
+      "type": "object",
+      "required": ["verdict"],
+      "properties": {
+        "verdict": {
+          "description": "The value the flow's routes read.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
+  }
+}

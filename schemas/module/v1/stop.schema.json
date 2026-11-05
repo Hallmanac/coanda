@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:stop",
+  "title": "Stop request",
+  "description": "The daemon's call on a module to stop a dispatch, made when a person stops the flow run. The daemon records nothing from it, so stop has no answer document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dispatchId"],
+  "properties": {
+    "dispatchId": {
+      "description": "The id of the dispatch to stop, as the dispatch request carried it.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
+  }
+}

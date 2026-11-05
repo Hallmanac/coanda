@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:feed-delivery",
+  "title": "Feed delivery",
+  "description": "The core's delivery to a module of the core events its describe subscribes to, from projects the module is switched on for. Events arrive in sequence order and at least once, so a module reacts to an event it has seen before as it did the first time. Each event carries ids only; the module pulls anything else through the core's query API. A feed delivery has no answer document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events"],
+  "properties": {
+    "events": {
+      "description": "The events delivered, in sequence order.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/event" }
+    }
+  },
+  "definitions": {
+    "event": {
+      "description": "One core event, of one of the kinds describe can subscribe to.",
+      "oneOf": [
+        { "$ref": "#/definitions/parcelEntered" },
+        { "$ref": "#/definitions/flowRunEnded" },
+        { "$ref": "#/definitions/flowRunStopped" },
+        { "$ref": "#/definitions/flowRunPaused" },
+        { "$ref": "#/definitions/parcelFieldSet" }
+      ]
+    },
+    "parcelEntered": {
+      "description": "A parcel entered a stage, by being created in it or moved into it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project", "sequence", "parcelId", "stage"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["parcel-entered"] },
+        "project": { "$ref": "#/definitions/project" },
+        "sequence": { "$ref": "#/definitions/sequence" },
+        "parcelId": { "$ref": "#/definitions/uuid" },
+        "stage": {
+          "description": "The stage the parcel entered.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "flowRunEnded": {
+      "description": "A flow run reached the end of its flow.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project", "sequence", "flowRunId"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["flow-run-ended"] },
+        "project": { "$ref": "#/definitions/project" },
+        "sequence": { "$ref": "#/definitions/sequence" },
+        "flowRunId": { "$ref": "#/definitions/uuid" }
+      }
+    },
+    "flowRunStopped": {
+      "description": "Someone stopped a live flow run before its end.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project", "sequence", "flowRunId"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["flow-run-stopped"] },
+        "project": { "$ref": "#/definitions/project" },
+        "sequence": { "$ref": "#/definitions/sequence" },
+        "flowRunId": { "$ref": "#/definitions/uuid" }
+      }
+    },
+    "flowRunPaused": {
+      "description": "A flow run stopped to wait for a person.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project", "sequence", "flowRunId"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["flow-run-paused"] },
+        "project": { "$ref": "#/definitions/project" },
+        "sequence": { "$ref": "#/definitions/sequence" },
+        "flowRunId": { "$ref": "#/definitions/uuid" }
+      }
+    },
+    "parcelFieldSet": {
+      "description": "A value was recorded in one of a parcel's fields.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project", "sequence", "parcelId", "field"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["parcel-field-set"] },
+        "project": { "$ref": "#/definitions/project" },
+        "sequence": { "$ref": "#/definitions/sequence" },
+        "parcelId": { "$ref": "#/definitions/uuid" },
+        "field": {
+          "description": "The name of the field that was set.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "project": {
+      "description": "The project the event happened in, so the module resolves the project's settings and credential profile.",
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "description": "The event's position in the node's event sequence. The core keeps the module's position by it, and a module that sees a sequence it has already handled is seeing a redelivery.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
+  }
+}

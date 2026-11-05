@@ -1,0 +1,65 @@
+{
+  "moduleApiVersion": 1,
+  "description": "The module API, version 1. Each address is a schema file in this folder and, where the file holds more than one document, a JSON pointer to the document inside it. A null request or answer means the call has none.",
+  "calls": [
+    {
+      "call": "health",
+      "description": "The daemon waits on it after starting the module's process.",
+      "request": null,
+      "answer": null
+    },
+    {
+      "call": "describe",
+      "description": "Asked at install and again after every start.",
+      "request": null,
+      "answer": "describe.schema.json"
+    },
+    {
+      "call": "dispatch",
+      "description": "One system step.",
+      "request": "dispatch.schema.json#/definitions/request",
+      "answer": "dispatch.schema.json#/definitions/answer"
+    },
+    {
+      "call": "status",
+      "description": "Where a dispatch stands, asked after a daemon restart instead of dispatching again.",
+      "request": "status.schema.json#/definitions/request",
+      "answer": "status.schema.json#/definitions/answer"
+    },
+    {
+      "call": "stop",
+      "description": "A person stopped the flow run a dispatch belongs to.",
+      "request": "stop.schema.json",
+      "answer": null
+    },
+    {
+      "call": "feed",
+      "description": "Core events the module subscribes to.",
+      "request": "feed-delivery.schema.json",
+      "answer": null
+    },
+    {
+      "call": "watch",
+      "description": "The watches for one project, replacing the module's set for it.",
+      "request": "watch-request.schema.json",
+      "answer": null
+    }
+  ],
+  "documents": [
+    {
+      "document": "recorded-event",
+      "description": "What a module sends the core's API to record an external event.",
+      "address": "recorded-event.schema.json"
+    },
+    {
+      "document": "manifest",
+      "description": "A module artifact's module.json.",
+      "address": "manifest.schema.json"
+    },
+    {
+      "document": "approval",
+      "description": "The signed approval that lets a module start.",
+      "address": "approval.schema.json"
+    }
+  ]
+}
