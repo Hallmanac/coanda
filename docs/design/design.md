@@ -681,10 +681,39 @@ software concept.
 
 Each project has a set of repos, at least one today because the ledger rides on git, and no primary.
 The node home gives each project a directory with two folders: `projects/<project>/repos/<repo>/`,
-the core's bare clones, which the core fetches and pushes refs to and from which the software module
-cuts worktrees into its own workspace; and `projects/<project>/modules/<module>/`, each module's
-per-project workspace. Two processes writing one clone's worktree metadata rely on git's own
-locking, which holds for one user on one machine and wants a test.
+the core's bare clones; and `projects/<project>/modules/<module>/`, each module's per-project
+workspace. Two processes writing one clone's worktree metadata rely on git's own locking, which holds
+for one user on one machine and wants a test.
+
+The core makes and holds the clones (`Coanda.Daemon/Projects/RepoClones.cs`). It makes a repo's clone
+when the project is registered and, for any repo still without one, at every start: a bare
+repository whose `origin` is the repo's recorded remote, made beside its path and moved there once
+complete, with no contact with the remote. A clone a build before the per-repo layout kept at
+`clones/<project>/repo.git` moves to its project's one repo at the first start of a build that has
+the layout. The start lists the clone's worktrees before the move and runs `git worktree repair` at
+the new path for each whose directory exists, so a flow run paused across the upgrade resumes in its
+worktree. Both happen before any module starts and before any live flow run is advanced. What the
+core cannot place or make, it logs and leaves; it never deletes or overwrites a clone.
+
+A module finds a repo's clone by the layout, which the SDK writes once (`RepoLayout`) and the core
+reads too; it is not handed a path. The software module makes no clone: a step that finds none, or
+finds something git does not recognize, pauses naming the path and the next daemon start as what puts
+a clone there. It cuts a flow run's worktree from the clone at the work path the dispatch carries
+(section 14.3), not in its own per-project workspace. Outside a dispatch, when the feed delivers a
+flow run's end or stop and in its start sweep, it reads that flow run's work path from the core's flow
+run view (`GET /flow-runs/{id}`, field `workPath`, absent for a project whose name is not a plain
+directory name). That view is the core's API, not the module wire schemas. A worktree a clone lists
+counts as a flow run's only at the path the view gives that flow run, and a worktree anywhere else is
+never removed.
+
+Each clone fetches by two refspecs: the default `+refs/heads/*:refs/remotes/origin/*`, and the ledger's
+`+refs/coanda/nodes/*:refs/coanda/fetched/nodes/*`. The ledger refspec brings every node's refs from
+the remote into `refs/coanda/fetched/nodes/`, a namespace no other refspec writes and no ref of the
+node's own sits in. It is apart from `refs/heads/`, `refs/tags/`, and `refs/remotes/`; from
+`refs/coanda/nodes/`, where this node writes its own ledger refs; and from the software module's
+`refs/coanda/rebase/`. A plain fetch therefore never moves a ref this node writes, and no branch on
+the remote maps onto a fetched ledger ref. The refspec is forced, so a peer's rewritten ref is fetched
+as it stands and import, not git, judges it.
 
 The ledger home setting's default kind is "the project's repos, all of them"; the relay is a later
 kind, and the at-least-one-repo requirement lifts when it exists, without the module system hearing
