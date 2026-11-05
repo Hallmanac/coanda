@@ -1,12 +1,31 @@
 using System.Text.Json;
+using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
+using Coanda.Core.Registry;
 using Coanda.Core.Software;
+using Coanda.Daemon.Definitions;
+using Coanda.Modules.Software;
+using Fisher;
 
 namespace Coanda.Tests.Core;
 
-/// <summary>Shipped flows as an earlier build carried them, for tests of what a store seeded by that build holds.</summary>
+/// <summary>
+/// Shipped flows as an earlier build carried them, for tests of what a store seeded by that build holds.
+/// Every build before the software module was carved out named its five steps without the module's
+/// prefix, so these do too.
+/// </summary>
 public static class PreviousFlows
 {
+    /// <summary>
+    /// The system step names a store seeded by this build or an earlier one validated its flows against:
+    /// the core's, the software module's, and the software steps' names before the prefix.
+    /// </summary>
+    public static IReadOnlySet<string> SystemSteps { get; } =
+        new HashSet<string>([.. CoreSystemSteps.All, .. SoftwareSteps.All, .. SoftwareSteps.Unprefixed], StringComparer.Ordinal);
+
+    /// <summary>The build flow as the last build before the prefix shipped it: today's, with the software steps unprefixed.</summary>
+    public static Flow Build => Unprefixed(ShippedFlows.Build);
+
     /// <summary>
     /// The build flow before it ended at the open pull request: open-pr answered done into a
     /// gated-merge step, which went on to move the task to review.
@@ -15,13 +34,13 @@ public static class PreviousFlows
     {
         get
         {
-            Flow build = ShippedFlows.Build;
+            Flow build = Build;
             FlowStep openPr = build.Step("open-pr") ?? throw new InvalidOperationException("The build flow has no open-pr step.");
             FlowTransition onward = openPr.Transitions.Single();
             FlowStep gatedMerge = new()
             {
                 Name = "gated-merge",
-                SystemStep = SoftwareSystemSteps.GatedMerge,
+                SystemStep = "gated-merge",
                 Transitions = [onward with { Value = FlowValue.Of("done") }],
             };
             return build with
@@ -55,7 +74,7 @@ public static class PreviousFlows
             new FlowStep
             {
                 Name = "gated-merge",
-                SystemStep = SoftwareSystemSteps.GatedMerge,
+                SystemStep = "gated-merge",
                 Transitions = [On("merged", Flow.End, 120), On("pending", "wait-for-checks", 20)],
             },
             new FlowStep
@@ -65,6 +84,31 @@ public static class PreviousFlows
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(60) },
                 Transitions = [On("done", "gated-merge", 20)],
             },
+        ],
+    };
+
+    /// <summary>
+    /// Drafts and publishes <paramref name="flow"/> as a project-scope flow of <paramref name="project"/>
+    /// in the store, recording the same events the build that shipped it recorded, which knew the
+    /// unprefixed software steps as system steps.
+    /// </summary>
+    public static async Task PublishAsync(IDocumentStore store, string project, Flow flow)
+    {
+        var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: SystemSteps);
+        Definition draft = await definitions.DraftAsync(
+            Principal.LocalOwner, DefinitionKind.Flow, DefinitionScope.Project, project, flow.Name,
+            Flow.CanonicalJson(flow), flow.Hash, null, CancellationToken.None);
+        await definitions.PublishAsync(Principal.LocalOwner, project, draft.Id, CancellationToken.None);
+    }
+
+    /// <summary><paramref name="flow"/> with each of the software module's steps named as builds before the prefix named it.</summary>
+    public static Flow Unprefixed(Flow flow) => flow with
+    {
+        Steps =
+        [
+            .. flow.Steps.Select(s => s.SystemStep is { } step && SoftwareSteps.All.Contains(step)
+                ? s with { SystemStep = step[(SoftwareSteps.Module.Length + 1)..] }
+                : s),
         ],
     };
 

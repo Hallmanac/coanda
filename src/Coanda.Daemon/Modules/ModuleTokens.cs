@@ -3,7 +3,6 @@ using System.Text;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Store;
 using Fisher;
-using JasperFx.Events.Documents;
 
 namespace Coanda.Daemon.Modules;
 
@@ -13,7 +12,7 @@ namespace Coanda.Daemon.Modules;
 /// (<see cref="ModuleTokenRecord"/>), bound to the module it was issued for. A token resolves to that
 /// module's principal (<see cref="Principal.ForModule"/>) for as long as its record is held. Nothing
 /// in the API or the CLI issues one: installing a module will, and until then only a caller in the
-/// daemon's own process can.
+/// daemon's own process can, as the host of the in-process software module does at each start.
 /// </summary>
 public sealed class ModuleTokens(IDocumentStore store)
 {
@@ -33,6 +32,24 @@ public sealed class ModuleTokens(IDocumentStore store)
         session.Store(new ModuleTokenRecord { Id = Hash(token), Module = name });
         await session.SaveChangesAsync(cancellationToken);
         return token;
+    }
+
+    /// <summary>
+    /// Issues a fresh token for the module <paramref name="module"/> as <see cref="IssueAsync"/> does,
+    /// first forgetting every token issued for it before, so only the one returned resolves. The host of
+    /// an in-process module calls it at each start, when the token an earlier start handed it is gone
+    /// with that start's process.
+    /// </summary>
+    public async Task<string> ReissueAsync(string module, CancellationToken cancellationToken)
+    {
+        string name = ModuleNames.Require(module);
+        await using (IDocumentSession session = store.LightweightSession(Tenants.Node))
+        {
+            session.DeleteWhere<ModuleTokenRecord>(r => r.Module == name);
+            await session.SaveChangesAsync(cancellationToken);
+        }
+
+        return await IssueAsync(name, cancellationToken);
     }
 
     /// <summary>The module principal <paramref name="presented"/> resolves to, or null when no daemon on this node issued it.</summary>

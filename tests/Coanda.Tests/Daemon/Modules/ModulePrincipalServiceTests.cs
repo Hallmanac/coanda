@@ -207,7 +207,8 @@ public sealed class ModulePrincipalServiceTests
         await using (IQuerySession own = store.QuerySession(Off))
         {
             IReadOnlyList<IEvent> events = await own.Events.FetchStreamAsync(project.Id, token: None);
-            Assert.Equal(["mail", ModuleNode.Module], Assert.Single(events.Select(e => e.Data).OfType<ProjectModulesSet>()).Modules);
+            // the registration switched the default modules on; the owner's set replaced them
+            Assert.Equal([["software"], ["mail", ModuleNode.Module]], events.Select(e => e.Data).OfType<ProjectModulesSet>().Select(s => s.Modules));
         }
 
         await using IQuerySession nodeTenant = store.QuerySession(Tenants.Node);

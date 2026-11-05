@@ -13,6 +13,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Store;
+using Coanda.Modules.Software;
 using Fisher;
 using JasperFx.Events;
 using Microsoft.Extensions.DependencyInjection;
@@ -383,7 +384,7 @@ public sealed class FlowRunRestartTests
             await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             FlowRun flowRun = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
             await flowRuns.RecordResultAsync(
-                Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareSystemSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
+                Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
             await flowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRun.Id, "build", None);
             await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
             flowRunId = flowRun.Id;

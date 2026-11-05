@@ -15,8 +15,9 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon;
+using Coanda.Modules.Software;
 using Coanda.Tests.Daemon.Commands;
-using Coanda.Tests.Daemon.GitHub;
+using Coanda.Tests.Modules.Software.GitHub;
 using Fisher;
 using JasperFx.Events;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +46,7 @@ public sealed class MergeFlowRunTests
             new FlowStep
             {
                 Name = "gated-merge",
-                SystemStep = SoftwareSystemSteps.GatedMerge,
+                SystemStep = SoftwareSteps.GatedMerge,
                 Transitions = [On("merged", Flow.End, LapCap + 5), On("pending", "wait-for-checks", LapCap)],
             },
             new FlowStep
@@ -69,7 +70,7 @@ public sealed class MergeFlowRunTests
             new FlowStep
             {
                 Name = "gated-merge",
-                SystemStep = SoftwareSystemSteps.GatedMerge,
+                SystemStep = SoftwareSteps.GatedMerge,
                 Transitions = [On("merged", Flow.End, 11), On("pending", "wait-for-checks", 6), On("behind", "worktree", 6)],
             },
             new FlowStep
@@ -79,8 +80,8 @@ public sealed class MergeFlowRunTests
                 Arguments = new Dictionary<string, JsonElement> { ["seconds"] = FlowValue.Of(0.01) },
                 Transitions = [On("done", "gated-merge", 6)],
             },
-            new FlowStep { Name = "worktree", SystemStep = SoftwareSystemSteps.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
-            new FlowStep { Name = "rebase", SystemStep = SoftwareSystemSteps.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
+            new FlowStep { Name = "worktree", SystemStep = SoftwareSteps.Worktree, Transitions = [On("done", "rebase", RebaseLaps)] },
+            new FlowStep { Name = "rebase", SystemStep = SoftwareSteps.Rebase, Transitions = [On("done", "wait-for-checks", RebaseLaps)] },
         ],
     };
 

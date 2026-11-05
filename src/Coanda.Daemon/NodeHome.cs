@@ -53,7 +53,10 @@ public sealed record NodeHome(string Path)
     /// The project must be a plain directory name, so the path never leaves <c>work/</c>.
     /// </summary>
     public string FlowRunWorkPath(string project, Guid flowRunId) =>
-        System.IO.Path.Combine(Path, "work", RequirePlain(project, "working directory"), flowRunId.ToString());
+        System.IO.Path.Combine(WorkPath, RequirePlain(project, "working directory"), flowRunId.ToString());
+
+    /// <summary>The directory holding one directory per project of its flow runs' work paths.</summary>
+    public string WorkPath => System.IO.Path.Combine(Path, "work");
 
     /// <summary>The directory holding one directory per project whose flow runs have needed the node's clone of its repository.</summary>
     public string ClonesPath => System.IO.Path.Combine(Path, "clones");
@@ -98,7 +101,7 @@ public sealed record NodeHome(string Path)
     public string TranscriptDirectoryOf(string flowRunWorkPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(flowRunWorkPath);
-        string relative = System.IO.Path.GetRelativePath(System.IO.Path.Combine(Path, "work"), System.IO.Path.GetFullPath(flowRunWorkPath));
+        string relative = System.IO.Path.GetRelativePath(WorkPath, System.IO.Path.GetFullPath(flowRunWorkPath));
         string[] parts = relative.Split([System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar]);
         return parts is [string project, string flowRun] && Guid.TryParse(flowRun, out Guid flowRunId)
             ? FlowRunTranscriptPath(project, flowRunId)

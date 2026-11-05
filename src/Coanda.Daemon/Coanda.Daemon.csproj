@@ -16,6 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Coanda.Core\Coanda.Core.csproj" />
     <ProjectReference Include="..\Coanda.Sdk\Coanda.Sdk.csproj" />
+    <!-- The software module, hosted in process until phase 5 starts it as a process of its own. -->
+    <ProjectReference Include="..\Coanda.Modules.Software\Coanda.Modules.Software.csproj" />
   </ItemGroup>
 
   <ItemGroup>

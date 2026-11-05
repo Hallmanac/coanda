@@ -15,7 +15,7 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.FlowRuns;
-using Coanda.Tests.Daemon.GitHub;
+using Coanda.Tests.Modules.Software.GitHub;
 using Fisher;
 
 namespace Coanda.Tests.Daemon;

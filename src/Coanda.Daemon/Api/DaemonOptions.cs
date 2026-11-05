@@ -1,9 +1,9 @@
 using Coanda.Core.Parcels;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
-using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.SystemSteps;
+using Coanda.Modules.Software.GitHub;
 using Microsoft.Extensions.Logging;
 
 namespace Coanda.Daemon.Api;
@@ -24,14 +24,14 @@ public sealed record DaemonOptions
     public IAgentExecutor? Executor { get; init; }
 
     /// <summary>
-    /// The runner every external command of the worktree, gates, and open-pr system steps and a worktree's
-    /// removal goes through; null uses <see cref="NoCommandRunner"/>, which starts nothing and fails
-    /// every command, so those steps pause.
+    /// The runner the software module runs every external command of its worktree, gates, open-pr, and
+    /// rebase steps and of a worktree's removal through; null uses <see cref="NoCommandRunner"/>, which
+    /// starts nothing and fails every command, so those steps pause.
     /// </summary>
     public ICommandRunner? CommandRunner { get; init; }
 
     /// <summary>
-    /// The factory of the primary message handler the GitHub client sends its requests through,
+    /// The factory of the primary message handler the software module's GitHub client sends its requests through,
     /// called each time the client factory makes a handler, so it returns a new one each call; null
     /// uses <see cref="NoGitHubHandler"/>, which fails every request, so the open-pr step pauses.
     /// <c>coa daemon run</c> supplies <see cref="GitHubClient.NetworkHandler"/>.
@@ -51,14 +51,15 @@ public sealed record DaemonOptions
     public IReadOnlyList<IGate> Gates { get; init; } = [];
 
     /// <summary>
-    /// System steps the daemon registers beside the ones it ships, which it always registers; a name
-    /// that is already registered is refused. None by default: a test brings a step of its own here.
+    /// System steps the daemon implements beside the core's, which it always implements, and which flows
+    /// in any project may name; a name that is already implemented is refused. None by default: a test
+    /// brings a step of its own here.
     /// </summary>
     public IReadOnlyList<IFlowSystemStep> SystemSteps { get; init; } = [];
 
     /// <summary>
-    /// Where the daemon reads each module's settings schema by the module's name; null holds none, so
-    /// no module has settings to set or show. A test brings stand-in modules here.
+    /// The settings schemas of modules the daemon does not host, by module name, read beside the hosted
+    /// modules' own; null holds none. A test brings stand-in modules here.
     /// </summary>
     public IModuleSettingsSchemas? ModuleSettingsSchemas { get; init; }
 

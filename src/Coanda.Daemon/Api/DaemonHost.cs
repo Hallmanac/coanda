@@ -11,12 +11,12 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
-using Coanda.Daemon.GitHub;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
-using Coanda.Daemon.Repositories;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
+using Coanda.Modules.Software;
+using Coanda.Modules.Software.GitHub;
 using Fisher;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -53,8 +53,8 @@ public sealed class DaemonHost
         // Narrows what an earlier run left wider and creates the database owner-only, before the
         // check below or the store opens it.
         home.EnsureExists().EnsureDatabase();
-        IModuleSettingsSchemas moduleSettingsSchemas = options.ModuleSettingsSchemas ?? ModuleSettingsSchemas.None;
-        foreach (string module in moduleSettingsSchemas.Modules)
+        string[] moduleAreas = [SoftwareSteps.Module, .. options.ModuleSettingsSchemas?.Modules ?? []];
+        foreach (string module in moduleAreas)
         {
             home.EnsureModuleArea(module);
         }
@@ -78,12 +78,13 @@ public sealed class DaemonHost
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.
         builder.Services.AddSingleton(new GateSet([.. GateSet.ShippedGates, .. options.Gates]));
-        // Flows are validated against the system steps the daemon registered, not a catalog of their own.
+        // Flows are validated against the core's system steps and the steps the modules switched on for
+        // the flow's project describe, or every hosted module's for a definition of no project.
         builder.Services.AddSingleton(services => new DefinitionService(
             services.GetRequiredService<IDocumentStore>(),
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<GateSet>(),
-            services.GetRequiredService<FlowSystemSteps>().Names));
+            services.GetRequiredService<FlowSystemSteps>().NamesAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
@@ -91,25 +92,43 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
         builder.Services.AddSingleton(new FlowRunAdvancerOptions(options.AgentStepLimit));
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
-        builder.Services.AddSingleton<ProjectClones>();
         builder.Services.AddSingleton<FlowRunWorkers>();
-        GitHubClient.Register(builder.Services, options.GitHubHandler ?? (() => new NoGitHubHandler()));
-        builder.Services.AddSingleton(services => FlowSystemSteps.Shipped(
-            services.GetRequiredService<ParcelService>(),
-            services.GetRequiredService<ProjectService>(),
-            services.GetRequiredService<ProjectClones>(),
-            services.GetRequiredService<ICommandRunner>(),
-            services.GetRequiredService<NodeHome>(),
-            services.GetRequiredService<TimeProvider>(),
-            options.GatesCommandLimit,
-            // A typed client is resolved for each use, so it never holds a handler past its rotation.
-            () => services.GetRequiredService<GitHubClient>(),
-            // Its own flow run service, which only reads: the registered one depends on the runner, which depends on these system steps.
-            new FlowRunService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
-            services.GetRequiredService<FlowRunWorkers>()).With(options.SystemSteps));
+        builder.Services.AddSingleton<InterimWorktreeLink>();
+
+        // The software module, hosted in this process behind its host adapter. It is given the node
+        // home's locations, the command runner, the GitHub handler, the gates command limit, and the
+        // core's address and its token, which exist only once the daemon is listening, and it reaches
+        // the daemon otherwise only through the interim seam.
+        var softwareCore = new ModuleCoreAccess(SoftwareSteps.Module);
+        builder.Services.AddSingleton(softwareCore);
+        builder.Services.AddSingleton(services => new SoftwareModule(
+            new SoftwareModuleOptions
+            {
+                HomePath = home.Path,
+                ClonesPath = home.ClonesPath,
+                WorkPath = home.WorkPath,
+                CoreApi = softwareCore.Options,
+                CommandRunner = services.GetRequiredService<ICommandRunner>(),
+                GitHubHandler = options.GitHubHandler ?? (() => new NoGitHubHandler()),
+                LoggerFactory = services.GetRequiredService<ILoggerFactory>(),
+                GatesCommandLimit = options.GatesCommandLimit,
+            },
+            services.GetRequiredService<InterimWorktreeLink>()));
+        builder.Services.AddSingleton(services => new HostedModules(new Dictionary<string, ModuleHostAdapter>(StringComparer.Ordinal)
+        {
+            [SoftwareSteps.Module] = new ModuleHostAdapter(services.GetRequiredService<SoftwareModule>()),
+        }));
+        builder.Services.AddSingleton(services => new FlowSystemSteps(
+            [
+                .. FlowSystemSteps.Core(services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()),
+                .. options.SystemSteps,
+            ],
+            services.GetRequiredService<HostedModules>(),
+            services.GetRequiredService<IDocumentStore>()));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<ModuleTokens>();
-        builder.Services.AddSingleton(moduleSettingsSchemas);
+        // Read once the hosted modules have described themselves, which they do before anything is served.
+        builder.Services.AddSingleton(services => services.GetRequiredService<HostedModules>().SettingsSchemas(options.ModuleSettingsSchemas));
         builder.Services.AddSingleton<ModuleSettingsService>();
         builder.Services.AddSingleton<FlowRunAdvancer>();
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
@@ -124,6 +143,18 @@ public sealed class DaemonHost
         builder.Services.AddOpenApi();
 
         WebApplication app = builder.Build();
+
+        // Describe is asked of every hosted module before anything is served, since flows are validated
+        // against its answer and module settings are read through it.
+        try
+        {
+            await app.Services.GetRequiredService<HostedModules>().StartAsync(cancellationToken);
+        }
+        catch
+        {
+            await app.DisposeAsync();
+            throw;
+        }
 
         // The token check runs first for everything but /health; the DomainException mapping sits
         // inside it, wrapping the endpoints.
@@ -143,9 +174,20 @@ public sealed class DaemonHost
         app.MapOpenApi();
 
         await app.StartAsync(cancellationToken);
+        int boundPort = BoundPort(app);
 
         try
         {
+            // The software module calls the core's API at the address the daemon now listens on,
+            // presenting a token issued to it for this start.
+            softwareCore.Connect(
+                new Uri($"http://127.0.0.1:{boundPort}"),
+                await app.Services.GetRequiredService<ModuleTokens>().ReissueAsync(SoftwareSteps.Module, cancellationToken));
+
+            // A project registered before modules were has the default modules switched on, before any
+            // of its live flow runs reaches a module's step.
+            await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);
+
             // Types come from the store, so the shipped ones are in it before anything is served
             // or advertised: the address file is written only after this returns.
             await app.Services.GetRequiredService<DefinitionService>()
@@ -171,7 +213,6 @@ public sealed class DaemonHost
             throw;
         }
 
-        int boundPort = BoundPort(app);
         var info = new DaemonInfo(Environment.ProcessId, boundPort, token, startedAt, Version);
         info.Save(home);
         app.Lifetime.ApplicationStopped.Register(() => DaemonInfo.Delete(home));

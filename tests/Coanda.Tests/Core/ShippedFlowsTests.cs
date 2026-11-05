@@ -3,6 +3,7 @@ using System.Text.Json;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Software;
+using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -50,7 +51,7 @@ public sealed class ShippedFlowsTests
         string[] expected =
         [
             "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
-            "worktree", "gates", "open-pr", "gated-merge", "rebase",
+            "software/worktree", "software/gates", "software/open-pr", "software/gated-merge", "software/rebase",
         ];
         Assert.Equivalent(expected, ShippedSystemSteps.Names, strict: true);
     }
@@ -94,9 +95,9 @@ public sealed class ShippedFlowsTests
         });
 
         List<string> systemSteps = [.. visited.Select(name => build.Step(name)!.SystemStep ?? build.Step(name)!.Agent!)];
-        Assert.Equal(["worktree", "build", "gates", "reviewer-adversarial", "reviewer-conformance", "open-pr", "move-parcel"], systemSteps);
+        Assert.Equal(["software/worktree", "build", "software/gates", "reviewer-adversarial", "reviewer-conformance", "software/open-pr", "move-parcel"], systemSteps);
         // the merge is a flow of its own that follows pr-opened
-        Assert.DoesNotContain(build.Steps, s => s.SystemStep == SoftwareSystemSteps.GatedMerge);
+        Assert.DoesNotContain(build.Steps, s => s.SystemStep == SoftwareSteps.GatedMerge);
         Assert.Equal("worktree", build.First!.Name);
         Assert.Equal(1, build.Steps.Count(s => s.SystemStep == CoreSystemSteps.MoveParcel));
 
@@ -174,7 +175,7 @@ public sealed class ShippedFlowsTests
         Assert.Equal("completed", merge.Closes);
         Assert.True(ShippedTypes.Task.IsResolution(merge.Closes!));
         Assert.All(merge.Steps.SelectMany(s => s.Transitions), t => Assert.True(t.VisitCap > 0));
-        Assert.Equal(SoftwareSystemSteps.GatedMerge, merge.First!.SystemStep);
+        Assert.Equal(SoftwareSteps.GatedMerge, merge.First!.SystemStep);
         Assert.Equal(Flow.End, Next(merge, "gated-merge", "merged"));
     }
 
@@ -211,9 +212,9 @@ public sealed class ShippedFlowsTests
         FlowStep rebase = merge.Step(checkedOut.Target)!;
         FlowTransition rebased = Assert.Single(rebase.Transitions);
 
-        Assert.Equal(SoftwareSystemSteps.Worktree, worktree.SystemStep);
+        Assert.Equal(SoftwareSteps.Worktree, worktree.SystemStep);
         Assert.Equal("done", checkedOut.Value.GetString());
-        Assert.Equal(SoftwareSystemSteps.Rebase, rebase.SystemStep);
+        Assert.Equal(SoftwareSteps.Rebase, rebase.SystemStep);
         Assert.Equal("done", rebased.Value.GetString());
         // the rebase waits one timer period before the pull request is inspected again
         Assert.Equal(pending.Target, rebased.Target);
@@ -257,7 +258,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_discovery_and_review_on_assignment_flows_hash_to_literals()
     {
-        Assert.Equal("dcbfd639e88354c7", ShippedFlows.Build.Hash);
+        Assert.Equal("728a81e81272ed5e", ShippedFlows.Build.Hash);
         Assert.Equal("c8b01e99a6cc7916", ShippedFlows.Discovery.Hash);
         Assert.Equal("fabaabb2eb82ff10", ShippedFlows.ReviewOnAssignment.Hash);
     }
