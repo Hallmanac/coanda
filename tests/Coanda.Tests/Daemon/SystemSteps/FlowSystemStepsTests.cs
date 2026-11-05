@@ -4,7 +4,6 @@ using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.SystemSteps;
@@ -155,7 +154,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.EmitOutcome), Ids.New());
 
-        Assert.Equal(ShippedFlows.Build.Outcome, DoneResult(outcome).GetProperty("outcome").GetString());
+        Assert.Equal(SoftwareFlows.Build.Outcome, DoneResult(outcome).GetProperty("outcome").GetString());
     }
 
     [Fact]
@@ -252,7 +251,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         Guid flowRun = flowRunId ?? Ids.New();
         var request = new SystemStepDispatch(
-            FlowRunPrincipal, Project, flowRun, parcelId, ShippedFlows.Build, step, resumed, Visit: 1, DispatchId: dispatchId ?? Ids.New(), WorkPath: node.Home.FlowRunWorkPath(Project, flowRun));
+            FlowRunPrincipal, Project, flowRun, parcelId, SoftwareFlows.Build, step, resumed, Visit: 1, DispatchId: dispatchId ?? Ids.New(), WorkPath: node.Home.FlowRunWorkPath(Project, flowRun));
         return (CoreSystemSteps.All.Contains(step.SystemStep) ? core : systemSteps).DispatchAsync(request, CancellationToken.None);
     }
 

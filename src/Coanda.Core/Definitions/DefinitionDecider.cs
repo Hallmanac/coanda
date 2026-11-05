@@ -3,14 +3,15 @@ using Coanda.Core.Agents;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
+using Coanda.Core.Registry;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Definitions;
 
 /// <summary>
 /// The rules of a definition's life, as pure decisions: the event that records an intent, or a
-/// <see cref="DomainException"/> quoting the rule. The one road into shipped scope is
-/// <see cref="Seed"/>; a draft can never name it.
+/// <see cref="DomainException"/> quoting the rule. The one road into module scope is
+/// <see cref="Import"/>; a draft can never name it.
 /// </summary>
 public static class DefinitionDecider
 {
@@ -21,8 +22,8 @@ public static class DefinitionDecider
     /// daemon runs, which a parcel type's gate bindings are validated against; the shipped gate set's when null.
     /// <paramref name="knownSystemSteps"/> is every system step name the daemon registered, which a flow's
     /// system steps are validated against; none when null. The decider holds no catalog of either.
-    /// <paramref name="shippedVersions"/> is the name and version of every shipped definition of
-    /// <paramref name="kind"/>, which a fork base must name one of; none when null.
+    /// <paramref name="moduleVersions"/> is every module-scope definition of <paramref name="kind"/>,
+    /// which a fork base must name one of by name and version; none when null.
     /// </summary>
     public static DefinitionDrafted Draft(
         DefinitionKind kind,
@@ -37,17 +38,18 @@ public static class DefinitionDecider
         DateTimeOffset now,
         IReadOnlySet<string>? knownGates = null,
         IReadOnlySet<string>? knownSystemSteps = null,
-        IReadOnlyCollection<ForkBase>? shippedVersions = null)
+        IReadOnlyCollection<Definition>? moduleVersions = null)
     {
-        if (scope == DefinitionScope.Shipped)
+        if (scope == DefinitionScope.Module)
         {
             throw new DomainException(
-                "A definition cannot be drafted into shipped scope; shipped definitions enter the store only by seeding.");
+                "A definition cannot be drafted into module scope; module-scope definitions enter the store only when a module's definitions are imported.");
         }
 
+        RequireForkBase(kind, name, forkBase, moduleVersions ?? []);
         return Build(
-            kind, name, scope, project, latestVersion, content, contentHash, forkBase, shippedVersions ?? [],
-            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, draftedBy, now);
+            kind, name, scope, project, latestVersion, content, contentHash, forkBase,
+            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, draftedBy, now, null, null);
     }
 
     public static DefinitionPublished Publish(Definition definition, string publishedBy, DateTimeOffset now)
@@ -63,10 +65,10 @@ public static class DefinitionDecider
 
     public static DefinitionRetired Retire(Definition definition, string retiredBy, DateTimeOffset now)
     {
-        if (definition.Scope == DefinitionScope.Shipped)
+        if (definition.Scope == DefinitionScope.Module)
         {
             throw new DomainException(
-                $"A shipped definition cannot be retired; '{definition.Name}' version {definition.VersionNumber} is carried by the binary.");
+                $"A module-scope definition cannot be retired; '{definition.Name}' version {definition.VersionNumber} came with module '{definition.Module}' version {definition.ModuleVersion}.");
         }
 
         if (definition.Status != DefinitionStatus.Published)
@@ -79,18 +81,52 @@ public static class DefinitionDecider
     }
 
     /// <summary>
-    /// Seeds a shipped definition: the drafted and published events together, in shipped scope.
-    /// The only road into that scope. A shipped parcel type is validated against the shipped gate
-    /// set, the gates every daemon runs, so it binds only those. A shipped flow is validated against
-    /// <paramref name="knownSystemSteps"/>, the system step names the daemon registered; none when null.
+    /// Imports one definition the module <paramref name="module"/> brings, at its version
+    /// <paramref name="moduleVersion"/>: the drafted and published events together, in module scope,
+    /// carrying the module's name and version. The only road into that scope. <paramref name="held"/>
+    /// is every module-scope definition of the same kind and name the store holds, of any module: the
+    /// import is refused when another module's is among them, is null when the module's own versions
+    /// already hold the content hash, and is otherwise the next version after the highest of them. Each
+    /// definition passes the validation a draft of no project does: a parcel type is validated against
+    /// <paramref name="knownGates"/>, the gates the daemon runs (the shipped gate set's when null); a flow is validated against
+    /// <paramref name="knownSystemSteps"/>, the system step names a flow of no project may name; none when null.
     /// </summary>
-    public static (DefinitionDrafted Drafted, DefinitionPublished Published) Seed(
-        ShippedDefinition shipped, int latestVersion, string seededBy, DateTimeOffset now, IReadOnlySet<string>? knownSystemSteps = null)
+    public static (DefinitionDrafted Drafted, DefinitionPublished Published)? Import(
+        ModuleDefinition definition,
+        string module,
+        string moduleVersion,
+        IReadOnlyCollection<Definition> held,
+        string importedBy,
+        DateTimeOffset now,
+        IReadOnlySet<string>? knownGates = null,
+        IReadOnlySet<string>? knownSystemSteps = null)
     {
+        ModuleNames.Require(module);
+        if (string.IsNullOrWhiteSpace(moduleVersion))
+        {
+            throw new DomainException($"Module '{module}' has no version; a module's definitions are imported at the version they came with.");
+        }
+
+        Definition[] versions =
+        [
+            .. held.Where(d => d.Scope == DefinitionScope.Module && d.Kind == definition.Kind && DefinitionResolution.SameName(d.Name, definition.Name)),
+        ];
+        if (versions.FirstOrDefault(d => !string.Equals(d.Module, module, StringComparison.Ordinal)) is { } other)
+        {
+            throw new DomainException(
+                $"Module '{module}' brings the {Describe(definition.Kind)} '{definition.Name}', which module '{other.Module}' already brought; a definition's name is held by one module in module scope.");
+        }
+
+        if (versions.Any(d => string.Equals(d.ContentHash, definition.ContentHash, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
         DefinitionDrafted drafted = Build(
-            shipped.Kind, shipped.Name, DefinitionScope.Shipped, null, latestVersion,
-            shipped.Content, shipped.ContentHash, null, [], GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, seededBy, now);
-        return (drafted, new DefinitionPublished(drafted.DefinitionId, seededBy, now));
+            definition.Kind, definition.Name, DefinitionScope.Module, null, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(),
+            definition.Content, definition.ContentHash, null,
+            knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, importedBy, now, module, moduleVersion.Trim());
+        return (drafted, new DefinitionPublished(drafted.DefinitionId, importedBy, now));
     }
 
     private static DefinitionDrafted Build(
@@ -102,11 +138,12 @@ public static class DefinitionDecider
         string content,
         string contentHash,
         ForkBase? forkBase,
-        IReadOnlyCollection<ForkBase> shippedVersions,
         IReadOnlySet<string> knownGates,
         IReadOnlySet<string> knownSystemSteps,
         string draftedBy,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? module,
+        string? moduleVersion)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -121,19 +158,6 @@ public static class DefinitionDecider
                 throw new DomainException($"A project-scope definition belongs to a project; none was given for '{trimmedName}'.");
             case not DefinitionScope.Project when !string.IsNullOrEmpty(trimmedProject):
                 throw new DomainException($"Only a project-scope definition belongs to a project; '{trimmedName}' is {scope} scope.");
-        }
-
-        if (forkBase is not null && (scope == DefinitionScope.Shipped || string.IsNullOrWhiteSpace(forkBase.Name) || forkBase.Version < 1))
-        {
-            throw new DomainException(
-                $"A fork base names the shipped definition and version a customization came from; '{trimmedName}' has an invalid one.");
-        }
-
-        if (forkBase is not null
-            && !shippedVersions.Any(v => DefinitionResolution.SameName(v.Name, forkBase.Name.Trim()) && v.Version == forkBase.Version))
-        {
-            throw new DomainException(
-                $"The fork base '{forkBase.Name}' version {forkBase.Version} of '{trimmedName}' names no shipped {Describe(kind)}; a fork base names a shipped definition of the draft's own kind, by name and version.");
         }
 
         if (string.IsNullOrWhiteSpace(content) || string.IsNullOrWhiteSpace(contentHash))
@@ -155,7 +179,32 @@ public static class DefinitionDecider
         }
 
         return new DefinitionDrafted(
-            Ids.New(), kind, trimmedName, scope, trimmedProject, latestVersion + 1, content, contentHash, forkBase, draftedBy, now);
+            Ids.New(), kind, trimmedName, scope, trimmedProject, latestVersion + 1, content, contentHash, forkBase, draftedBy, now,
+            module, moduleVersion);
+    }
+
+    /// <summary>Refuses a fork base that names no module-scope definition of the draft's kind among <paramref name="moduleVersions"/>.</summary>
+    private static void RequireForkBase(DefinitionKind kind, string name, ForkBase? forkBase, IReadOnlyCollection<Definition> moduleVersions)
+    {
+        if (forkBase is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(forkBase.Name) || forkBase.Version < 1)
+        {
+            throw new DomainException(
+                $"A fork base names the module-scope definition and version a customization came from; '{name.Trim()}' has an invalid one.");
+        }
+
+        if (!moduleVersions.Any(d => d.Scope == DefinitionScope.Module
+                && d.Kind == kind
+                && DefinitionResolution.SameName(d.Name, forkBase.Name.Trim())
+                && d.VersionNumber == forkBase.Version))
+        {
+            throw new DomainException(
+                $"The fork base '{forkBase.Name}' version {forkBase.Version} of '{name.Trim()}' names no module-scope {Describe(kind)}; a fork base names a module-scope definition of the draft's own kind, by name and version.");
+        }
     }
 
     private static void RequireParcelType(string name, string content, string contentHash, IReadOnlySet<string> knownGates)

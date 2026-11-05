@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
-using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -164,9 +163,9 @@ public sealed class FlowStepSourceTests
     [Fact]
     public void The_shipped_build_flows_fix_step_reads_the_gates_and_both_reviews_and_no_other_shipped_step_declares_a_source()
     {
-        Assert.Equal(["gates", "adversarial-review", "conformance-review"], ShippedFlows.Build.Step("fix")?.Sources.Select(s => s.Step));
+        Assert.Equal(["gates", "adversarial-review", "conformance-review"], SoftwareFlows.Build.Step("fix")?.Sources.Select(s => s.Step));
 
-        Assert.All(ShippedFlows.All.SelectMany(c => c.Steps.Where(s => !(c == ShippedFlows.Build && s.Name == "fix"))), s => Assert.True(s.Sources.Count == 0));
-        ShippedFlows.Build.Validate(ShippedSystemSteps.Names);
+        Assert.All(SoftwareFlows.All.SelectMany(c => c.Steps.Where(s => !(c == SoftwareFlows.Build && s.Name == "fix"))), s => Assert.True(s.Sources.Count == 0));
+        SoftwareFlows.Build.Validate(ShippedSystemSteps.Names);
     }
 }

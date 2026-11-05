@@ -235,7 +235,7 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     /// <summary>
     /// Switches the modules the daemon hosts by default on for every project registered on the node
     /// before modules were, which is every project whose record has never named its modules, with
-    /// nothing configured, so such a project runs the shipped flows as it did. A project whose modules
+    /// nothing configured, so such a project runs the software module's flows as it did. A project whose modules
     /// were named, even as none, is left as it is. The daemon runs it at start.
     /// </summary>
     public async Task SwitchOnDefaultsAsync(CancellationToken cancellationToken)

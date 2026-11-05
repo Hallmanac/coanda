@@ -2,12 +2,11 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
-using Coanda.Core.Software;
 using Coanda.Modules.Software;
 
 namespace Coanda.Tests.Core;
 
-public sealed class ShippedFlowsTests
+public sealed class SoftwareFlowsTests
 {
     /// <summary>
     /// Routes the way the interpreter will, with equality only: the first transition of the step
@@ -38,8 +37,8 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_four_shipped_flows_pass_validation_with_the_known_system_step_names()
     {
-        Assert.Equal(["build", "merge", "discovery", "review-on-assignment"], ShippedFlows.All.Select(f => f.Name));
-        foreach (Flow flow in ShippedFlows.All)
+        Assert.Equal(["build", "merge", "discovery", "review-on-assignment"], SoftwareFlows.All.Select(f => f.Name));
+        foreach (Flow flow in SoftwareFlows.All)
         {
             flow.Validate(ShippedSystemSteps.Names);
         }
@@ -69,23 +68,23 @@ public sealed class ShippedFlowsTests
 
         foreach ((string name, string accepts, string outcome) in expected)
         {
-            Flow flow = ShippedFlows.Find(name)!;
+            Flow flow = SoftwareFlows.Find(name)!;
             Assert.Equal([accepts], flow.Accepts);
             Assert.Equal(outcome, flow.Outcome);
-            Assert.NotNull(ShippedTypes.Find(accepts));
+            Assert.NotNull(SoftwareTypes.Find(accepts));
         }
     }
 
     [Fact]
     public void No_shipped_flow_holds_an_emit_outcome_step()
     {
-        Assert.DoesNotContain(ShippedFlows.All.SelectMany(f => f.Steps), s => s.SystemStep == CoreSystemSteps.EmitOutcome);
+        Assert.DoesNotContain(SoftwareFlows.All.SelectMany(f => f.Steps), s => s.SystemStep == CoreSystemSteps.EmitOutcome);
     }
 
     [Fact]
     public void The_build_flow_on_done_and_clean_visits_the_steps_in_order_and_reaches_end()
     {
-        Flow build = ShippedFlows.Build;
+        Flow build = SoftwareFlows.Build;
 
         List<string> visited = Walk(build, step => step.Name switch
         {
@@ -104,13 +103,13 @@ public sealed class ShippedFlowsTests
         FlowStep move = build.Step(visited[^1])!;
         Assert.Equal("stage", Assert.Single(move.Arguments).Key);
         Assert.Equal("review", move.Arguments["stage"].GetString());
-        Assert.True(ShippedTypes.Task.AllowsMove("build", "review"));
+        Assert.True(SoftwareTypes.Task.AllowsMove("build", "review"));
     }
 
     [Fact]
     public void In_the_build_flow_not_clean_from_either_review_and_failed_from_gates_lead_to_fix_and_fix_done_returns_to_gates()
     {
-        Flow build = ShippedFlows.Build;
+        Flow build = SoftwareFlows.Build;
 
         Assert.Equal("fix", Next(build, "adversarial-review", "not-clean"));
         Assert.Equal("fix", Next(build, "conformance-review", "not-clean"));
@@ -122,14 +121,14 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void In_the_build_flow_blocked_answers_pause()
     {
-        Assert.Equal(Flow.Pause, Next(ShippedFlows.Build, "build", "blocked"));
-        Assert.Equal(Flow.Pause, Next(ShippedFlows.Build, "fix", "blocked"));
+        Assert.Equal(Flow.Pause, Next(SoftwareFlows.Build, "build", "blocked"));
+        Assert.Equal(Flow.Pause, Next(SoftwareFlows.Build, "fix", "blocked"));
     }
 
     [Fact]
     public void Review_to_fix_transitions_cap_at_three_and_every_other_build_transition_at_five()
     {
-        Flow build = ShippedFlows.Build;
+        Flow build = SoftwareFlows.Build;
         var reviews = new HashSet<string> { "adversarial-review", "conformance-review" };
 
         foreach (FlowStep step in build.Steps)
@@ -146,13 +145,13 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_flow_names_the_agents_and_schemas_the_agent_definitions_seed()
     {
-        Assert.Equal([("build", "build", "build"), ("adversarial-review", "reviewer-adversarial", "review"), ("conformance-review", "reviewer-conformance", "review"), ("fix", "fix", "fix")], ShippedFlows.Build.Steps.Where(s => s.IsAgentStep).Select(s => (s.Name, s.Agent, s.AnswerSchema)));
+        Assert.Equal([("build", "build", "build"), ("adversarial-review", "reviewer-adversarial", "review"), ("conformance-review", "reviewer-conformance", "review"), ("fix", "fix", "fix")], SoftwareFlows.Build.Steps.Where(s => s.IsAgentStep).Select(s => (s.Name, s.Agent, s.AnswerSchema)));
     }
 
     [Fact]
     public void The_discovery_flow_has_one_agent_step_that_derives_or_carries_forward()
     {
-        Flow discovery = ShippedFlows.Discovery;
+        Flow discovery = SoftwareFlows.Discovery;
 
         Assert.Equal(1, discovery.Steps.Count(s => s.IsAgentStep));
         FlowStep agentStep = discovery.First!;
@@ -168,12 +167,12 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_merge_flow_follows_the_builds_pr_opened_and_closes_its_task_as_completed()
     {
-        Flow merge = ShippedFlows.Merge;
+        Flow merge = SoftwareFlows.Merge;
 
         Assert.Equal(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = merge.Follow!.DepthCap }, merge.Follow);
         Assert.True(merge.Follow.DepthCap > 0, $"Expected a positive depth cap, but found {merge.Follow.DepthCap}.");
         Assert.Equal("completed", merge.Closes);
-        Assert.True(ShippedTypes.Task.IsResolution(merge.Closes!));
+        Assert.True(SoftwareTypes.Task.IsResolution(merge.Closes!));
         Assert.All(merge.Steps.SelectMany(s => s.Transitions), t => Assert.True(t.VisitCap > 0));
         Assert.Equal(SoftwareSteps.GatedMerge, merge.First!.SystemStep);
         Assert.Equal(Flow.End, Next(merge, "gated-merge", "merged"));
@@ -182,7 +181,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_merge_flows_lap_waits_at_least_twenty_minutes_with_its_rebase_laps_taken_out_before_it_pauses_and_a_late_merge_still_ends()
     {
-        Flow merge = ShippedFlows.Merge;
+        Flow merge = SoftwareFlows.Merge;
         FlowStep gated = merge.Step("gated-merge")!;
         FlowTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
         FlowTransition merged = gated.Transitions.Single(t => t.Value.GetString() == "merged");
@@ -203,7 +202,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_merge_flow_routes_a_behind_head_through_a_worktree_and_a_rebase_back_to_the_timer_with_no_agent_step()
     {
-        Flow merge = ShippedFlows.Merge;
+        Flow merge = SoftwareFlows.Merge;
         FlowStep gated = merge.Step("gated-merge")!;
         FlowTransition pending = gated.Transitions.Single(t => t.Value.GetString() == "pending");
         FlowTransition behind = gated.Transitions.Single(t => t.Value.GetString() == "behind");
@@ -230,7 +229,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_merge_flows_rebase_laps_pause_on_the_worktree_steps_cap_once_spent_before_the_rebase()
     {
-        Flow merge = ShippedFlows.Merge;
+        Flow merge = SoftwareFlows.Merge;
         int laps = RebaseLapCap(merge).VisitCap;
         FlowRunPosition position = Interpreter.Start(merge);
         using JsonDocument behind = JsonDocument.Parse("""{"verdict":"behind"}""");
@@ -258,9 +257,9 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_build_discovery_and_review_on_assignment_flows_hash_to_literals()
     {
-        Assert.Equal("728a81e81272ed5e", ShippedFlows.Build.Hash);
-        Assert.Equal("c8b01e99a6cc7916", ShippedFlows.Discovery.Hash);
-        Assert.Equal("fabaabb2eb82ff10", ShippedFlows.ReviewOnAssignment.Hash);
+        Assert.Equal("728a81e81272ed5e", SoftwareFlows.Build.Hash);
+        Assert.Equal("c8b01e99a6cc7916", SoftwareFlows.Discovery.Hash);
+        Assert.Equal("fabaabb2eb82ff10", SoftwareFlows.ReviewOnAssignment.Hash);
     }
 
     /// <summary>The visit cap on the merge's worktree step's transition to the rebase, which bounds the rebase laps.</summary>
@@ -273,8 +272,8 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_merge_flows_pending_cap_pauses_the_flow_run_once_spent_rather_than_waiting_again()
     {
-        Flow merge = ShippedFlows.Merge;
-        int cap = ShippedFlows.MergePendingCap;
+        Flow merge = SoftwareFlows.Merge;
+        int cap = SoftwareFlows.MergePendingCap;
         FlowRunPosition position = Interpreter.Start(merge);
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
@@ -299,13 +298,13 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void A_merge_on_the_hundredth_resume_after_the_lap_pauses_still_ends_the_flow_run()
     {
-        Flow merge = ShippedFlows.Merge;
-        int visits = ShippedFlows.MergePendingCap + ShippedFlows.MergeResumes;
+        Flow merge = SoftwareFlows.Merge;
+        int visits = SoftwareFlows.MergePendingCap + SoftwareFlows.MergeResumes;
         FlowRunPosition position = new(
             "gated-merge",
             ImmutableDictionary.Create<string, int>(StringComparer.Ordinal)
                 .SetItem("gated-merge", visits)
-                .SetItem("wait-for-checks", ShippedFlows.MergePendingCap),
+                .SetItem("wait-for-checks", SoftwareFlows.MergePendingCap),
             0);
         using JsonDocument pending = JsonDocument.Parse("""{"verdict":"pending"}""");
         using JsonDocument merged = JsonDocument.Parse("""{"verdict":"merged"}""");
@@ -319,7 +318,7 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void The_review_on_assignment_flow_is_one_agent_step_whose_answers_both_end()
     {
-        Flow review = ShippedFlows.ReviewOnAssignment;
+        Flow review = SoftwareFlows.ReviewOnAssignment;
 
         Assert.Single(review.Steps);
         FlowStep step = review.First!;
@@ -332,15 +331,15 @@ public sealed class ShippedFlowsTests
     [Fact]
     public void Every_shipped_flow_declares_a_budget_and_a_spawn_cap_and_hashes_distinctly()
     {
-        Assert.All(ShippedFlows.All, f => Assert.True(f.Budget > 0 && f.SpawnCap > 0));
-        Assert.Equal(4, ShippedFlows.All.Select(f => f.Hash).Distinct().Count());
-        Assert.Equal(ShippedFlows.All.Select(f => f.Hash), ShippedDefinitions.Flows.Select(d => d.ContentHash));
+        Assert.All(SoftwareFlows.All, f => Assert.True(f.Budget > 0 && f.SpawnCap > 0));
+        Assert.Equal(4, SoftwareFlows.All.Select(f => f.Hash).Distinct().Count());
+        Assert.Equal(SoftwareFlows.All.Select(f => f.Hash), SoftwareDefinitions.Flows.Select(d => d.ContentHash));
     }
 
     [Fact]
     public void The_shipped_content_reads_back_to_the_same_flow()
     {
-        foreach (ShippedDefinition shipped in ShippedDefinitions.Flows)
+        foreach (ModuleDefinition shipped in SoftwareDefinitions.Flows)
         {
             Assert.Equal(DefinitionKind.Flow, shipped.Kind);
             Assert.Equal(shipped.ContentHash, Flow.FromJson(shipped.Content).Hash);

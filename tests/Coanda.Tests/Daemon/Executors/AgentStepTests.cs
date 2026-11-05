@@ -1,7 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Software;
 using Coanda.Daemon.Executors;
 
 namespace Coanda.Tests.Daemon.Executors;
@@ -18,7 +17,7 @@ public sealed class AgentStepTests
     private static readonly Measurement Summed = new(1300, 0.30m, 5, TimeSpan.FromSeconds(42));
 
     private static readonly AgentStepRequest Request = new(
-        ShippedAgents.ReviewerAdversarial,
+        SoftwareAgents.ReviewerAdversarial,
         "Step: review",
         "/work/tree",
         new SpawnCaps(3m, TimeSpan.FromMinutes(30)),

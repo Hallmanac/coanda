@@ -3,7 +3,6 @@ using Coanda.Core;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
@@ -100,7 +99,7 @@ public sealed class FlowRunControlConcurrencyTests
             StoreConfiguration.Configure(options, temp.Home.DatabasePath);
             options.Listeners.Add(interjection);
         });
-        await new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names).SeedAsync(ShippedDefinitions.All, None);
+        await new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names).ImportAsync(SoftwareDefinitions.Artifact(SoftwareDefinitions.All), None);
         await RegisteredProjects.AddAsync(store, Project, None);
         return store;
     }
@@ -114,7 +113,7 @@ public sealed class FlowRunControlConcurrencyTests
         await flowRuns.RecordResultAsync(
             Runner, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
         await flowRuns.StartStepAsync(Runner, Project, flowRun.Id, "build", None);
-        return await flowRuns.SpawnedAsync(Runner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
+        return await flowRuns.SpawnedAsync(Runner, Project, flowRun.Id, "build", SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, None);
     }
 
     private static async Task<IReadOnlyList<Type>> EventsAsync(IDocumentStore store, Guid flowRunId)

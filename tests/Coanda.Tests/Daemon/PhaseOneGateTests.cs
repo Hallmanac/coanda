@@ -8,7 +8,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
@@ -55,11 +54,11 @@ public sealed class PhaseOneGateTests
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
         Assert.Equal("pr-opened", flowRun.Outcome);
-        Assert.Equal(ShippedFlows.Build.Hash, flowRun.FlowHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, flowRun.FlowHash);
 
         // The merge follows the build's end with no step taken by hand, merges the head open-pr recorded, and closes the task.
         FlowRunView merge = await FlowRunDriver.MergedAsync(client, Project, parcel.Id, flowRun.Id);
-        Assert.Equal(ShippedFlows.Merge.Hash, merge.FlowHash);
+        Assert.Equal(SoftwareFlows.Merge.Hash, merge.FlowHash);
         Assert.Equal("merged", merge.Outcome);
         Assert.Equal(flowRun.Id, merge.ParentFlowRunId);
         Assert.Equal(1, merge.Depth);
@@ -81,7 +80,7 @@ public sealed class PhaseOneGateTests
         Assert.Equal(["build", "reviewer-adversarial", "reviewer-conformance"], agentSteps.Select(s => s.Performer));
         foreach ((FlowRunStepView agentStep, int ordinal) in agentSteps.Select((j, i) => (j, i + 1)))
         {
-            AgentDefinition agent = ShippedAgents.All.Single(a => a.Name == agentStep.Performer);
+            AgentDefinition agent = SoftwareAgents.All.Single(a => a.Name == agentStep.Performer);
             Assert.Equal(agent.Hash, agentStep.AgentHash);
             Assert.Equal(agent.Model, agentStep.Model);
             // tokens, cost, turns, and duration are recorded as the executor reported them
@@ -105,7 +104,7 @@ public sealed class PhaseOneGateTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Flow withoutOpenPr = await Publishing.FlowAsync(daemon, Project, WithoutOpenPr(ShippedFlows.Build));
+        Flow withoutOpenPr = await Publishing.FlowAsync(daemon, Project, WithoutOpenPr(SoftwareFlows.Build));
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "No pull request yet", pullRequest: false);
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
@@ -163,8 +162,8 @@ public sealed class PhaseOneGateTests
 
         Assert.Equal("Step 'adversarial-review' reached the visit cap of 3 on its transition to 'fix'.", paused.PauseReason);
         Assert.False(string.IsNullOrWhiteSpace(paused.Lever), $"Expected a lever, but found '{paused.Lever}'.");
-        Assert.True(paused.Spawns < ShippedFlows.Build.SpawnCap, $"Expected fewer than {ShippedFlows.Build.SpawnCap} spawns, but found {paused.Spawns}: the visit cap binds before the spawn cap.");
-        Assert.True(paused.Cost < ShippedFlows.Build.Budget, $"Expected less than {ShippedFlows.Build.Budget}, but found {paused.Cost}.");
+        Assert.True(paused.Spawns < SoftwareFlows.Build.SpawnCap, $"Expected fewer than {SoftwareFlows.Build.SpawnCap} spawns, but found {paused.Spawns}: the visit cap binds before the spawn cap.");
+        Assert.True(paused.Cost < SoftwareFlows.Build.Budget, $"Expected less than {SoftwareFlows.Build.Budget}, but found {paused.Cost}.");
         Assert.Equal(paused.Spawns, executor.Spawns.Count);
 
         await daemon.StopAsync(None);
@@ -178,7 +177,7 @@ public sealed class PhaseOneGateTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        Flow copy = await Publishing.FlowAsync(daemon, Project, ShippedFlows.Build with { SpawnCap = 4 });
+        Flow copy = await Publishing.FlowAsync(daemon, Project, SoftwareFlows.Build with { SpawnCap = 4 });
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Never clean, fewer spawns");
 
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
@@ -245,7 +244,7 @@ public sealed class PhaseOneGateTests
     {
         using var temp = new TemporaryHome();
         ScriptedExecutor executor = Executor(
-            ("build", [Costing("done", ShippedFlows.Build.Budget, 1)]),
+            ("build", [Costing("done", SoftwareFlows.Build.Budget, 1)]),
             ("reviewer-adversarial", [Costing("clean", 0.1m, 2)]),
             ("reviewer-conformance", [Costing("clean", 0.1m, 3)]));
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
@@ -327,16 +326,16 @@ public sealed class PhaseOneGateTests
 
     public static TheoryData<string, string, string> Uncapped => new()
     {
-        { "the budget removed", Without(ShippedFlows.Build, flow => flow.Remove("Budget")), "Flow 'build' needs a budget greater than zero; every flow declares one." },
-        { "the spawn cap removed", Without(ShippedFlows.Build, flow => flow.Remove("SpawnCap")), "Flow 'build' needs a spawn cap greater than zero; every flow declares one." },
+        { "the budget removed", Without(SoftwareFlows.Build, flow => flow.Remove("Budget")), "Flow 'build' needs a budget greater than zero; every flow declares one." },
+        { "the spawn cap removed", Without(SoftwareFlows.Build, flow => flow.Remove("SpawnCap")), "Flow 'build' needs a spawn cap greater than zero; every flow declares one." },
         {
             "one transition's visit cap removed",
-            Without(ShippedFlows.Build, flow => Transition(flow, "adversarial-review", "not-clean").Remove("VisitCap")),
+            Without(SoftwareFlows.Build, flow => Transition(flow, "adversarial-review", "not-clean").Remove("VisitCap")),
             "The transition of step 'adversarial-review' in flow 'build' on 'verdict' needs a visit cap greater than zero; every transition declares one."
         },
         {
             "a follow with no depth cap",
-            Without(ShippedFlows.Build with { Name = "after-build", Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 } }, flow => flow["Follow"]?.AsObject().Remove("DepthCap")),
+            Without(SoftwareFlows.Build with { Name = "after-build", Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 } }, flow => flow["Follow"]?.AsObject().Remove("DepthCap")),
             "Flow 'after-build' follows an outcome, so its follow needs a depth cap greater than zero; every composition declares one."
         },
     };
@@ -347,7 +346,7 @@ public sealed class PhaseOneGateTests
     {
         Assert.False(string.IsNullOrEmpty(missing));
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
         Flow read = Flow.FromJson(content);
         long before = await store.Database.FetchHighestEventSequenceNumber(None);

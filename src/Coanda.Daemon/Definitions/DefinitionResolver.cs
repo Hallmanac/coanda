@@ -8,7 +8,7 @@ namespace Coanda.Daemon.Definitions;
 
 /// <summary>
 /// Reads the published definitions that govern a project: its own, from the project's tenant, and
-/// the owner and shipped ones, from the node tenant no project name reaches. The choice among
+/// the owner-scope and module-scope ones, from the node tenant no project name reaches. The choice among
 /// them is <see cref="DefinitionResolution"/>.
 /// </summary>
 public sealed class DefinitionResolver(IDocumentStore store)
@@ -42,7 +42,7 @@ public sealed class DefinitionResolver(IDocumentStore store)
     }
 
     /// <summary>
-    /// The definition of the kind, in this project, owner, or shipped scope, whose content hash a
+    /// The definition of the kind, in this project, owner, or module scope, whose content hash a
     /// record kept: a parcel its type's, a flow run its flow's. A version retired since is still
     /// returned, so a record keeps the rules it began under; a draft never is, as nothing began
     /// under one. Null when no held definition has that hash.
@@ -59,6 +59,25 @@ public sealed class DefinitionResolver(IDocumentStore store)
             .. fromNode.Where(d => d.Scope != DefinitionScope.Project),
         ];
         return visible.FirstOrDefault(d => string.Equals(d.ContentHash, contentHash, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The module-scope definition <paramref name="fork"/>'s fork base names, by kind, name, and the
+    /// version number the store gave it, whose <see cref="Definition.Module"/> and
+    /// <see cref="Definition.ModuleVersion"/> are the module and version the fork came from. Null when
+    /// the definition has no fork base or the store holds none it names.
+    /// </summary>
+    public async Task<Definition?> ForkedFromAsync(Definition fork, CancellationToken cancellationToken)
+    {
+        if (fork.ForkBase is not { } forkBase)
+        {
+            return null;
+        }
+
+        IReadOnlyList<Definition> fromNode = await HeldInAsync(Tenants.Node, fork.Kind, cancellationToken);
+        return fromNode.FirstOrDefault(d => d.Scope == DefinitionScope.Module
+            && DefinitionResolution.SameName(d.Name, forkBase.Name.Trim())
+            && d.VersionNumber == forkBase.Version);
     }
 
     public async Task<IReadOnlyList<ParcelType>> ResolveParcelTypesAsync(string project, CancellationToken cancellationToken)

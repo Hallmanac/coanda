@@ -4,12 +4,15 @@ using Coanda.Core.Definitions.Events;
 namespace Coanda.Core.Definitions;
 
 /// <summary>
-/// A parcel type, flow, or agent held in the store. State changes only through <c>Apply</c>; the
+/// A parcel type, flow, or agent held in the store, in project, owner, or module scope. State changes only through <c>Apply</c>; the
 /// rules live in <see cref="DefinitionDecider"/>. The store snapshots this class inline, so it is
 /// also the document a resolution query reads.
 /// </summary>
 public sealed class Definition
 {
+    private string? module;
+    private string? moduleVersion;
+
     [JsonInclude]
     public Guid Id { get; private set; }
     [JsonInclude]
@@ -36,6 +39,28 @@ public sealed class Definition
     public DefinitionStatus Status { get; private set; }
     [JsonInclude]
     public ForkBase? ForkBase { get; private set; }
+
+    /// <summary>
+    /// The module a module-scope definition was imported from; null in any other scope. A record
+    /// written before module scope names none, and reads as <see cref="EarlierShippedRecords.Module"/>.
+    /// </summary>
+    [JsonInclude]
+    public string? Module
+    {
+        get => module ?? (Scope == DefinitionScope.Module ? EarlierShippedRecords.Module : null);
+        private set => module = value;
+    }
+
+    /// <summary>
+    /// The version of <see cref="Module"/> a module-scope definition was imported from; null in any other
+    /// scope. A record written before module scope names none, and reads as <see cref="EarlierShippedRecords.Version"/>.
+    /// </summary>
+    [JsonInclude]
+    public string? ModuleVersion
+    {
+        get => moduleVersion ?? (Scope == DefinitionScope.Module ? EarlierShippedRecords.Version : null);
+        private set => moduleVersion = value;
+    }
     [JsonInclude]
     public string DraftedBy { get; private set; } = string.Empty;
     [JsonInclude]
@@ -63,6 +88,8 @@ public sealed class Definition
         Content = drafted.Content;
         ContentHash = drafted.ContentHash;
         ForkBase = drafted.ForkBase;
+        Module = drafted.Module;
+        ModuleVersion = drafted.ModuleVersion;
         Status = DefinitionStatus.Draft;
         DraftedBy = drafted.DraftedBy;
         DraftedAt = drafted.DraftedAt;

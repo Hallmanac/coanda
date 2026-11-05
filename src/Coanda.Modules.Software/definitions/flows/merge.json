@@ -1,0 +1,99 @@
+{
+  "Name": "merge",
+  "Accepts": [
+    "task"
+  ],
+  "Outcome": "merged",
+  "Budget": 1,
+  "SpawnCap": 1,
+  "Follow": {
+    "Outcome": "pr-opened",
+    "Flow": "build",
+    "DepthCap": 3
+  },
+  "Closes": "completed",
+  "Steps": [
+    {
+      "Name": "gated-merge",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/gated-merge",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "merged",
+          "VisitCap": 123,
+          "Target": "end"
+        },
+        {
+          "Field": "verdict",
+          "Value": "pending",
+          "VisitCap": 23,
+          "Target": "wait-for-checks"
+        },
+        {
+          "Field": "verdict",
+          "Value": "behind",
+          "VisitCap": 23,
+          "Target": "worktree"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "wait-for-checks",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "timer",
+      "Arguments": {
+        "seconds": 60
+      },
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 23,
+          "Target": "gated-merge"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "worktree",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/worktree",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 3,
+          "Target": "rebase"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "rebase",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/rebase",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 3,
+          "Target": "wait-for-checks"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "Name": "discovery",
+  "Accepts": [
+    "idea"
+  ],
+  "Outcome": "parcels-derived",
+  "Budget": 5,
+  "SpawnCap": 3,
+  "Steps": [
+    {
+      "Name": "discover",
+      "Agent": "discovery",
+      "AnswerSchema": "discovery",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "derive",
+          "VisitCap": 5,
+          "Target": "derive-parcels"
+        },
+        {
+          "Field": "verdict",
+          "Value": "carry-forward",
+          "VisitCap": 5,
+          "Target": "end"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "derive-parcels",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "derive-parcels",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "end"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    }
+  ]
+}

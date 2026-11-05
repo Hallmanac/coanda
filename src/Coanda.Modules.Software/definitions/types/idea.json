@@ -1,0 +1,32 @@
+{
+  "Name": "idea",
+  "Stages": [
+    "open",
+    "discovery",
+    "paused",
+    "closed"
+  ],
+  "EntryStages": [
+    "open"
+  ],
+  "TerminalStage": "closed",
+  "Resolutions": [
+    "split",
+    "concluded",
+    "archived"
+  ],
+  "PausedStage": "paused",
+  "Moves": {
+    "open": [
+      "discovery"
+    ]
+  },
+  "FlowBindings": [
+    {
+      "Stage": "discovery",
+      "Flow": "discovery"
+    }
+  ],
+  "GateBindings": [],
+  "Fields": []
+}

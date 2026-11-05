@@ -1,5 +1,4 @@
 using Coanda.Core.Definitions;
-using Coanda.Core.Software;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Store;
 using Coanda.Tests.Core;
@@ -15,13 +14,13 @@ namespace Coanda.Tests.Daemon;
 public static class SeededStore
 {
     public static Task<IDocumentStore> OpenAsync(string databasePath) =>
-        OpenAsync(databasePath, ShippedDefinitions.ParcelTypes);
+        OpenAsync(databasePath, SoftwareDefinitions.ParcelTypes);
 
-    /// <summary>Opens a store seeded with <paramref name="shipped"/>; a flow run test passes <see cref="ShippedDefinitions.All"/> so the flows resolve.</summary>
-    public static async Task<IDocumentStore> OpenAsync(string databasePath, IReadOnlyCollection<ShippedDefinition> shipped)
+    /// <summary>Opens a store seeded with <paramref name="shipped"/>; a flow run test passes <see cref="SoftwareDefinitions.All"/> so the flows resolve.</summary>
+    public static async Task<IDocumentStore> OpenAsync(string databasePath, IReadOnlyCollection<ModuleDefinition> shipped)
     {
         IDocumentStore store = StoreConfiguration.Open(databasePath);
-        await new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps).SeedAsync(shipped, CancellationToken.None);
+        await new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps).ImportAsync(SoftwareDefinitions.Artifact(shipped), CancellationToken.None);
         return store;
     }
 }

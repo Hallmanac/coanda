@@ -3,7 +3,6 @@ using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
@@ -181,7 +180,7 @@ public sealed class ProjectServiceTests
         var parcels = new ParcelService(store, TimeProvider.System);
 
         // Written straight to the store, as a parcel created before projects had records was.
-        ParcelCreated created = ParcelDecider.Create(ShippedTypes.Task, GateSet.Shipped, "legacy", "From before records", null, Owner.Id, DateTimeOffset.UtcNow);
+        ParcelCreated created = ParcelDecider.Create(SoftwareTypes.Task, GateSet.Shipped, "legacy", "From before records", null, Owner.Id, DateTimeOffset.UtcNow);
         await using (IDocumentSession session = store.LightweightSession("legacy"))
         {
             session.Events.StartStream<Parcel>(created.ParcelId, created);

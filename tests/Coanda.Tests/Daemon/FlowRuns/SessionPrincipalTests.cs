@@ -9,7 +9,6 @@ using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
@@ -129,9 +128,9 @@ public sealed class SessionPrincipalTests
         [
             () => flowRuns.StartStepAsync(principal, Project, sibling.Id, "build", None),
             () => flowRuns.RespawnAsync(principal, Project, sibling.Id, "build", None),
-            () => flowRuns.SpawnedAsync(principal, Project, sibling.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None),
+            () => flowRuns.SpawnedAsync(principal, Project, sibling.Id, "build", SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, None),
             () => flowRuns.SessionOpenedAsync(principal, Project, sibling.Id, "build", Ids.New(), None),
-            () => flowRuns.RecordAnswerAsync(principal, Project, sibling.Id, "build", "build", Ids.New(), ShippedAgents.Build.Hash, ShippedAgents.Build.Model, value, Scripts.Usage(1), None),
+            () => flowRuns.RecordAnswerAsync(principal, Project, sibling.Id, "build", "build", Ids.New(), SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, value, Scripts.Usage(1), None),
             () => flowRuns.RecordResultAsync(principal, Project, sibling.Id, "build", "open-pr", value, None),
             () => flowRuns.PauseAsync(principal, Project, sibling.Id, "Not mine.", FlowRunLevers.PerformAgain("build"), None),
             () => flowRuns.EndAsync(principal, Project, sibling.Id, "built", None),

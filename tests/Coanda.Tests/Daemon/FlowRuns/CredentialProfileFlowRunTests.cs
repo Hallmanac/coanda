@@ -1,7 +1,5 @@
 using Coanda.Cli;
-using Coanda.Core.Software;
 using Coanda.Core.Flows;
-using Coanda.Core.FlowRuns;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -17,8 +15,8 @@ public sealed class CredentialProfileFlowRunTests
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
 
-    private static readonly CredentialProfile Work = new(ShippedAgents.Vendor, "work", "/home/me/.claude-work", null);
-    private static readonly CredentialProfile Ci = new(ShippedAgents.Vendor, "ci", null, "op read op://ci/key");
+    private static readonly CredentialProfile Work = new(SoftwareAgents.Vendor, "work", "/home/me/.claude-work", null);
+    private static readonly CredentialProfile Ci = new(SoftwareAgents.Vendor, "ci", null, "op read op://ci/key");
     private static readonly CredentialProfile OtherVendorWork = new("other-vendor", "work", "/home/me/.other", null);
 
     /// <summary>One agent step by the shipped build agent, which ends the flow run; it may spawn twice.</summary>
@@ -34,7 +32,7 @@ public sealed class CredentialProfileFlowRunTests
             new FlowStep
             {
                 Name = "build",
-                Agent = ShippedAgents.Build.Name,
+                Agent = SoftwareAgents.Build.Name,
                 AnswerSchema = "build",
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
@@ -43,7 +41,7 @@ public sealed class CredentialProfileFlowRunTests
 
     private static ScriptedExecutor Builds(int answers) => new(new Dictionary<string, IReadOnlyList<ScriptEntry>>
     {
-        [ShippedAgents.Build.Name] = [.. Enumerable.Range(1, answers).Select(n => Scripts.Answer("done", n))],
+        [SoftwareAgents.Build.Name] = [.. Enumerable.Range(1, answers).Select(n => Scripts.Answer("done", n))],
     });
 
     [Fact]
@@ -103,7 +101,7 @@ public sealed class CredentialProfileFlowRunTests
 
         FlowRunView paused = await RunAsync(client, "Missing profile", "paused");
 
-        Assert.Equal($"Project '{Project}' names the credential profile 'work', which the node configuration loaded at start holds no entry for under the vendor '{ShippedAgents.Vendor}' of agent '{ShippedAgents.Build.Name}'.", paused.PauseReason);
+        Assert.Equal($"Project '{Project}' names the credential profile 'work', which the node configuration loaded at start holds no entry for under the vendor '{SoftwareAgents.Vendor}' of agent '{SoftwareAgents.Build.Name}'.", paused.PauseReason);
         Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
         // the spawn the visit counted is left unused, since the launch was never recorded
         Assert.Equal(1, paused.Spawns);

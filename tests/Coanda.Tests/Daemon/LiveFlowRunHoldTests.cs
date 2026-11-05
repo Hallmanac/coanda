@@ -3,7 +3,6 @@ using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
@@ -26,7 +25,7 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         await RegisteredProjects.AddAsync(store, Project, None);
         parcels = new ParcelService(store, TimeProvider.System);
         flowRuns = new FlowRunService(store, TimeProvider.System);
@@ -104,12 +103,12 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
     public async Task The_holding_flow_runs_own_move_parcel_step_moves_the_parcel()
     {
         (Parcel parcel, FlowRun flowRun) = await HeldAtBuildAsync();
-        FlowStep step = ShippedFlows.Build.Step("move-to-review")
+        FlowStep step = SoftwareFlows.Build.Step("move-to-review")
             ?? throw new InvalidOperationException("The build flow has no move-to-review step.");
         var systemStep = new MoveParcelSystemStep(parcels);
 
         SystemStepAnswer outcome = await systemStep.DispatchAsync(
-            new SystemStepDispatch(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"),
+            new SystemStepDispatch(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, SoftwareFlows.Build, step, Resumed: false, Visit: 1, DispatchId: Ids.New(), WorkPath: "work"),
             None);
 
         Assert.IsType<SystemStepAnswer.Done>(outcome);

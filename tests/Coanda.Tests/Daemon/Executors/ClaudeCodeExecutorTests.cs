@@ -4,7 +4,6 @@ using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Software;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Executors;
@@ -34,7 +33,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(FakeClaude.Answering($"Done.\n{ValidBuild}", 0.4m, 0.4m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
         FakeClaude.Start start = Assert.Single(fake.Starts);
@@ -51,7 +50,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         Assert.Equal(JsonValueKind.Object, JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement.ValueKind);
 
         string persona = await File.ReadAllTextAsync(Path.Combine(WorkDirectory, ".coanda", "persona.md"));
-        AgentPersona parts = ShippedAgents.Build.Persona;
+        AgentPersona parts = SoftwareAgents.Build.Persona;
         Assert.Contains(parts.Role, persona, StringComparison.Ordinal);
         Assert.Contains(parts.Purpose, persona, StringComparison.Ordinal);
         Assert.Contains(parts.Output, persona, StringComparison.Ordinal);
@@ -75,7 +74,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        AgentDefinition agent = ShippedAgents.Build with { Tools = [tool] };
+        AgentDefinition agent = SoftwareAgents.Build with { Tools = [tool] };
 
         SessionHandle handle = await executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
@@ -92,7 +91,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build with { Tools = [] }, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build with { Tools = [] }, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
         FakeClaude.Start start = Assert.Single(fake.Starts);
@@ -109,7 +108,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment([.. credentials, ("CLAUDE_CONFIG_DIR", "/inherited/config")]));
         var profile = new CredentialProfile("claude-code", "work", "/profiles/work", null);
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, profile, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, profile, null, None);
         await executor.CollectAsync(handle, None);
 
         FakeClaude.Start start = Assert.Single(fake.Starts);
@@ -130,7 +129,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment(("ANTHROPIC_API_KEY", "sk-placeholder"), ("CLAUDE_CODE_OAUTH_TOKEN", "placeholder")));
         var profile = new CredentialProfile("claude-code", "ci", null, "op read \"op://ci/anthropic key\"");
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, profile, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, profile, null, None);
         await executor.CollectAsync(handle, None);
 
         FakeClaude.Start start = Assert.Single(fake.Starts);
@@ -148,7 +147,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment(("ANTHROPIC_API_KEY", "sk-inherited"), ("CLAUDE_CONFIG_DIR", "/inherited/config")));
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
         FakeClaude.Start start = Assert.Single(fake.Starts);
@@ -186,7 +185,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        AgentDefinition agent = ShippedAgents.Build with { Model = new ModelSpec("claude-code", model, effort) };
+        AgentDefinition agent = SoftwareAgents.Build with { Model = new ModelSpec("claude-code", model, effort) };
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
         Assert.Matches(@"(?s)^.*is not a plain token.*no process was started.*$", exception.Message);
@@ -204,7 +203,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
         SessionHandle handle = await executor.SpawnAsync(
-            ShippedAgents.Build with { Model = new ModelSpec("claude-code", model, effort) }, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+            SoftwareAgents.Build with { Model = new ModelSpec("claude-code", model, effort) }, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
         FakeClaude.Start start = Assert.Single(fake.Starts);
@@ -216,7 +215,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        AgentDefinition agent = ShippedAgents.Build with { Model = new ModelSpec("codex", "gpt", "high") };
+        AgentDefinition agent = SoftwareAgents.Build with { Model = new ModelSpec("codex", "gpt", "high") };
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(agent, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
         Assert.Equal("Agent 'build' names the vendor 'codex', and this executor runs only agents of the vendor 'claude-code'.", exception.Message);
@@ -235,7 +234,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         var executor = new ClaudeCodeExecutor(script, temp.Home, fake.Environment());
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+            () => executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
         Assert.Matches(WildcardPattern.ToRegex($"The claude executable '{script}' is a command script*Configure the path of the native claude executable instead."), exception.Message);
 
         Assert.Empty(fake.Starts);
@@ -251,7 +250,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         await File.WriteAllTextAsync(script, "@echo off");
         var executor = new ClaudeCodeExecutor("claude.cmd", temp.Home, fake.Environment(("PATH", bin)));
 
-        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
         Assert.StartsWith($"The claude executable '{script}' is a command script", exception.Message, StringComparison.Ordinal);
     }
 
@@ -261,11 +260,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string missing = Path.Combine(Path.GetTempPath(), "coanda-no-such-dir", Guid.NewGuid().ToString("N"), "claude");
         var executor = new ClaudeCodeExecutor(missing, temp.Home, new Dictionary<string, string>());
 
-        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
         Assert.StartsWith($"The claude executable '{missing}' could not be started", exception.Message, StringComparison.Ordinal);
 
         var onPath = new ClaudeCodeExecutor("claude-nowhere", temp.Home, new Dictionary<string, string> { ["PATH"] = Path.GetTempPath() });
-        InvalidOperationException exception2 = await Assert.ThrowsAsync<InvalidOperationException>(() => onPath.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
+        InvalidOperationException exception2 = await Assert.ThrowsAsync<InvalidOperationException>(() => onPath.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None).AsTask());
         Assert.Matches(@"(?s)^The claude executable 'claude-nowhere' could not be started.*PATH.*$", exception2.Message);
     }
 
@@ -357,7 +356,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
         Assert.IsType<AgentStepOutcome.Answered>(outcome);
-        string persona = ClaudeCodeInvocation.Persona(ShippedAgents.Build.Persona);
+        string persona = ClaudeCodeInvocation.Persona(SoftwareAgents.Build.Persona);
         Assert.Equal([persona, persona], fake.Starts.Select(s => s.Persona));
     }
 
@@ -366,7 +365,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering("I could not decide.", 0.1m, 0.1m), FakeClaude.Answering(ValidBuild, 0.1m, 0.2m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
         string path = Path.Combine(WorkDirectory, ".coanda", "persona.md");
         File.Delete(path);
@@ -489,7 +488,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(new { result = "error", subtype = "success", reply = text, errors = new[] { "unused" }, exitCode = 1 });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.CollectAsync(handle, None).AsTask());
 
         Assert.EndsWith(": " + text[..500], failure.Message, StringComparison.Ordinal);
@@ -525,7 +524,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             },
         });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         string transcript = Path.Combine(TranscriptDirectory, $"{handle.Id}.jsonl");
         await Until(() => fake.ChildPid is not null && File.Exists(transcript) && ReadWhileWritten(transcript).Contains("msg_2", StringComparison.Ordinal));
         int parent = fake.Starts.Single().Pid;
@@ -551,7 +550,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(new { result = "hang", child = true });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.ChildPid is not null);
 
         StopReport? report = await executor.StopAsync(handle, None);
@@ -571,7 +570,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment((Coanda.Testing.FakeClaude.Program.IgnoreInputVariable, "1")));
         string stalled = Path.Combine(fake.Control, "stalled.pid");
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, new string('x', 4_000_000), WorkDirectory, Caps, AnswerSchemas.Build, null, null, None)
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, new string('x', 4_000_000), WorkDirectory, Caps, AnswerSchemas.Build, null, null, None)
             .AsTask().WaitAsync(TimeSpan.FromSeconds(15));
         await Until(() => File.Exists(stalled) && File.ReadAllText(stalled).Length > 0);
         int pid = int.Parse(File.ReadAllText(stalled), System.Globalization.CultureInfo.InvariantCulture);
@@ -585,7 +584,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_new_executor_on_the_same_home_reattaches_a_running_session_and_collects_its_answer_from_one_process()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.4m, 0.4m, input: 7, output: 8, cacheCreation: 9, cacheRead: 10, turns: 3, durationMs: 2500, waitFor: "release"));
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         int pid = fake.Starts[0].Pid;
 
@@ -609,7 +608,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_session_whose_process_answered_while_no_daemon_ran_is_collected_by_the_next_executor()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
@@ -627,7 +626,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_session_whose_process_answered_while_no_daemon_ran_answers_its_reattached_agent_step_though_the_limit_has_passed()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
@@ -650,7 +649,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(
             FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000, waitFor: "release"),
             FakeClaude.Answering(ValidBuild, cost: 0.25m, totalCost: 1.00m, input: 1, output: 2, cacheCreation: 3, cacheRead: 4, turns: 1, durationMs: 1000));
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
@@ -679,7 +678,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             FakeClaude.Answering(ValidBuild, cost: 0.25m, totalCost: 0.75m));
         string coa = Path.Combine(temp.Home.Path, "coa-bin");
         var spawned = new SessionAccess("first-daemon-token", temp.Home.Path, Project);
-        SessionHandle handle = await fake.Executor(temp.Home, coaDirectory: coa).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, spawned, None);
+        SessionHandle handle = await fake.Executor(temp.Home, coaDirectory: coa).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, spawned, None);
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home, coaDirectory: coa);
@@ -708,7 +707,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             FakeClaude.Answering("I could not decide.", cost: 0.5m, totalCost: 0.5m, waitFor: "release"),
             FakeClaude.Answering(ValidBuild, cost: 0.25m, totalCost: 0.75m));
         string coa = Path.Combine(temp.Home.Path, "coa-bin");
-        SessionHandle handle = await fake.Executor(temp.Home, coaDirectory: coa).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home, coaDirectory: coa).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home, coaDirectory: coa);
@@ -731,7 +730,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000),
             FakeClaude.Answering("Still undecided.", cost: 0.25m, totalCost: 1.00m, input: 1, output: 2, cacheCreation: 3, cacheRead: 4, turns: 1, durationMs: 1000, waitFor: "release"));
         ClaudeCodeExecutor first = fake.Executor(temp.Home);
-        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await first.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         CollectedAnswer invalid = await first.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
         await first.ResumeAsync(handle, "Answer in the schema.", None);
         await Until(() => fake.Starts.Count == 2);
@@ -762,7 +761,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000),
             new { result = "none", waitFor = "release", exitCode = 1 });
         ClaudeCodeExecutor first = fake.Executor(temp.Home);
-        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await first.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         CollectedAnswer invalid = await first.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
         await first.ResumeAsync(handle, "Answer in the schema.", None);
         await Until(() => fake.Starts.Count == 2);
@@ -782,7 +781,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_recorded_session_whose_process_exited_without_a_result_is_not_held_by_the_next_executor()
     {
         using var fake = new FakeClaude(new { result = "none", exitCode = 1 });
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
@@ -797,7 +796,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(new { result = "hang" });
         ClaudeCodeExecutor first = fake.Executor(temp.Home);
-        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await first.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         File.Delete(temp.Home.SessionRecordPath(handle.Id));
 
@@ -814,7 +813,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(new { result = "hang" });
         ClaudeCodeExecutor first = fake.Executor(temp.Home);
-        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await first.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         string otherPid = Path.Combine(fake.Control, "other.pid");
         using Process other = Process.Start(new ProcessStartInfo(FakeClaude.Executable, [Coanda.Testing.FakeClaude.Program.ChildFlag, otherPid]) { UseShellExecute = false })
@@ -843,7 +842,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_session_that_answered_whose_process_id_now_names_another_process_is_collected_and_that_process_is_left_running()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.3m, 0.3m));
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
         using Process other = StartOtherProcess(fake);
@@ -876,7 +875,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             FakeClaude.Answering("I could not decide.", cost: 0.75m, totalCost: 0.75m, input: 100, output: 200, cacheCreation: 300, cacheRead: 400, turns: 3, durationMs: 4000),
             FakeClaude.Answering("Still undecided.", cost: 0.25m, totalCost: 1.00m, input: 1, output: 2, cacheCreation: 3, cacheRead: 4, turns: 1, durationMs: 1000));
         ClaudeCodeExecutor first = fake.Executor(temp.Home);
-        SessionHandle handle = await first.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await first.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         CollectedAnswer invalid = await first.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30));
         await first.ResumeAsync(handle, "Answer in the schema.", None);
         await Until(() => fake.Starts.Count == 2);
@@ -909,7 +908,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var fake = new FakeClaude(new { result = "hang", child = true });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.ChildPid is not null);
         int parent = fake.Starts.Single().Pid;
         int child = fake.ChildPid ?? 0;
@@ -931,7 +930,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
         Assert.Null(await executor.StopAsync(handle, None));
@@ -948,7 +947,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m, waitFor: "release"));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         Assert.Equal([handle], await executor.ListAsync(None));
         Assert.Equal(ReattachedSession.OnSpawn(handle), await executor.ReattachAsync(handle, access: null, None));
         fake.Release();
@@ -965,7 +964,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
 
         NotSupportedException exception = await Assert.ThrowsAsync<NotSupportedException>(() => executor.SendAsync(handle, "hello", None).AsTask());
         Assert.Equal("The claude-code executor does not support sending into a live session yet.", exception.Message);
@@ -984,7 +983,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         CollectedAnswer collected = await executor.CollectAsync(handle, None);
 
         Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path.Combine(WorkDirectory, ".coanda", "persona.md")));
@@ -1075,7 +1074,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
         var profile = new CredentialProfile("claude-code", "work", "/profiles/work", null);
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(profile), None);
 
@@ -1103,7 +1102,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string userHome = Path.Combine(fake.Control, "user");
         ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment((OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME", userHome)));
 
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await executor.CollectAsync(handle, None);
 
         ToolGuardRules rules = GuardOf(Assert.Single(fake.Starts));
@@ -1140,7 +1139,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     {
         using var fake = new FakeClaude(new { settings = "skipped", version = "2.1.999", result = "hang" });
         ClaudeCodeExecutor executor = fake.Executor(temp.Home);
-        SessionHandle handle = await executor.SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
 
         InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.CollectAsync(handle, None).AsTask().WaitAsync(TimeSpan.FromSeconds(30)));
 
@@ -1177,7 +1176,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_session_a_new_executor_reattaches_from_its_record_is_checked_from_its_transcript_before_its_answer_is_collected()
     {
         using var fake = new FakeClaude(new { settings = "skipped", holdInit = "release", result = "hang" });
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
@@ -1194,7 +1193,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_session_a_daemon_before_the_check_spawned_is_collected_without_the_evidence_after_an_upgrade()
     {
         using var fake = new FakeClaude(new { settings = "skipped", reply = ValidBuild, totalCost = 0.3m });
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1);
         await Until(() => FakeClaude.Finished(fake.Starts[0].Pid));
 
@@ -1222,7 +1221,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     public async Task A_session_that_answered_without_the_evidence_while_no_daemon_ran_has_no_answer_collected_from_it()
     {
         using var fake = new FakeClaude(new { settings = "skipped", reply = ValidBuild, totalCost = 0.3m });
-        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        SessionHandle handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         await Until(() => fake.Starts.Count == 1 && FakeClaude.Finished(fake.Starts[0].Pid));
 
         ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
@@ -1242,7 +1241,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle;
         try
         {
-            handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+            handle = await fake.Executor(temp.Home).SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
         }
         finally
         {
@@ -1346,7 +1345,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     private AgentStepRequest Request(CredentialProfile? profile = null) =>
-        new(ShippedAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, profile);
+        new(SoftwareAgents.Build, "Step: build", WorkDirectory, Caps, AnswerSchemas.Build, profile);
 
     // A session process holds the transcript open for writing while it runs, and Windows refuses
     // a reader that does not share write access with it, which is all File.ReadAllText offers.

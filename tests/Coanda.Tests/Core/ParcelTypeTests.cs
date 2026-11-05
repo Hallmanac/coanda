@@ -1,6 +1,5 @@
 using Coanda.Core;
 using Coanda.Core.Parcels;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -10,15 +9,15 @@ public sealed class ParcelTypeTests
     [Fact]
     public void Shipped_types_validate_and_hash_distinctly()
     {
-        foreach (ParcelType type in ShippedTypes.All)
+        foreach (ParcelType type in SoftwareTypes.All)
         {
             type.Validate(GateSet.Shipped.Names);
             Assert.Equal(16, type.Hash.Length);
         }
 
-        Assert.NotEqual(ShippedTypes.Task.Hash, ShippedTypes.Idea.Hash);
+        Assert.NotEqual(SoftwareTypes.Task.Hash, SoftwareTypes.Idea.Hash);
         // the hash is a pure function of the definition
-        Assert.Equal(ShippedTypes.Task.Hash, ShippedTypes.Task.Hash);
+        Assert.Equal(SoftwareTypes.Task.Hash, SoftwareTypes.Task.Hash);
     }
 
     [Theory]
@@ -33,12 +32,12 @@ public sealed class ParcelTypeTests
     [InlineData("closed", "refine", false)]
     [InlineData("refine", "refine", false)]
     [InlineData("refine", "nowhere", false)]
-    public void Task_lifecycle_allows_exactly_its_moves(string from, string to, bool allowed) => Assert.Equal(allowed, ShippedTypes.Task.AllowsMove(from, to));
+    public void Task_lifecycle_allows_exactly_its_moves(string from, string to, bool allowed) => Assert.Equal(allowed, SoftwareTypes.Task.AllowsMove(from, to));
 
     [Fact]
     public void A_type_without_a_terminal_stage_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with { TerminalStage = "finished" };
+        ParcelType broken = SoftwareTypes.Task with { TerminalStage = "finished" };
         DomainException exception = Assert.Throws<DomainException>(() => broken.Validate(GateSet.Shipped.Names));
         Assert.Contains("terminal stage", exception.Message, StringComparison.Ordinal);
     }
@@ -46,7 +45,7 @@ public sealed class ParcelTypeTests
     [Fact]
     public void A_type_whose_move_names_an_unknown_stage_is_refused()
     {
-        ParcelType broken = ShippedTypes.Task with
+        ParcelType broken = SoftwareTypes.Task with
         {
             Moves = new Dictionary<string, IReadOnlyList<string>> { ["refine"] = ["shipping"] },
         };

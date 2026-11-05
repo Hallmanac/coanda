@@ -1,0 +1,8 @@
+{
+  "name": "software",
+  "version": "0.1.0",
+  "moduleApiVersion": 1,
+  "start": ["Coanda.Modules.Software"],
+  "sourceUrl": "https://github.com/Hallmanac/coanda",
+  "sourceCommit": "unreleased"
+}

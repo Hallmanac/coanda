@@ -7,7 +7,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
@@ -51,9 +50,9 @@ public sealed class FlowRunAdvancerTests
         // each go-to records the step it enters
         Assert.Equal(CleanPath, flowRun.Steps.Select(s => s.Step));
         Assert.All(flowRun.Steps, s => Assert.True(s.RecordedAt != null));
-        ExpectAgentStep(flowRun.Steps[1], ShippedAgents.Build, 1);
-        ExpectAgentStep(flowRun.Steps[3], ShippedAgents.ReviewerAdversarial, 2);
-        ExpectAgentStep(flowRun.Steps[4], ShippedAgents.ReviewerConformance, 3);
+        ExpectAgentStep(flowRun.Steps[1], SoftwareAgents.Build, 1);
+        ExpectAgentStep(flowRun.Steps[3], SoftwareAgents.ReviewerAdversarial, 2);
+        ExpectAgentStep(flowRun.Steps[4], SoftwareAgents.ReviewerConformance, 3);
         Assert.Equal($"coanda/{Ids.Short(parcel.Id)}", flowRun.Steps[0].Result.GetValueOrDefault().GetProperty("branch").GetString());
         JsonElement gates = flowRun.Steps[2].Result.GetValueOrDefault();
         Assert.Equal("done", gates.GetProperty("verdict").GetString());
@@ -67,7 +66,7 @@ public sealed class FlowRunAdvancerTests
 
         ScriptedSpawn build = executor.Spawns[0];
         Assert.Equal(temp.Home.FlowRunWorkPath(Project, started.Id), build.WorkingDirectory);
-        Assert.Equal(new SpawnCaps(ShippedFlows.Build.Budget, DaemonOptions.DefaultAgentStepLimit), build.Caps);
+        Assert.Equal(new SpawnCaps(SoftwareFlows.Build.Budget, DaemonOptions.DefaultAgentStepLimit), build.Caps);
         Assert.Null(build.CredentialProfile);
         Assert.Equal("build", build.AnswerSchema);
         Assert.Contains("Title: Run the clean path", build.Context, StringComparison.Ordinal);
@@ -351,7 +350,7 @@ public sealed class FlowRunAdvancerTests
         Assert.Equal("built", ended.Outcome);
         FlowRunStepView build = Assert.Single(ended.Steps);
         Assert.Equal("BUILD", build.Performer);
-        Assert.Equal(ShippedAgents.Build.Hash, build.AgentHash);
+        Assert.Equal(SoftwareAgents.Build.Hash, build.AgentHash);
         Assert.Single(executor.Spawns);
 
         await daemon.StopAsync(None);
@@ -545,7 +544,7 @@ public sealed class FlowRunAdvancerTests
         Assert.Contains("names the agent 'late-builder'", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(1, paused.Spawns);
 
-        AgentDefinition agent = ShippedAgents.Build with { Name = "late-builder" };
+        AgentDefinition agent = SoftwareAgents.Build with { Name = "late-builder" };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();
         Definition draft = await definitions.DraftAsync(
             Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, Project, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash, null, None);
@@ -590,8 +589,8 @@ public sealed class FlowRunAdvancerTests
         // the pause reports both attempts' usage
         Assert.Equal(Scripts.Usage(3), paused.PauseUsage);
         FlowRunStepView build = Assert.Single(paused.Steps);
-        Assert.Equal(ShippedAgents.Build.Hash, build.AgentHash);
-        Assert.Equal(ShippedAgents.Build.Model, build.Model);
+        Assert.Equal(SoftwareAgents.Build.Hash, build.AgentHash);
+        Assert.Equal(SoftwareAgents.Build.Model, build.Model);
         Assert.Null(build.Answer);
         Assert.Null(build.Measurement);
 
@@ -754,7 +753,7 @@ public sealed class FlowRunAdvancerTests
     {
         using var temp = new TemporaryHome();
         Guid flowRunId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All))
         {
             await RegisteredProjects.AddAsync(store, Project, None);
             var parcels = new Coanda.Daemon.Parcels.ParcelService(store, TimeProvider.System);
@@ -767,10 +766,10 @@ public sealed class FlowRunAdvancerTests
                 Principal.LocalOwner, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, JsonSerializer.SerializeToElement(new { verdict = "done" }), None);
             await flowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRun.Id, "build", None);
             Guid session = Ids.New();
-            await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", ShippedAgents.Build.Hash, ShippedAgents.Build.Model, None);
+            await flowRuns.SpawnedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, None);
             await flowRuns.SessionOpenedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", session, None);
             await flowRuns.RecordAnswerAsync(
-                Principal.LocalOwner, Project, flowRun.Id, "build", "build", session, ShippedAgents.Build.Hash, ShippedAgents.Build.Model,
+                Principal.LocalOwner, Project, flowRun.Id, "build", "build", session, SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model,
                 JsonSerializer.SerializeToElement(new { verdict = "done" }), Scripts.Usage(1), None);
             flowRunId = flowRun.Id;
         }

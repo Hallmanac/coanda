@@ -2,7 +2,6 @@ using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -36,10 +35,10 @@ public sealed class ParcelBindingTests
         ParcelType? idea = await resolver.ResolveParcelTypeAsync(Project, "idea", None);
 
         Assert.NotNull(task);
-        Assert.Equal(ShippedTypes.Task.Hash, task.Hash);
+        Assert.Equal(SoftwareTypes.Task.Hash, task.Hash);
         Assert.Equal([new FlowBinding("build", "build")], task.FlowBindings);
         Assert.NotNull(idea);
-        Assert.Equal(ShippedTypes.Idea.Hash, idea.Hash);
+        Assert.Equal(SoftwareTypes.Idea.Hash, idea.Hash);
         Assert.Equal([new FlowBinding("discovery", "discovery")], idea.FlowBindings);
 
         await daemon.StopAsync(None);
@@ -53,7 +52,7 @@ public sealed class ParcelBindingTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Gates = [gate] }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
-        ParcelType gated = ShippedTypes.Task with
+        ParcelType gated = SoftwareTypes.Task with
         {
             Name = "gated-task",
             FlowBindings = [],

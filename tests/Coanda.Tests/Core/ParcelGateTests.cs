@@ -1,7 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -11,7 +10,7 @@ public sealed class ParcelGateTests
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>The shipped task with a stand-in gate in place of its fields and the gate that enforces them.</summary>
-    private static readonly ParcelType Gated = ShippedTypes.Task with
+    private static readonly ParcelType Gated = SoftwareTypes.Task with
     {
         Fields = [],
         GateBindings = [new GateBinding("refine", "build", StandInGate.DefaultName)],
@@ -87,10 +86,10 @@ public sealed class ParcelGateTests
         Assert.Contains("'stand-in' is given twice", exception.Message, StringComparison.Ordinal);
     }
 
-    private static readonly ParcelType GatedClose = ShippedTypes.Task with
+    private static readonly ParcelType GatedClose = SoftwareTypes.Task with
     {
         Fields = [],
-        GateBindings = [new GateBinding("review", ShippedTypes.Closed, StandInGate.DefaultName)],
+        GateBindings = [new GateBinding("review", SoftwareTypes.Closed, StandInGate.DefaultName)],
     };
 
     private static Parcel InReview(ParcelType type, GateSet gates)

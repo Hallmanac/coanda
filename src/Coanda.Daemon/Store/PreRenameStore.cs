@@ -17,7 +17,7 @@ namespace Coanda.Daemon.Store;
 public static class PreRenameStore
 {
     /// <summary>
-    /// Every daemon seeds the shipped definitions on its first start, so every record holds parcel
+    /// Every daemon records the parcel types its modules bring on its first start, so every record holds parcel
     /// types, and every type this build writes carries a <c>PausedStage</c>. A record written before
     /// the stage name holds types with none: those written since 2026-11-03 carry a
     /// <c>PausedState</c> in its place, and older ones carry neither. That covers every record the

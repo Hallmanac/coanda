@@ -6,7 +6,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -110,7 +109,7 @@ public sealed class UnprefixedStepTests
         using var temp = new TemporaryHome();
         Guid flowRunId;
         Guid dispatchId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.EnsureExists().EnsureDatabase().DatabasePath, ShippedDefinitions.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.EnsureExists().EnsureDatabase().DatabasePath, SoftwareDefinitions.All))
         {
             // What main leaves when its daemon stops while the worktree step of a build flow run is dispatched.
             await RegisteredProjects.AddAsync(store, Project, None);

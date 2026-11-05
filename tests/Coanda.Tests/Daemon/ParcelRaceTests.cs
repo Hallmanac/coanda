@@ -4,7 +4,6 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -72,7 +71,7 @@ public sealed class ParcelRaceTests
     {
         RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Gates = [gate] }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
-        ParcelType raced = ShippedTypes.Task with
+        ParcelType raced = SoftwareTypes.Task with
         {
             Name = "raced-task",
             FlowBindings = [],
@@ -80,7 +79,7 @@ public sealed class ParcelRaceTests
             GateBindings =
             [
                 new GateBinding("refine", "build", gate.Name),
-                new GateBinding("refine", ShippedTypes.Task.TerminalStage, gate.Name),
+                new GateBinding("refine", SoftwareTypes.Task.TerminalStage, gate.Name),
             ],
         };
         DefinitionService definitions = daemon.Services.GetRequiredService<DefinitionService>();

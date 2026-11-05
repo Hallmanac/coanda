@@ -6,7 +6,6 @@ using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Parcels;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
@@ -562,7 +561,7 @@ public sealed class DispatchFlowRunTests
         Guid flowRunId;
 
         // The store holds only what a daemon without dispatch ids writes: a flow run started at a system step.
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All))
         {
             await RegisteredProjects.AddAsync(store, Project, None);
             var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: new HashSet<string>([.. ShippedSystemSteps.Names, step.Name]));

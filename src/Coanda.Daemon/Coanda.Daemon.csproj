@@ -21,6 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The module API's manifest schema, which a module's module.json is checked against when it is read. -->
+    <EmbeddedResource Include="..\..\schemas\module\v1\manifest.schema.json" LogicalName="Coanda.Daemon.Modules.manifest.schema.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Coanda.Tests" />
     <!-- The CLI starts its daemon with the executor's detached launcher. -->
     <InternalsVisibleTo Include="coa" />

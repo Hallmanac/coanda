@@ -2,7 +2,6 @@ using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -11,7 +10,7 @@ namespace Coanda.Tests.Core;
 public sealed class ParcelFieldTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 4, 12, 0, 0, TimeSpan.Zero);
-    private static readonly ParcelType Task = ShippedTypes.Task;
+    private static readonly ParcelType Task = SoftwareTypes.Task;
     private static readonly GateSet Gates = GateSet.Shipped;
 
     private static Parcel NewTask() => Parcel.Create(ParcelDecider.Create(Task, Gates, "coanda", "Fields", null, "brian", Now));
@@ -65,8 +64,8 @@ public sealed class ParcelFieldTests
         DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, NewTask(), "branch", FieldValue.OfText("main"), "brian", Now));
         Assert.Equal("Parcel type 'task' declares no field 'branch'; a parcel holds values only in the fields its type declares: objective, criteria, non-goals, pull-request.", exception.Message);
 
-        Parcel idea = Parcel.Create(ParcelDecider.Create(ShippedTypes.Idea, Gates, "coanda", "No fields", null, "brian", Now));
-        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.SetField(ShippedTypes.Idea, idea, "objective", FieldValue.OfText("x"), "brian", Now));
+        Parcel idea = Parcel.Create(ParcelDecider.Create(SoftwareTypes.Idea, Gates, "coanda", "No fields", null, "brian", Now));
+        DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.SetField(SoftwareTypes.Idea, idea, "objective", FieldValue.OfText("x"), "brian", Now));
         Assert.Matches(@"(?s)^.*declares no field 'objective'.*and it declares none\.$", exception2.Message);
     }
 
@@ -279,7 +278,7 @@ public sealed class ParcelFieldTests
     {
         ParcelType forked = Task with
         {
-            Stages = ["refine", "spike", "build", "review", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "spike", "build", "review", SoftwareTypes.Paused, SoftwareTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],

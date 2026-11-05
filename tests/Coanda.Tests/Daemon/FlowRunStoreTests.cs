@@ -7,7 +7,6 @@ using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.FlowRuns;
@@ -53,7 +52,7 @@ public sealed class FlowRunStoreTests
         Guid parcelId;
         Guid flowRunId;
 
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All))
         {
             await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
             Parcel parcel = await new ParcelService(store, TimeProvider.System).AddAsync(Owner, Project, "task", "Run once", null, CancellationToken.None);
@@ -72,7 +71,7 @@ public sealed class FlowRunStoreTests
         FlowRunView shown = await client.GetAsync<FlowRunView>($"/flow-runs/{flowRunId}?project={Project}", CancellationToken.None);
         Assert.Equal(parcelId, shown.ParcelId);
         Assert.Equal("build", shown.FlowName);
-        Assert.Equal(ShippedFlows.Build.Hash, shown.FlowHash);
+        Assert.Equal(SoftwareFlows.Build.Hash, shown.FlowHash);
         Assert.Equal("paused", shown.Status);
         Assert.Equal("build", shown.CurrentStep);
         Assert.Equal(["worktree", "build"], shown.Steps.Select(s => s.Step));
@@ -139,7 +138,7 @@ public sealed class FlowRunStoreTests
     public async Task An_ended_flow_run_releases_its_parcel()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         var parcels = new ParcelService(store, TimeProvider.System);
         var flowRuns = new FlowRunService(store, TimeProvider.System);
@@ -147,7 +146,7 @@ public sealed class FlowRunStoreTests
 
         Parcel parcel = await parcels.AddAsync(Owner, Project, "task", "End it", null, none);
         FlowRun flowRun = await flowRuns.StartAsync(Owner, Project, parcel.Id, "build", none);
-        FlowRun ended = await flowRuns.EndAsync(Owner, Project, flowRun.Id, ShippedFlows.Build.Outcome, none);
+        FlowRun ended = await flowRuns.EndAsync(Owner, Project, flowRun.Id, SoftwareFlows.Build.Outcome, none);
 
         Assert.Equal(FlowRunStatus.Ended, ended.Status);
         Parcel? after = await parcels.ShowAsync(Owner, Project, parcel.Id, none);
@@ -159,7 +158,7 @@ public sealed class FlowRunStoreTests
     public async Task A_start_that_read_the_parcel_before_another_start_committed_fails_the_parcel_streams_version_check()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         var flowRuns = new FlowRunService(store, TimeProvider.System);
         CancellationToken none = CancellationToken.None;
@@ -185,7 +184,7 @@ public sealed class FlowRunStoreTests
     public async Task Resuming_and_stopping_a_flow_run_are_open_to_people_starting_it_and_recording_its_steps_to_every_role()
     {
         using var temp = new TemporaryHome();
-        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         await RegisteredProjects.AddAsync(store, Project, CancellationToken.None);
         var flowRuns = new FlowRunService(store, TimeProvider.System);
         var parcels = new ParcelService(store, TimeProvider.System);
@@ -229,7 +228,7 @@ public sealed class FlowRunStoreTests
         FlowRunView view = await FlowRunLookup.FindAsync(client, Project, Ids.Short(flowRun.Id), none);
         IReadOnlyList<string> lines = FlowRunRendering.Show(view);
 
-        Assert.Contains($"Flow    build v1 ({ShippedFlows.Build.Hash})", lines);
+        Assert.Contains($"Flow    build v1 ({SoftwareFlows.Build.Hash})", lines);
         Assert.Contains($"Parcel  {parcel.Id}", lines);
         Assert.Contains("Status  paused", lines);
         Assert.Contains("Reason  The build agent asked a question.", lines);

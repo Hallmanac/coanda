@@ -1,6 +1,5 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
-using Coanda.Core.Software;
 
 namespace Coanda.Tests.Core;
 
@@ -174,7 +173,7 @@ public sealed class AgentDefinitionTests
     [Fact]
     public void Canonical_json_round_trips_to_an_agent_with_the_same_hash()
     {
-        foreach (AgentDefinition agent in ShippedAgents.All)
+        foreach (AgentDefinition agent in SoftwareAgents.All)
         {
             AgentDefinition read = AgentDefinition.FromJson(AgentDefinition.CanonicalJson(agent));
             Assert.Equal(agent.Hash, read.Hash);

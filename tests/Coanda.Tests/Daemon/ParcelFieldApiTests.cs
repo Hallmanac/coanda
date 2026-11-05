@@ -5,7 +5,6 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -136,7 +135,7 @@ public sealed class ParcelFieldApiTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, None);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
-        ParcelType before = ShippedTypes.Task with { Fields = [], GateBindings = [] };
+        ParcelType before = SoftwareTypes.Task with { Fields = [], GateBindings = [] };
         Definition draft = await definitions.DraftParcelTypeAsync(Principal.LocalOwner, DefinitionScope.Project, Project, before, null, None);
         await definitions.PublishAsync(Principal.LocalOwner, Project, draft.Id, None);
         var parcels = new ParcelService(store, TimeProvider.System);

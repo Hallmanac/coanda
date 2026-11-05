@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 
 namespace Coanda.Tests.Core;
@@ -14,18 +13,18 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void The_shipped_idea_declares_no_field_and_hashes_to_a_literal()
     {
-        Assert.Empty(ShippedTypes.Idea.Fields);
+        Assert.Empty(SoftwareTypes.Idea.Fields);
         // the idea declares no field, so its hash covers its stages, transitions, and flow bindings alone
-        Assert.Equal("e6c4447a6bc6586d", ShippedTypes.Idea.Hash);
+        Assert.Equal("e6c4447a6bc6586d", SoftwareTypes.Idea.Hash);
     }
 
     [Fact]
     public void The_shipped_task_names_no_owner_and_hashes_to_the_literal_it_had_before_owners()
     {
-        Assert.All(ShippedTypes.Task.Fields, f => Assert.Null(f.Owner));
+        Assert.All(SoftwareTypes.Task.Fields, f => Assert.Null(f.Owner));
         // the task's fields name no module, so its hash is the one it had before a field could name one
-        Assert.Equal("f5bc1ad145ab7a9f", ShippedTypes.Task.Hash);
-        Assert.DoesNotContain("\"Owner\"", ParcelType.CanonicalJson(ShippedTypes.Task), StringComparison.Ordinal);
+        Assert.Equal("f5bc1ad145ab7a9f", SoftwareTypes.Task.Hash);
+        Assert.DoesNotContain("\"Owner\"", ParcelType.CanonicalJson(SoftwareTypes.Task), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -40,7 +39,7 @@ public sealed class ParcelTypeFieldTests
         Assert.Null(read.Field("criteria")?.Owner);
         Assert.Equal(owned.Hash, read.Hash);
         Assert.Contains("\"Owner\": \"software\"", ParcelType.CanonicalJson(owned), StringComparison.Ordinal);
-        Assert.Distinct((string[])[ShippedTypes.Task.Hash, owned.Hash, ownedByAnother.Hash]);
+        Assert.Distinct((string[])[SoftwareTypes.Task.Hash, owned.Hash, ownedByAnother.Hash]);
         owned.Validate(Gates);
     }
 
@@ -60,43 +59,43 @@ public sealed class ParcelTypeFieldTests
             exception.Message);
     }
 
-    private static ParcelType WithObjectiveOwnedBy(string owner) => ShippedTypes.Task with
+    private static ParcelType WithObjectiveOwnedBy(string owner) => SoftwareTypes.Task with
     {
-        Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Owner = owner } : f)],
+        Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Owner = owner } : f)],
     };
 
     [Fact]
     public void The_shipped_task_declares_its_objective_criteria_non_goals_and_pull_request()
     {
-        Assert.Equal([("objective", FieldKinds.Text, "refine"), ("criteria", FieldKinds.TextList, "refine"), ("non-goals", FieldKinds.TextList, ""), ("pull-request", FieldKinds.Reference, "build")], ShippedTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))));
-        ShippedTypes.Task.Validate(Gates);
+        Assert.Equal([("objective", FieldKinds.Text, "refine"), ("criteria", FieldKinds.TextList, "refine"), ("non-goals", FieldKinds.TextList, ""), ("pull-request", FieldKinds.Reference, "build")], SoftwareTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))));
+        SoftwareTypes.Task.Validate(Gates);
     }
 
     [Fact]
     public void Fields_survive_the_canonical_json_and_are_part_of_the_hash()
     {
-        ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(ShippedTypes.Task));
+        ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(SoftwareTypes.Task));
 
-        Assert.Equal(ShippedTypes.Task.Fields.Select(f => (f.Name, f.Kind)), read.Fields.Select(f => (f.Name, f.Kind)));
-        Assert.Equal(ShippedTypes.Task.Fields.Select(f => f.RequiredToLeave), read.Fields.Select(f => f.RequiredToLeave));
-        Assert.Equal(ShippedTypes.Task.Hash, read.Hash);
-        string actual = ParcelType.CanonicalJson(ShippedTypes.Task);
+        Assert.Equal(SoftwareTypes.Task.Fields.Select(f => (f.Name, f.Kind)), read.Fields.Select(f => (f.Name, f.Kind)));
+        Assert.Equal(SoftwareTypes.Task.Fields.Select(f => f.RequiredToLeave), read.Fields.Select(f => f.RequiredToLeave));
+        Assert.Equal(SoftwareTypes.Task.Hash, read.Hash);
+        string actual = ParcelType.CanonicalJson(SoftwareTypes.Task);
         Assert.Contains("\"Fields\"", actual, StringComparison.Ordinal);
         Assert.Contains("\"RequiredToLeave\"", actual, StringComparison.Ordinal);
 
-        ParcelType renamed = ShippedTypes.Task with
+        ParcelType renamed = SoftwareTypes.Task with
         {
-            Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Name = "goal" } : f)],
+            Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Name = "goal" } : f)],
         };
-        ParcelType relaxed = ShippedTypes.Task with
+        ParcelType relaxed = SoftwareTypes.Task with
         {
-            Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { RequiredToLeave = [] } : f)],
+            Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { RequiredToLeave = [] } : f)],
         };
-        ParcelType rekinded = ShippedTypes.Task with
+        ParcelType rekinded = SoftwareTypes.Task with
         {
-            Fields = [.. ShippedTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Kind = FieldKinds.TextList } : f)],
+            Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Name == "objective" ? f with { Kind = FieldKinds.TextList } : f)],
         };
-        string[] hashes = [ShippedTypes.Task.Hash, renamed.Hash, relaxed.Hash, rekinded.Hash, (ShippedTypes.Task with { Fields = [] }).Hash];
+        string[] hashes = [SoftwareTypes.Task.Hash, renamed.Hash, relaxed.Hash, rekinded.Hash, (SoftwareTypes.Task with { Fields = [] }).Hash];
         Assert.Distinct(hashes);
     }
 
@@ -144,7 +143,7 @@ public sealed class ParcelTypeFieldTests
     public void A_type_declaring_a_broken_field_is_refused_at_load_quoting_the_rule(string broken, FieldDeclaration[] fields, string rule)
     {
         Assert.False(string.IsNullOrEmpty(broken));
-        ParcelType type = ShippedTypes.Task with { Fields = fields };
+        ParcelType type = SoftwareTypes.Task with { Fields = fields };
 
         DomainException exception = Assert.Throws<DomainException>(() => type.Validate(Gates));
         Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
@@ -155,7 +154,7 @@ public sealed class ParcelTypeFieldTests
     [InlineData("""[{"Name": "objective", "Kind": "text", "RequiredToLeave": [null]}]""", "*required to leave ''*")]
     public void A_read_field_that_is_null_or_names_a_null_stage_is_refused(string fields, string rule)
     {
-        JsonObject content = JsonNode.Parse(ParcelType.CanonicalJson(ShippedTypes.Task))?.AsObject()
+        JsonObject content = JsonNode.Parse(ParcelType.CanonicalJson(SoftwareTypes.Task))?.AsObject()
             ?? throw new InvalidOperationException("A type's canonical content is a JSON object.");
         content["Fields"] = JsonNode.Parse(fields);
         string replaced = content.ToJsonString();
@@ -169,14 +168,14 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void The_shipped_types_enforce_every_field_they_declare()
     {
-        ShippedTypes.Idea.Validate(Gates);
-        ShippedTypes.Task.Validate(Gates);
+        SoftwareTypes.Idea.Validate(Gates);
+        SoftwareTypes.Task.Validate(Gates);
     }
 
     [Fact]
     public void A_type_that_declares_a_field_required_to_leave_a_stage_with_a_move_out_not_bound_to_the_field_gate_is_refused_naming_the_field_and_the_move()
     {
-        ParcelType unbound = ShippedTypes.Task with
+        ParcelType unbound = SoftwareTypes.Task with
         {
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
@@ -193,11 +192,11 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void A_table_entry_out_of_a_required_stage_into_paused_or_closed_needs_no_field_gate_since_pausing_and_closing_are_never_refused_for_an_empty_field()
     {
-        ParcelType pausesInTable = ShippedTypes.Task with
+        ParcelType pausesInTable = SoftwareTypes.Task with
         {
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
-                ["refine"] = ["build", ShippedTypes.Paused, ShippedTypes.Closed],
+                ["refine"] = ["build", SoftwareTypes.Paused, SoftwareTypes.Closed],
                 ["build"] = ["review"],
                 ["review"] = ["build"],
             },
@@ -209,9 +208,9 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void A_type_with_a_stage_some_field_is_required_to_enter_and_no_move_into_it_bound_to_the_field_gate_is_refused_naming_the_stage_and_the_field()
     {
-        ParcelType withQa = ShippedTypes.Task with
+        ParcelType withQa = SoftwareTypes.Task with
         {
-            Stages = [.. ShippedTypes.Task.Stages, "qa"],
+            Stages = [.. SoftwareTypes.Task.Stages, "qa"],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -234,9 +233,9 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void A_field_is_required_to_enter_a_stage_only_when_every_route_to_it_requires_it_and_never_for_a_stage_no_route_reaches()
     {
-        ParcelType forked = ShippedTypes.Task with
+        ParcelType forked = SoftwareTypes.Task with
         {
-            Stages = ["refine", "spike", "build", "review", "shelved", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "spike", "build", "review", "shelved", SoftwareTypes.Paused, SoftwareTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -257,9 +256,9 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void A_move_out_of_a_stage_no_route_reaches_into_a_stage_some_field_is_required_to_enter_is_refused_naming_both()
     {
-        ParcelType shelved = ShippedTypes.Task with
+        ParcelType shelved = SoftwareTypes.Task with
         {
-            Stages = ["refine", "build", "review", "shelved", ShippedTypes.Paused, ShippedTypes.Closed],
+            Stages = ["refine", "build", "review", "shelved", SoftwareTypes.Paused, SoftwareTypes.Closed],
             Moves = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["refine"] = ["build"],
@@ -283,7 +282,7 @@ public sealed class ParcelTypeFieldTests
     [Fact]
     public void Drafting_or_creating_a_parcel_under_a_type_that_leaves_a_field_unenforced_is_refused()
     {
-        ParcelType unenforced = ShippedTypes.Task with
+        ParcelType unenforced = SoftwareTypes.Task with
         {
             GateBindings = [new GateBinding("refine", "build", RequiredFieldsGate.GateName)],
         };

@@ -1,11 +1,9 @@
 using System.Text.Json;
 using Coanda.Core;
-using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.SystemSteps;
@@ -29,7 +27,7 @@ public sealed class DispatchOutcomeTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All);
+        store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All);
         await RegisteredProjects.AddAsync(store, Project, None);
         flowRuns = new FlowRunService(store, TimeProvider.System);
     }
@@ -113,7 +111,7 @@ public sealed class DispatchOutcomeTests : IAsyncLifetime
     public async Task An_outcome_on_an_ended_flow_run_is_refused()
     {
         (Guid flowRunId, Guid dispatchId) = await DispatchedAsync();
-        await flowRuns.EndAsync(Principal.LocalOwner, Project, flowRunId, ShippedFlows.Build.Outcome, None);
+        await flowRuns.EndAsync(Principal.LocalOwner, Project, flowRunId, SoftwareFlows.Build.Outcome, None);
 
         DomainException refused = await RefusedAsync(flowRunId, dispatchId, Done());
 

@@ -1,0 +1,205 @@
+{
+  "Name": "build",
+  "Accepts": [
+    "task"
+  ],
+  "Outcome": "pr-opened",
+  "Budget": 25,
+  "SpawnCap": 12,
+  "Steps": [
+    {
+      "Name": "worktree",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/worktree",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "build"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "build",
+      "Agent": "build",
+      "AnswerSchema": "build",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "gates"
+        },
+        {
+          "Field": "verdict",
+          "Value": "blocked",
+          "VisitCap": 5,
+          "Target": "pause"
+        }
+      ],
+      "Fields": [
+        "objective",
+        "criteria",
+        "non-goals"
+      ],
+      "Sources": []
+    },
+    {
+      "Name": "gates",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/gates",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "adversarial-review"
+        },
+        {
+          "Field": "verdict",
+          "Value": "failed",
+          "VisitCap": 5,
+          "Target": "fix"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "adversarial-review",
+      "Agent": "reviewer-adversarial",
+      "AnswerSchema": "review",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "clean",
+          "VisitCap": 5,
+          "Target": "conformance-review"
+        },
+        {
+          "Field": "verdict",
+          "Value": "not-clean",
+          "VisitCap": 3,
+          "Target": "fix"
+        }
+      ],
+      "Fields": [
+        "objective",
+        "criteria",
+        "non-goals"
+      ],
+      "Sources": []
+    },
+    {
+      "Name": "conformance-review",
+      "Agent": "reviewer-conformance",
+      "AnswerSchema": "review",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "clean",
+          "VisitCap": 5,
+          "Target": "open-pr"
+        },
+        {
+          "Field": "verdict",
+          "Value": "not-clean",
+          "VisitCap": 3,
+          "Target": "fix"
+        }
+      ],
+      "Fields": [
+        "objective",
+        "criteria",
+        "non-goals"
+      ],
+      "Sources": []
+    },
+    {
+      "Name": "open-pr",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/open-pr",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "opened",
+          "VisitCap": 5,
+          "Target": "move-to-review"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "move-to-review",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "move-parcel",
+      "Arguments": {
+        "stage": "review"
+      },
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "end"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "fix",
+      "Agent": "fix",
+      "AnswerSchema": "fix",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "gates"
+        },
+        {
+          "Field": "verdict",
+          "Value": "blocked",
+          "VisitCap": 5,
+          "Target": "pause"
+        }
+      ],
+      "Fields": [
+        "objective",
+        "criteria",
+        "non-goals"
+      ],
+      "Sources": [
+        {
+          "Step": "gates"
+        },
+        {
+          "Step": "adversarial-review"
+        },
+        {
+          "Step": "conformance-review"
+        }
+      ]
+    }
+  ]
+}

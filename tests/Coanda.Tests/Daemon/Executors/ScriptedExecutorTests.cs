@@ -1,7 +1,6 @@
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
-using Coanda.Core.Software;
 using Coanda.Daemon.Executors;
 
 namespace Coanda.Tests.Daemon.Executors;
@@ -16,11 +15,11 @@ public sealed class ScriptedExecutorTests
 
     private static ScriptedExecutor Executor() => new(new Dictionary<string, IReadOnlyList<ScriptEntry>>
     {
-        [ShippedAgents.Build.Name] = [First, Second],
+        [SoftwareAgents.Build.Name] = [First, Second],
     });
 
     private static ValueTask<SessionHandle> Spawn(ScriptedExecutor executor, string context = "Step: build", CredentialProfile? profile = null) =>
-        executor.SpawnAsync(ShippedAgents.Build, context, "/work/tree", Caps, AnswerSchemas.Build, profile, null, CancellationToken.None);
+        executor.SpawnAsync(SoftwareAgents.Build, context, "/work/tree", Caps, AnswerSchemas.Build, profile, null, CancellationToken.None);
 
     [Fact]
     public async Task Two_spawns_of_one_agent_receive_its_first_and_second_entries()
@@ -77,7 +76,7 @@ public sealed class ScriptedExecutorTests
         CancellationToken token = CancellationToken.None;
         ScriptedExecutor executor = Executor();
         SessionHandle handle = await executor.SpawnAsync(
-            ShippedAgents.ReviewerAdversarial, "context", "/work/tree", Caps, AnswerSchemas.Review, null, null, token);
+            SoftwareAgents.ReviewerAdversarial, "context", "/work/tree", Caps, AnswerSchemas.Review, null, null, token);
 
         Func<Task> collect = async () => await executor.CollectAsync(handle, token);
 

@@ -3,7 +3,6 @@ using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Core.Types;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -26,11 +25,11 @@ public sealed class TriggerLoopTests
     private static readonly ParcelType Chore = new()
     {
         Name = "chore",
-        Stages = ["todo", "doing", ShippedTypes.Paused, ShippedTypes.Closed],
+        Stages = ["todo", "doing", SoftwareTypes.Paused, SoftwareTypes.Closed],
         EntryStages = ["todo"],
-        TerminalStage = ShippedTypes.Closed,
+        TerminalStage = SoftwareTypes.Closed,
         Resolutions = ["done"],
-        PausedStage = ShippedTypes.Paused,
+        PausedStage = SoftwareTypes.Paused,
         Moves = new Dictionary<string, IReadOnlyList<string>> { ["todo"] = ["doing"] },
         FlowBindings = [new FlowBinding("doing", "no-such-flow")],
     };
@@ -114,7 +113,7 @@ public sealed class TriggerLoopTests
     {
         using var temp = new TemporaryHome();
         Guid parcelId;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, ShippedDefinitions.All))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath, SoftwareDefinitions.All))
         {
             await RegisteredProjects.AddAsync(store, Project, None);
             var parcels = new ParcelService(store, TimeProvider.System);

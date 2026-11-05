@@ -2,7 +2,6 @@ using System.Text.Json;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
-using Coanda.Core.Software;
 using Coanda.Daemon.Definitions;
 using Coanda.Modules.Software;
 using Fisher;
@@ -24,7 +23,7 @@ public static class PreviousFlows
         new HashSet<string>([.. CoreSystemSteps.All, .. SoftwareSteps.All, .. SoftwareSteps.Unprefixed], StringComparer.Ordinal);
 
     /// <summary>The build flow as the last build before the prefix shipped it: today's, with the software steps unprefixed.</summary>
-    public static Flow Build => Unprefixed(ShippedFlows.Build);
+    public static Flow Build => Unprefixed(SoftwareFlows.Build);
 
     /// <summary>
     /// The build flow before it ended at the open pull request: open-pr answered done into a
