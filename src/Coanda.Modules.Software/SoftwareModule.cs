@@ -3,6 +3,7 @@ using Coanda.Modules.Software.Repositories;
 using Coanda.Modules.Software.Steps;
 using Coanda.Sdk.Client;
 using Coanda.Sdk.Contract;
+using Coanda.Sdk.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -10,14 +11,14 @@ namespace Coanda.Modules.Software;
 
 /// <summary>
 /// The software engineering module, answering the module API's calls on it: health, describe,
-/// dispatch, status, and stop. A dispatch carries only the dispatch request; the step reads the
+/// dispatch, status, stop, and the feed. A dispatch carries only the dispatch request; the step reads the
 /// project's record, the parcel, and the flow runs on it through the core's API, presenting the
 /// module's token, and writes the pull request field the same way. It reaches GitHub and the core
 /// through typed clients of its own <see cref="IHttpClientFactory"/>, and the daemon only through the
 /// module API and the interim seam (<see cref="IInterimWorktrees"/>), where it serves the daemon's
 /// worktree removal and start-up sweep.
 /// </summary>
-public sealed class SoftwareModule : IAsyncDisposable
+public sealed class SoftwareModule : IModule, IAsyncDisposable
 {
     private readonly ServiceProvider services;
     private readonly Dictionary<string, ISoftwareStep> steps;
@@ -89,6 +90,12 @@ public sealed class SoftwareModule : IAsyncDisposable
 
     /// <summary>Stop: none of the module's steps answers running, so nothing of a dispatch is left running to stop.</summary>
     public Task StopAsync(StopRequest request, CancellationToken cancellationToken) =>
+        cancellationToken.IsCancellationRequested
+            ? Task.FromCanceled(cancellationToken)
+            : Task.CompletedTask;
+
+    /// <summary>Feed: the module subscribes to no core event kind yet, so no delivery carries anything it acts on.</summary>
+    public Task FeedAsync(FeedDelivery delivery, CancellationToken cancellationToken) =>
         cancellationToken.IsCancellationRequested
             ? Task.FromCanceled(cancellationToken)
             : Task.CompletedTask;

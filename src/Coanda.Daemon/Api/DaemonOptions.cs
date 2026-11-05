@@ -5,6 +5,7 @@ using Coanda.Daemon.Modules;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.GitHub;
+using Coanda.Sdk.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Coanda.Daemon.Api;
@@ -57,6 +58,14 @@ public sealed record DaemonOptions
     /// brings a step of its own here.
     /// </summary>
     public IReadOnlyList<IFlowSystemStep> SystemSteps { get; init; } = [];
+
+    /// <summary>
+    /// Modules the daemon hosts in its own process beside the software module, by name, each called
+    /// through a host adapter as the software module is: waited on for health and asked to describe
+    /// itself at start, dispatched the steps it describes, and fed the core events it subscribes to.
+    /// None by default: a test brings stand-in modules here.
+    /// </summary>
+    public IReadOnlyDictionary<string, IModule> Modules { get; init; } = new Dictionary<string, IModule>();
 
     /// <summary>
     /// The settings schemas of modules the daemon does not host, by module name, read beside the hosted

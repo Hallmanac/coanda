@@ -202,6 +202,8 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         _ = RequestAdvance(project, flowRunId);
     }
 
+    public IDisposable Stopping(Guid flowRunId) => flowRunWorkers.Stopping(flowRunId);
+
     /// <summary>
     /// Asks the software module, through the interim seam it registered its sweep with, to remove the
     /// worktree of every flow run an existing project clone lists that has ended or been stopped, as an

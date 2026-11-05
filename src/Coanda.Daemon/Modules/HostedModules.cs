@@ -10,23 +10,33 @@ namespace Coanda.Daemon.Modules;
 
 /// <summary>
 /// The modules the daemon hosts, each behind its host adapter, by name, with what each answered to
-/// describe when the daemon started: the steps it brings, whose result schemas are read once then, and
-/// its settings schema. Until <see cref="StartAsync"/> has asked every module, no module describes
-/// anything. The software module is the only one, and it is switched on for every new project.
+/// describe when the daemon started: the steps it brings, whose result schemas are read once then, the
+/// core event kinds it subscribes to, and its settings schema. Until <see cref="StartAsync"/> has asked
+/// every module, no module describes anything. The software module is switched on for every new
+/// project; a test may host stand-in modules beside it.
 /// </summary>
-public sealed class HostedModules(IReadOnlyDictionary<string, ModuleHostAdapter> adapters)
+/// <remarks>
+/// <paramref name="others"/> are the settings schemas of modules the daemon does not host, a test's
+/// stand-ins, which may not share a name with a hosted module. <see cref="SettingsSchemas"/> reads the
+/// hosted modules' describe answers whenever it is asked, so a service built before the daemon has
+/// asked them sees their settings once it has.
+/// </remarks>
+public sealed class HostedModules(IReadOnlyDictionary<string, ModuleHostAdapter> adapters, IModuleSettingsSchemas? others = null)
 {
     /// <summary>The modules a project registered on this node is switched on for.</summary>
     public static readonly IReadOnlyList<string> Defaults = [SoftwareSteps.Module];
 
     private readonly Dictionary<string, Described> described = new(StringComparer.Ordinal);
+    private readonly IModuleSettingsSchemas? standIns = others;
+    private IModuleSettingsSchemas hostedSchemas = ModuleSettingsSchemas.None;
 
     /// <summary>The name of every module the daemon hosts.</summary>
     public IReadOnlyCollection<string> Names => adapters.Keys.ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// Waits on every module's health and asks it to describe itself, refusing an answer that names a
-    /// step without the module's own prefix or a result schema the daemon cannot read.
+    /// step without the module's own prefix or a result schema the daemon cannot read, and a hosted
+    /// module that a stand-in's settings schema also names.
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -52,6 +62,14 @@ public sealed class HostedModules(IReadOnlyDictionary<string, ModuleHostAdapter>
 
             described[module] = new Described(adapter, answer, results);
         }
+
+        var hosted = new ModuleSettingsSchemas(described.ToDictionary(d => d.Key, d => d.Value.Answer.SettingsSchema, StringComparer.Ordinal));
+        if (standIns is not null && hosted.Modules.Intersect(standIns.Modules, StringComparer.Ordinal).FirstOrDefault() is { } both)
+        {
+            throw new DomainException($"Module '{both}' is hosted by the daemon and also given a settings schema of its own; a module's settings schema is its describe answer's.");
+        }
+
+        hostedSchemas = hosted;
     }
 
     /// <summary>The adapter of the module <paramref name="module"/>, or null when the daemon hosts no module by that name.</summary>
@@ -86,37 +104,17 @@ public sealed class HostedModules(IReadOnlyDictionary<string, ModuleHostAdapter>
 
     /// <summary>
     /// The settings schema seam the daemon reads module settings through: each hosted module's settings
-    /// schema as its describe answer declares it, and beside them <paramref name="others"/>, a test's
-    /// stand-in modules, which may not share a name with a hosted module.
+    /// schema as its describe answer declares it, once it has described itself, and beside them the
+    /// stand-in modules' schemas this was built with.
     /// </summary>
-    public IModuleSettingsSchemas SettingsSchemas(IModuleSettingsSchemas? others)
-    {
-        var hosted = new ModuleSettingsSchemas(described.ToDictionary(d => d.Key, d => d.Value.Answer.SettingsSchema, StringComparer.Ordinal));
-        return others is null
-            ? hosted
-            : new Combined(hosted, others);
-    }
+    public IModuleSettingsSchemas SettingsSchemas => new View(this);
 
     private sealed record Described(ModuleHostAdapter Adapter, DescribeAnswer Answer, IReadOnlyDictionary<string, JsonSchema> Results);
 
-    private sealed class Combined : IModuleSettingsSchemas
+    private sealed class View(HostedModules owner) : IModuleSettingsSchemas
     {
-        private readonly IModuleSettingsSchemas hosted;
-        private readonly IModuleSettingsSchemas others;
+        public IReadOnlyCollection<string> Modules => [.. owner.hostedSchemas.Modules, .. owner.standIns?.Modules ?? []];
 
-        public Combined(IModuleSettingsSchemas hosted, IModuleSettingsSchemas others)
-        {
-            if (hosted.Modules.Intersect(others.Modules, StringComparer.Ordinal).FirstOrDefault() is { } both)
-            {
-                throw new DomainException($"Module '{both}' is hosted by the daemon and also given a settings schema of its own; a module's settings schema is its describe answer's.");
-            }
-
-            this.hosted = hosted;
-            this.others = others;
-        }
-
-        public IReadOnlyCollection<string> Modules => [.. hosted.Modules, .. others.Modules];
-
-        public SettingsSchema? Find(string module) => hosted.Find(module) ?? others.Find(module);
+        public SettingsSchema? Find(string module) => owner.hostedSchemas.Find(module) ?? owner.standIns?.Find(module);
     }
 }

@@ -23,6 +23,8 @@
   <ItemGroup>
     <!-- The module API's manifest schema, which a module's module.json is checked against when it is read. -->
     <EmbeddedResource Include="..\..\schemas\module\v1\manifest.schema.json" LogicalName="Coanda.Daemon.Modules.manifest.schema.json" />
+    <!-- The module API's feed delivery schema, which every feed delivery is checked against before it is sent. -->
+    <EmbeddedResource Include="..\..\schemas\module\v1\feed-delivery.schema.json" LogicalName="Coanda.Daemon.Modules.feed-delivery.schema.json" />
   </ItemGroup>
 
   <ItemGroup>

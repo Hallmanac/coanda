@@ -53,7 +53,7 @@ public sealed class DaemonHost
         // Narrows what an earlier run left wider and creates the database owner-only, before the
         // check below or the store opens it.
         home.EnsureExists().EnsureDatabase();
-        string[] moduleAreas = [SoftwareSteps.Module, .. options.ModuleSettingsSchemas?.Modules ?? []];
+        string[] moduleAreas = [SoftwareSteps.Module, .. options.Modules.Keys, .. options.ModuleSettingsSchemas?.Modules ?? []];
         foreach (string module in moduleAreas)
         {
             home.EnsureModuleArea(module);
@@ -114,10 +114,14 @@ public sealed class DaemonHost
                 GatesCommandLimit = options.GatesCommandLimit,
             },
             services.GetRequiredService<InterimWorktreeLink>()));
-        builder.Services.AddSingleton(services => new HostedModules(new Dictionary<string, ModuleHostAdapter>(StringComparer.Ordinal)
-        {
-            [SoftwareSteps.Module] = new ModuleHostAdapter(services.GetRequiredService<SoftwareModule>()),
-        }));
+        builder.Services.AddSingleton(services => new HostedModules(
+            new Dictionary<string, ModuleHostAdapter>(
+                [
+                    new(SoftwareSteps.Module, new ModuleHostAdapter(services.GetRequiredService<SoftwareModule>())),
+                    .. options.Modules.Select(m => new KeyValuePair<string, ModuleHostAdapter>(m.Key, new ModuleHostAdapter(m.Value))),
+                ],
+                StringComparer.Ordinal),
+            options.ModuleSettingsSchemas));
         builder.Services.AddSingleton(services => new FlowSystemSteps(
             [
                 .. FlowSystemSteps.Core(services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()),
@@ -127,8 +131,8 @@ public sealed class DaemonHost
             services.GetRequiredService<IDocumentStore>()));
         builder.Services.AddSingleton<SessionTokens>();
         builder.Services.AddSingleton<ModuleTokens>();
-        // Read once the hosted modules have described themselves, which they do before anything is served.
-        builder.Services.AddSingleton(services => services.GetRequiredService<HostedModules>().SettingsSchemas(options.ModuleSettingsSchemas));
+        // Reads each hosted module's settings schema from its describe answer whenever it is asked.
+        builder.Services.AddSingleton(services => services.GetRequiredService<HostedModules>().SettingsSchemas);
         builder.Services.AddSingleton<ModuleSettingsService>();
         builder.Services.AddSingleton<FlowRunAdvancer>();
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
@@ -139,6 +143,10 @@ public sealed class DaemonHost
 
         // Registered after the runner, so it stops first: a start it makes while stopping is advanced on the next start.
         builder.Services.AddHostedService(services => services.GetRequiredService<TriggerLoop>());
+
+        // Registered last, so it stops first: a delivery a stop interrupts is not counted as handled and comes again.
+        builder.Services.AddSingleton<ModuleFeed>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<ModuleFeed>());
 
         builder.Services.AddOpenApi();
 
@@ -206,6 +214,11 @@ public sealed class DaemonHost
             TriggerLoop triggers = app.Services.GetRequiredService<TriggerLoop>();
             await triggers.FixPositionAsync(cancellationToken);
             triggers.Begin();
+
+            // Each module's feed position is fixed before the address is advertised too, for the same reason.
+            ModuleFeed feed = app.Services.GetRequiredService<ModuleFeed>();
+            await feed.FixPositionsAsync(cancellationToken);
+            feed.Begin();
         }
         catch
         {
