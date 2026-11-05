@@ -65,9 +65,11 @@ public sealed class DefinitionResolver(IDocumentStore store)
     /// The module-scope definition <paramref name="fork"/>'s fork base names, by kind, name, and the
     /// version number the store gave it, whose <see cref="Definition.Module"/> and
     /// <see cref="Definition.ModuleVersion"/> are the module and version the fork came from. Null when
-    /// the definition has no fork base or the store holds none it names.
+    /// the definition has no fork base or the store holds none it names. No product path calls this
+    /// yet: it is the read the fork notice will make, and until then only tests use it, so it stays
+    /// internal to the daemon.
     /// </summary>
-    public async Task<Definition?> ForkedFromAsync(Definition fork, CancellationToken cancellationToken)
+    internal async Task<Definition?> ForkedFromAsync(Definition fork, CancellationToken cancellationToken)
     {
         if (fork.ForkBase is not { } forkBase)
         {
