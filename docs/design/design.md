@@ -654,17 +654,24 @@ that is a later reopening.
 
 ### 14.10 The software engineering module
 
-What moves into it: the worktree, gates, open-pr, gated-merge, and rebase steps and their
-recorded-heads helper (`src/Coanda.Daemon/SystemSteps/`), the step name list
-(`src/Coanda.Core/Software/SoftwareSystemSteps.cs`), the shipped idea and task types with their
-lifecycles, the build, merge, discovery, and review-on-assignment flows, the five agents
-(`src/Coanda.Core/Software/`), becoming JSON in the module's definitions folder, plus the shipped
-triggers, starting with review requested; the GitHub folder (`src/Coanda.Daemon/GitHub/`); worktree
-handling (`WorktreeListing`, the worktree half of `ProjectClones`, and `FlowRunWorkers`, replaced by
-worktree release on the feed's flow-run-ended event); and the software half of the project record,
-the primary branch, build and test commands, and required checks
-(`src/Coanda.Core/Projects/Project.cs`), as the module's replicated settings, with its GitHub
-account as a node-local profile. The task type gains a module-owned repos field.
+What moved into it, all under `src/Coanda.Modules.Software/`: the worktree, gates, open-pr,
+gated-merge, and rebase steps and their recorded-heads helper, in `Steps/` (before the move they lived
+in `src/Coanda.Daemon/SystemSteps/`, which now holds only the core steps); the step name list, in
+`SoftwareSteps.cs` (before the move, `src/Coanda.Core/Software/SoftwareSystemSteps.cs`); the shipped
+idea and task types with their lifecycles, the build, merge, discovery, and review-on-assignment flows,
+and the five agents, which were C# in `src/Coanda.Core/Software/` and are now JSON in `definitions/`,
+one file per type, flow, and agent; the GitHub client, in `GitHub/` (before the move,
+`src/Coanda.Daemon/GitHub/`); and the worktree handling, in `Repositories/`: `WorktreeListing`,
+`ProjectClones`, and `FlowRunEnds`, through which the module removes a flow run's worktree when the
+module feed delivers that flow run's end or stop. `FlowRunWorkers` stays in the core, in
+`src/Coanda.Daemon/FlowRuns/`, as what the module feed waits on before it delivers a flow run's end, so
+no module acts on that end while a step of the flow run may still be running in its work path. The
+software half of the project record, the primary branch, build and test commands, and required
+checks, which `src/Coanda.Core/Projects/Project.cs` carried before the move, is now the module's
+replicated settings, named in `SoftwareSettings.cs`, with its GitHub account as a node-local
+credential profile. The task type gains a module-owned repos field. The shipped triggers, starting
+with review requested, have not moved yet: no shipped trigger exists, and triggers as module
+definitions are phase 4 work.
 
 What stays core: the system step seam and its six core steps (move-parcel, timer, wait-for-human,
 wait-for-external-event, emit-outcome, derive-parcels), whose request and outcome types become the
