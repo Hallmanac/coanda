@@ -225,7 +225,7 @@ public sealed class DispatchFlowRunTests
     }
 
     [Fact]
-    public async Task A_persons_stop_while_the_dispatch_call_is_in_progress_cancels_it_records_nothing_and_asks_no_stop()
+    public async Task A_persons_stop_while_the_dispatch_call_is_in_progress_cancels_it_records_nothing_and_asks_the_stop_once()
     {
         using var temp = new TemporaryHome();
         var step = new RunningSystemStep();
@@ -244,11 +244,92 @@ public sealed class DispatchFlowRunTests
         await FlowRunDriver.StopAsync(client, Project, flowRunId, "Not needed.");
         await daemon.Services.GetRequiredService<FlowRunWorkers>().ReturnedAsync(flowRunId, None).WaitAsync(Patience);
 
-        Assert.Empty(step.Stops);
+        // cancelling the call does not end a dispatch, so the step is told to stop it all the same
+        Assert.Equal([Assert.Single(step.Dispatches).DispatchId], step.Stops);
         IReadOnlyList<object> events = await EventsOfAsync(daemon, flowRunId);
         Assert.Empty(events.OfType<SystemStepCompleted>());
         Assert.Empty(events.OfType<FlowRunPaused>());
         Assert.Equal("stopped", (await FlowRunDriver.ShowAsync(client, Project, flowRunId)).Status);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_dispatch_that_answers_running_as_a_persons_stop_arrives_is_told_to_stop()
+    {
+        using var temp = new TemporaryHome();
+        var step = new RunningSystemStep();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        step.Answer = async (_, _) =>
+        {
+            // committed to its work, the step no longer heeds the call's token
+            entered.TrySetResult();
+            await release.Task;
+            return new SystemStepAnswer.Running();
+        };
+        await using RunningDaemon daemon = await StartDaemonAsync(temp, step);
+        using var client = new DaemonClient(temp.Home);
+        (Guid flowRunId, _) = await StartFlowRunAsync(daemon, client);
+        await entered.Task.WaitAsync(Patience);
+
+        await FlowRunDriver.StopAsync(client, Project, flowRunId, "Not needed.");
+        release.SetResult();
+        await daemon.Services.GetRequiredService<FlowRunWorkers>().ReturnedAsync(flowRunId, None).WaitAsync(Patience);
+
+        Assert.Equal([Assert.Single(step.Dispatches).DispatchId], step.Stops);
+        IReadOnlyList<object> events = await EventsOfAsync(daemon, flowRunId);
+        Assert.Empty(events.OfType<SystemStepCompleted>());
+        Assert.IsType<FlowRunStopped>(events[^1]);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_persons_pause_and_resume_while_the_dispatch_call_is_in_progress_dispatches_again_under_a_new_id_and_does_not_pause(bool answersPaused)
+    {
+        using var temp = new TemporaryHome();
+        var step = new RunningSystemStep();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int calls = 0;
+        step.Answer = async (_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) > 1)
+            {
+                return RunningSystemStep.Done();
+            }
+
+            entered.TrySetResult();
+            await release.Task;
+            return answersPaused
+                ? new SystemStepAnswer.Paused("Waiting on the build.", "coa flow-run resume")
+                : RunningSystemStep.Done();
+        };
+        await using RunningDaemon daemon = await StartDaemonAsync(temp, step);
+        using var client = new DaemonClient(temp.Home);
+        (Guid flowRunId, _) = await StartFlowRunAsync(daemon, client);
+        await entered.Task.WaitAsync(Patience);
+        Guid first = Assert.Single(step.Dispatches).DispatchId;
+
+        await FlowRunDriver.PauseAsync(client, Project, flowRunId, "Wait while I look.");
+        await FlowRunDriver.ResumeAsync(client, Project, flowRunId, "Carry on.");
+        release.SetResult();
+        FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
+
+        Assert.Equal("dispatched", ended.Outcome);
+        Assert.Equal(2, step.Dispatches.Count);
+        Guid again = step.Dispatches[1].DispatchId;
+        Assert.NotEqual(first, again);
+        Assert.True(step.Dispatches[1].Resumed);
+        // the replaced dispatch is stopped before the step is dispatched again
+        Assert.Equal([first], step.Stops);
+        IReadOnlyList<object> events = await EventsOfAsync(daemon, flowRunId);
+        // the only pause is the person's own: the replaced dispatch's answer neither records nor pauses
+        Assert.Equal("Wait while I look.", Assert.Single(events.OfType<FlowRunPaused>()).Reason);
+        Assert.Equal((Guid?)again, Assert.Single(events.OfType<SystemStepCompleted>()).DispatchId);
 
         await daemon.StopAsync(None);
     }

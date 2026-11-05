@@ -103,12 +103,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// </summary>
     private readonly HashSet<Guid> launchedHere = [];
 
-    /// <summary>
-    /// The dispatches a person's stop needs tell no step to stop: those whose dispatch call the stop
-    /// ended, and those this runner already told to stop. A status call the stop ended does not count,
-    /// since the dispatch it asked about may still be running.
-    /// </summary>
-    private readonly HashSet<Guid> endedByStop = [];
     private bool stopRequested;
 
     public FlowRunAdvancer(
@@ -1355,12 +1349,9 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             switch (dispatched)
             {
                 case { Stopped: true }:
-                    // The stop ended the call in progress, so it tells the step nothing more.
-                    lock (gate)
-                    {
-                        endedByStop.Add(dispatchId);
-                    }
-
+                    // The stop ended the call, which does not end the dispatch: the step may have
+                    // answered running as the stop arrived, or started work the call's token does not
+                    // bound. The stopped flow run's advance tells the step to stop the dispatch it holds.
                     return null;
                 case { Failure: { } failure }:
                     await PauseAsync(
@@ -1397,8 +1388,11 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// Records a dispatch's answer as its outcome and returns the flow run as it left it. When the
     /// outcome command recorded an outcome under the same dispatch first (a step that recorded its
     /// outcome while the daemon asked its status, say), the answer is not recorded again and null is
-    /// returned: the command's own advance, folded into this worker, routes what it recorded. Any
-    /// other refusal is thrown, as a refused recording always is.
+    /// returned: the command's own advance, folded into this worker, routes what it recorded. When a
+    /// person paused and resumed the flow run while the call ran, the resume replaced the dispatch, so
+    /// its answer is not recorded and null is returned: the resume's advance, folded into this worker,
+    /// dispatches the step again under a new id. Any other refusal is thrown, as a refused recording
+    /// always is.
     /// </summary>
     private async Task<FlowRun?> RecordDispatchOutcomeAsync(
         Principal principal, string project, Guid flowRunId, Guid dispatchId, SystemStepAnswer outcome, CancellationToken cancellationToken)
@@ -1410,15 +1404,21 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         catch (DomainException) when (!cancellationToken.IsCancellationRequested)
         {
             FlowRun? now = await flowRuns.ShowAsync(principal, project, flowRunId, cancellationToken);
-            if (now?.Current is not { DispatchId: Guid held } entry || held != dispatchId || entry is { IsRecorded: false, DispatchOutcomeAt: null })
+            switch (now)
             {
-                throw;
+                case { Current: { DispatchId: Guid held } entry } when held == dispatchId && (entry.IsRecorded || entry.DispatchOutcomeAt is not null):
+                    logger.LogInformation(
+                        "Dispatch {Dispatch} of step '{Step}' on flow run {FlowRun} already holds its outcome, so its answer is not recorded again.",
+                        Ids.Short(dispatchId), entry.Step, Ids.Short(flowRunId));
+                    return null;
+                case { Status: FlowRunStatus.Running, Current: { DispatchId: Guid held, ResumedSinceDispatch: true } entry } when held == dispatchId && entry.HoldsDispatch:
+                    logger.LogInformation(
+                        "Dispatch {Dispatch} of step '{Step}' on flow run {FlowRun} was replaced by a resume while it ran, so its answer is not recorded and the step is dispatched again.",
+                        Ids.Short(dispatchId), entry.Step, Ids.Short(flowRunId));
+                    return null;
+                default:
+                    throw;
             }
-
-            logger.LogInformation(
-                "Dispatch {Dispatch} of step '{Step}' on flow run {FlowRun} already holds its outcome, so its answer is not recorded again.",
-                Ids.Short(dispatchId), entry.Step, Ids.Short(flowRunId));
-            return null;
         }
     }
 
@@ -1499,9 +1499,10 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// <summary>
     /// Tells the system step of a stopped flow run's current visit to stop the dispatch it holds with
     /// no outcome and no call in progress (it answered running, or a person paused the flow run while
-    /// it ran), before the flow run's worktree is removed; it records nothing for the step. A dispatch
-    /// whose dispatch call the stop ended, or that this runner already told to stop, is passed over. A stop
-    /// that fails is logged, since the flow run's stop is already recorded.
+    /// it ran, or the stop ended its dispatch call), before the flow run's worktree is removed; it
+    /// records nothing for the step. A dispatch this worker already told to stop, on an earlier pass
+    /// over the stopped flow run, is passed over. A stop that fails is logged, since the flow run's stop
+    /// is already recorded.
     /// </summary>
     private async Task StopHeldDispatchAsync(FlowRun flowRun, CancellationToken cancellationToken)
     {
@@ -1512,9 +1513,14 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
         lock (gate)
         {
-            if (!endedByStop.Add(held))
+            if (workers.TryGetValue(flowRun.Id, out Worker? worker))
             {
-                return;
+                if (worker.StoppedDispatch == held)
+                {
+                    return;
+                }
+
+                worker.StoppedDispatch = held;
             }
         }
 
@@ -1628,5 +1634,12 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
         /// <summary>A person's stop of the flow run was saved, so a system step this worker starts from now on is cancelled at once.</summary>
         public bool Stopping { get; set; }
+
+        /// <summary>
+        /// The dispatch of the stopped flow run this worker already told its step to stop, so a later
+        /// pass over the flow run does not tell it again; null while it has told none. It lives as long
+        /// as the worker does.
+        /// </summary>
+        public Guid? StoppedDispatch { get; set; }
     }
 }
