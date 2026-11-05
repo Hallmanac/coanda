@@ -7,9 +7,11 @@ public static class CommandRegistry
     private static readonly IReadOnlySet<Role> People = new HashSet<Role> { Role.Owner, Role.Member };
 
     // The Module role is open only where an entry names it here; the services narrow it further, to the
-    // projects its module is switched on for, to its own prefixed event kinds, and to a dispatch it holds.
+    // projects its module is switched on for, to its own prefixed event kinds, to a dispatch it holds or a
+    // field its module owns, and to its own module's settings.
     private static readonly IReadOnlySet<Role> EveryoneAndModules = new HashSet<Role> { Role.Owner, Role.Member, Role.Agent, Role.Module };
     private static readonly IReadOnlySet<Role> PeopleAndModules = new HashSet<Role> { Role.Owner, Role.Member, Role.Module };
+    private static readonly IReadOnlySet<Role> OwnerAndModules = new HashSet<Role> { Role.Owner, Role.Module };
 
     public static readonly IReadOnlyList<RegistryEntry> Entries =
     [
@@ -17,6 +19,9 @@ public static class CommandRegistry
         new("project.set", EntryKind.Command, "Replace the checks a merge of a project's pull requests waits for.", OwnerOnly),
         new("project.set-profile", EntryKind.Command, "Name the credential profile of this node that a project's agent steps spawn with.", OwnerOnly),
         new("project.set-modules", EntryKind.Command, "Replace the set of modules switched on for a project.", OwnerOnly),
+        new("project-module.set", EntryKind.Command, "Give one of a module's replicated settings in a project a value its settings schema accepts, replacing the value it held.", OwnerAndModules),
+        new("project-module.select-profile", EntryKind.Command, "Select, for a module in a project, one of the credential profiles this node holds for the module.", OwnerOnly),
+        new("project-module.show", EntryKind.Query, "Show a module's settings in a project and whether it is configured on this node.", EveryoneAndModules),
         new("project.show", EntryKind.Query, "Show one registered project.", EveryoneAndModules),
         new("project.list", EntryKind.Query, "List the projects registered on the node.", EveryoneAndModules),
         new("parcel.list", EntryKind.Query, "List the parcels of a project.", EveryoneAndModules),
