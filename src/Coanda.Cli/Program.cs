@@ -86,19 +86,19 @@ app.Configure(config =>
 
     config.AddBranch("agent", agent =>
     {
-        agent.SetDescription("Agents are the personas that do the judging; five ship installed.");
+        agent.SetDescription("Agents are the personas that do the judging; the software module brings five.");
         agent.AddCommand<AgentListCommand>("list").WithDescription("List the agents that govern a project.").WithExample("agent", "list");
     });
 
     config.AddBranch("type", type =>
     {
-        type.SetDescription("Parcel types define a lifecycle; idea and task ship installed.");
+        type.SetDescription("Parcel types define a lifecycle; the software module brings idea and task.");
         type.AddCommand<TypeListCommand>("list").WithDescription("List the installed parcel types.").WithExample("type", "list");
     });
 
     config.AddBranch("flow", flow =>
     {
-        flow.SetDescription("Flows are the loops a flow run follows to move a parcel; build, discovery, and review-on-assignment ship installed.");
+        flow.SetDescription("Flows are the loops a flow run follows to move a parcel; the software module brings build, merge, discovery, and review-on-assignment.");
         flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
         flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flow run of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "build", "--parcel", "0192a3b4");
     });
