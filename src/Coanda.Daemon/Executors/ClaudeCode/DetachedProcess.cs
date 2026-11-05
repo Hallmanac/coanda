@@ -37,6 +37,12 @@ internal sealed class DetachedProcess : IDisposable
     private readonly SafeProcessHandle? handle;
     private bool exited;
 
+    /// <summary>
+    /// Run, in the flow that starts a process, between its spawn and the read of its identity, so a
+    /// test can hold that read until the process has exited. Null outside such a test.
+    /// </summary>
+    internal static readonly AsyncLocal<Action<int>?> BeforeIdentityRead = new();
+
     private DetachedProcess(int id, string identity, SafeProcessHandle? handle, bool started = false)
     {
         Id = id;
@@ -263,6 +269,7 @@ internal sealed class DetachedProcess : IDisposable
                 }
 
                 // Read while the process cannot yet have been reaped, so even one that has already exited has its identity.
+                BeforeIdentityRead.Value?.Invoke(pid);
                 string identity = IdentityOf(pid)?.Identity ?? string.Empty;
                 return new DetachedProcess(pid, identity, handle: null, started: true);
             }
@@ -555,6 +562,7 @@ internal sealed class DetachedProcess : IDisposable
 
                 _ = CloseHandle(started.hThread);
                 var process = new SafeProcessHandle(started.hProcess, ownsHandle: true);
+                BeforeIdentityRead.Value?.Invoke(started.dwProcessId);
                 return new DetachedProcess(started.dwProcessId, IdentityOf(process) ?? string.Empty, process);
             }
             finally
