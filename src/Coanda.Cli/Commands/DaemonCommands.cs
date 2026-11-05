@@ -118,13 +118,27 @@ public sealed class DaemonStatusCommand : AsyncCommand
         }
 
         var table = new Table().HideHeaders().AddColumns("k", "v");
-        table.AddRow("Version", Markup.Escape(string.IsNullOrWhiteSpace(status.Version) ? "(none recorded)" : status.Version));
-        table.AddRow("Address", $"http://127.0.0.1:{status.Port}");
-        table.AddRow("Pid", status.Pid.ToString());
-        table.AddRow("Started", status.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm zzz"));
-        table.AddRow("Home", status.Home);
-        table.AddRow("Database", status.Database);
+        foreach ((string key, string value) in StatusRows(status))
+        {
+            table.AddRow(key, value);
+        }
+
         AnsiConsole.Write(table);
         return 0;
     }
+
+    /// <summary>
+    /// The rows <c>coa daemon status</c> prints, as markup with the text the daemon sends escaped: its
+    /// version, its home, and its database. The address, pid, and start time are built from numbers
+    /// and a date and need no escaping.
+    /// </summary>
+    public static IReadOnlyList<(string Key, string Value)> StatusRows(DaemonStatusView status) =>
+    [
+        ("Version", Markup.Escape(string.IsNullOrWhiteSpace(status.Version) ? "(none recorded)" : status.Version)),
+        ("Address", $"http://127.0.0.1:{status.Port}"),
+        ("Pid", status.Pid.ToString()),
+        ("Started", status.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm zzz")),
+        ("Home", Markup.Escape(status.Home)),
+        ("Database", Markup.Escape(status.Database)),
+    ];
 }
