@@ -59,13 +59,21 @@ namespace Coanda.Daemon.Store;
 /// <item>A fork base of a name and a store-given version, last written by the build before 4faa812
 /// (2026-11-05), read through <see cref="ForkBase.Earlier"/> and <see cref="ForkBase.IsEarlierShape"/>
 /// in the core, and written by the ledger export resolved on this node to the current shape.</item>
-/// <item>An <c>agent_step_spawned</c> with no agent hash and model spec, last written by the build
-/// before 996e069 (2026-11-03), or with no launch id, last written by the build before 3e72284
-/// (2026-11-04), read through the nullable members of <c>AgentStepSpawned</c> in the core.</item>
 /// <item>A <c>DeferredFollows</c> document whose pending follow carries no closes flag, last written by
 /// the build before 10cf9d1 (2026-11-04), read through <c>PendingFollow.Closes</c> defaulting to
 /// false in the daemon.</item>
 /// </list>
+/// <para>
+/// An <c>agent_step_spawned</c> with no agent hash and model spec, which builds before 996e069
+/// (2026-11-03) wrote, or with no launch id, which builds before 3e72284 (2026-11-04) wrote, is not an
+/// earlier shape: those members are nullable in the core's <c>AgentStepSpawned</c> for such records, and
+/// there is no value to upgrade them to, so it is a current shape, which the ledger export writes and its
+/// import accepts as the type holds it (the owner's ruling of 2026-11-05).
+/// </para>
+/// <para>
+/// The ledger import refuses a line in an earlier shape (<see cref="EarlierShapeOf"/>), since once stored
+/// it would read as current and nothing could tell it apart.
+/// </para>
 /// <para>
 /// An export of the record (<see cref="RecordExport"/>) writes every event in its current shape through
 /// <see cref="Exported"/>, which puts the shapes read elsewhere in theirs too, and a deferred follow in its
@@ -180,6 +188,37 @@ public static class EarlierRecords
         return changed
             ? current with { Data = data.ToJsonString() }
             : current;
+    }
+
+    /// <summary>
+    /// Why <paramref name="stored"/>, an event a peer's line carries, is in an earlier shape, or null when it
+    /// is in its current shape. Earlier are: an event <see cref="Upgrade"/> would change; a
+    /// <c>project_registered</c> carrying any member of the registration from before repos (the remote, the
+    /// primary branch, or the build or test command), whether or not it also carries repos; and a
+    /// <c>definition_drafted</c> whose fork base is a name and a store-given version with no content hash. A
+    /// definition's content naming a software step unprefixed is current, since its content and content hash
+    /// are never changed, and so is an <c>agent_step_spawned</c> with null members. Whether this build has an
+    /// event type of the line's type name at all is the importer's to ask.
+    /// </summary>
+    public static string? EarlierShapeOf(StoredEvent stored)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        if (!ReferenceEquals(Upgrade(stored), stored))
+        {
+            return $"its '{stored.Type}' is in a shape an earlier build wrote, which this build upgrades as it reads it";
+        }
+
+        JsonObject? data = stored.Type is ProjectRegistered or DefinitionDraftedType
+            ? JsonNode.Parse(stored.Data) as JsonObject
+            : null;
+        return (stored.Type, data) switch
+        {
+            (ProjectRegistered, { } registration) when EarlierRegistrationMembers.FirstOrDefault(registration.ContainsKey) is { } member =>
+                $"its registration carries '{member}', a member of the registration from before repos",
+            (DefinitionDraftedType, { } drafted) when drafted["forkBase"] is JsonObject forkBase && !IsText(forkBase["contentHash"]) =>
+                "its fork base is a name and a store-given version, the shape from before fork bases named a content hash",
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -365,6 +404,8 @@ public static class EarlierRecords
                 _ => null,
             }
             : null;
+
+    private static bool IsText(JsonNode? node) => node is JsonValue value && value.GetValueKind() == JsonValueKind.String;
 
     /// <summary>A step kind stored as its number or as its name.</summary>
     private static bool IsSystemStep(JsonNode? kind) =>
