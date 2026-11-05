@@ -178,10 +178,12 @@ A line is one JSON object on one line, UTF-8, with these members in this order a
 - `tag`: an array of the names of the repos that carry the event, in ordinal order with none
   repeated, or the string `"project-wide"`, which no array, an empty one included, can equal.
 - `stream`: the event's stream id.
-- `event`: the id the authoring node's store gave the event.
+- `event`: the id the authoring node's store gave the event. An importer does not carry it: the
+  event takes the id the importing node's store gives it, and an event is known across nodes by its
+  origin and sequence.
 - `recorded`: the time the authoring node's store recorded the event, in UTC, written
-  `yyyy-MM-ddTHH:mm:ss.fffffffZ` with every digit. With `stream` and `event`, it is what an importer
-  appends the event with, so it lands in the same stream as the same event.
+  `yyyy-MM-ddTHH:mm:ss.fffffffZ` with every digit. With `stream`, it is what an importer appends the
+  event with, so it lands in the same stream at the same time.
 - `type`: the event's type name as the events table stores it (for example `definition_drafted`).
 - `data`: the event's data, exactly the JSON text the events table stores with only the whitespace
   outside its strings removed, so every number keeps its digits and every string its characters and
@@ -227,6 +229,53 @@ or changed. A failed push is logged and tried again the next round. The daemon e
 seconds unless the node configuration sets `ledgerExport` to false, and a command that must publish
 before it answers asks the export for one project at once. A store that exported a line under one node
 id exports nothing under another; a store that has exported no line yet binds no id.
+
+The import (`Coanda.Daemon/Transport/LedgerImport.cs`). For each project, every clone fetches the
+remote's `refs/coanda/nodes/*` into the namespace its configuration sets aside for peers' ledger refs
+(section 14.9), naming that refspec and an exclusion of this node's own ref and nothing else, with tag
+following off, so the fetch moves no branch, tag, remote-tracking ref, or ref this node writes. A fetch
+that fails is logged and tried again the next round. Each fetched ref named for another node is read as
+that node's chain in the project: its segment files in name order, from the line at the sequence this
+node holds for that origin, or from its first line when it holds none. A ref named for this node is never
+read. A line is stored only when it passes three checks: the chain verifies up to it from the position
+held (so a changed line, a gap, a rewind behind the held sequence, and a different line at the held
+sequence each fail), naming the ref's node as its origin and this node's registration of the project as
+its project; its signer key may sign for its origin by the trust function; and its event is in this
+build's current shape. An earlier shape is refused, since the store would upgrade it as it read it and
+nothing could tell it apart afterwards: a type this build has no event type for, an event the store's
+upgrades would change, a registration carrying any member of the registration from before repos, and a
+fork base of a name and a store version. A flow whose content names a software step unprefixed is
+current, since content and its hash are never changed, and so is an `agent_step_spawned` with a null
+agent hash, model, or launch id, since those members are nullable for records written before they
+existed and have no value to upgrade to. The first line that fails a check, or that the store refuses,
+stops its own origin at the line before it for that round, with the fault and the line's sequence
+reported; the project's other origins and the other projects go on, and the next round tries that origin
+again from the position held.
+
+The root key import trusts for a project is read from a node-local record that is never exported, never
+from a fetched line; a project with no such record imports nothing from another origin and says why. The
+trust function's records are the identity events of every line this node holds a record of: other
+origins' lines stored before or in the same round, and this node's own lines once its export has written
+them, pushed or not. An origin's verified lines are admitted together with the identity records of the
+admitted lines themselves, which is how the root's chain, whose lines before its root record are signed by
+the key that record names, is admitted; a run is cut back at its first line its records do not admit, and
+saves end only where the lines through them are admitted by what is stored, so no line is stored on a
+record that is not. Because a vouch in one origin's lines can admit another origin, a round reads the
+origins that stopped again while any origin stores a line, so the order the refs are read in does not
+decide what is stored. Trust is weighed as a line is stored: an event already stored stays stored when its
+signer is revoked later, and that key's lines not yet stored are refused from then on.
+
+Each stored event is appended, with the line's data, to the stream the line names in the project's
+tenant, at that stream's next version on this node, and in the same save the node keeps the line in the
+per-line record the export keeps for its own lines, keyed by the event's local id, with the line's origin,
+sequence, previous hash, signature, signer key (inside the line as it arrived), and hash. No event is
+stored without its record or a record without its event, so a reader holding a stored event finds its
+origin through its record, and the export, which never writes an event the store records on any origin's
+line, never signs an imported event as this node's. Lines already held are never stored again, an origin
+arriving through two repos is stored once, and each project's import runs under one turn, so the loop and
+a command that must see its peers before it answers (which asks the import for one project at once and is
+told, for each origin, how many lines were stored, the sequence now held, and the fault that stopped it)
+never import the same lines twice. The daemon imports every 15 seconds.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
