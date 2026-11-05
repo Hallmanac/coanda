@@ -387,14 +387,13 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_branch_rewritten_in_the_clone_while_the_remote_still_holds_the_last_recorded_push_is_checked_out_as_it_stands()
+    public async Task A_branch_rewritten_in_the_clone_while_the_remote_still_holds_this_nodes_last_push_is_checked_out_as_it_stands()
     {
         Guid parcelId = await TaskAsync();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         await EarlierCheckoutAsync(parcelId);
-        await RecordedPushAsync(parcelId, Ahead);
+        await PushedByThisNodeAsync(parcelId, Ahead);
         runner.AddBranch(Clone, branch, Moved);
-        runner.SetRemoteBranch(Clone, branch, Ahead);
         int before = runner.Commands.Count;
         Guid later = Ids.New();
 
@@ -411,19 +410,59 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_branch_diverged_from_a_remote_holding_a_commit_nothing_recorded_is_still_refused()
+    public async Task A_fresh_module_over_the_same_clone_accepts_the_rewrite_the_module_that_pushed_would_have()
     {
         Guid parcelId = await TaskAsync();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         await EarlierCheckoutAsync(parcelId);
-        await RecordedPushAsync(parcelId, ScriptedCommandRunner.PrimaryHead);
+        await PushedByThisNodeAsync(parcelId, Ahead);
+        runner.AddBranch(Clone, branch, Moved);
+        await using SoftwareModule restarted = node.FreshModule();
+
+        JsonElement result = Done(await node.DispatchAsync(SoftwareSteps.Worktree, parcelId, Ids.New(), module: restarted));
+
+        Assert.Equal(Moved, result.GetProperty("head").GetString());
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
+    }
+
+    [Fact]
+    public async Task A_head_the_flow_runs_record_as_pushed_but_this_node_never_pushed_never_makes_a_divergence_a_rewrite()
+    {
+        Guid parcelId = await TaskAsync();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        await EarlierCheckoutAsync(parcelId);
+        // the store records a push of the remote's commit, as another node's imported flow run would, and this node pushed nothing
+        await RecordedPushAsync(parcelId, Ahead);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetRemoteBranch(Clone, branch, Ahead);
+        (Guid refused, _) = await node.HeldAsync(parcelId, "worktree");
+        int before = runner.Commands.Count;
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, refused));
+
+        Assert.Null(runner.Config(Clone, ProjectClones.PushedKeyOf(branch)));
+        Assert.Contains("Reconcile them by hand", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("not the commit this node last pushed", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        Assert.Equal(Moved, runner.Branch(Clone, branch));
+        Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree add", StringComparison.Ordinal));
+        Assert.DoesNotContain(node.Home.FlowRunWorkPath(Project, refused), runner.Worktrees(Clone));
+    }
+
+    [Fact]
+    public async Task A_branch_diverged_from_a_remote_holding_a_commit_this_node_did_not_push_is_still_refused()
+    {
+        Guid parcelId = await TaskAsync();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        await EarlierCheckoutAsync(parcelId);
+        await PushedByThisNodeAsync(parcelId, ScriptedCommandRunner.PrimaryHead);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
 
         SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, await AtWorktreeAsync()));
 
         Assert.Contains("Reconcile them by hand", paused.Reason, StringComparison.Ordinal);
-        Assert.Contains("not the commit last recorded as pushed", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("not the commit this node last pushed", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(Moved, runner.Branch(Clone, branch));
     }
 
@@ -706,6 +745,23 @@ public sealed class WorktreeStepTests : IAsyncLifetime
         JsonElement result = JsonSerializer.SerializeToElement(new { verdict = "opened", systemStep = SoftwareSteps.OpenPr, number = 17, head });
         await flowRuns.RecordResultAsync(Principal.LocalOwner, Project, started.Id, "open-pr", SoftwareSteps.OpenPr, result, None);
         await flowRuns.StopAsync(Principal.LocalOwner, Project, started.Id, "only its record is wanted", None);
+    }
+
+    /// <summary>
+    /// Pushes the parcel's branch at <paramref name="head"/> through the open-pr step of this node's module,
+    /// on a flow run of its own that is then stopped, so the remote's branch and this node's record of its
+    /// last push hold <paramref name="head"/> while the store records no push.
+    /// </summary>
+    private async Task PushedByThisNodeAsync(Guid parcelId, string head)
+    {
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        runner.AddBranch(Clone, branch, head);
+        (Guid pusher, Guid dispatch) = await node.HeldAsync(parcelId, "open-pr");
+        SystemStepAnswer opened = await node.DispatchAsync(SoftwareSteps.OpenPr, parcelId, pusher, dispatch);
+        Assert.Equal("opened", Assert.IsType<SystemStepAnswer.Done>(opened).Result.GetProperty("verdict").GetString());
+        await node.StopAsync(pusher);
+        Assert.Equal(head, runner.RemoteBranch(Clone, branch));
+        Assert.Equal(head, runner.Config(Clone, ProjectClones.PushedKeyOf(branch)));
     }
 
     /// <summary>A task whose branch a live flow run of its own has checked out at that flow run's work path.</summary>

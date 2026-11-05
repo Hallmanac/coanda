@@ -65,7 +65,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
         CommandLine first = runner.Commands[0];
         Assert.True(first.Program == "gh" && string.Join(' ', first.Arguments) == "auth token --hostname github.com");
         Assert.Equal(node.Home.FlowRunWorkPath(Project, flowRunId), runner.Commands.Single(c => c.IsGit("status")).WorkingDirectory);
-        Assert.Equal(["rev-parse --is-bare-repository", "status --porcelain --untracked-files=all", $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}", $"for-each-ref --format=%(objectname) refs/remotes/origin/{branch}", $"push --force-with-lease=refs/heads/{branch}: origin {Moved}:refs/heads/{branch}", $"update-ref refs/remotes/origin/{branch} {Moved}"], runner.GitCalls);
+        Assert.Equal(["rev-parse --is-bare-repository", "status --porcelain --untracked-files=all", $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}", $"for-each-ref --format=%(objectname) refs/remotes/origin/{branch}", $"push --force-with-lease=refs/heads/{branch}: origin {Moved}:refs/heads/{branch}", $"update-ref refs/remotes/origin/{branch} {Moved}", $"config {ProjectClones.PushedKeyOf(branch)} {Moved}"], runner.GitCalls);
         Assert.All(runner.Commands.Where(c => c.Program == "git" && !c.IsGit("status")), c => Assert.True(c.GitDirectory() == Clone));
         // the next push on the branch expects what this one pushed
         Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));

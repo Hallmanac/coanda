@@ -68,8 +68,8 @@ public static class Levers
     /// bare, fetching the primary branch first because the clone's copy of it is only as fresh as its
     /// last fetch, and removes that worktree before moving the task back, because a worktree left
     /// holding the branch at a path that is no flow run's work path pauses the build's worktree step. That
-    /// step accepts the rewritten branch while the remote still holds the commit last pushed, and the
-    /// build's open-pr pushes it.
+    /// step accepts the rewritten branch while the remote still holds the commit this node last pushed
+    /// for the parcel, and the build's open-pr pushes it.
     /// </summary>
     public static string RebaseConflict(string clone, string branch, string primaryBranch) =>
         $"Stop the flow run. Then add a worktree of {branch} from the node's clone at {clone}, at a path outside the daemon's work paths (git --git-dir={clone} worktree add <path> {branch}); "

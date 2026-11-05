@@ -198,30 +198,23 @@ public sealed class UnprefixedStepTests
     }
 
     [Fact]
-    public async Task The_worktree_step_reads_the_head_rebase_recorded_under_its_unprefixed_name()
+    public async Task The_merges_head_guard_reads_the_head_rebase_recorded_under_its_unprefixed_name()
     {
-        const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
-        const string Pushed = "aaaabbbbccccddddeeeeffff0000111122223333";
-        var runner = new ScriptedCommandRunner();
-        await using SoftwareNode node = await LegacyNodeAsync(runner);
-        Parcel parcel = await node.TaskAsync("Check me out");
-        string clone = node.Home.ProjectClonePath(Project);
-        string branch = ProjectClones.BranchOf(parcel.Id);
-        (Guid earlier, _) = await node.HeldAsync(parcel.Id, "worktree");
-        await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, earlier);
-        await node.StopAsync(earlier);
-        await node.DeliverEndAsync(earlier);
-        Guid recorder = await RecordedAsync(node, parcel.Id, "open-pr", ScriptedCommandRunner.PrimaryHead);
-        await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, recorder, "rebase", None);
-        await Record(node, recorder, "rebase", Pushed);
-        await node.StopAsync(recorder);
-        runner.AddBranch(clone, branch, Moved);
-        runner.SetRemoteBranch(clone, branch, Pushed);
+        const string Opened = "aaaabbbbccccddddeeeeffff0000111122223333";
+        var github = new FakeGitHub();
+        await using SoftwareNode node = await LegacyNodeAsync(github: github);
+        Parcel parcel = await node.TaskAsync("Merge me");
+        await node.Parcels.SetFieldAsync(Principal.LocalOwner, Project, parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
+        Guid flowRunId = await RecordedAsync(node, parcel.Id, "open-pr", Opened);
+        await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRunId, "rebase", None);
+        await Record(node, flowRunId, "rebase", ScriptedCommandRunner.PrimaryHead);
+        await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRunId, "gated-merge", None);
 
-        SystemStepAnswer outcome = await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, Ids.New());
+        SystemStepAnswer outcome = await node.DispatchAsync(SoftwareSteps.GatedMerge, parcel.Id, flowRunId);
 
-        // the remote still holds what the unprefixed rebase recorded as pushed, so the rewritten branch is checked out as it stands
-        Assert.Equal(Moved, Assert.IsType<SystemStepAnswer.Done>(outcome).Result.GetProperty("head").GetString());
+        // the unprefixed rebase's head, recorded after open-pr's, is the one the merge holds the pull request to
+        Assert.Equal(GatedMergeStep.MergedVerdict, Assert.IsType<SystemStepAnswer.Done>(outcome).Result.GetProperty("verdict").GetString());
+        Assert.Equal(ScriptedCommandRunner.PrimaryHead, JsonDocument.Parse(Assert.Single(github.Requests, r => r.IsMerge).Body ?? "{}").RootElement.GetProperty("sha").GetString());
     }
 
     [Fact]

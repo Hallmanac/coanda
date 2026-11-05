@@ -7,8 +7,9 @@ namespace Coanda.Modules.Software.Steps;
 /// <summary>
 /// Makes the flow run's work path, where its agent steps run and which the dispatch carries, a git
 /// worktree of the core's clone of the repo the task works in (<see cref="StepTargets.TargetAsync"/>) on the parcel's branch, and answers done with the <c>branch</c> and the
-/// <c>head</c> checked out. The commit last recorded as pushed among all the parcel's flow runs is what
-/// tells a person's local rewrite of the branch from a remote someone else moved, and a branch still
+/// <c>head</c> checked out. The commit this node itself last pushed for the parcel, which the node's
+/// clone records and no flow run's result stands in for, is what tells a person's local rewrite of the
+/// branch from a remote someone else moved, and a branch still
 /// checked out in the worktree of a flow run that has ended or been stopped is taken over once nothing of
 /// the core's runs for that flow run any more (<see cref="ProjectClones.CheckOutAsync"/>). The step learns
 /// that from whichever comes first: the flow run's ended or stopped feed delivery reaching the module
@@ -46,11 +47,10 @@ public sealed class WorktreeStep(ProjectClones clones, FlowRunEnds ends) : ISoft
             return pause;
         }
 
-        string? lastPushed = await RecordedHeads.OfParcelAsync(context, cancellationToken);
         var holders = new WorktreeHolders(
             async (flowRunId, token) => await HolderAsync(context, flowRunId, token),
             (flowRunId, token) => SettledAsync(context, flowRunId, token));
-        Checkout checkout = await clones.CheckOutAsync(target, request.ParcelId, request.FlowRunId, request.WorkPath, lastPushed, holders, cancellationToken);
+        Checkout checkout = await clones.CheckOutAsync(target, request.ParcelId, request.FlowRunId, request.WorkPath, holders, cancellationToken);
         return checkout switch
         {
             Checkout.Ready ready => Results.DoneWith(Name, ("branch", ready.Branch), ("head", ready.Head)),

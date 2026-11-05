@@ -29,6 +29,7 @@ public sealed class RebaseStepTests : IAsyncLifetime
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private static readonly CancellationToken None = CancellationToken.None;
 
+
     /// <summary>A flow of open-pr then rebase, so a flow run of it can hold a recorded open-pr result and sit in the rebase step.</summary>
     private static readonly Flow Recorder = new()
     {
@@ -82,7 +83,7 @@ public sealed class RebaseStepTests : IAsyncLifetime
 
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
         Assert.Equal(branch, result.GetProperty("branch").GetString());
-        Assert.Equal(["rev-parse --is-bare-repository", "rebase --abort", "status --porcelain --untracked-files=all", $"ls-remote --refs origin refs/heads/{branch}", $"for-each-ref --format=%(objectname) {ProjectClones.NoteRefOf(flowRun)}", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"checkout --quiet --detach {Recorded}", $"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", "rev-parse --verify --quiet HEAD^{commit}", $"update-ref {ProjectClones.NoteRefOf(flowRun)} {Rebased}", $"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", $"checkout --quiet --detach {Rebased}", $"update-ref refs/heads/{branch} {Rebased} {Recorded}", $"checkout --quiet {branch}", $"update-ref {ProjectClones.TrackingRefOf(branch)} {Rebased}"], runner.GitCalls);
+        Assert.Equal(["rev-parse --is-bare-repository", "rebase --abort", "status --porcelain --untracked-files=all", $"ls-remote --refs origin refs/heads/{branch}", $"for-each-ref --format=%(objectname) {ProjectClones.NoteRefOf(flowRun)}", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"checkout --quiet --detach {Recorded}", $"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", "rev-parse --verify --quiet HEAD^{commit}", $"update-ref {ProjectClones.NoteRefOf(flowRun)} {Rebased}", $"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", $"checkout --quiet --detach {Rebased}", $"update-ref refs/heads/{branch} {Rebased} {Recorded}", $"checkout --quiet {branch}", $"update-ref {ProjectClones.TrackingRefOf(branch)} {Rebased}", $"config {ProjectClones.PushedKeyOf(branch)} {Rebased}"], runner.GitCalls);
         Assert.All(runner.Commands.Where(c => c.GitDirectory() is null), c => Assert.True(c.WorkingDirectory == workPath, "the rebase works in the merge flow run's own worktree"));
         Assert.Equal(Rebased, runner.Branch(Clone, branch));
         Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
@@ -294,6 +295,25 @@ public sealed class RebaseStepTests : IAsyncLifetime
         before = runner.Commands.Count;
         Assert.Equal(Rebased, Done(await DispatchAsync(parcel, flowRun)).GetProperty("head").GetString());
         Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("push", StringComparison.Ordinal) || c.StartsWith("update-ref refs/heads/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_recovery_of_an_unrecorded_push_records_the_noted_commit_as_this_nodes_last_push()
+    {
+        (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
+        bool interrupted = false;
+        runner.On(c => c.IsGit("update-ref", $"refs/heads/{branch}") && !interrupted, (_, _) =>
+        {
+            interrupted = true;
+            throw new OperationCanceledException("The daemon stopped.");
+        });
+        Func<Task> first = async () => await DispatchAsync(parcel, flowRun);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(first);
+        Assert.Null(runner.Config(Clone, ProjectClones.PushedKeyOf(branch)));
+
+        Done(await DispatchAsync(parcel, flowRun));
+
+        Assert.Equal(Rebased, runner.Config(Clone, ProjectClones.PushedKeyOf(branch)));
     }
 
     [Fact]
