@@ -71,7 +71,7 @@ public sealed class WorktreeFlowRunTests
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
         string workPath = temp.Home.FlowRunWorkPath(Project, flowRun.Id);
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
         await FlowRunDriver.UntilAsync(() => runner.Worktrees(clone).Count == 0, "the ended flow run's worktree is removed");
 
         Assert.Contains($"worktree remove --force --force {workPath}", runner.GitCalls);
@@ -93,7 +93,7 @@ public sealed class WorktreeFlowRunTests
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Blocked, then stopped");
         FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "paused");
         string workPath = temp.Home.FlowRunWorkPath(Project, paused.Id);
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
 
         await Task.Delay(TimeSpan.FromMilliseconds(200), None);
         // a paused flow run keeps its worktree
@@ -143,7 +143,7 @@ public sealed class WorktreeFlowRunTests
 
         await FlowRunDriver.StopAsync(client, Project, started.Id, "Wrong approach.");
         await ended.Task.WaitAsync(Patience);
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
         await FlowRunDriver.UntilAsync(() => runner.Worktrees(clone).Count == 0, "the stopped flow run's worktree is removed");
 
         FlowRunView stopped = await FlowRunDriver.ShowAsync(client, Project, started.Id);
@@ -170,7 +170,7 @@ public sealed class WorktreeFlowRunTests
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
         await executor.Holding.WaitAsync(Patience);
         string workPath = temp.Home.FlowRunWorkPath(Project, started.Id);
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
 
         await FlowRunDriver.StopAsync(client, Project, started.Id, "Wrong approach.");
         await FlowRunDriver.UntilAsync(client, Project, started.Id, "stopped");
@@ -284,7 +284,7 @@ public sealed class WorktreeFlowRunTests
         FlowRunView after = await FlowRunDriver.ShowAsync(client, Project, second.Id);
         Assert.Equal("done", after.Steps[0].Result.GetValueOrDefault().GetProperty("verdict").GetString());
         Assert.Contains(runner.GitCalls, c => c.StartsWith($"worktree add --quiet {workPath} ", StringComparison.Ordinal));
-        Assert.DoesNotContain(held, runner.Worktrees(temp.Home.ProjectClonePath(Project)));
+        Assert.DoesNotContain(held, runner.Worktrees(temp.Home.Clones().ProjectClonePath(Project)));
         Assert.All((await FlowRunDriver.ShowAsync(client, Project, first)).Steps, s => Assert.True(s.Step != "gates" || s.Result == null, "the stopped flow run records nothing"));
 
         await daemon.StopAsync(None);
@@ -310,7 +310,7 @@ public sealed class WorktreeFlowRunTests
 
         Assert.Equal("pr-opened", flowRun.Outcome);
         // the failed removal left it for the next start's sweep
-        Assert.Single(runner.Worktrees(temp.Home.ProjectClonePath(Project)));
+        Assert.Single(runner.Worktrees(temp.Home.Clones().ProjectClonePath(Project)));
 
         await daemon.StopAsync(None);
     }
@@ -354,7 +354,7 @@ public sealed class WorktreeFlowRunTests
             ["reviewer-adversarial"] = [Scripts.Answer("clean", 4)],
             ["reviewer-conformance"] = [Scripts.Answer("clean", 5)],
         });
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
         string notAFlowRun = Path.Combine(temp.Home.Path, "work", Project, "scratch");
         string unknownFlowRun = temp.Home.FlowRunWorkPath(Project, Ids.New());
         Guid endedId, stoppedId, pausedId;
@@ -417,7 +417,7 @@ public sealed class WorktreeFlowRunTests
         }
 
         // The start-up sweep's removal fails too, so the holding worktree is still there once the daemon has started.
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
         string held = temp.Home.FlowRunWorkPath(Project, holder);
         Volatile.Write(ref failuresLeft, 1);
         await using RunningDaemon second = await Daemons.StartAsync(
@@ -447,7 +447,7 @@ public sealed class WorktreeFlowRunTests
         var runner = new ScriptedCommandRunner();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("blocked", 1)] });
         var log = new RecordingLogger();
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
         string workPath;
         await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner, LoggerProvider = log }, None))
         {
@@ -484,7 +484,7 @@ public sealed class WorktreeFlowRunTests
         var runner = new ScriptedCommandRunner();
         var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = [Scripts.Answer("blocked", 1)] });
         var log = new RecordingLogger();
-        string clone = temp.Home.ProjectClonePath(Project);
+        string clone = temp.Home.Clones().ProjectClonePath(Project);
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor, CommandRunner = runner, LoggerProvider = log }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         string profile = Path.Combine(temp.Home.ModuleAreaOf(SoftwareSteps.Module), "work");

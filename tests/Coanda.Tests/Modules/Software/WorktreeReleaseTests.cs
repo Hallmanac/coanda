@@ -26,7 +26,7 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
     private readonly RecordingLogger log = new();
     private SoftwareNode node = null!;
 
-    private string Clone => node.Home.ProjectClonePath(Project);
+    private string Clone => node.Home.Clones().ProjectClonePath(Project);
 
     public async Task InitializeAsync() => node = await SoftwareNode.StartAsync(runner, log: log, projects: [Project, Uncloned]);
 
@@ -57,7 +57,7 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
     [Fact]
     public async Task A_delivery_for_a_project_whose_clone_is_gone_runs_nothing_and_logs_no_failure()
     {
-        Assert.False(Directory.Exists(node.Home.ProjectClonePath(Uncloned)));
+        Assert.False(Directory.Exists(node.Home.Clones().ProjectClonePath(Uncloned)));
 
         await node.DeliverEndAsync(Ids.New(), Uncloned);
 
