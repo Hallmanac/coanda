@@ -65,7 +65,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Guid flowRunId = Ids.New();
         runner.AddBranch(Clone, branch, Moved);
 
-        JsonElement result = Opened(await PerformAsync(parcel.Id, flowRunId));
+        JsonElement result = Opened(await DispatchAsync(parcel.Id, flowRunId));
 
         Assert.Equal(FakeGitHub.Number, result.GetProperty("number").GetInt32());
         Assert.Equal(FakeGitHub.Url, result.GetProperty("url").GetString());
@@ -97,7 +97,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         runner.AddBranch(Clone, branch, Moved);
         runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), ScriptedCommandRunner.PrimaryHead);
 
-        Opened(await PerformAsync(parcel.Id, Ids.New()));
+        Opened(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{ScriptedCommandRunner.PrimaryHead} origin {Moved}:refs/heads/{branch}", runner.GitCalls);
         Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
@@ -113,18 +113,18 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Build on the reviewer's update");
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid first = Ids.New();
-        await worktree.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, first, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
-        Opened(await PerformAsync(parcel.Id, first));
+        await worktree.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, first, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
+        Opened(await DispatchAsync(parcel.Id, first));
         await clones.RemoveAsync(Project, first, None);
         runner.SetRemoteBranch(Clone, branch, Theirs);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Theirs);
         Guid second = Ids.New();
 
-        SystemStepOutcome checkedOut = await worktree.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, second, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
+        SystemStepAnswer checkedOut = await worktree.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, second, parcel.Id, ShippedFlows.Build, checkoutStep, false), None);
         runner.AddBranch(Clone, branch, Built);
-        Opened(await PerformAsync(parcel.Id, second));
+        Opened(await DispatchAsync(parcel.Id, second));
 
-        Assert.Equal(Theirs, Assert.IsType<SystemStepOutcome.Done>(checkedOut).Result.GetProperty("head").GetString());
+        Assert.Equal(Theirs, Assert.IsType<SystemStepAnswer.Done>(checkedOut).Result.GetProperty("head").GetString());
         Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{Theirs} origin {Built}:refs/heads/{branch}", runner.GitCalls);
         Assert.Equal(Built, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
     }
@@ -136,7 +136,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         const string Reused = "https://github.com/example/repo/pull/5";
         github.HoldOpen(ProjectClones.BranchOf(parcel.Id), 5, Reused);
 
-        JsonElement result = Opened(await PerformAsync(parcel.Id, Ids.New()));
+        JsonElement result = Opened(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.Equal(5, result.GetProperty("number").GetInt32());
         Assert.Equal(Reused, result.GetProperty("url").GetString());
@@ -151,10 +151,10 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Twice");
         string branch = ProjectClones.BranchOf(parcel.Id);
         Guid flowRunId = Ids.New();
-        JsonElement first = Opened(await PerformAsync(parcel.Id, flowRunId));
+        JsonElement first = Opened(await DispatchAsync(parcel.Id, flowRunId));
         long version = await VersionAsync(parcel.Id);
 
-        JsonElement again = Opened(await PerformAsync(parcel.Id, flowRunId));
+        JsonElement again = Opened(await DispatchAsync(parcel.Id, flowRunId));
 
         Assert.Equal(first.GetRawText(), again.GetRawText());
         Assert.Equal(1, github.Requests.Count(r => r.IsOpen));
@@ -170,7 +170,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Pushed, then refused");
         Guid flowRunId = Ids.New();
         github.Refuse(r => r.IsOpen, HttpStatusCode.BadGateway, "Server Error");
-        Paused(await PerformAsync(parcel.Id, flowRunId));
+        Paused(await DispatchAsync(parcel.Id, flowRunId));
         github.On(r => r.IsOpen, r => FakeGitHub.Json(HttpStatusCode.Created, new JsonObject
         {
             ["number"] = FakeGitHub.Number,
@@ -178,7 +178,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
             ["head"] = new JsonObject { ["ref"] = ProjectClones.BranchOf(parcel.Id) },
         }));
 
-        Opened(await PerformAsync(parcel.Id, flowRunId));
+        Opened(await DispatchAsync(parcel.Id, flowRunId));
 
         Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), await FieldAsync(parcel.Id));
     }
@@ -192,7 +192,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(1,
             $"To https://github.com/example/repo.git\n ! [rejected]        {ScriptedCommandRunner.PrimaryHead} -> {branch} (stale info)\nerror: failed to push some refs to 'https://github.com/example/repo.git'"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.StartsWith($"Step 'open-pr' pushed nothing: someone else updated branch {branch} on the remote", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("(stale info)", paused.Reason, StringComparison.Ordinal);
@@ -210,7 +210,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(128,
             "fatal: could not read Username for 'https://github.com': terminal prompts disabled"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.StartsWith("Step 'open-pr' could not push: ", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("exited with code 128", paused.Reason, StringComparison.Ordinal);
@@ -230,7 +230,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Rejected otherwise");
         runner.On(c => c.IsGit("push"), ScriptedCommandRunner.Fails(1, $"{rejection}\nerror: failed to push some refs"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.StartsWith("Step 'open-pr' could not push: ", paused.Reason, StringComparison.Ordinal);
         Assert.Contains(reason, paused.Reason, StringComparison.Ordinal);
@@ -242,7 +242,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAsync(Project, "Under the shipped flow");
 
-        SystemStepOutcome outcome = await PerformUnderAsync(ShippedFlows.Build, parcel.Id);
+        SystemStepAnswer outcome = await PerformUnderAsync(ShippedFlows.Build, parcel.Id);
 
         Assert.Equal(new FlowRunMove.GoTo("move-to-review"), Decide(ShippedFlows.Build, Answered(outcome, OpenPrSystemStep.OpenedVerdict)));
     }
@@ -252,9 +252,9 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
     {
         Parcel parcel = await TaskAsync(Project, "Pinned to an earlier flow");
 
-        SystemStepOutcome outcome = await PerformUnderAsync(PreviousFlows.BuildWithGatedMerge, parcel.Id);
+        SystemStepAnswer outcome = await PerformUnderAsync(PreviousFlows.BuildWithGatedMerge, parcel.Id);
 
-        Assert.Equal(new FlowRunMove.GoTo("gated-merge"), Decide(PreviousFlows.BuildWithGatedMerge, Answered(outcome, SystemStepOutcome.DoneVerdict)));
+        Assert.Equal(new FlowRunMove.GoTo("gated-merge"), Decide(PreviousFlows.BuildWithGatedMerge, Answered(outcome, SystemStepAnswer.DoneVerdict)));
         Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), await FieldAsync(parcel.Id));
     }
 
@@ -265,8 +265,8 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         {
             Transitions =
             [
-                new FlowTransition { Field = SystemStepOutcome.Verdict, Value = FlowValue.Of("done"), Target = "a" },
-                new FlowTransition { Field = SystemStepOutcome.Verdict, Value = FlowValue.Of("opened"), Target = "b" },
+                new FlowTransition { Field = SystemStepAnswer.Verdict, Value = FlowValue.Of("done"), Target = "a" },
+                new FlowTransition { Field = SystemStepAnswer.Verdict, Value = FlowValue.Of("opened"), Target = "b" },
             ],
         };
 
@@ -280,7 +280,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Left something behind");
         runner.On(c => c.IsGit("status"), ScriptedCommandRunner.Ok(" M src/Changed.cs\n?? notes.txt\n"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.Equal("Step 'open-pr' pushed nothing: the worktree has changes that git status reports, which a push would leave out: src/Changed.cs, notes.txt.", paused.Reason);
         Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
@@ -306,7 +306,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
             status,
             message);
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.StartsWith($"Step 'open-pr' pushed {ScriptedCommandRunner.PrimaryHead} but has no pull request: GitHub answered", paused.Reason, StringComparison.Ordinal);
         Assert.Contains($"status {(int)status}", paused.Reason, StringComparison.Ordinal);
@@ -322,7 +322,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         systemStep = new OpenPrSystemStep(parcels, projects, clones, new GitHubToken(runner, temp.Home), () => new GitHubClient(new HttpClient(new NoGitHubHandler())));
         Parcel parcel = await TaskAsync(Project, "Nowhere to send it");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.Contains("could not reach GitHub", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("no GitHub handler", paused.Reason, StringComparison.Ordinal);
@@ -335,7 +335,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "Not logged in");
         runner.On(c => c.Program == "gh", ScriptedCommandRunner.Fails(1, "no oauth token found for github.com"));
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.StartsWith("Step 'open-pr' pushed nothing: no GitHub token is available", paused.Reason, StringComparison.Ordinal);
         Assert.Contains("no oauth token found", paused.Reason, StringComparison.Ordinal);
@@ -350,9 +350,9 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel parcel = await TaskAsync(Project, "No gh");
         runner.On(c => c.Program == "gh", (c, _) => Task.FromException<CommandResult>(new CommandNotStartedException(c, "No such file or directory")));
 
-        SystemStepOutcome.Paused unstarted = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused unstarted = Paused(await DispatchAsync(parcel.Id, Ids.New()));
         runner.On(c => c.Program == "gh", ScriptedCommandRunner.Ok("\n"));
-        SystemStepOutcome.Paused empty = Paused(await PerformAsync(parcel.Id, Ids.New()));
+        SystemStepAnswer.Paused empty = Paused(await DispatchAsync(parcel.Id, Ids.New()));
 
         Assert.Contains("no GitHub token is available", unstarted.Reason, StringComparison.Ordinal);
         Assert.Contains("gh could not be started", unstarted.Reason, StringComparison.Ordinal);
@@ -368,7 +368,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         await projects.AddAsync(Principal.LocalOwner, Other, "https://someone:s3cr3t-token@gitlab.example.com/team/repo.git", "main", None);
         Parcel parcel = await TaskAsync(Other, "Elsewhere");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New(), Other));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New(), Other));
 
         Assert.StartsWith("Step 'open-pr' pushed nothing: the remote 'https://gitlab.example.com/team/repo.git' of project 'beta' is not a github.com repository", paused.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("s3cr3t", paused.Reason, StringComparison.Ordinal);
@@ -386,7 +386,7 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         await projects.AddAsync(Principal.LocalOwner, Other, "https://x-access-token:ghp_inTheRemote@github.com/example/repo.git", "main", None);
         Parcel parcel = await TaskAsync(Other, "Credential in the remote");
 
-        SystemStepOutcome.Paused paused = Paused(await PerformAsync(parcel.Id, Ids.New(), Other));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, Ids.New(), Other));
 
         Assert.Contains("the remote 'https://github.com/example/repo.git' of project 'gamma'", paused.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("ghp_inTheRemote", paused.Reason, StringComparison.Ordinal);
@@ -401,12 +401,12 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         Parcel refused = await TaskAsync(Project, "Refused");
         github.Refuse(r => r.IsLookup && r.PathAndQuery.Contains(Ids.Short(refused.Id), StringComparison.Ordinal), HttpStatusCode.Forbidden, "Resource not accessible by integration");
 
-        SystemStepOutcome done = await PerformAsync(opened.Id, Ids.New());
-        SystemStepOutcome paused = await PerformAsync(refused.Id, Ids.New());
+        SystemStepAnswer done = await DispatchAsync(opened.Id, Ids.New());
+        SystemStepAnswer paused = await DispatchAsync(refused.Id, Ids.New());
 
         Assert.All(github.Requests, r => Assert.True(r.Authorization == $"Bearer {ScriptedCommandRunner.GitHubToken}", "the token was sent"));
         Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, Opened(done).GetRawText(), StringComparison.Ordinal);
-        SystemStepOutcome.Paused pause = Paused(paused);
+        SystemStepAnswer.Paused pause = Paused(paused);
         Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, pause.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain(ScriptedCommandRunner.GitHubToken, pause.Lever, StringComparison.Ordinal);
     }
@@ -425,10 +425,10 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
             return ScriptedCommandRunner.Ok();
         });
 
-        Task<SystemStepOutcome> checkout = worktree.PerformAsync(
-            new SystemStepRequest(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedFlows.Build, Step with { Name = "worktree", SystemStep = SoftwareSystemSteps.Worktree }, false), None).AsTask();
+        Task<SystemStepAnswer> checkout = worktree.DispatchAsync(
+            new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), Ids.New(), ShippedFlows.Build, Step with { Name = "worktree", SystemStep = SoftwareSystemSteps.Worktree }, false), None).AsTask();
         await fetching.Task;
-        Task<SystemStepOutcome> push = PerformAsync(parcel.Id, Ids.New()).AsTask();
+        Task<SystemStepAnswer> push = DispatchAsync(parcel.Id, Ids.New()).AsTask();
         await WhenReadAsync(runner, () => runner.Commands.Any(c => c.Program == "gh"));
         int held = runner.Commands.Count;
         await Task.Delay(TimeSpan.FromMilliseconds(100), None);
@@ -470,13 +470,13 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         return (await session.Events.FetchStreamAsync(parcelId, token: None)).Count;
     }
 
-    private ValueTask<SystemStepOutcome> PerformAsync(Guid parcelId, Guid flowRunId, string project = Project) =>
-        systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
+    private ValueTask<SystemStepAnswer> DispatchAsync(Guid parcelId, Guid flowRunId, string project = Project) =>
+        systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, project, flowRunId, parcelId, ShippedFlows.Build, Step, Resumed: false), None);
 
-    private ValueTask<SystemStepOutcome> PerformUnderAsync(Flow flow, Guid parcelId)
+    private ValueTask<SystemStepAnswer> PerformUnderAsync(Flow flow, Guid parcelId)
     {
         FlowStep openPr = flow.Step("open-pr") ?? throw new InvalidOperationException("The flow has no open-pr step.");
-        return systemStep.PerformAsync(new SystemStepRequest(FlowRunPrincipal, Project, Ids.New(), parcelId, flow, openPr, Resumed: false), None);
+        return systemStep.DispatchAsync(new SystemStepDispatch(FlowRunPrincipal, Project, Ids.New(), parcelId, flow, openPr, Resumed: false), None);
     }
 
     private static FlowRunMove Decide(Flow flow, JsonElement answer)
@@ -486,15 +486,15 @@ public sealed class OpenPrSystemStepTests : IAsyncLifetime
         return Interpreter.Decide(flow, atOpenPr, document);
     }
 
-    private static JsonElement Opened(SystemStepOutcome outcome) => Answered(outcome, OpenPrSystemStep.OpenedVerdict);
+    private static JsonElement Opened(SystemStepAnswer outcome) => Answered(outcome, OpenPrSystemStep.OpenedVerdict);
 
-    private static JsonElement Answered(SystemStepOutcome outcome, string verdict)
+    private static JsonElement Answered(SystemStepAnswer outcome, string verdict)
     {
-        JsonElement result = Assert.IsType<SystemStepOutcome.Done>(outcome).Result;
+        JsonElement result = Assert.IsType<SystemStepAnswer.Done>(outcome).Result;
         Assert.Equal(verdict, result.GetProperty("verdict").GetString());
         Assert.Equal(SoftwareSystemSteps.OpenPr, result.GetProperty("systemStep").GetString());
         return result;
     }
 
-    private static SystemStepOutcome.Paused Paused(SystemStepOutcome outcome) => Assert.IsType<SystemStepOutcome.Paused>(outcome);
+    private static SystemStepAnswer.Paused Paused(SystemStepAnswer outcome) => Assert.IsType<SystemStepAnswer.Paused>(outcome);
 }

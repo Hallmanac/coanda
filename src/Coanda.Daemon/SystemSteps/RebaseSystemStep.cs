@@ -21,7 +21,7 @@ public sealed class RebaseSystemStep(ProjectService projects, ProjectClones clon
 {
     public string Name => SoftwareSystemSteps.Rebase;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string step = request.Step.Name;
         Project? project = await projects.ShowAsync(request.Principal, request.Project, cancellationToken);
@@ -48,13 +48,13 @@ public sealed class RebaseSystemStep(ProjectService projects, ProjectClones clon
 
         return rebase switch
         {
-            Rebase.Pushed pushed => SystemStepOutcome.DoneWith(Name, ("branch", branch), ("head", pushed.Head)),
+            Rebase.Pushed pushed => SystemStepAnswer.DoneWith(Name, ("branch", branch), ("head", pushed.Head)),
             Rebase.Unclean unclean => Refused(
                 step, $"rebased nothing: the worktree of {branch} has changes that git status reports, which a rebase would carry or lose: {string.Join(", ", unclean.Changes)}."),
             Rebase.Moved moved => Refused(
                 step,
                 $"rebased nothing: branch {branch} is at {Named(moved.Tip)}, not {head}, the commit the flow run's chain recorded as pushed, and the remote's branch, at {Named(moved.Remote)}, is no commit this step noted and pushed, so a rebase would carry commits nobody recorded."),
-            Rebase.Conflict conflict => new SystemStepOutcome.Paused(
+            Rebase.Conflict conflict => new SystemStepAnswer.Paused(
                 $"Step '{step}' rebased nothing: rebasing {branch} from {head} onto '{project.PrimaryBranch}' stopped on a conflict{(conflict.Commit.Length > 0 ? $" at {conflict.Commit}" : string.Empty)}, where git reports these paths unmerged: {string.Join(", ", conflict.Paths)}. The rebase was aborted and the branch checked out again at {head}; nothing was pushed.",
                 FlowRunLevers.RebaseConflict(clones.ClonePathOf(project), branch, project.PrimaryBranch)),
             Rebase.Stale stale => Refused(
@@ -69,9 +69,9 @@ public sealed class RebaseSystemStep(ProjectService projects, ProjectClones clon
             ? commit
             : "no commit";
 
-    private static SystemStepOutcome.Paused Refused(string step, string what) =>
+    private static SystemStepAnswer.Paused Refused(string step, string what) =>
         new($"Step '{step}' {what}", FlowRunLevers.RebaseRefused(step));
 
-    private static SystemStepOutcome.Paused PerformAgain(string step, string what) =>
+    private static SystemStepAnswer.Paused PerformAgain(string step, string what) =>
         new($"Step '{step}' {what}", FlowRunLevers.PerformAgain(step));
 }

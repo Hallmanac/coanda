@@ -108,11 +108,11 @@ public sealed class LiveFlowRunHoldTests : IAsyncLifetime
             ?? throw new InvalidOperationException("The build flow has no move-to-review step.");
         var systemStep = new MoveParcelSystemStep(parcels);
 
-        SystemStepOutcome outcome = await systemStep.PerformAsync(
-            new SystemStepRequest(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
+        SystemStepAnswer outcome = await systemStep.DispatchAsync(
+            new SystemStepDispatch(FlowRunAdvancer.PrincipalFor(flowRun.Id), Project, flowRun.Id, parcel.Id, ShippedFlows.Build, step, Resumed: false),
             None);
 
-        Assert.IsType<SystemStepOutcome.Done>(outcome);
+        Assert.IsType<SystemStepAnswer.Done>(outcome);
         Parcel? moved = await parcels.ShowAsync(Person, Project, parcel.Id, None);
         Assert.NotNull(moved);
         Assert.Equal("review", moved.Stage);

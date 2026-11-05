@@ -23,12 +23,12 @@ public sealed class WorktreeSystemStep(ProjectService projects, ProjectClones cl
 {
     public string Name => SoftwareSystemSteps.Worktree;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         Project? project = await projects.ShowAsync(request.Principal, request.Project, cancellationToken);
         if (project is null)
         {
-            return new SystemStepOutcome.Paused(
+            return new SystemStepAnswer.Paused(
                 $"Step '{request.Step.Name}' has no repository to make a worktree of: {ProjectService.Unregistered(request.Project)}",
                 FlowRunLevers.PerformAgain(request.Step.Name));
         }
@@ -40,8 +40,8 @@ public sealed class WorktreeSystemStep(ProjectService projects, ProjectClones cl
         Checkout checkout = await clones.CheckOutAsync(project, request.ParcelId, request.FlowRunId, lastPushed, holders, cancellationToken);
         return checkout switch
         {
-            Checkout.Ready ready => SystemStepOutcome.DoneWith(Name, ("branch", ready.Branch), ("head", ready.Head)),
-            Checkout.Refused refused => new SystemStepOutcome.Paused(
+            Checkout.Ready ready => SystemStepAnswer.DoneWith(Name, ("branch", ready.Branch), ("head", ready.Head)),
+            Checkout.Refused refused => new SystemStepAnswer.Paused(
                 $"Step '{request.Step.Name}' made no worktree: {refused.Reason}",
                 FlowRunLevers.PerformAgain(request.Step.Name)),
             _ => throw new InvalidOperationException($"A checkout ended in a way the worktree system step does not know: {checkout.GetType().Name}."),

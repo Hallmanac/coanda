@@ -23,12 +23,12 @@ public sealed class GatesSystemStep(ProjectService projects, ICommandRunner runn
 
     public string Name => SoftwareSystemSteps.Gates;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         Project? project = await projects.ShowAsync(request.Principal, request.Project, cancellationToken);
         if (project is null)
         {
-            return new SystemStepOutcome.Paused(
+            return new SystemStepAnswer.Paused(
                 $"Step '{request.Step.Name}' has no build or test command to run for project '{request.Project}': {ProjectService.Unregistered(request.Project)}",
                 FlowRunLevers.PerformAgain(request.Step.Name));
         }
@@ -43,18 +43,18 @@ public sealed class GatesSystemStep(ProjectService projects, ICommandRunner runn
             }
             catch (CommandNotStartedException unstarted)
             {
-                return new SystemStepOutcome.Paused(
+                return new SystemStepAnswer.Paused(
                     $"Step '{request.Step.Name}' could not start the shell to run the {kind} command '{command}': {unstarted.Message}",
                     FlowRunLevers.PerformAgain(request.Step.Name));
             }
 
             if (!result.Succeeded)
             {
-                return SystemStepOutcome.FailedWith(Name, Reason(kind, command, result, commandLimit));
+                return SystemStepAnswer.FailedWith(Name, Reason(kind, command, result, commandLimit));
             }
         }
 
-        return SystemStepOutcome.DoneWith(Name, ("build", project.Build), ("test", project.Test));
+        return SystemStepAnswer.DoneWith(Name, ("build", project.Build), ("test", project.Test));
     }
 
     private static string Reason(string kind, string command, CommandResult result, TimeSpan limit)

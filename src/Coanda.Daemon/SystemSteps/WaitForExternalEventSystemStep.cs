@@ -14,12 +14,12 @@ public sealed class WaitForExternalEventSystemStep : IFlowSystemStep
 
     public string Name => CoreSystemSteps.WaitForExternalEvent;
 
-    public ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string awaited = SystemStepArguments.RequireString(request.Step, EventArgument);
-        SystemStepOutcome outcome = request.Resumed
-            ? SystemStepOutcome.DoneWith(Name, (EventArgument, awaited))
-            : new SystemStepOutcome.Paused(
+        SystemStepAnswer outcome = request.Resumed
+            ? SystemStepAnswer.DoneWith(Name, (EventArgument, awaited))
+            : new SystemStepAnswer.Paused(
                 $"Step '{request.Step.Name}' waits for the external event '{awaited}'.",
                 FlowRunLevers.PerformAgain(request.Step.Name));
         return ValueTask.FromResult(outcome);

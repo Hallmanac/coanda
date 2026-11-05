@@ -67,23 +67,23 @@ public sealed class FlowSystemSteps
         new RebaseSystemStep(projects, clones, flowRuns),
     ]);
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string name = request.Step.SystemStep ?? string.Empty;
         if (!systemSteps.TryGetValue(name, out IFlowSystemStep? systemStep))
         {
-            return new SystemStepOutcome.Paused(
+            return new SystemStepAnswer.Paused(
                 $"Step '{request.Step.Name}' names the system step '{name}', which this daemon has no implementation of.",
                 FlowRunLevers.PerformAgain(request.Step.Name));
         }
 
         try
         {
-            return await systemStep.PerformAsync(request, cancellationToken);
+            return await systemStep.DispatchAsync(request, cancellationToken);
         }
         catch (SystemStepArgumentException refused)
         {
-            return new SystemStepOutcome.Paused(refused.Message, FlowRunLevers.PerformAgain(refused.Step));
+            return new SystemStepAnswer.Paused(refused.Message, FlowRunLevers.PerformAgain(refused.Step));
         }
     }
 }

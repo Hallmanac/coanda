@@ -19,7 +19,7 @@ public static class RecordedHeads
     /// them recorded a push or the latest carries no head. The merge's head guard and the rebase
     /// read this one.
     /// </summary>
-    public static async Task<string?> OfChainAsync(FlowRunService flowRuns, SystemStepRequest request, CancellationToken cancellationToken)
+    public static async Task<string?> OfChainAsync(FlowRunService flowRuns, SystemStepDispatch request, CancellationToken cancellationToken)
     {
         FlowRun flowRun = await flowRuns.ShowAsync(request.Principal, request.Project, request.FlowRunId, cancellationToken)
             ?? throw new DomainException($"No flow run {Ids.Short(request.FlowRunId)} in project '{request.Project}'.");
@@ -31,7 +31,7 @@ public static class RecordedHeads
     /// when none of them recorded a push or the latest carries no head. A move back to build starts
     /// a fresh chain, so the worktree step reads every chain on the parcel.
     /// </summary>
-    public static async Task<string?> OfParcelAsync(FlowRunService flowRuns, SystemStepRequest request, CancellationToken cancellationToken) =>
+    public static async Task<string?> OfParcelAsync(FlowRunService flowRuns, SystemStepDispatch request, CancellationToken cancellationToken) =>
         Latest(await flowRuns.ListAsync(request.Principal, request.Project, request.ParcelId, cancellationToken));
 
     private static string? Latest(IEnumerable<FlowRun> flowRuns)

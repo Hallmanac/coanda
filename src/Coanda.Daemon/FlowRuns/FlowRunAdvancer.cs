@@ -1268,8 +1268,8 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     private async Task<Recording?> ActAsync(
         Principal principal, string project, FlowRun flowRun, Flow flow, FlowStep step, bool resumed, CancellationToken cancellationToken)
     {
-        var request = new SystemStepRequest(principal, project, flowRun.Id, flowRun.ParcelId, flow, step, resumed);
-        SystemStepOutcome outcome;
+        var request = new SystemStepDispatch(principal, project, flowRun.Id, flowRun.ParcelId, flow, step, resumed);
+        SystemStepAnswer outcome;
 
         // A person's stop, saved before the system step starts or while it runs, cancels it.
         using var stopped = new CancellationTokenSource();
@@ -1277,7 +1277,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         WatchSystemStep(flowRun.Id, stopped);
         try
         {
-            outcome = await systemSteps.PerformAsync(request, bounded.Token);
+            outcome = await systemSteps.DispatchAsync(request, bounded.Token);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -1292,7 +1292,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         }
         catch (Exception failure)
         {
-            outcome = new SystemStepOutcome.Paused(
+            outcome = new SystemStepAnswer.Paused(
                 $"Step '{step.Name}' could not perform the system step '{step.SystemStep}': {failure.Message}",
                 FlowRunLevers.PerformAgain(step.Name));
         }
@@ -1309,10 +1309,10 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
         switch (outcome)
         {
-            case SystemStepOutcome.Done done:
+            case SystemStepAnswer.Done done:
                 FlowRun recorded = await flowRuns.RecordResultAsync(principal, project, flowRun.Id, step.Name, step.SystemStep ?? string.Empty, done.Result, cancellationToken);
                 return new Recording(recorded, done.Result);
-            case SystemStepOutcome.Paused paused:
+            case SystemStepAnswer.Paused paused:
                 await PauseAsync(principal, project, flowRun.Id, paused.Reason, paused.Lever, cancellationToken);
                 return null;
             default:

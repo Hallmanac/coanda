@@ -42,7 +42,7 @@ public sealed class OpenPrSystemStep(
 
     public string Name => SoftwareSystemSteps.OpenPr;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string step = request.Step.Name;
         Project? project = await projects.ShowAsync(request.Principal, request.Project, cancellationToken);
@@ -83,7 +83,7 @@ public sealed class OpenPrSystemStep(
                     step,
                     $"pushed nothing: the worktree has changes that git status reports, which a push would leave out: {string.Join(", ", unclean.Changes)}.");
             case Push.Stale stale:
-                return new SystemStepOutcome.Paused(
+                return new SystemStepAnswer.Paused(
                     $"Step '{step}' pushed nothing: someone else updated branch {ProjectClones.BranchOf(request.ParcelId)} on the remote since the node last pushed or fetched it, so git refused the push its lease guards. {stale.Reason}",
                     FlowRunLevers.RemoteBranchMoved(step));
             case Push.Failed failed:
@@ -116,7 +116,7 @@ public sealed class OpenPrSystemStep(
             await parcels.SetFieldAsync(request.Principal, request.Project, request.ParcelId, PullRequestField, recorded, cancellationToken);
         }
 
-        return SystemStepOutcome.ResultWith(VerdictFor(request.Step), Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));
+        return SystemStepAnswer.ResultWith(VerdictFor(request.Step), Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));
     }
 
     /// <summary>
@@ -124,13 +124,13 @@ public sealed class OpenPrSystemStep(
     /// unless the step routes on <c>done</c> and not on it, as the build flow before this one did.
     /// </summary>
     public static string VerdictFor(FlowStep step) =>
-        RoutesOn(step, SystemStepOutcome.DoneVerdict) && !RoutesOn(step, OpenedVerdict)
-            ? SystemStepOutcome.DoneVerdict
+        RoutesOn(step, SystemStepAnswer.DoneVerdict) && !RoutesOn(step, OpenedVerdict)
+            ? SystemStepAnswer.DoneVerdict
             : OpenedVerdict;
 
     private static bool RoutesOn(FlowStep step, string verdict) =>
         step.Transitions.Any(t =>
-            t.Field == SystemStepOutcome.Verdict
+            t.Field == SystemStepAnswer.Verdict
             && t.Value.ValueKind == JsonValueKind.String
             && t.Value.GetString() == verdict);
 
@@ -155,6 +155,6 @@ public sealed class OpenPrSystemStep(
         return body.ToString().TrimEnd('\n') + "\n";
     }
 
-    private static SystemStepOutcome.Paused PerformAgain(string step, string what) =>
+    private static SystemStepAnswer.Paused PerformAgain(string step, string what) =>
         new($"Step '{step}' {what}", FlowRunLevers.PerformAgain(step));
 }

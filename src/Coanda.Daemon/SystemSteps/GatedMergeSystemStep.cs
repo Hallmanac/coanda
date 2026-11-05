@@ -50,7 +50,7 @@ public sealed class GatedMergeSystemStep(
 
     public string Name => SoftwareSystemSteps.GatedMerge;
 
-    public async ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken)
+    public async ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken)
     {
         string step = request.Step.Name;
         Project? project = await projects.ShowAsync(request.Principal, request.Project, cancellationToken);
@@ -105,8 +105,8 @@ public sealed class GatedMergeSystemStep(
         }
     }
 
-    private async Task<SystemStepOutcome> InspectAndMergeAsync(
-        SystemStepRequest request,
+    private async Task<SystemStepAnswer> InspectAndMergeAsync(
+        SystemStepDispatch request,
         Project project,
         GitHubRepository repository,
         int number,
@@ -183,7 +183,7 @@ public sealed class GatedMergeSystemStep(
 
         if (waiting.Count > 0)
         {
-            return SystemStepOutcome.ResultWith(PendingVerdict, Name, ("reason", $"Waiting on {named}: {string.Join("; ", waiting)}."));
+            return SystemStepAnswer.ResultWith(PendingVerdict, Name, ("reason", $"Waiting on {named}: {string.Join("; ", waiting)}."));
         }
 
         GitHubMergeMethods methods = await client.MergeMethodsAsync(repository, token, cancellationToken);
@@ -210,11 +210,11 @@ public sealed class GatedMergeSystemStep(
                 step, $"merged nothing: GitHub refused the merge because the head of {named} moved after it was inspected: {refused.Message}");
         }
 
-        async Task<SystemStepOutcome.Done?> BehindAsync()
+        async Task<SystemStepAnswer.Done?> BehindAsync()
         {
             int behind = await client.BehindByAsync(repository, project.PrimaryBranch, head, token, cancellationToken);
             return behind > 0
-                ? SystemStepOutcome.ResultWith(
+                ? SystemStepAnswer.ResultWith(
                     BehindVerdict,
                     Name,
                     ("reason", $"The head {head} of {named} is behind the primary branch '{project.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran."),
@@ -304,8 +304,8 @@ public sealed class GatedMergeSystemStep(
         return new Checks(null, pending);
     }
 
-    private SystemStepOutcome.Done Merged(string commit) => SystemStepOutcome.ResultWith(MergedVerdict, Name, ("commit", commit));
+    private SystemStepAnswer.Done Merged(string commit) => SystemStepAnswer.ResultWith(MergedVerdict, Name, ("commit", commit));
 
-    private static SystemStepOutcome.Paused PerformAgain(string step, string what) =>
+    private static SystemStepAnswer.Paused PerformAgain(string step, string what) =>
         new($"Step '{step}' {what}", FlowRunLevers.PerformAgain(step));
 }

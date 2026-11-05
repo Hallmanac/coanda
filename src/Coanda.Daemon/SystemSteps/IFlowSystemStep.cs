@@ -10,5 +10,5 @@ public interface IFlowSystemStep
     /// <summary>The system step name a flow step names, from the core or a domain catalog.</summary>
     string Name { get; }
 
-    ValueTask<SystemStepOutcome> PerformAsync(SystemStepRequest request, CancellationToken cancellationToken);
+    ValueTask<SystemStepAnswer> DispatchAsync(SystemStepDispatch request, CancellationToken cancellationToken);
 }
