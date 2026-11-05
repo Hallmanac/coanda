@@ -10,6 +10,7 @@ using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
+using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
 using Coanda.Sdk.Commands;
 using Coanda.Sdk.Repositories;
@@ -189,6 +190,118 @@ public sealed class LedgerExportTests
         Assert.Equal(await node.FilesAsync(clone), after);
         Assert.All(files, file => Assert.StartsWith(file.Value, after[file.Key], StringComparison.Ordinal));
         Assert.True(after.Values.Sum(v => v.Length) > files.Values.Sum(v => v.Length));
+    }
+
+    [Fact]
+    public async Task A_round_with_nothing_new_asks_git_only_for_each_clones_ref()
+    {
+        await using LedgerNode node = await LedgerNode.StartAsync(Alpha);
+        await node.Export.PublishAsync(Alpha, None);
+        node.ExportGit.Clear();
+
+        LedgerPublication idle = await node.Export.PublishAsync(Alpha, None);
+
+        Assert.Equal((true, 0), (idle.Published, idle.Written));
+        Assert.Equal([$"rev-parse --verify --quiet {node.RefName}"], node.ExportGit.Calls);
+    }
+
+    [Fact]
+    public async Task A_grown_chain_writes_again_only_the_files_of_its_last_segment_on_and_the_ref_holds_what_a_whole_write_gives()
+    {
+        await using LedgerNode node = await LedgerNode.StartAsync();
+        await node.AddProjectAsync(Alpha, withRemote: false);
+        string clone = node.ClonePath(Alpha);
+        await node.Export.PublishAsync(Alpha, None);
+
+        // The chain's first lines are recorded in an earlier month, so the ref holds two files.
+        IReadOnlyList<LedgerLine> records = await node.RecordsAsync(Alpha);
+        Assert.True(records.Count > 1);
+        await using (IDocumentSession session = node.Store.LightweightSession(Alpha))
+        {
+            foreach (LedgerLine record in records.Take(records.Count - 1))
+            {
+                record.Segment = "2000-01";
+                session.Store(record);
+            }
+
+            await session.SaveChangesAsync(None);
+        }
+
+        await LedgerNode.GitAsync(clone, "update-ref", "-d", node.RefName);
+        await node.MakeRemoteAsync(Alpha);
+        LedgerPublication whole = await node.Export.PublishAsync(Alpha, None);
+        Assert.True(whole.Published, string.Join("; ", whole.Failures));
+        string current = Assert.Single(records.Skip(records.Count - 1)).Segment + LedgerSegments.Extension;
+        Assert.Equal(["2000-01" + LedgerSegments.Extension, current], (await node.FilesAsync(clone)).Keys);
+
+        await Parcels(node).AddAsync(Principal.LocalOwner, Alpha, "task", "Later", null, None);
+        node.ExportGit.Clear();
+        LedgerPublication grown = await node.Export.PublishAsync(Alpha, None);
+
+        Assert.True(grown.Published, string.Join("; ", grown.Failures));
+        string hashed = Assert.Single(node.ExportGit.Calls, c => c.StartsWith("hash-object -w ", StringComparison.Ordinal));
+        Assert.EndsWith(Path.DirectorySeparatorChar + current, hashed, StringComparison.Ordinal);
+        Assert.Single(hashed.Split(' '), part => part.EndsWith(LedgerSegments.Extension, StringComparison.Ordinal));
+        Assert.Contains(node.ExportGit.Calls, c => c.StartsWith("read-tree ", StringComparison.Ordinal));
+
+        IReadOnlyList<LedgerLine> all = await node.RecordsAsync(Alpha);
+        IReadOnlyDictionary<string, string> expected = all
+            .GroupBy(r => r.Segment)
+            .ToDictionary(g => g.Key + LedgerSegments.Extension, g => string.Concat(g.Select(r => r.Line + "\n")));
+        IReadOnlyDictionary<string, string> files = await node.FilesAsync(clone);
+        Assert.Equal(expected.OrderBy(f => f.Key, StringComparer.Ordinal), files);
+        Assert.Equal(files, await node.FilesAsync(node.RemotePath(Alpha)));
+        Assert.Equal(ChainOutcome.Verified, Verify(node, await node.ProjectAsync(Alpha), await node.LinesAsync(clone)).Outcome);
+    }
+
+    [Fact]
+    public async Task Every_clone_of_a_project_with_more_than_one_repo_carries_the_whole_chain_and_pushes_it()
+    {
+        const string Gamma = "gamma";
+        await using LedgerNode node = await LedgerNode.StartAsync();
+        string[] remotes = [Path.Combine(node.Home.Path, "remotes", Gamma, "one.git"), Path.Combine(node.Home.Path, "remotes", Gamma, "two.git")];
+        Project gamma = await node.AddProjectAsync(Gamma, remotes);
+        Assert.Equal(["one", "two"], gamma.Repos.Select(r => r.Name));
+
+        LedgerPublication published = await node.Export.PublishAsync(Gamma, None);
+
+        Assert.True(published.Published, string.Join("; ", published.Failures));
+        int events = (await node.EventsAsync(Gamma)).Count;
+        Assert.Equal(events, published.Written);
+        IReadOnlyDictionary<string, string> files = await node.FilesAsync(node.ClonePath(Gamma, "one"));
+        Assert.NotEmpty(files);
+        Assert.Equal(files, await node.FilesAsync(node.ClonePath(Gamma, "two")));
+        foreach (string remote in remotes)
+        {
+            Assert.Equal(files, await node.FilesAsync(remote));
+        }
+
+        ChainVerification verified = Verify(node, gamma, await node.LinesAsync(remotes[1]));
+        Assert.Equal((ChainOutcome.Verified, events), (verified.Outcome, verified.VerifiedLines));
+    }
+
+    [Fact]
+    public async Task A_round_that_exports_no_line_binds_no_node_id_so_a_replaced_identity_still_exports()
+    {
+        await using LedgerNode node = await LedgerNode.StartAsync();
+
+        Assert.Empty(await node.Export.ExportAsync(None));
+
+        await using (IQuerySession session = node.Store.QuerySession(Tenants.Node))
+        {
+            Assert.Null(await session.LoadAsync<LedgerOrigin>(LedgerOrigin.DocumentId, None));
+        }
+
+        await node.AddProjectAsync(Alpha);
+        NodeIdentity replaced = await LedgerNode.OtherIdentityAsync();
+        using LedgerExport export = node.ExportAs(replaced);
+        LedgerPublication published = await export.PublishAsync(Alpha, None);
+
+        Assert.True(published.Published, string.Join("; ", published.Failures));
+        await using (IQuerySession session = node.Store.QuerySession(Tenants.Node))
+        {
+            Assert.Equal(replaced.NodeId, (await session.LoadAsync<LedgerOrigin>(LedgerOrigin.DocumentId, None))?.NodeId);
+        }
     }
 
     [Fact]

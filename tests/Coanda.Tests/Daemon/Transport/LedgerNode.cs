@@ -1,11 +1,14 @@
 using System.Text;
+using Coanda.Core;
 using Coanda.Core.Projects;
+using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Transport;
 using Coanda.Sdk.Commands;
 using Coanda.Sdk.Repositories;
+using Coanda.Tests.Daemon.Commands;
 using Fisher;
 using JasperFx.Events;
 using JasperFx.Events.Documents;
@@ -18,7 +21,8 @@ namespace Coanda.Tests.Daemon.Transport;
 /// A node home for the export tests: a store holding the software module's definitions, the node's
 /// identity, the export, and for each project a local bare repository standing in for its one repo's
 /// remote, under the home, the only remote these tests push to. The clones are the core's, made by
-/// <see cref="RepoClones"/> with real git, which contacts nothing to make one.
+/// <see cref="RepoClones"/> with real git, which contacts nothing to make one. The export's own git
+/// commands are recorded in <see cref="ExportGit"/>.
 /// </summary>
 internal sealed class LedgerNode : IAsyncDisposable
 {
@@ -46,6 +50,9 @@ internal sealed class LedgerNode : IAsyncDisposable
 
     public RecordingLogger Logs { get; } = new();
 
+    /// <summary>The git commands the exports this node made ran, each as its arguments after any <c>--git-dir</c>.</summary>
+    public RecordingRunner ExportGit { get; } = new(Runner);
+
     public string RefName => Export.RefName;
 
     /// <summary>A node with each of <paramref name="projects"/> registered at its own stand-in remote.</summary>
@@ -71,7 +78,7 @@ internal sealed class LedgerNode : IAsyncDisposable
 
     /// <summary>An export of this node's store and home under <paramref name="identity"/>, logging to <see cref="Logs"/>.</summary>
     public LedgerExport ExportAs(NodeIdentity identity) =>
-        new(Store, Home, identity, Runner, TimeProvider.System, new Logger<LedgerExport>(new LoggerFactory([Logs])));
+        new(Store, Home, identity, ExportGit, TimeProvider.System, new Logger<LedgerExport>(new LoggerFactory([Logs])));
 
     /// <summary>
     /// Registers <paramref name="project"/> with its one repo at <see cref="RemotePath"/> and makes its clone;
@@ -90,6 +97,31 @@ internal sealed class LedgerNode : IAsyncDisposable
         return added;
     }
 
+    /// <summary>
+    /// Registers <paramref name="project"/> with one repo at each of <paramref name="remotes"/>, recorded as
+    /// a registration of those repos, and makes each remote, a bare repository, and each repo's clone.
+    /// </summary>
+    public async Task<Project> AddProjectAsync(string project, IReadOnlyList<string> remotes)
+    {
+        foreach (string remote in remotes)
+        {
+            Directory.CreateDirectory(remote);
+            await GitAsync(remote, "init", "--bare", "--quiet");
+        }
+
+        Guid id = Ids.New();
+        await using (IDocumentSession session = Store.LightweightSession(project))
+        {
+            session.Events.StartStream<Project>(id, new ProjectRegistered(
+                id, project, [.. remotes.Select(ProjectRepo.FromRemote)], Principal.LocalOwner.Id, DateTimeOffset.UtcNow));
+            await session.SaveChangesAsync(None);
+        }
+
+        Project added = await ProjectAsync(project);
+        await new RepoClones(Store, Home, Runner, NullLogger<RepoClones>.Instance).EnsureAsync(added, None);
+        return added;
+    }
+
     /// <summary>Makes the stand-in remote of <paramref name="project"/>, a bare repository.</summary>
     public async Task MakeRemoteAsync(string project)
     {
@@ -102,6 +134,9 @@ internal sealed class LedgerNode : IAsyncDisposable
     public string RemotePath(string project) => Path.Combine(Home.Path, "remotes", project, $"{RegisteredProjects.Repo}.git");
 
     public string ClonePath(string project) => Home.ProjectClonePath(project);
+
+    /// <summary>The core-made clone of <paramref name="repo"/> of <paramref name="project"/>.</summary>
+    public string ClonePath(string project, string repo) => Home.RepoClonePath(project, repo);
 
     public async Task<Project> ProjectAsync(string project) =>
         await ProjectService.FindAsync(Store, project, None) ?? throw new InvalidOperationException($"No project '{project}'.");
@@ -189,5 +224,45 @@ internal sealed class LedgerNode : IAsyncDisposable
         {
             file.Attributes &= ~FileAttributes.ReadOnly;
         }
+    }
+}
+
+/// <summary>A command runner that runs every command through another and records the git commands among them.</summary>
+internal sealed class RecordingRunner(ICommandRunner inner) : ICommandRunner
+{
+    private readonly Lock gate = new();
+    private readonly List<string> calls = [];
+
+    /// <summary>The git commands run, each as its arguments after any <c>--git-dir</c>, joined by spaces.</summary>
+    public IReadOnlyList<string> Calls
+    {
+        get
+        {
+            lock (gate)
+            {
+                return [.. calls];
+            }
+        }
+    }
+
+    public void Clear()
+    {
+        lock (gate)
+        {
+            calls.Clear();
+        }
+    }
+
+    public Task<CommandResult> RunAsync(CommandLine command, CancellationToken cancellationToken)
+    {
+        if (command.Program == "git")
+        {
+            lock (gate)
+            {
+                calls.Add(string.Join(' ', command.GitArguments()));
+            }
+        }
+
+        return inner.RunAsync(command, cancellationToken);
     }
 }
