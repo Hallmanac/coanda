@@ -1,8 +1,8 @@
 # Naming decisions for Coanda
 
 Settled with Brian. The product name was settled on 2026-11-03 at 08:46 EST in the hall9k project
-window, and the concept words were settled on 2026-11-03 and 2026-11-04, the last of them in the
-concepts walk of 2026-11-04. This file records only names and the reasons, so no session
+window, and the concept words were settled on 2026-11-03 and 2026-11-04, in the sessions the
+History section names. This file records only names and the reasons, so no session
 re-litigates them; the design itself lives in design.md.
 
 ## Product: Coanda (working name)
@@ -51,10 +51,10 @@ built, its entry says so.
 - human step: A human step is a step a person performs, with the flow run waiting until the person
   records it; it is settled as a word but not built, and today the nearest thing is the
   wait-for-human system step, which pauses the flow run with a lever until a person resumes it.
-- system step: A system step is a step the daemon performs itself with no agent, such as worktree,
-  gates, open-pr, gated-merge, rebase, timer, wait-for-human, wait-for-external-event, move-parcel,
-  derive-parcels, or emit-outcome, and it ends with a result document the flow routes on or pauses
-  the flow run.
+- system step: A system step is a step with no agent, which the daemon performs itself or, when a
+  module brings it, dispatches to that module, such as worktree, gates, open-pr, gated-merge,
+  rebase, timer, wait-for-human, wait-for-external-event, move-parcel, derive-parcels, or
+  emit-outcome, and it ends with a result document the flow routes on or pauses the flow run.
 - trigger: A trigger is what starts a flow run of a flow: an event kind plus equality filters, which
   a parcel entering a stage its type binds a flow to, a flow run ending with an outcome another flow
   follows, or an external event a person's subscription matches can satisfy.
@@ -62,10 +62,22 @@ built, its entry says so.
   paused flow run records both and is resumed or stopped, while a parcel is paused today by moving
   it to its type's paused stage, which records who moved it but no reason, and the parcel's paused
   as a condition that keeps its stage is settled but not built.
-- module: A module is a domain's code and definitions that extend the core, and software
-  engineering is the first; it is settled as a word but the module boundary is not built yet, so
-  the software engineering system steps, types, flows, and agents still ship inside the binary
-  today.
+- module: A module is a domain's code and definitions that extend the core, run out of process as
+  a program the daemon supervises, and software engineering is the first; it is settled as a word
+  but the module boundary is not built yet, so the software engineering system steps, types, flows,
+  and agents still ship inside the binary today.
+- module archive: A module archive is the one file that `coa module export` writes from a
+  module's artifact directory and `coa module install` reads, for carrying a module between nodes
+  offline; it is settled as a word but not built.
+- dispatch: A dispatch is the daemon's call on a module to do one system step, carrying a dispatch
+  id the daemon records on the flow run before calling and answered done, paused, or running; it is
+  settled as a word but not built, so today the daemon performs every system step itself.
+- watch request: A watch request is an event kind and equality filters the core compiles from the
+  user's triggers and hands to a module, so the module reports only the external events a trigger
+  can match; it is settled as a word but not built.
+- feed: The feed is the core's delivery to a module, in sequence order and at least once, of the
+  core events the module subscribes to, for observing and mirroring work rather than doing it; it
+  is settled as a word but not built.
 
 ## Rejected names
 
@@ -154,6 +166,21 @@ Brian ruled on these in the concepts walk of 2026-11-04 and confirmed them in it
 - module names a domain's code and definitions that extend the core; "software bundle" is retired
   for it.
 - model triple, contour, flight, park, and round are retired, as the entries above say.
+
+### 2026-11-04: the module design
+
+Brian ruled on these in the module design of 2026-11-04, the last at 18:40 EST.
+
+- dispatch names the daemon's call on a module to do one system step. It was chosen over perform,
+  because perform read as too generic. The code's `PerformAsync` renames with it when the module
+  boundary is built.
+- module archive names a module's artifact directory written to one file. "Package" stays
+  rejected, here as for parcel, so module archive is the word where package would otherwise go.
+- watch request and feed are new words for the two directions of information from the core down
+  to a module: the filters a module reports external events under, and the core events it
+  subscribes to.
+- module now says that a module runs out of process, and system step now allows a system step that
+  a module brings and the daemon dispatches to it.
 
 ### Commands and the API
 
