@@ -328,8 +328,11 @@ and the bypass list as binding parameters.
 The CLI, `coa`: noun-first (parcel, flow, flow run, agent, project, node, and module, with
 `coa module` for a node's modules and `coa project module` for a project's), thin, calls the daemon
 and starts it when needed; verbs follow the registry. Sessions talk back through it, with their
-principal in a token the adapter places in the environment. A module's settings are set through
-generic module commands rendered from the registry, never module-specific verbs (section 14.6).
+principal in a token the adapter places in the environment. A core verb may take the settings of
+the node's default modules as a convenience: `coa project add` takes the software module's branch,
+build, and test settings, so registering a project is one command. Otherwise a module's settings are
+set through generic module commands rendered from the registry, never through module-specific verbs
+(section 14.6).
 
 Rendered files (task.md, prompt.md, decisions.md, lessons.md) are projections written at spawn,
 never truth, never edited.
@@ -432,12 +435,13 @@ in the environment the way an agent step's session gets its own (`SessionAccess`
   and recorded on the flow run before calling, the resumed flag wait steps read today, the flow
   run's work path, and the step's arguments as the JSON object the flow author wrote. Everything
   else (the parcel's fields, earlier steps' results, the project's repos, the module's own settings)
-  the module pulls through the core's query API under its Module role. The module never sees the
-  flow definition and never sees a flow run it was not dispatched a step of. It answers **done**
-  with a result document validated against the step's declared result schema, **paused** with a
-  reason and a lever, or **running**. A module that errors, times out, or answers something the
-  schema refuses pauses the flow run with the dispatch-again lever, as a thrown exception does
-  today.
+  the module pulls through the core's query API under its Module role. A dispatch never carries the
+  flow definition. The module reads flow runs under its Module role as section 14.5's wide reads
+  allow, and its read of flows gives a flow's name, version, and content hash but never its steps.
+  It answers **done** with a result document validated against the step's declared result schema,
+  **paused** with a reason and a lever, or **running**. A module that errors, times out, or answers
+  something the schema refuses pauses the flow run with the dispatch-again lever, as a thrown
+  exception does today.
 - **status** and **stop** on a dispatch. A running dispatch later records its outcome through a core
   command naming the dispatch id. After a daemon restart the daemon asks status instead of
   dispatching again, which is the executor seam's reattach applied to system steps; on unknown it
@@ -532,14 +536,23 @@ the build and test commands, the required checks, a stage-to-status mapping, a c
 settings carry what this node supplies: the credential profile and other node resources. The node
 holds named profiles per module; the secret material lives in the module's owner-only area, and only
 the profile names and each project's selection live in the core. Every dispatch, watch request, and
-feed delivery carries the project, so the module resolves the project's profile. The shipped module
-already has the gap this closes: `GitHubToken` runs `gh auth token --hostname github.com` with no
-account selection, one GitHub identity per node.
+feed delivery carries the project, so the module resolves the project's profile.
 
-A project with a module on and no profile selected on this node is on and unconfigured here, which
-is the intended state for a teammate who received the replicated switch-on: the module's steps pause
-with a lever naming the setting, it issues no watch requests, and it skips feed reactions with a log
-line, until a profile is selected.
+A setting may declare a default, and a credential profile's default may be the node's default
+identity: the software module's GitHub profile defaults to the gh CLI's default account. A module
+switched on for a project is unconfigured on this node when, and only when, a required setting has
+no value there: a replicated setting with no value and no default, or a credential setting with no
+selected profile and no default. A profile selected for the project that this node no longer holds
+counts as unconfigured, and the default does not stand in for it, because an explicit choice of
+identity is never silently replaced by another. While a module is unconfigured, its steps pause with
+a lever naming the setting, it issues no watch requests, and it skips feed reactions with a log
+line.
+
+Part of that is built. The feed skips a delivery to a module that is unconfigured for the event's
+project, and logs it. The daemon does not yet hold back a dispatch to such a module. Of the software
+module's steps, only open-pr and gated-merge read the credential profile, and they pause with the
+lever naming that setting when the profile selected for the project yields no GitHub token or is
+one this node no longer holds.
 
 ### 14.7 Supervision
 
@@ -550,7 +563,7 @@ reach the module's steps, naming the module in the reason; it never dispatches a
 that is off or unhealthy, and the pause is the honest state. Each process writes its own log under
 the node home, beside the daemon's. Doctor checks installed modules: present, approved, healthy, and
 within the supported API range. A version change is noticed at describe after the start, before any
-flow run reaches a step that moved. Two versions of one module never run at once.
+flow run reaches a step that moved. A project runs one version of a module at a time.
 
 ### 14.8 Install, approval, and trust
 
@@ -678,9 +691,11 @@ wait-for-external-event, emit-outcome, derive-parcels), whose request and outcom
 C# rendering of the wire contract; everything in `Executors/`, the Claude Code adapter, the tool
 guard, reattach, session tokens, and credential profiles; the registry, the store, the trigger loop,
 the definition service, the parcel and flow run services; the required-fields gate, which is a
-lifecycle concept (a field required to leave a stage) and not the build-and-test gates step; the
-command runner and the git wrapper, because the core runs git for the ledger. The project record
-keeps its name and gains the repos list; today's single remote is its first entry.
+lifecycle concept (a field required to leave a stage) and not the build-and-test gates step. The
+command runner and the git wrapper live in the SDK, as section 14.11 says, and the daemon hands its
+command runner to the module it hosts; the core will use the SDK's git wrapper when it comes to run
+git for the ledger. The project record keeps its name and gains the repos list; today's single
+remote is its first entry.
 
 The definition service validates a flow's system step names against the describe answers of the
 modules switched on for the project, instead of against the daemon's registered names, and the "no
