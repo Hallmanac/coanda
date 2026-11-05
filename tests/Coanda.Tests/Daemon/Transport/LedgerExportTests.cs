@@ -131,6 +131,22 @@ public sealed class LedgerExportTests
     }
 
     [Fact]
+    public async Task A_set_of_the_tag_field_carries_the_repos_it_wrote_when_a_later_set_moved_the_parcel_on_before_the_export()
+    {
+        await using LedgerNode node = await LedgerNode.StartAsync(Alpha);
+        Parcel parcel = await Parcels(node).AddAsync(Principal.LocalOwner, Alpha, "task", "Moved twice", null, None);
+        await SetReposAsync(node, parcel, "a");
+        await SetReposAsync(node, parcel, "b");
+        await SetReposAsync(node, parcel, "c");
+        await node.Export.PublishAsync(Alpha, None);
+
+        IReadOnlyList<SignedLine> lines = await node.ParsedAsync(node.RemotePath(Alpha));
+        Assert.Equal(
+            ["a,c", "a,b,c", "b,c"],
+            lines.Where(l => l.Content.StreamId == parcel.Id && l.Content.Event.Type == "parcel_field_set").Select(l => string.Join(',', l.Content.Tag.RepoNames ?? [])));
+    }
+
+    [Fact]
     public async Task An_event_the_store_records_on_another_origins_line_is_never_written_as_this_nodes()
     {
         await using LedgerNode node = await LedgerNode.StartAsync(Alpha);

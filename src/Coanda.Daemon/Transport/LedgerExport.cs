@@ -39,8 +39,8 @@ namespace Coanda.Daemon.Transport;
 /// <para>
 /// A line's tag is read when it is written and signed with it, so it is kept with the line and never read
 /// again: an event of a parcel's stream, or of one of its flow runs' streams, names the repos the parcel's
-/// tag field holds, read from the field its type version marks, and a set of the tag field names those and
-/// the ones the field held before the set. Every other event, and one of a parcel whose type version
+/// tag field holds, read from the field its type version marks, and a set of the tag field names those,
+/// the ones the set wrote, and the ones the field held before the set. Every other event, and one of a parcel whose type version
 /// marks no tag field or whose field holds nothing, is project-wide.
 /// </para>
 /// <para>
@@ -495,7 +495,8 @@ public sealed class LedgerExport(
             IEnumerable<string> names = Names(parcel.ValueOf(field.Name));
             if (entry.Data is ParcelFieldSet set && entry.StreamId == parcel.Id && string.Equals(set.Field, field.Name, StringComparison.Ordinal))
             {
-                names = names.Concat(Names(await BeforeAsync(parcel.Id, field.Name, entry.Version, cancellationToken)));
+                // The repos the field held before the set, the repos the set moved it to, and the repos it holds now.
+                names = names.Concat(Names(set.Value)).Concat(Names(await BeforeAsync(parcel.Id, field.Name, entry.Version, cancellationToken)));
             }
 
             string[] repos = [.. names.Distinct(StringComparer.Ordinal)];
