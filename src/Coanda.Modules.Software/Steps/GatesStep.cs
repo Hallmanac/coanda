@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Coanda.Modules.Software.Repositories;
 using Coanda.Sdk;
 using Coanda.Sdk.Client;
 using Coanda.Sdk.Commands;
@@ -10,7 +9,7 @@ namespace Coanda.Modules.Software.Steps;
 /// <summary>
 /// Runs the build command and then the test command the module's settings name in the project, their
 /// defaults included, each as one command line through the
-/// platform's shell in the flow run's work path, stopping at the first that exits nonzero. Both passing
+/// platform's shell in the flow run's work path, the one the dispatch carries, stopping at the first that exits nonzero. Both passing
 /// answers done; one failing, the shell's own exit for a command it cannot find included, answers
 /// failed with a <c>reason</c> naming the command and its exit code and carrying at most the last
 /// <see cref="QuotedLines"/> lines of its output, so the flow routes to its fix step. A command
@@ -18,7 +17,7 @@ namespace Coanda.Modules.Software.Steps;
 /// shell that cannot be started, or a project the core shows no record of, pauses with the perform-again
 /// lever instead, and a command with no value and no default pauses with a lever naming its setting.
 /// </summary>
-public sealed class GatesStep(ClonePaths paths, ICommandRunner runner, TimeSpan commandLimit) : ISoftwareStep
+public sealed class GatesStep(ICommandRunner runner, TimeSpan commandLimit) : ISoftwareStep
 {
     /// <summary>How many lines of a failing command's output its reason carries.</summary>
     public const int QuotedLines = 100;
@@ -49,13 +48,12 @@ public sealed class GatesStep(ClonePaths paths, ICommandRunner runner, TimeSpan 
             return await MissingAsync(SoftwareSettings.Test, $"'{SoftwareSettings.DefaultTest}'");
         }
 
-        string workPath = paths.FlowRunWorkPath(request.Project, request.FlowRunId);
         foreach ((string kind, string command) in new[] { ("build", build), ("test", test) })
         {
             CommandResult result;
             try
             {
-                result = await runner.RunAsync(CommandLine.Shell(command, workPath) with { Limit = commandLimit }, cancellationToken);
+                result = await runner.RunAsync(CommandLine.Shell(command, request.WorkPath) with { Limit = commandLimit }, cancellationToken);
             }
             catch (CommandNotStartedException unstarted)
             {

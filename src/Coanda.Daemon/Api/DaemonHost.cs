@@ -91,6 +91,7 @@ public sealed class DaemonHost
             services.GetRequiredService<FlowSystemSteps>().NamesAsync,
             services.GetRequiredService<FlowSystemSteps>().ArgumentCheckAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
+        builder.Services.AddSingleton<RepoClones>();
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<EarlierProjectRecords>();
         builder.Services.AddSingleton<ParcelService>();
@@ -101,9 +102,9 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<FlowRunWorkers>();
 
         // The software module, hosted in this process behind its host adapter. It is given the node
-        // home's locations, the command runner, the GitHub handler, the gates command limit, and the
-        // core's address and its token, which exist only once the daemon is listening, and it reaches
-        // the daemon otherwise only through the core's API.
+        // home, where it finds each repo's clone by the layout, its own area, the command runner, the
+        // GitHub handler, the gates command limit, and the core's address and its token, which exist only
+        // once the daemon is listening, and it reaches the daemon otherwise only through the core's API.
         var softwareCore = new ModuleCoreAccess(SoftwareSteps.Module);
         builder.Services.AddSingleton(softwareCore);
         builder.Services.AddSingleton(services => new SoftwareModule(
@@ -111,8 +112,6 @@ public sealed class DaemonHost
             {
                 HomePath = home.Path,
                 ProfilesPath = home.ModuleAreaOf(SoftwareSteps.Module),
-                ClonesPath = home.ClonesPath,
-                WorkPath = home.WorkPath,
                 CoreApi = softwareCore.Options,
                 CommandRunner = services.GetRequiredService<ICommandRunner>(),
                 GitHubHandler = options.GitHubHandler ?? (() => new NoGitHubHandler()),
@@ -193,6 +192,12 @@ public sealed class DaemonHost
             // build kept in the project's record of the software module's (the primary branch, the build
             // and test commands, the required checks) becomes the module's settings, before any step reads them.
             await app.Services.GetRequiredService<EarlierProjectRecords>().CarryAsync(cancellationToken);
+
+            // Each clone an earlier build kept under clones/ moves to the per-repo layout with its
+            // worktrees, and every repo of every project gets its clone, once each project has its repos
+            // and before any module starts or any live flow run is advanced, so no module's git command
+            // runs against a clone while the core moves or makes it.
+            await app.Services.GetRequiredService<RepoClones>().StartAsync(cancellationToken);
 
             // Each hosted module is waited on for health and asked to describe itself once the API it
             // calls is listening, and before anything is advertised: flows are validated against its

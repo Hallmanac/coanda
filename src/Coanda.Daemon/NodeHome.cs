@@ -83,8 +83,11 @@ public sealed record NodeHome(string Path)
     /// </summary>
     public string RepoClonePath(string project, string repo) => RepoLayout.ClonePath(Path, project, repo);
 
-    /// <summary>The directory holding one directory per project whose flow runs have needed the node's clone of its repository.</summary>
-    public string ClonesPath => System.IO.Path.Combine(Path, "clones");
+    /// <summary>
+    /// Where a build from before the per-repo layout kept a project's one clone, <c>clones/&lt;project&gt;/repo.git</c>
+    /// under the home; the start moves each to <see cref="RepoClonePath"/>.
+    /// </summary>
+    public string EarlierClonesPath => System.IO.Path.Combine(Path, "clones");
 
     /// <summary>
     /// Where the transcripts of a flow run's sessions are kept: <c>transcripts/&lt;project&gt;/&lt;flow run id&gt;</c>

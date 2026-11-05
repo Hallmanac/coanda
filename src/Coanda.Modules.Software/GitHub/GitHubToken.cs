@@ -1,7 +1,7 @@
-using Coanda.Modules.Software.Repositories;
 using Coanda.Sdk;
 using Coanda.Sdk.Client;
 using Coanda.Sdk.Commands;
+using Coanda.Sdk.Repositories;
 
 namespace Coanda.Modules.Software.GitHub;
 
@@ -53,7 +53,7 @@ public sealed class GitHubToken(ICommandRunner runner, string workingDirectory, 
 
     /// <summary>Where the profile <paramref name="profile"/> keeps the token, or null when the name is not one plain directory name.</summary>
     public string? TokenPathOf(string profile) =>
-        ClonePaths.IsPlain(profile)
+        RepoLayout.IsPlain(profile)
             ? Path.Combine(profilesPath, profile, SoftwareSettings.GitHubTokenFile)
             : null;
 

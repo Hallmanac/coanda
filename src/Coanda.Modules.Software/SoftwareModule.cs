@@ -47,8 +47,7 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
         collection.AddHttpClient<CoreApiClient>().AddTypedClient((http, _) => new CoreApiClient(http, options.CoreApi()));
         services = collection.BuildServiceProvider();
 
-        var paths = new ClonePaths(options.ClonesPath, options.WorkPath);
-        clones = new ProjectClones(paths, options.CommandRunner, options.LoggerFactory.CreateLogger<ProjectClones>());
+        clones = new ProjectClones(options.HomePath, options.CommandRunner, options.LoggerFactory.CreateLogger<ProjectClones>());
         logger = options.LoggerFactory.CreateLogger<SoftwareModule>();
         var tokens = new GitHubToken(options.CommandRunner, options.HomePath, options.ProfilesPath);
 
@@ -58,7 +57,7 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
         foreach (ISoftwareStep step in new ISoftwareStep[]
         {
             new WorktreeStep(clones, ends),
-            new GatesStep(paths, options.CommandRunner, options.GatesCommandLimit),
+            new GatesStep(options.CommandRunner, options.GatesCommandLimit),
             new OpenPrStep(clones, tokens, GitHub),
             new GatedMergeStep(tokens, GitHub),
             new RebaseStep(clones),
@@ -124,10 +123,11 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
 
     /// <summary>
     /// Feed: for each flow run that ended or was stopped, notes its end, which lets a worktree step waiting
-    /// to take its worktree over go on, then removes its worktree and keeps its branch. A delivery the
-    /// module has seen before, one whose worktree another flow run's worktree step has already taken over,
-    /// and one in a project whose clone is gone remove nothing. A removal that fails is logged and left to
-    /// the next start's sweep.
+    /// to take its worktree over go on, then removes its worktree, the one at the work path the core shows
+    /// for the flow run, and keeps its branch. A delivery the module has seen before, one whose worktree
+    /// another flow run's worktree step has already taken over, one in a project with no clones, and one
+    /// for a flow run the core gives no work path or holds no record of remove nothing. A removal that fails, a failing read of
+    /// the flow run included, is logged and left to the next start's sweep.
     /// </summary>
     public async Task FeedAsync(FeedDelivery delivery, CancellationToken cancellationToken)
     {
@@ -158,9 +158,10 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
     {
         try
         {
-            if (await clones.RemoveAsync(project, flowRunId, cancellationToken))
+            if (await WorkPathAsync(project, flowRunId, cancellationToken) is { } workPath
+                && await clones.RemoveAsync(project, flowRunId, workPath, cancellationToken))
             {
-                logger.LogInformation("Removed the worktree of flow run {FlowRun} in project {Project}.", ClonePaths.Short(flowRunId), project);
+                logger.LogInformation("Removed the worktree of flow run {FlowRun} in project {Project}.", ShortId.Of(flowRunId), project);
             }
 
             // The worktree is gone, removed now or before, so no step can find it holding a branch.
@@ -172,7 +173,20 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
         }
         catch (Exception failure)
         {
-            logger.LogError(failure, "Removing the worktree of flow run {FlowRun} in project {Project} failed; the next start sweeps it.", ClonePaths.Short(flowRunId), project);
+            logger.LogError(failure, "Removing the worktree of flow run {FlowRun} in project {Project} failed; the next start sweeps it.", ShortId.Of(flowRunId), project);
+        }
+    }
+
+    /// <summary>The work path the core gives the flow run, or null when it gives none or holds no such flow run, which leaves nothing to remove.</summary>
+    private async Task<string?> WorkPathAsync(string project, Guid flowRunId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await services.GetRequiredService<CoreApiClient>().FlowRunAsync(project, flowRunId, cancellationToken)).WorkPath;
+        }
+        catch (CoreApiException missing) when (missing.Status == 404)
+        {
+            return null;
         }
     }
 
@@ -184,13 +198,13 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
             await clones.SweepAsync(
                 async (project, flowRunId, token) =>
                 {
-                    if (!await IsFinalAsync(core, project, flowRunId, token))
+                    if (await FinalWorkPathAsync(core, project, flowRunId, token) is not { } workPath)
                     {
-                        return false;
+                        return null;
                     }
 
                     ends.Note(flowRunId);
-                    return true;
+                    return workPath;
                 },
                 cancellationToken);
         }
@@ -200,16 +214,21 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
         }
     }
 
-    /// <summary>Whether the core shows the flow run ended or stopped; one it shows no such flow run of, or refuses to show, is not.</summary>
-    private static async Task<bool> IsFinalAsync(CoreApiClient core, string project, Guid flowRunId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The work path the core gives the flow run when it shows it ended or stopped, or null when it shows
+    /// it live, gives it no work path, holds no such flow run, or refuses to show it.
+    /// </summary>
+    private static async Task<string?> FinalWorkPathAsync(CoreApiClient core, string project, Guid flowRunId, CancellationToken cancellationToken)
     {
         try
         {
-            return (await core.FlowRunAsync(project, flowRunId, cancellationToken)).IsFinal;
+            return await core.FlowRunAsync(project, flowRunId, cancellationToken) is { IsFinal: true, WorkPath: { } workPath }
+                ? workPath
+                : null;
         }
         catch (CoreApiException)
         {
-            return false;
+            return null;
         }
     }
 }

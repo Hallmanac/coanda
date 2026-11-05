@@ -203,7 +203,7 @@ public sealed class DispatchFlowRunTests
         using var client = new DaemonClient(temp.Home);
         (Guid flowRunId, _) = await StartFlowRunAsync(daemon, client);
         Guid held = await AnsweredRunningAsync(daemon, step, flowRunId);
-        string clone = temp.Home.Clones().ProjectClonePath(Project);
+        string clone = temp.Home.ProjectClonePath(Project);
         string workPath = temp.Home.FlowRunWorkPath(Project, flowRunId);
         Directory.CreateDirectory(clone);
         runner.AddWorktree(clone, workPath, "task/dispatched", ScriptedCommandRunner.PrimaryHead);
@@ -241,7 +241,7 @@ public sealed class DispatchFlowRunTests
         using var client = new DaemonClient(temp.Home);
         (Guid flowRunId, _) = await StartFlowRunAsync(daemon, client);
         Guid held = await AnsweredRunningAsync(daemon, step, flowRunId);
-        string clone = temp.Home.Clones().ProjectClonePath(Project);
+        string clone = temp.Home.ProjectClonePath(Project);
         string workPath = temp.Home.FlowRunWorkPath(Project, flowRunId);
         Directory.CreateDirectory(clone);
         runner.AddWorktree(clone, workPath, "task/dispatched", ScriptedCommandRunner.PrimaryHead);

@@ -14,7 +14,9 @@ namespace Coanda.Tests.Daemon.Commands;
 /// push or <see cref="SetRemoteBranch"/> gave it, so fetching any other branch but the primary fails
 /// as git does for a missing remote ref, and one commit is an ancestor of another only when it is
 /// the same commit or <see cref="AddAncestry"/> said so. Answering a clone command (<c>git init</c>)
-/// with success creates the empty directory it names and nothing else. A command run in a modelled
+/// with success creates the empty directory it names and nothing else; <c>remote add</c> sets the
+/// remote's URL and default refspec in the configuration, where <c>config --add</c> appends a value
+/// and <c>config --get-all</c> reads every value, one a line. A command run in a modelled
 /// worktree's directory reads and moves that worktree's head: a checkout detaches it at a commit or
 /// puts it on a branch, and a rebase moves a detached head to <see cref="RebasedOnto"/> of the head
 /// and the commit it is rebased onto, unless <see cref="ConflictOnRebase"/> said it stops on a
@@ -84,6 +86,15 @@ public sealed class ScriptedCommandRunner : ICommandRunner
         lock (gate)
         {
             return CloneAt(clone).Worktrees.FirstOrDefault(w => w.Path == path)?.Branch;
+        }
+    }
+
+    /// <summary>Forgets every command recorded so far, keeping the git state they left in the model.</summary>
+    public void ForgetCommands()
+    {
+        lock (gate)
+        {
+            commands.Clear();
         }
     }
 
@@ -306,8 +317,19 @@ public sealed class ScriptedCommandRunner : ICommandRunner
                     return Ok();
                 case ["config", "--get", "--default", _, string key]:
                     return Ok(clone.Config.TryGetValue(key, out string? held) ? held + "\n" : "\n");
+                case ["config", "--get-all", string key]:
+                    return clone.Config.TryGetValue(key, out string? all)
+                        ? Ok(all + "\n")
+                        : Fails(1, string.Empty);
+                case ["config", "--add", string key, string value]:
+                    clone.Config[key] = clone.Config.TryGetValue(key, out string? earlier) ? $"{earlier}\n{value}" : value;
+                    return Ok();
                 case ["config", string key, string value]:
                     clone.Config[key] = value;
+                    return Ok();
+                case ["remote", "add", string name, string url]:
+                    clone.Config[$"remote.{name}.url"] = url;
+                    clone.Config[$"remote.{name}.fetch"] = $"+refs/heads/*:refs/remotes/{name}/*";
                     return Ok();
                 case ["branch", "--no-track", string branch, string head]:
                     clone.Branches[branch] = head;

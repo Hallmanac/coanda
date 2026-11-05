@@ -16,6 +16,7 @@ using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.Repositories;
 using Coanda.Modules.Software.Steps;
+using Coanda.Sdk.Repositories;
 using Coanda.Tests.Core;
 using Coanda.Tests.Daemon;
 using Coanda.Tests.Daemon.Commands;
@@ -57,16 +58,15 @@ public sealed class UnprefixedStepTests
     };
 
     [Fact]
-    public void The_module_finds_clones_and_work_paths_where_the_node_home_put_them()
+    public void Work_paths_stay_where_main_keeps_them_and_clones_move_to_the_per_repo_layout()
     {
         var home = new NodeHome(Path.Combine(Path.GetTempPath(), "coanda-home"));
-        var paths = new ClonePaths(home.ClonesPath, home.WorkPath);
         Guid flowRunId = Ids.New();
 
-        Assert.Equal(home.FlowRunWorkPath(Project, flowRunId), paths.FlowRunWorkPath(Project, flowRunId));
-        Assert.Equal(Path.Combine(home.Path, "clones", Project, "repo.git"), paths.ProjectClonePath(Project));
-        Assert.Equal(Path.Combine(home.Path, "clones", Project, "repo.git.partial"), paths.ProjectClonePartialPath(Project));
-        Assert.Equal(Path.Combine(home.Path, "work", Project, flowRunId.ToString()), paths.FlowRunWorkPath(Project, flowRunId));
+        Assert.Equal(Path.Combine(home.Path, "work", Project, flowRunId.ToString()), home.FlowRunWorkPath(Project, flowRunId));
+        Assert.Equal(Path.Combine(home.Path, "clones"), home.EarlierClonesPath);
+        Assert.Equal(Path.Combine(home.Path, "projects", Project, "repos", "repo"), home.RepoClonePath(Project, "repo"));
+        Assert.Equal(home.RepoClonePath(Project, "repo"), RepoLayout.ClonePath(home.Path, Project, "repo"));
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public sealed class UnprefixedStepTests
         Parcel parcel = await node.TaskAsync("Rebase me");
         Guid flowRunId = await RecordedAsync(node, parcel.Id, "open-pr", Recorded);
         await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, flowRunId, "rebase", None);
-        string clone = node.Home.Clones().ProjectClonePath(Project);
+        string clone = node.Home.ProjectClonePath(Project);
         string branch = ProjectClones.BranchOf(parcel.Id);
         runner.AddBranch(clone, branch, Recorded);
         runner.AddWorktree(clone, node.Home.FlowRunWorkPath(Project, flowRunId), branch, Recorded);
@@ -205,10 +205,11 @@ public sealed class UnprefixedStepTests
         var runner = new ScriptedCommandRunner();
         await using SoftwareNode node = await LegacyNodeAsync(runner);
         Parcel parcel = await node.TaskAsync("Check me out");
-        string clone = node.Home.Clones().ProjectClonePath(Project);
+        string clone = node.Home.ProjectClonePath(Project);
         string branch = ProjectClones.BranchOf(parcel.Id);
-        Guid earlier = Ids.New();
+        (Guid earlier, _) = await node.HeldAsync(parcel.Id, "worktree");
         await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, earlier);
+        await node.StopAsync(earlier);
         await node.DeliverEndAsync(earlier);
         Guid recorder = await RecordedAsync(node, parcel.Id, "open-pr", ScriptedCommandRunner.PrimaryHead);
         await node.FlowRuns.StartStepAsync(Principal.LocalOwner, Project, recorder, "rebase", None);

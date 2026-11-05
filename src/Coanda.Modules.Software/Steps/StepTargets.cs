@@ -93,7 +93,7 @@ public static class StepTargets
             return repos.Count == 1
                 ? Needed<CoreRepo>.Ready(repos[0])
                 : Needed<CoreRepo>.Paused(await context.PausedAsync(
-                    $"has no repo to act on: project '{project.Name}' has {Count(repos.Count)} ({held}), and parcel {ClonePaths.Short(parcel.Id)}'s type version declares no '{SoftwareSettings.ReposField}' field to name one.",
+                    $"has no repo to act on: project '{project.Name}' has {Count(repos.Count)} ({held}), and parcel {ShortId.Of(parcel.Id)}'s type version declares no '{SoftwareSettings.ReposField}' field to name one.",
                     Levers.NoReposField,
                     cancellationToken));
         }
@@ -118,7 +118,7 @@ public static class StepTargets
                 $"has no repo to act on: the task's '{SoftwareSettings.ReposField}' field names '{named[0]}', and project '{project.Name}' has no such repo; it has {held}.");
 
         async Task<Needed<CoreRepo>> NameRepoAsync(string what) =>
-            Needed<CoreRepo>.Paused(await context.PausedAsync(what, step => Levers.NameRepo(step, project.Name, ClonePaths.Short(parcel.Id), [.. repos.Select(r => r.Name)]), cancellationToken));
+            Needed<CoreRepo>.Paused(await context.PausedAsync(what, step => Levers.NameRepo(step, project.Name, ShortId.Of(parcel.Id), [.. repos.Select(r => r.Name)]), cancellationToken));
     }
 
     /// <summary>

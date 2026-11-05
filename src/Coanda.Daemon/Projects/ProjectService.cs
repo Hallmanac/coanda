@@ -23,9 +23,15 @@ namespace Coanda.Daemon.Projects;
 /// concurrent adds of one name cannot both pass the duplicate check, and two settings of one project's
 /// profile cannot both start its stream.
 /// </summary>
-public sealed class ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas)
+public sealed class ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, RepoClones? clones)
 {
     private readonly SemaphoreSlim writes = new(1, 1);
+
+    /// <summary>A project service that makes no clone when it registers a project, for a store opened without the daemon.</summary>
+    public ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas)
+        : this(store, clock, profiles, schemas, null)
+    {
+    }
 
     /// <summary>
     /// A project service whose daemon holds no credential profiles and whose only module settings schema
@@ -55,7 +61,9 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     /// <paramref name="settings"/>, each a replicated setting of one of those modules, in the same save.
     /// Each setting is decided against its module's settings schema and the switch-on this registration
     /// records, so a setting its schema refuses, one naming a module the registration does not switch on,
-    /// and one named twice each register nothing.
+    /// and one named twice each register nothing. Once the registration is saved, the core makes the
+    /// clone of the project's repo (<see cref="RepoClones.EnsureAsync"/>) before this returns; a clone it
+    /// cannot make is logged and leaves the registration as it is.
     /// </summary>
     public async Task<Project> AddAsync(
         Principal principal,
@@ -68,6 +76,7 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
         CommandRegistry.Require("project.add", principal);
         string tenant = Tenants.RequireProject(name);
 
+        Project added;
         await writes.WaitAsync(cancellationToken);
         try
         {
@@ -89,12 +98,19 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
             }
 
             await session.SaveChangesAsync(cancellationToken);
-            return project;
+            added = project;
         }
         finally
         {
             writes.Release();
         }
+
+        if (clones is not null)
+        {
+            await clones.EnsureAsync(added, cancellationToken);
+        }
+
+        return added;
     }
 
     /// <summary>

@@ -26,7 +26,7 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
     private readonly RecordingLogger log = new();
     private SoftwareNode node = null!;
 
-    private string Clone => node.Home.Clones().ProjectClonePath(Project);
+    private string Clone => node.Home.ProjectClonePath(Project);
 
     public async Task InitializeAsync() => node = await SoftwareNode.StartAsync(runner, log: log, projects: [Project, Uncloned]);
 
@@ -42,7 +42,7 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
     public async Task A_delivery_repeated_for_a_worktree_already_removed_removes_nothing_and_logs_no_failure()
     {
         Parcel parcel = await node.TaskAsync("Ended twice");
-        Guid ended = Ids.New();
+        (Guid ended, _) = await node.HeldAsync(parcel.Id, "worktree");
         Assert.IsType<SystemStepAnswer.Done>(await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, ended));
         await node.DeliverEndAsync(ended);
         Assert.Empty(runner.Worktrees(Clone));
@@ -57,12 +57,54 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
     [Fact]
     public async Task A_delivery_for_a_project_whose_clone_is_gone_runs_nothing_and_logs_no_failure()
     {
-        Assert.False(Directory.Exists(node.Home.Clones().ProjectClonePath(Uncloned)));
+        Parcel parcel = await node.TaskAsync("Uncloned", Uncloned);
+        (Guid ended, _) = await node.HeldAsync(parcel.Id, "worktree", Uncloned);
+        Directory.Delete(node.Home.ProjectClonePath(Uncloned));
 
-        await node.DeliverEndAsync(Ids.New(), Uncloned);
+        await node.DeliverEndAsync(ended, Uncloned);
 
         Assert.Empty(runner.Commands);
         AssertNoFailureLogged();
+    }
+
+    [Fact]
+    public async Task A_delivery_for_a_flow_run_the_core_holds_no_record_of_runs_nothing_and_logs_no_failure()
+    {
+        await node.DeliverEndAsync(Ids.New());
+
+        Assert.Empty(runner.Commands);
+        AssertNoFailureLogged();
+    }
+
+    [Fact]
+    public async Task A_delivery_removes_the_worktree_at_the_work_path_the_core_shows_and_no_other()
+    {
+        (_, string held, Guid holder) = await HeldAsync();
+        string elsewhere = Path.Combine(node.Home.Path, "elsewhere", holder.ToString());
+        runner.AddWorktree(Clone, elsewhere, "coanda/elsewhere", ScriptedCommandRunner.PrimaryHead);
+
+        await node.DeliverEndAsync(holder);
+
+        // a worktree whose last segment names the flow run, at a path that is not its work path, is left
+        Assert.Equal([elsewhere], runner.Worktrees(Clone));
+        Assert.DoesNotContain(held, runner.Worktrees(Clone));
+    }
+
+    [Fact]
+    public async Task A_clone_whose_listing_fails_does_not_keep_the_delivery_from_the_other_clones_and_its_failure_is_logged()
+    {
+        (_, string held, Guid holder) = await HeldAsync();
+        // "another" sorts before the project's clone, so its failure comes first.
+        string another = node.Home.ProjectClonePath(Project, "another");
+        Directory.CreateDirectory(another);
+        runner.On(
+            c => c.IsGit("worktree", "list") && c.GitDirectory() == another,
+            ScriptedCommandRunner.Fails(128, "fatal: not a git repository"));
+
+        await node.DeliverEndAsync(holder);
+
+        Assert.DoesNotContain(held, runner.Worktrees(Clone));
+        Assert.Single(log.Entries, e => e.Level == LogLevel.Error && e.Message.Contains($"Removing the worktree of flow run {Ids.Short(holder)}", StringComparison.Ordinal));
     }
 
     [Fact]

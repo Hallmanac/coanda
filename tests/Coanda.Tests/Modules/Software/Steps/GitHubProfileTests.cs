@@ -134,7 +134,7 @@ public sealed class GitHubProfileTests : IAsyncLifetime
     {
         Parcel parcel = await node.TaskAsync($"Open in {project}", project);
         await node.Parcels.BriefAsync(Principal.LocalOwner, project, parcel.Id, pullRequest: false, cancellationToken: None);
-        runner.AddBranch(node.Home.Clones().ProjectClonePath(project), ProjectClones.BranchOf(parcel.Id), ScriptedCommandRunner.PrimaryHead);
+        runner.AddBranch(node.Home.ProjectClonePath(project), ProjectClones.BranchOf(parcel.Id), ScriptedCommandRunner.PrimaryHead);
         (Guid flowRunId, Guid dispatchId) = await node.HeldAsync(parcel.Id, "open-pr", project);
 
         SystemStepAnswer answer = await node.DispatchAsync(SoftwareSteps.OpenPr, parcel.Id, flowRunId, dispatchId, project);
