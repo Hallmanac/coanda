@@ -111,20 +111,26 @@ public sealed class StoreWrittenByMainTests
         Assert.Equal(Expected(AlphaBuild), await ResolvedAsync(after, "alpha"));
         Assert.Equal(Expected(SoftwareFlows.Build), await ResolvedAsync(after, "beta"));
 
-        // Nothing was imported: main's records already hold every hash the module's files have, and
+        // Only the task type was imported, as its next version, since it has gained the repos field since
+        // main wrote the home; main's records already hold every other hash the module's files have, and
         // every record main wrote is still there as it was.
         List<Definition> held = await HeldAsync(after);
-        Assert.Equal(eventsBefore, await DefinitionEventsAsync(after, held));
+        Definition imported = Assert.Single(held, d => before.All(b => b.Id != d.Id));
+        Assert.Equal(
+            (DefinitionKind.ParcelType, "task", DefinitionScope.Module, SoftwareTypes.Task.Hash, DefinitionStatus.Published),
+            (imported.Kind, imported.Name, imported.Scope, imported.ContentHash, imported.Status));
+        List<Definition> kept = [.. held.Where(d => d.Id != imported.Id)];
+        Assert.Equal(eventsBefore, await DefinitionEventsAsync(after, kept));
         Assert.Equivalent(
             before.Select(d => (d.Id, d.Kind, d.Name, d.Scope, d.Project, d.VersionNumber, d.ContentHash, d.Status, d.ForkBase)),
-            held.Select(d => (d.Id, d.Kind, d.Name, d.Scope, d.Project, d.VersionNumber, d.ContentHash, d.Status, d.ForkBase)),
+            kept.Select(d => (d.Id, d.Kind, d.Name, d.Scope, d.Project, d.VersionNumber, d.ContentHash, d.Status, d.ForkBase)),
             strict: true);
 
         // What main recorded in shipped scope reads as the software module's, at version 0.1.0.
-        List<Definition> earlier = [.. held.Where(d => d.Scope == DefinitionScope.Module)];
+        List<Definition> earlier = [.. kept.Where(d => d.Scope == DefinitionScope.Module)];
         Assert.Equal(12, earlier.Count);
         Assert.All(earlier, d => Assert.Equal(("software", "0.1.0"), (d.Module, d.ModuleVersion)));
-        Assert.All(held.Where(d => d.Scope != DefinitionScope.Module), d => Assert.Equal((null, null), (d.Module, d.ModuleVersion)));
+        Assert.All(kept.Where(d => d.Scope != DefinitionScope.Module), d => Assert.Equal((null, null), (d.Module, d.ModuleVersion)));
         Assert.Equal(["build", "build"], earlier.Where(d => d.Kind == DefinitionKind.Flow && d.Name == "build").OrderBy(d => d.VersionNumber).Select(d => Flow.FromJson(d.Content).Name));
     }
 
@@ -170,7 +176,8 @@ public sealed class StoreWrittenByMainTests
         Parcel parcel = Assert.Single(await session.Query<Parcel>().ToListAsync(None));
         ParcelType? createdUnder = await new DefinitionResolver(store).ResolveParcelTypeByHashAsync("alpha", parcel.TypeHash, None);
 
-        Assert.Equal(SoftwareTypes.Task.Hash, parcel.TypeHash);
-        Assert.Equal(SoftwareTypes.Task.Hash, createdUnder?.Hash);
+        // Created under the task type main had, before the repos field, which it still reads.
+        Assert.Equal(SoftwareTypes.UnownedTask.Hash, parcel.TypeHash);
+        Assert.Equal(SoftwareTypes.UnownedTask.Hash, createdUnder?.Hash);
     }
 }

@@ -3,10 +3,12 @@ using Coanda.Core;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
+using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.FlowRuns;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.SystemSteps;
@@ -127,6 +129,11 @@ internal sealed class SoftwareNode : IAsyncDisposable
         return new SoftwareNode(temp, daemon, runner, github);
     }
 
+    /// <summary>Gives the software module's setting <paramref name="name"/> the value <paramref name="value"/> in <paramref name="project"/>, as the owner would.</summary>
+    public Task<ModuleSettingsShown> SetAsync(string project, string name, object value) =>
+        Services.GetRequiredService<ModuleSettingsService>().SetAsync(
+            Principal.LocalOwner, project, SoftwareSteps.Module, name, JsonSerializer.SerializeToElement(value), None);
+
     public async Task<Parcel> TaskAsync(string title, string project = Project) =>
         await Parcels.AddAsync(Principal.LocalOwner, project, "task", title, null, None);
 
@@ -159,6 +166,7 @@ internal sealed class SoftwareNode : IAsyncDisposable
     public async Task<SystemStepAnswer> DispatchAsync(
         string step, Guid parcelId, Guid flowRunId, Guid? dispatchId = null, string project = Project, CancellationToken? cancellationToken = null)
     {
+        await EnsureTaskAsync(project, parcelId);
         var request = new DispatchRequest(
             project, parcelId, flowRunId, step, Visit: 1, dispatchId ?? Ids.New(), Resumed: false,
             Home.FlowRunWorkPath(project, flowRunId), new Dictionary<string, JsonElement>());
@@ -170,6 +178,31 @@ internal sealed class SoftwareNode : IAsyncDisposable
             DispatchAnswer.Running => new SystemStepAnswer.Running(),
             _ => throw new InvalidOperationException($"The module answered {answer.GetType().Name}."),
         };
+    }
+
+    /// <summary>
+    /// Writes a task with the id <paramref name="parcelId"/> straight to the store when the project holds
+    /// no parcel by that id, as a test that names a parcel by an id of its own expects one to exist: the
+    /// module's steps read the task to find the repo it works in. A project the store holds no record of
+    /// is left alone, so the step meets the core's own refusal.
+    /// </summary>
+    private async Task EnsureTaskAsync(string project, Guid parcelId)
+    {
+        if (await ProjectService.FindAsync(Store, project, None) is null)
+        {
+            return;
+        }
+
+        await using IDocumentSession session = Store.LightweightSession(project);
+        if (await session.LoadAsync<Parcel>(parcelId, None) is not null)
+        {
+            return;
+        }
+
+        ParcelCreated created = ParcelDecider.Create(SoftwareTypes.Task, GateSet.Shipped, project, "Named by the test", null, Principal.LocalOwner.Id, DateTimeOffset.UtcNow)
+            with { ParcelId = parcelId };
+        session.Events.StartStream<Parcel>(parcelId, created);
+        await session.SaveChangesAsync(None);
     }
 
     public async ValueTask DisposeAsync()

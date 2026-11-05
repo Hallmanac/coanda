@@ -30,7 +30,6 @@ public sealed class ModuleRoleRegistryTests
     private static readonly Dictionary<string, Role[]> Before = new(StringComparer.Ordinal)
     {
         ["project.add"] = Owner,
-        ["project.set"] = Owner,
         ["project.set-profile"] = Owner,
         ["project-module.set"] = Owner,
         ["project-module.select-profile"] = Owner,

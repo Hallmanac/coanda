@@ -26,11 +26,14 @@ public sealed class ModuleImportTests
 {
     private static readonly CancellationToken None = CancellationToken.None;
 
-    /// <summary>Each definition the software module brings, with the content hash its C# definition had on main at e86428f.</summary>
+    /// <summary>
+    /// Each definition the software module brings, with the content hash its C# definition had on main at
+    /// e86428f, but for the task type, which has since gained the repos field the module owns.
+    /// </summary>
     public static TheoryData<DefinitionKind, string, string> HashesOnMain() => new()
     {
         { DefinitionKind.ParcelType, "idea", "e6c4447a6bc6586d" },
-        { DefinitionKind.ParcelType, "task", "f5bc1ad145ab7a9f" },
+        { DefinitionKind.ParcelType, "task", "ea1d4a852606b5ea" },
         { DefinitionKind.Flow, "build", "728a81e81272ed5e" },
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
         { DefinitionKind.Flow, "discovery", "c8b01e99a6cc7916" },
@@ -69,11 +72,11 @@ public sealed class ModuleImportTests
         return copy;
     }
 
-    private static ParcelType Article(params FieldDeclaration[] fields) => SoftwareTypes.Task with { Name = "article", FlowBindings = [], Fields = [.. SoftwareTypes.Task.Fields, .. fields] };
+    private static ParcelType Article(params FieldDeclaration[] fields) => SoftwareTypes.UnownedTask with { Name = "article", FlowBindings = [], Fields = [.. SoftwareTypes.UnownedTask.Fields, .. fields] };
 
     [Theory]
     [MemberData(nameof(HashesOnMain))]
-    public async Task Each_imported_definition_carries_the_hash_its_csharp_definition_had_on_main(DefinitionKind kind, string name, string hash)
+    public async Task Each_imported_definition_carries_the_hash_its_csharp_definition_had_on_main_or_the_task_has_now(DefinitionKind kind, string name, string hash)
     {
         using var temp = new TemporaryHome();
         await StartAndStopAsync(temp.Home);
@@ -102,7 +105,11 @@ public sealed class ModuleImportTests
     public void Neither_the_scope_nor_the_module_nor_its_version_is_part_of_a_content_hash()
     {
         DateTimeOffset now = DateTimeOffset.UnixEpoch;
-        foreach (ModuleDefinition definition in SoftwareDefinitions.All)
+
+        // The task's repos field names the software module as its owner, which only that module's own
+        // scope may, so the task is drafted elsewhere without it.
+        foreach (ModuleDefinition definition in SoftwareDefinitions.All.Select(d =>
+            d is { Kind: DefinitionKind.ParcelType, Name: "task" } ? ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask) : d))
         {
             DefinitionDrafted? first = DefinitionDecider.Import(definition, "software", "0.1.0", [], "import", now, knownSystemSteps: ShippedSystemSteps.Names)?.Drafted;
             DefinitionDrafted? second = DefinitionDecider.Import(definition, "elsewhere", "7.0.0", [], "import", now, knownSystemSteps: ShippedSystemSteps.Names)?.Drafted;
@@ -237,7 +244,7 @@ public sealed class ModuleImportTests
     public async Task A_modules_type_is_checked_against_the_gates_the_daemon_runs_as_a_draft_of_no_project_is()
     {
         using var temp = new TemporaryHome();
-        ParcelType gated = Article() with { GateBindings = [.. SoftwareTypes.Task.GateBindings, new GateBinding("build", "review", StandInGate.DefaultName)] };
+        ParcelType gated = Article() with { GateBindings = [.. SoftwareTypes.UnownedTask.GateBindings, new GateBinding("build", "review", StandInGate.DefaultName)] };
         using StandInModuleDirectory cms = StandInModuleDirectory.Write("cms", "1.0.0", ModuleDefinition.FromParcelType(gated));
         string file = Path.Combine(cms.DefinitionsPath, "types", "article.json");
 
@@ -266,7 +273,7 @@ public sealed class ModuleImportTests
     {
         using var temp = new TemporaryHome();
         using StandInModuleDirectory cms = StandInModuleDirectory.Write(
-            "cms", "1.0.0", ModuleDefinition.FromParcelType(Article()), ModuleDefinition.FromParcelType(SoftwareTypes.Task));
+            "cms", "1.0.0", ModuleDefinition.FromParcelType(Article()), ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new DaemonOptions { ModulePaths = [cms.Path] }));
 
@@ -349,7 +356,7 @@ public sealed class ModuleImportTests
             "cms", "1.0.0", ModuleDefinition.FromParcelType(Article(new FieldDeclaration { Name = "slug", Kind = FieldKinds.Text, Owner = "cms" })));
         await StartAndStopAsync(temp.Home, new DaemonOptions { ModulePaths = [cms.Path] });
         string owner = refusal?.Contains("'software'", StringComparison.Ordinal) == true ? "software" : "cms";
-        ParcelType article = Article(new FieldDeclaration { Name = field, Kind = FieldKinds.Text, Owner = owner }) with { Resolutions = [.. SoftwareTypes.Task.Resolutions, "spiked"] };
+        ParcelType article = Article(new FieldDeclaration { Name = field, Kind = FieldKinds.Text, Owner = owner }) with { Resolutions = [.. SoftwareTypes.UnownedTask.Resolutions, "spiked"] };
         await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
         var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: ShippedSystemSteps.Names);
 

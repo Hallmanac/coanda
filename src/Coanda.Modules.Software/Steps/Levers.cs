@@ -7,6 +7,46 @@ public static class Levers
     public static string PerformAgain(string step) => $"Resume the flow run to perform step '{step}' again.";
 
     /// <summary>
+    /// Names the software module's setting <paramref name="setting"/> a step needs and the command that
+    /// gives it a value in the project, after which a resume performs the step again.
+    /// </summary>
+    public static string SetSetting(string step, string project, string setting, string example) =>
+        $"Give the software module's setting '{setting}' a value in project '{project}' ({SoftwareSettings.SetCommand(project, setting, example)}), then resume the flow run to perform step '{step}' again.";
+
+    /// <summary>
+    /// Names the task's repos field and the command that sets it to the one repo the task works in, after
+    /// which a resume performs the step again.
+    /// </summary>
+    public static string NameRepo(string step, string project, string parcel, IReadOnlyList<string> repos) =>
+        $"Set the task's '{SoftwareSettings.ReposField}' field to the one repo it works in, which is one of {string.Join(", ", repos.Select(r => $"'{r}'"))} "
+        + $"(coa parcel set {parcel} {SoftwareSettings.ReposField} --item <repo> --project {project}), then resume the flow run to perform step '{step}' again.";
+
+    /// <summary>
+    /// Names the way out of a flow run on a parcel whose type version declares no repos field in a project
+    /// with more than one repo: nothing can name the repo, so the flow run is stopped.
+    /// </summary>
+    public static string NoReposField(string step) =>
+        $"Stop the flow run; performing step '{step}' again would find no '{SoftwareSettings.ReposField}' field to name the repo by and pause the same way, while a task created under a type version that declares the field can name it.";
+
+    /// <summary>
+    /// Names the software module's credential profile setting, whose selected profile yields no GitHub
+    /// token, and the command that selects one, after which a resume performs the step again. The profile
+    /// selected is the only place a token is read from, so no other account stands in for it.
+    /// </summary>
+    public static string SelectProfile(string step, string project, string? tokenPath)
+    {
+        string select = $"one of this node's credential profiles that holds a GitHub token for the software module's setting '{CredentialProfileSetting}' in project '{project}' "
+            + $"(coa project module select-profile {project} {SoftwareSteps.Module} <profile>)";
+        string fix = tokenPath is null
+            ? $"Select {select}"
+            : $"Put a GitHub token in {tokenPath}, or select {select}";
+        return $"{fix}, then resume the flow run to perform step '{step}' again.";
+    }
+
+    /// <summary>The name the credential profile setting goes by wherever a module's settings are listed by name.</summary>
+    public const string CredentialProfileSetting = "credential-profile";
+
+    /// <summary>
     /// Names the way out of a flow run whose push someone else's update of the branch on the remote
     /// refused: a resume pushes with the same lease and is refused the same way, while a new flow run's
     /// worktree step fetches the branch and builds on what the remote holds.

@@ -16,7 +16,7 @@ public sealed class DefinitionStoreTests
     private static readonly Principal Agent = new("build-session", Role.Agent);
     private static readonly Principal Member = new("pat", Role.Member);
 
-    private static readonly ParcelType QaTask = SoftwareTypes.Task with
+    private static readonly ParcelType QaTask = SoftwareTypes.UnownedTask with
     {
         Stages = [.. SoftwareTypes.Task.Stages, "qa"],
         Moves = new Dictionary<string, IReadOnlyList<string>>
@@ -260,7 +260,7 @@ public sealed class DefinitionStoreTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        ParcelType changed = SoftwareTypes.Task with { Resolutions = [.. SoftwareTypes.Task.Resolutions, "wontfix"] };
+        ParcelType changed = SoftwareTypes.UnownedTask with { Resolutions = [.. SoftwareTypes.Task.Resolutions, "wontfix"] };
 
         IReadOnlyList<Definition> seeded = await Definitions(store).ImportAsync(SoftwareDefinitions.Artifact([ModuleDefinition.FromParcelType(changed)]), CancellationToken.None);
 
@@ -336,7 +336,7 @@ public sealed class DefinitionStoreTests
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "build", CancellationToken.None);
         await parcels.MoveAsync(Principal.LocalOwner, "alpha", inReview.Id, "review", CancellationToken.None);
 
-        ParcelType withoutReview = SoftwareTypes.Task with
+        ParcelType withoutReview = SoftwareTypes.UnownedTask with
         {
             Stages = ["refine", "build", SoftwareTypes.Paused, SoftwareTypes.Closed],
             Resolutions = ["shipped"],
@@ -368,7 +368,7 @@ public sealed class DefinitionStoreTests
         Parcel original = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "Before", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, "alpha", original.Id, cancellationToken: CancellationToken.None);
 
-        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", SoftwareTypes.Task with { Name = "Task", EntryStages = ["refine", "build"] });
+        Definition cased = await PublishedProjectTypeAsync(definitions, "alpha", SoftwareTypes.UnownedTask with { Name = "Task", EntryStages = ["refine", "build"] });
         Assert.Equal("build", (await parcels.MoveAsync(Principal.LocalOwner, "alpha", original.Id, "build", CancellationToken.None)).Stage);
 
         Parcel underCased = await parcels.AddAsync(Principal.LocalOwner, "alpha", "task", "After", "build", CancellationToken.None);

@@ -104,6 +104,7 @@ public sealed class DaemonHost
             new SoftwareModuleOptions
             {
                 HomePath = home.Path,
+                ProfilesPath = home.ModuleAreaOf(SoftwareSteps.Module),
                 ClonesPath = home.ClonesPath,
                 WorkPath = home.WorkPath,
                 CoreApi = softwareCore.Options,

@@ -7,7 +7,8 @@ namespace Coanda.Modules.Software.Steps;
 
 /// <summary>
 /// Rebases the task's branch, in the flow run's own worktree, from the recorded head (the <c>head</c>
-/// of the latest open-pr or rebase result in the flow run's chain) onto the project's primary branch,
+/// of the latest open-pr or rebase result in the flow run's chain) onto the primary branch of the repo
+/// the task works in (<see cref="StepTargets.TargetAsync"/>),
 /// pushes the result with a lease that expects the recorded head on the remote, and answers done
 /// with the <c>head</c> it pushed (<see cref="ProjectClones.RebaseAsync"/>). A conflict pauses naming
 /// the unmerged paths, with a lever that sends the resolution through build; a worktree with
@@ -32,6 +33,11 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
             return await context.PerformAgainAsync($"has no repository to rebase in: {missing.Message}", cancellationToken);
         }
 
+        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        {
+            return pause;
+        }
+
         if (await RecordedHeads.OfChainAsync(context, cancellationToken) is not { } head)
         {
             return await context.PerformAgainAsync(
@@ -43,7 +49,7 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
         Rebase rebase;
         try
         {
-            rebase = await clones.RebaseAsync(project, request.ParcelId, request.FlowRunId, head, cancellationToken);
+            rebase = await clones.RebaseAsync(target, request.ParcelId, request.FlowRunId, head, cancellationToken);
         }
         catch (GitCommandException failed)
         {
@@ -60,8 +66,8 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
                 step,
                 $"rebased nothing: branch {branch} is at {Named(moved.Tip)}, not {head}, the commit the flow run's chain recorded as pushed, and the remote's branch, at {Named(moved.Remote)}, is no commit this step noted and pushed, so a rebase would carry commits nobody recorded."),
             Rebase.Conflict conflict => new DispatchAnswer.Paused(
-                $"Step '{step}' rebased nothing: rebasing {branch} from {head} onto '{project.PrimaryBranch}' stopped on a conflict{(conflict.Commit.Length > 0 ? $" at {conflict.Commit}" : string.Empty)}, where git reports these paths unmerged: {string.Join(", ", conflict.Paths)}. The rebase was aborted and the branch checked out again at {head}; nothing was pushed.",
-                Levers.RebaseConflict(clones.ClonePathOf(project), branch, project.PrimaryBranch)),
+                $"Step '{step}' rebased nothing: rebasing {branch} from {head} onto '{target.PrimaryBranch}' stopped on a conflict{(conflict.Commit.Length > 0 ? $" at {conflict.Commit}" : string.Empty)}, where git reports these paths unmerged: {string.Join(", ", conflict.Paths)}. The rebase was aborted and the branch checked out again at {head}; nothing was pushed.",
+                Levers.RebaseConflict(clones.ClonePathOf(target), branch, target.PrimaryBranch)),
             Rebase.Stale stale => Refused(
                 step, $"pushed nothing: someone else updated branch {branch} on the remote, which no longer holds {head}, so git refused the push its lease guards. {stale.Reason}"),
             Rebase.Failed failed => new DispatchAnswer.Paused($"Step '{step}' could not push the rebased {branch}: {failed.Reason}", Levers.PerformAgain(step)),

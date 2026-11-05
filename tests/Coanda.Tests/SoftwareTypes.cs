@@ -11,6 +11,12 @@ public static class SoftwareTypes
 
     public static readonly IReadOnlyList<ParcelType> All = [Idea, Task];
 
+    /// <summary>
+    /// The task type without the fields the software module owns, as a project or the owner writes a task
+    /// type of its own with no fork base, which may name no field's owner.
+    /// </summary>
+    public static readonly ParcelType UnownedTask = Task with { Fields = [.. Task.Fields.Where(f => f.Owner is null)] };
+
     /// <summary>The task type's terminal stage, the stage a closed parcel of either type is in.</summary>
     public static string Closed => Task.TerminalStage;
 

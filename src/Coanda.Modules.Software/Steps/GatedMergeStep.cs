@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Text.Json;
 using Coanda.Modules.Software.GitHub;
 using Coanda.Sdk.Client;
 using Coanda.Sdk.Contract;
@@ -11,10 +12,12 @@ namespace Coanda.Modules.Software.Steps;
 /// field names and merges exactly the head it inspected. A pull request already merged answers
 /// <see cref="MergedVerdict"/> with GitHub's commit before anything read from its state or from the
 /// recorded head is checked, so a step performed again after a merge that was not recorded makes no
-/// second request. Otherwise it merges only an open pull request on the project's primary branch
+/// second request. Otherwise it merges only an open pull request on the primary branch of the repo
+/// the task works in (<see cref="StepTargets.TargetAsync"/>)
 /// whose head is the recorded head (the <c>head</c> of the latest open-pr or rebase result in the
 /// chain, <see cref="RecordedHeads.OfChainAsync"/>), which is behind the primary branch by no
-/// commits, which GitHub reports mergeable, and on which every check the project's record names has
+/// commits, which GitHub reports mergeable, and on which every check the module's required-checks
+/// setting names has
 /// succeeded and no other reported check has failed or is still running. The merge request carries
 /// that head as the expected head and names the method the repository allows, preferring merge,
 /// then squash, then rebase. The primary branch is compared with the head both before mergeability
@@ -54,8 +57,12 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
             return PerformAgain(step, $"has no repository to merge in: {missing.Message}");
         }
 
-        CoreParcel parcel = await context.Core.ParcelAsync(request.Project, request.ParcelId, cancellationToken);
+        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        {
+            return pause;
+        }
 
+        CoreParcel parcel = await context.ParcelAsync(cancellationToken);
         if (parcel.ValueOf(OpenPrStep.PullRequestField)?.Reference is not { } reference)
         {
             return PerformAgain(step, $"has no pull request to merge: the task's {OpenPrStep.PullRequestField} field has no value.");
@@ -67,17 +74,23 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
                 step, $"has no pull request to merge: the task's {OpenPrStep.PullRequestField} field holds '{reference.Id}', which is no pull request number.");
         }
 
-        if (GitHubRepository.Parse(project.Remote) is not { } repository)
+        if (GitHubRepository.Parse(target.Remote) is not { } repository)
         {
             return PerformAgain(
                 step,
-                $"merged nothing: the remote '{GitHubRepository.Redact(project.Remote)}' of project '{project.Name}' is not a github.com repository in a form the step reads ({GitHubRepository.Forms}).");
+                $"merged nothing: the remote '{GitHubRepository.Redact(target.Remote)}' of repo '{target.Repo}' in project '{project.Name}' is not a github.com repository in a form the step reads ({GitHubRepository.Forms}).");
         }
 
         string token;
         try
         {
-            token = await tokens.ReadAsync(cancellationToken);
+            token = await tokens.ReadAsync((await context.SettingsAsync(cancellationToken)).CredentialProfile, cancellationToken);
+        }
+        catch (GitHubProfileTokenException failing)
+        {
+            return new DispatchAnswer.Paused(
+                $"Step '{step}' merged nothing: no GitHub token is available, because {failing.Message}",
+                Levers.SelectProfile(step, project.Name, failing.TokenPath));
         }
         catch (GitHubTokenUnavailableException missing)
         {
@@ -87,7 +100,7 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
         GitHubClient client = github();
         try
         {
-            return await InspectAndMergeAsync(context, step, project, repository, number, client, token, cancellationToken);
+            return await InspectAndMergeAsync(context, step, target, RequiredChecks(await context.SettingsAsync(cancellationToken)), repository, number, client, token, cancellationToken);
         }
         catch (GitHubRefusedException refused)
         {
@@ -102,7 +115,8 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
     private async Task<DispatchAnswer> InspectAndMergeAsync(
         StepContext context,
         string step,
-        CoreProject project,
+        RepoTarget target,
+        IReadOnlyList<string>? required,
         GitHubRepository repository,
         int number,
         GitHubClient client,
@@ -127,11 +141,14 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
                 step, $"merged nothing: no open-pr or rebase result with a head is recorded in the flow run's chain, so there is no pushed commit to hold {named} to.");
         }
 
-        if (project.RequiredChecks.Count == 0)
+        if (required is not { Count: > 0 })
         {
-            return PerformAgain(
-                step,
-                $"merged nothing: project '{project.Name}' names no check for a merge to wait for, so the step cannot tell whether every expected check has reported; name them with coa project set {project.Name} --required-check <check>.");
+            return await StepTargets.MissingSettingAsync(
+                context,
+                SoftwareSettings.RequiredChecks,
+                $"merged nothing: the software module's setting '{SoftwareSettings.RequiredChecks}' names no check for a merge to wait for in project '{target.Project}', so the step cannot tell whether every expected check has reported.",
+                "'[\"<check>\"]'",
+                cancellationToken);
         }
 
         if (!pullRequest.IsOpen)
@@ -139,10 +156,10 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
             return PerformAgain(step, $"merged nothing: {named} is closed without being merged.");
         }
 
-        if (!string.Equals(pullRequest.BaseRef, project.PrimaryBranch, StringComparison.Ordinal))
+        if (!string.Equals(pullRequest.BaseRef, target.PrimaryBranch, StringComparison.Ordinal))
         {
             return PerformAgain(
-                step, $"merged nothing: {named} targets '{pullRequest.BaseRef}', not the primary branch '{project.PrimaryBranch}' of project '{project.Name}'.");
+                step, $"merged nothing: {named} targets '{pullRequest.BaseRef}', not the primary branch '{target.PrimaryBranch}' of repo '{target.Repo}' in project '{target.Project}'.");
         }
 
         if (!string.Equals(pullRequest.HeadSha, head, StringComparison.Ordinal))
@@ -158,12 +175,12 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
 
         if (pullRequest.Mergeable is false)
         {
-            return PerformAgain(step, $"merged nothing: GitHub reports that {named} has a conflict with '{project.PrimaryBranch}'.");
+            return PerformAgain(step, $"merged nothing: GitHub reports that {named} has a conflict with '{target.PrimaryBranch}'.");
         }
 
         IReadOnlyList<GitHubCheckRun> runs = await client.CheckRunsAsync(repository, head, token, cancellationToken);
         IReadOnlyList<GitHubCommitStatus> statuses = await client.StatusesAsync(repository, head, token, cancellationToken);
-        Checks checks = Inspect(project.RequiredChecks, runs, statuses);
+        Checks checks = Inspect(required, runs, statuses);
         if (checks.Failed is { } failed)
         {
             return PerformAgain(step, $"merged nothing: {failed} on {head}.");
@@ -206,16 +223,22 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
 
         async Task<DispatchAnswer.Done?> BehindAsync()
         {
-            int behind = await client.BehindByAsync(repository, project.PrimaryBranch, head, token, cancellationToken);
+            int behind = await client.BehindByAsync(repository, target.PrimaryBranch, head, token, cancellationToken);
             return behind > 0
                 ? Results.With(
                     BehindVerdict,
                     Name,
-                    ("reason", $"The head {head} of {named} is behind the primary branch '{project.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran."),
+                    ("reason", $"The head {head} of {named} is behind the primary branch '{target.PrimaryBranch}' by {behind} commit{(behind == 1 ? string.Empty : "s")}, so a merge would land a tree CI never ran."),
                     ("behind", behind))
                 : null;
         }
     }
+
+    /// <summary>The checks the module's setting names for a merge to wait for, or null when it names none.</summary>
+    private static IReadOnlyList<string>? RequiredChecks(CoreModuleSettings settings) =>
+        settings.ValueOf(SoftwareSettings.RequiredChecks) is { ValueKind: JsonValueKind.Array } checks
+            ? [.. checks.EnumerateArray().Where(c => c.ValueKind == JsonValueKind.String).Select(c => c.GetString()).OfType<string>()]
+            : null;
 
     /// <summary>What the checks on the head say: the first failure, or the checks still to come.</summary>
     private readonly record struct Checks(string? Failed, IReadOnlyList<string> Pending);

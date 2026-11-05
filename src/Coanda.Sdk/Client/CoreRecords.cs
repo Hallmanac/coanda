@@ -2,11 +2,44 @@ using System.Text.Json;
 
 namespace Coanda.Sdk.Client;
 
+/// <summary>A registered project as the core's API shows it: its name and its repos.</summary>
+public sealed record CoreProject(string Name, IReadOnlyList<CoreRepo> Repos);
+
+/// <summary>One of a project's repos: the name it goes by, which is one plain directory name, and its git remote.</summary>
+public sealed record CoreRepo(string Name, string Remote);
+
 /// <summary>
-/// A registered project as the core's API shows it: its repository's remote and primary branch, the
-/// build and test commands its gates run, the defaults included, and the checks a merge waits for.
+/// A module's settings in a project as the core's API shows them: each replicated setting the module
+/// declares with where its value comes from (<c>Set</c>, <c>Default</c>, or <c>Unset</c>) and the value,
+/// the default's when it is the default, or null when there is none; and its credential profile setting
+/// on this node, when it declares one.
 /// </summary>
-public sealed record CoreProject(string Name, string Remote, string PrimaryBranch, string Build, string Test, IReadOnlyList<string> RequiredChecks);
+public sealed record CoreModuleSettings(string Project, string Module, IReadOnlyList<CoreReplicatedSetting> Replicated, CoreCredentialProfile? CredentialProfile)
+{
+    /// <summary>The value the replicated setting <paramref name="name"/> has, its default included, or null when it has none or the module declares no such setting.</summary>
+    public JsonElement? ValueOf(string name) =>
+        Replicated.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal)) is { Value: { ValueKind: not JsonValueKind.Null } value }
+            ? value
+            : null;
+}
+
+/// <summary>One replicated setting a module declares, with its value in the project and where that comes from.</summary>
+public sealed record CoreReplicatedSetting(string Name, bool Required, string Source, JsonElement? Value);
+
+/// <summary>
+/// The credential profile setting of a module in a project on this node: <see cref="Source"/> is
+/// <c>Set</c> when a profile the node holds is selected, <c>Missing</c> when the profile selected is one
+/// it no longer holds, <c>Default</c> when none is selected and the node's default identity stands, and
+/// <c>Unset</c> when none is selected and nothing stands; <see cref="Profile"/> is the selected profile's name.
+/// </summary>
+public sealed record CoreCredentialProfile(bool Required, string Source, string? Profile)
+{
+    /// <summary>Whether a profile this node holds is selected.</summary>
+    public bool IsSelected => string.Equals(Source, "Set", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether no profile is selected and the node's default identity stands in for one.</summary>
+    public bool IsNodeDefault => string.Equals(Source, "Default", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>A parcel as the core's API shows it, with every field the type version it was created under declares.</summary>
 public sealed record CoreParcel(Guid Id, string Project, string Type, string Stage, string Title, Guid? LiveFlowRunId, IReadOnlyList<CoreParcelField> Fields)

@@ -311,7 +311,7 @@ public sealed class MergeFlowRunTests
         var github = new FakeGitHub();
         var hold = new HoldingGate();
         await using Harness harness = await Harness.StartAsync(github, project: null, hold);
-        await harness.PublishTypeAsync(SoftwareTypes.Task with
+        await harness.PublishTypeAsync(SoftwareTypes.UnownedTask with
         {
             GateBindings = [.. SoftwareTypes.Task.GateBindings, new GateBinding("review", SoftwareTypes.Closed, HoldingGate.GateName)],
         });

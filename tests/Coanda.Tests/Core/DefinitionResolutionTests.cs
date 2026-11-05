@@ -17,7 +17,7 @@ public sealed class DefinitionResolutionTests
         bool publish = true,
         bool retire = false)
     {
-        ParcelType type = SoftwareTypes.Task with { Name = name };
+        ParcelType type = SoftwareTypes.UnownedTask with { Name = name };
         Definition definition = scope == DefinitionScope.Module
             ? Definition.Create(new DefinitionDrafted(
                 Ids.New(), DefinitionKind.ParcelType, name, scope, null, version, ParcelType.CanonicalJson(type), type.Hash, null, "import", Now, "software", "0.1.0"))

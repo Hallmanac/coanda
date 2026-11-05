@@ -49,11 +49,9 @@ app.Configure(config =>
 
     config.AddBranch("project", project =>
     {
-        project.SetDescription("A project is a record of the one repository its work acts on: a remote and a primary branch.");
-        project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its repository's remote and primary branch.")
+        project.SetDescription("A project is a name and the repos its work acts on, each a git remote; a module's settings for it are set with coa project module.");
+        project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its first repo's remote and the software module's primary branch, build, and test settings.")
             .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git", "--branch", "main");
-        project.AddCommand<ProjectSetCommand>("set").WithDescription("Replace the checks a merge of the project's pull requests waits for.")
-            .WithExample("project", "set", "coanda", "--required-check", "build-test (ubuntu-latest)", "--required-check", "build-test (windows-latest)");
         project.AddCommand<ProjectSetProfileCommand>("set-profile").WithDescription("Name the credential profile this node spawns the project's agent steps with.")
             .WithExample("project", "set-profile", "coanda", "work");
         project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
@@ -62,7 +60,7 @@ app.Configure(config =>
         {
             module.SetDescription("A module's settings in a project: replicated settings the project agrees on, and the credential profile this node selects.");
             module.AddCommand<ProjectModuleSetCommand>("set").WithDescription("Give one of a module's replicated settings in a project a value.")
-                .WithExample("project", "module", "set", "coanda", "software", "primary-branch", "main");
+                .WithExample("project", "module", "set", "coanda", "software", "required-checks", "'[\"build-test (ubuntu-latest)\"]'");
             module.AddCommand<ProjectModuleSelectProfileCommand>("select-profile").WithDescription("Select one of this node's credential profiles for a module in a project.")
                 .WithExample("project", "module", "select-profile", "coanda", "software", "work");
             module.AddCommand<ProjectModuleShowCommand>("show").WithDescription("Show a module's settings in a project and whether it is configured on this node.")

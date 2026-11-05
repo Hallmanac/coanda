@@ -1,6 +1,6 @@
 using System.Globalization;
 using Coanda.Cli;
-using ProjectDefaults = Coanda.Core.Projects.Project;
+using Coanda.Modules.Software;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Sdk.Commands;
@@ -79,7 +79,7 @@ public sealed class FixContextFlowRunTests
         var runner = new ScriptedCommandRunner();
         int tests = 0;
         runner.On(
-            c => c.IsShell(ProjectDefaults.DefaultTest),
+            c => c.IsShell(SoftwareSettings.DefaultTest),
             (_, _) => Task.FromResult(Interlocked.Increment(ref tests) == 1
                 ? new CommandResult(1, "Failed ParserTests.ReadsEmpty\n", string.Empty, "Failed ParserTests.ReadsEmpty\n")
                 : ScriptedCommandRunner.Ok()));

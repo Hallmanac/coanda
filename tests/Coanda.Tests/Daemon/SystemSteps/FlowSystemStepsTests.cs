@@ -160,7 +160,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public async Task Worktree_answers_done_with_the_parcels_branch_and_the_head_it_checked_out()
     {
-        Guid parcelId = Ids.New();
+        Guid parcelId = (await TaskAtAsync("refine")).Id;
 
         JsonElement result = DoneResult(await DispatchAsync(Step(SoftwareSteps.Worktree), parcelId));
 
@@ -177,13 +177,13 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 
         Assert.Equal(SoftwareSteps.Gates, result.GetProperty("systemStep").GetString());
         Assert.False(result.TryGetProperty("placeholder", out _));
-        Assert.Equal([Coanda.Core.Projects.Project.DefaultBuild, Coanda.Core.Projects.Project.DefaultTest], runner.ShellLines);
+        Assert.Equal([SoftwareSettings.DefaultBuild, SoftwareSettings.DefaultTest], runner.ShellLines);
     }
 
     [Fact]
     public async Task Open_pr_answers_opened_with_the_pull_requests_number_and_url_and_the_head_it_pushed()
     {
-        Parcel parcel = await TaskAtAsync("build");
+        Parcel parcel = await TaskAtAsync("refine");
         (Guid flowRunId, Guid dispatchId) = await node.HeldAsync(parcel.Id, "open-pr");
 
         JsonElement result = Assert.IsType<SystemStepAnswer.Done>(await DispatchAsync(OpenPrFlowStep, parcel.Id, flowRunId: flowRunId, dispatchId: dispatchId)).Result;

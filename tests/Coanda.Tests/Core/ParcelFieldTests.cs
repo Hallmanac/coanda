@@ -62,7 +62,7 @@ public sealed class ParcelFieldTests
     public void A_field_the_type_version_does_not_declare_is_refused_quoting_the_rule()
     {
         DomainException exception = Assert.Throws<DomainException>(() => ParcelDecider.SetField(Task, NewTask(), "branch", FieldValue.OfText("main"), "brian", Now));
-        Assert.Equal("Parcel type 'task' declares no field 'branch'; a parcel holds values only in the fields its type declares: objective, criteria, non-goals, pull-request.", exception.Message);
+        Assert.Equal("Parcel type 'task' declares no field 'branch'; a parcel holds values only in the fields its type declares: objective, criteria, non-goals, pull-request, repos.", exception.Message);
 
         Parcel idea = Parcel.Create(ParcelDecider.Create(SoftwareTypes.Idea, Gates, "coanda", "No fields", null, "brian", Now));
         DomainException exception2 = Assert.Throws<DomainException>(() => ParcelDecider.SetField(SoftwareTypes.Idea, idea, "objective", FieldValue.OfText("x"), "brian", Now));

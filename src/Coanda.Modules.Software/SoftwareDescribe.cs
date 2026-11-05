@@ -20,19 +20,29 @@ public static class SoftwareDescribe
         ?? "0.0.0";
 
     /// <summary>
-    /// The module's settings for each project it is switched on for. The replicated settings name the
-    /// repository's primary branch, the build and test commands, and the checks a merge waits for, none
-    /// of them required and none with a default. The credential profile setting names the GitHub account
-    /// a project's steps act as; it is required, and a project that selects none acts as the account the
-    /// node's GitHub CLI is signed in to, which counts as its value.
+    /// The module's settings for each project it is switched on for. The replicated settings name each
+    /// repo's primary branch, as an object from a repo's name to its branch; the build and test commands,
+    /// which default to <see cref="SoftwareSettings.DefaultBuild"/> and <see cref="SoftwareSettings.DefaultTest"/>;
+    /// and the checks a merge waits for. None is required, so a project missing one is still configured, and
+    /// the step that needs it pauses naming it instead. A branch, a command, and a check must each hold
+    /// something other than white space. The credential profile setting names the profile a project's steps
+    /// read their GitHub token through; it is required, and a project that selects none acts as the account
+    /// the node's GitHub CLI is signed in to, which counts as its value.
     /// </summary>
     public static SettingsSchema Settings { get; } = new(
         [
-            new ReplicatedSetting("primary-branch", Json("""{ "type": "string", "minLength": 1 }"""), Required: false),
-            new ReplicatedSetting("build", Json("""{ "type": "string", "minLength": 1 }"""), Required: false),
-            new ReplicatedSetting("test", Json("""{ "type": "string", "minLength": 1 }"""), Required: false),
             new ReplicatedSetting(
-                "required-checks", Json("""{ "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }"""), Required: false),
+                SoftwareSettings.PrimaryBranch,
+                Json("""{ "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "pattern": "\\S" } }"""),
+                Required: false),
+            new ReplicatedSetting(
+                SoftwareSettings.Build, Json("""{ "type": "string", "pattern": "\\S" }"""), Required: false, Default: JsonSerializer.SerializeToElement(SoftwareSettings.DefaultBuild)),
+            new ReplicatedSetting(
+                SoftwareSettings.Test, Json("""{ "type": "string", "pattern": "\\S" }"""), Required: false, Default: JsonSerializer.SerializeToElement(SoftwareSettings.DefaultTest)),
+            new ReplicatedSetting(
+                SoftwareSettings.RequiredChecks,
+                Json("""{ "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\S" } }"""),
+                Required: false),
         ],
         new CredentialProfileSetting(Required: true, DefaultsToNodeIdentity: true));
 

@@ -1,10 +1,14 @@
 using Coanda.Core;
+using Coanda.Core.Modules;
+using Coanda.Core.Modules.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
+using Coanda.Modules.Software;
+using Coanda.Sdk.Contract;
 using Fisher;
 using JasperFx.Events;
 using JasperFx.Events.Documents;
@@ -14,48 +18,53 @@ namespace Coanda.Daemon.Projects;
 /// <summary>
 /// The daemon's side of every project command and query: pass the registry, check the name the way
 /// every project command does, ask the decider, append, save. A project's record lives in its own
-/// tenant, and so do the modules switched on for it; the credential profile it names is a node-local
-/// setting in the node tenant. Writes are
-/// serialized so that two concurrent adds of one name cannot both pass the duplicate check, and two
-/// settings of one project's profile cannot both start its stream.
+/// tenant, and so do the modules switched on for it and their replicated settings; the credential
+/// profile it names is a node-local setting in the node tenant. Writes are serialized so that two
+/// concurrent adds of one name cannot both pass the duplicate check, and two settings of one project's
+/// profile cannot both start its stream.
 /// </summary>
-public sealed class ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles)
+public sealed class ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas)
 {
     private readonly SemaphoreSlim writes = new(1, 1);
 
-    /// <summary>A project service whose daemon holds no credential profiles.</summary>
+    /// <summary>
+    /// A project service whose daemon holds no credential profiles and whose only module settings schema
+    /// is the software module's, the module every registration switches on.
+    /// </summary>
     public ProjectService(IDocumentStore store, TimeProvider clock)
-        : this(store, clock, new CredentialProfiles([]))
+        : this(
+            store,
+            clock,
+            new CredentialProfiles([]),
+            new ModuleSettingsSchemas(new Dictionary<string, SettingsSchema> { [SoftwareSteps.Module] = SoftwareDescribe.Settings }))
     {
     }
 
     /// <summary>The rule a command quotes when the project it names has no record.</summary>
     public static string Unregistered(string project) => ProjectDecider.Unregistered(project);
 
-    /// <summary>Registers a project whose gates run <see cref="Project.DefaultBuild"/> and <see cref="Project.DefaultTest"/>.</summary>
-    public Task<Project> AddAsync(Principal principal, string name, string remote, string primaryBranch, CancellationToken cancellationToken) =>
-        AddAsync(principal, name, remote, primaryBranch, buildCommand: null, testCommand: null, cancellationToken);
-
     /// <summary>
     /// The principal that switches the default modules on for a project registered before modules
-    /// were: the daemon itself, in the Owner role.
+    /// were, and carries an earlier build's settings into a module's: the daemon itself, in the Owner role.
     /// </summary>
     public static readonly Principal UpgradePrincipal = new("coanda-upgrade", Role.Owner);
 
     /// <summary>
-    /// Registers a project, switching on for it the modules the daemon hosts by default
-    /// (<see cref="HostedModules.Defaults"/>), with nothing configured; a null build or test command
-    /// leaves its gates on the default.
+    /// Registers a project with one repo, at <paramref name="remote"/>, switching on for it the modules
+    /// the daemon hosts by default (<see cref="HostedModules.Defaults"/>), and records
+    /// <paramref name="settings"/>, each a replicated setting of one of those modules, in the same save.
+    /// Each setting is decided against its module's settings schema and the switch-on this registration
+    /// records, so a setting its schema refuses, one naming a module the registration does not switch on,
+    /// and one named twice each register nothing.
     /// </summary>
     public async Task<Project> AddAsync(
         Principal principal,
         string name,
         string remote,
-        string primaryBranch,
-        string? buildCommand,
-        string? testCommand,
+        IReadOnlyList<ModuleSettingValue> settings,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(settings);
         CommandRegistry.Require("project.add", principal);
         string tenant = Tenants.RequireProject(name);
 
@@ -64,16 +73,22 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
         {
             Project? existing = await FindAsync(store, tenant, cancellationToken);
             IReadOnlyList<string> registeredNames = existing is null ? await NamesAsync(store, cancellationToken) : [];
-            ProjectRegistered registered = ProjectDecider.Register(
-                tenant, remote, primaryBranch, existing, principal.Id, clock.GetUtcNow(), buildCommand, testCommand, registeredNames);
+            ProjectRegistered registered = ProjectDecider.Register(tenant, remote, existing, principal.Id, clock.GetUtcNow(), registeredNames);
 
             Project project = Project.Create(registered);
             ProjectModulesSet switchedOn = ProjectDecider.SetModules(tenant, project, HostedModules.Defaults, principal.Id, registered.RegisteredAt);
+            project.Apply(switchedOn);
+            IReadOnlyList<(Guid SettingsId, ModuleSettingSet[] Events)> recorded =
+                await DecideSettingsAsync(project, settings, principal, registered.RegisteredAt, cancellationToken);
 
             await using IDocumentSession session = store.LightweightSession(tenant);
             session.Events.StartStream<Project>(registered.ProjectId, registered, switchedOn);
+            foreach ((Guid settingsId, ModuleSettingSet[] events) in recorded)
+            {
+                session.Events.StartStream<ModuleSettings>(settingsId, events);
+            }
+
             await session.SaveChangesAsync(cancellationToken);
-            project.Apply(switchedOn);
             return project;
         }
         finally
@@ -83,34 +98,44 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     }
 
     /// <summary>
-    /// Replaces the checks a merge of the project's pull requests waits for with <paramref name="checks"/>,
-    /// recorded exactly as given in the project's own record.
+    /// The settings streams a registration starts, one per module named, each with the events that give
+    /// its settings their values, decided against the switch-on <paramref name="project"/> already carries.
     /// </summary>
-    public async Task<Project> SetRequiredChecksAsync(
-        Principal principal, string name, IReadOnlyList<string> checks, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<(Guid SettingsId, ModuleSettingSet[] Events)>> DecideSettingsAsync(
+        Project project, IReadOnlyList<ModuleSettingValue> settings, Principal principal, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        CommandRegistry.Require("project.set", principal);
-        string tenant = Tenants.RequireProject(name);
+        List<(Guid, ModuleSettingSet[])> streams = [];
 
-        await writes.WaitAsync(cancellationToken);
-        try
+        // A request read from the wire can carry a null element, whatever the annotations say.
+        foreach (IGrouping<string, ModuleSettingValue> named in settings.Select(s => s ?? throw new DomainException("A registration's setting was given as null.")).GroupBy(s => s.Module, StringComparer.Ordinal))
         {
-            Project? registered = await FindAsync(store, tenant, cancellationToken);
-            ProjectRequiredChecksSet set = ProjectDecider.SetRequiredChecks(tenant, registered, checks, principal.Id, clock.GetUtcNow());
+            string module = ModuleNames.Require(named.Key);
+            if (!project.IsSwitchedOn(module))
+            {
+                throw new DomainException(
+                    $"Project '{project.Name}' was given a setting of module '{module}', which its registration does not switch on; a registration records the settings of the modules it switches on, {string.Join(", ", project.Modules.Select(m => $"'{m}'"))}.");
+            }
 
-            await using IDocumentSession session = store.LightweightSession(tenant);
-            var stream = await session.Events.FetchForWriting<Project>(set.ProjectId, cancellationToken);
-            Project project = stream.Aggregate ?? throw new DomainException(ProjectDecider.Unregistered(tenant));
-            stream.AppendOne(set);
-            await session.SaveChangesAsync(cancellationToken);
+            SettingsSchema schema = schemas.Find(module)
+                ?? throw new DomainException(
+                    $"This node holds no settings schema for module '{module}', so project '{project.Name}' cannot be registered with its settings; a module declares its settings.");
+            if (named.GroupBy(s => s.Name, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            {
+                throw new DomainException($"Project '{project.Name}' was given setting '{twice.Key}' of module '{module}' more than once; give each setting once.");
+            }
 
-            project.Apply(set);
-            return project;
+            Guid settingsId = Ids.New();
+            List<ModuleSettingSet> events = [];
+            foreach (ModuleSettingValue setting in named)
+            {
+                events.Add(await ModuleSettingsService.DecideAsync(
+                    schema, settingsId, project.Name, module, setting.Name, setting.Value, principal.Id, now, cancellationToken));
+            }
+
+            streams.Add((settingsId, [.. events]));
         }
-        finally
-        {
-            writes.Release();
-        }
+
+        return streams;
     }
 
     /// <summary>

@@ -73,6 +73,12 @@
       "RequiredToLeave": [
         "build"
       ]
+    },
+    {
+      "Name": "repos",
+      "Kind": "text-list",
+      "RequiredToLeave": [],
+      "Owner": "software"
     }
   ]
 }

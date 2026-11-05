@@ -104,6 +104,10 @@ public sealed class SpawnInputsTests
 
                 42 (https://github.com/example/coanda/pull/42)
 
+                ## repos
+
+                - repo
+
                 """.ReplaceLineEndings("\n"), task);
         }
 
