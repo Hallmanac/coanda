@@ -41,5 +41,6 @@ public static class StoreConfiguration
         options.Projections.Snapshot<FlowRun>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<ExternalEvent>(SnapshotLifecycle.Inline);
         options.Projections.Snapshot<Subscription>(SnapshotLifecycle.Inline);
+        EarlierRecords.Configure(options);
     }
 }
