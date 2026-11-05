@@ -96,6 +96,7 @@ public sealed class DaemonHost
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(identity);
+        builder.Services.AddSingleton(NodeOwner.OfAccount());
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.
