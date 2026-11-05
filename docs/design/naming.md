@@ -63,21 +63,20 @@ built, its entry says so.
   it to its type's paused stage, which records who moved it but no reason, and the parcel's paused
   as a condition that keeps its stage is settled but not built.
 - module: A module is a domain's code and definitions that extend the core, run out of process as
-  a program the daemon supervises, and software engineering is the first; it is settled as a word
-  but the module boundary is not built yet, so the software engineering system steps, types, flows,
-  and agents still ship inside the binary today.
+  a program the daemon supervises, and software engineering is the first; until phase 5 the daemon
+  hosts the software module in process.
 - module archive: A module archive is the one file that `coa module export` writes from a
   module's artifact directory and `coa module install` reads, for carrying a module between nodes
   offline; it is settled as a word but not built.
 - dispatch: A dispatch is the daemon's call on a module to do one system step, carrying a dispatch
-  id the daemon records on the flow run before calling and answered done, paused, or running; it is
-  settled as a word but not built, so today the daemon performs every system step itself.
+  id the daemon records on the flow run before calling and answered done, paused, or running; the
+  daemon performs the core system steps itself and dispatches the software steps to the software module.
 - watch request: A watch request is an event kind and equality filters the core compiles from the
   user's triggers and hands to a module, so the module reports only the external events a trigger
   can match; it is settled as a word but not built.
 - feed: The feed is the core's delivery to a module, in sequence order and at least once, of the
-  core events the module subscribes to, for observing and mirroring work rather than doing it; it
-  is settled as a word but not built.
+  core events the module subscribes to, for observing and mirroring work rather than doing it; the
+  feed delivers to the software module the daemon hosts.
 
 ## Rejected names
 
