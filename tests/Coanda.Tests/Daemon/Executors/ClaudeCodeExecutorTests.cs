@@ -1171,6 +1171,29 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_session_whose_process_exited_after_its_result_before_its_identity_was_read_is_reattached_finished()
+    {
+        using var fake = new FakeClaude(new { reply = ValidBuild, totalCost = 0.3m });
+        DetachedProcess.BeforeIdentityRead.Value = pid => Hold(() => FakeClaude.Finished(pid));
+        SessionHandle handle;
+        try
+        {
+            handle = await fake.Executor(temp.Home).SpawnAsync(ShippedAgents.Build, "context", WorkDirectory, Caps, AnswerSchemas.Build, null, null, None);
+        }
+        finally
+        {
+            DetachedProcess.BeforeIdentityRead.Value = null;
+        }
+
+        ClaudeCodeExecutor restarted = fake.Executor(temp.Home);
+        Assert.Equal(ReattachedSession.OnSpawn(handle) with { Finished = true }, await restarted.ReattachAsync(handle, access: null, None));
+        CollectedAnswer collected = await restarted.CollectAsync(handle, None);
+
+        Assert.Equal(ValidBuild, collected.Answer);
+        Assert.Equal(0.3m, collected.Usage.CostUsd);
+    }
+
+    [Fact]
     public async Task A_process_that_exits_printing_no_init_event_and_no_evidence_has_not_applied_the_document_and_quotes_its_last_error_line()
     {
         using var fake = new FakeClaude(new { settings = "skipped", init = false, result = "none", stderr = new[] { "first", "Error: settings rejected", "" }, exitCode = 1 });
@@ -1253,6 +1276,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    /// <summary>Blocks until <paramref name="condition"/> holds, for a seam that runs where nothing can be awaited.</summary>
+    private static void Hold(Func<bool> condition)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        while (!condition())
+        {
+            if (DateTimeOffset.UtcNow > deadline)
+            {
+                throw new TimeoutException("The condition did not hold within 30 seconds.");
+            }
+
+            Thread.Sleep(20);
+        }
     }
 
     private static async Task Until(Func<bool> condition)
