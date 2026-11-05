@@ -137,7 +137,8 @@ public sealed class DefinitionDeciderTests
         ParcelType keepsKind = moduleTask with { Stages = [.. moduleTask.Stages, "qa"] };
         ParcelType changesKind = keepsKind with
         {
-            Fields = [.. keepsKind.Fields.Select(f => f.Name == repos.Name ? f with { Kind = FieldKinds.Text } : f)],
+            // without the tag mark, which only a text-list carries
+            Fields = [.. keepsKind.Fields.Select(f => f.Name == repos.Name ? f with { Kind = FieldKinds.Text, Tag = false } : f)],
         };
 
         Assert.Equal(keepsKind.Hash, DraftFork(ForkBase.Of(taskBase), [taskBase], keepsKind).ContentHash);

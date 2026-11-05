@@ -24,8 +24,42 @@ public sealed class ParcelTypeFieldTests
         Assert.Equal([("repos", "software")], SoftwareTypes.Task.Fields.Where(f => f.Owner is not null).Select(f => (f.Name, f.Owner)));
         // without the repos field, the task's hash is the one it had before a field could name an owner
         Assert.Equal("f5bc1ad145ab7a9f", SoftwareTypes.UnownedTask.Hash);
-        Assert.Equal("ea1d4a852606b5ea", SoftwareTypes.Task.Hash);
+        Assert.Equal("3e16509d2543dbb9", SoftwareTypes.Task.Hash);
         Assert.DoesNotContain("\"Owner\"", ParcelType.CanonicalJson(SoftwareTypes.UnownedTask), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_shipped_task_marks_its_repos_field_as_its_tag_field_and_without_the_mark_hashes_as_it_did_before_the_mark()
+    {
+        Assert.Equal("repos", SoftwareTypes.Task.TagField?.Name);
+        ParcelType unmarked = SoftwareTypes.Task with { Fields = [.. SoftwareTypes.Task.Fields.Select(f => f with { Tag = false })] };
+
+        // the task's hash before the mark existed, which the live node's first module-scope task holds
+        Assert.Equal("ea1d4a852606b5ea", unmarked.Hash);
+        Assert.Null(unmarked.TagField);
+        Assert.DoesNotContain("\"Tag\"", ParcelType.CanonicalJson(unmarked), StringComparison.Ordinal);
+        Assert.Contains("\"Tag\": true", ParcelType.CanonicalJson(SoftwareTypes.Task), StringComparison.Ordinal);
+        Assert.Equal("repos", ParcelType.FromJson(ParcelType.CanonicalJson(SoftwareTypes.Task)).TagField?.Name);
+    }
+
+    [Fact]
+    public void A_type_marking_two_tag_fields_or_one_that_is_not_a_module_owned_text_list_is_refused()
+    {
+        FieldDeclaration repos = SoftwareTypes.Task.Fields.Single(f => f.Tag);
+        ParcelType twice = SoftwareTypes.Task with { Fields = [.. SoftwareTypes.Task.Fields, repos with { Name = "mirrors" }] };
+        ParcelType unowned = SoftwareTypes.Task with { Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Tag ? f with { Owner = null } : f)] };
+        ParcelType text = SoftwareTypes.Task with { Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Tag ? f with { Kind = FieldKinds.Text } : f)] };
+        ParcelType reference = SoftwareTypes.Task with { Fields = [.. SoftwareTypes.Task.Fields.Select(f => f.Tag ? f with { Kind = FieldKinds.Reference } : f)] };
+
+        SoftwareTypes.Task.Validate(Gates);
+        Assert.Equal(
+            "Parcel type 'task' marks 'repos', 'mirrors' as its tag field; a type marks at most one.",
+            Assert.Throws<DomainException>(() => twice.Validate(Gates)).Message);
+        Assert.Equal(
+            "Field 'repos' of parcel type 'task' is marked as the tag field and is a text-list; the tag field is a module-owned text-list, since its values are the repos that carry a parcel's events.",
+            Assert.Throws<DomainException>(() => unowned.Validate(Gates)).Message);
+        Assert.Contains("is a module-owned text;", Assert.Throws<DomainException>(() => text.Validate(Gates)).Message, StringComparison.Ordinal);
+        Assert.Contains("is a module-owned reference;", Assert.Throws<DomainException>(() => reference.Validate(Gates)).Message, StringComparison.Ordinal);
     }
 
     [Fact]

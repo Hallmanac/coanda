@@ -78,7 +78,8 @@
       "Name": "repos",
       "Kind": "text-list",
       "RequiredToLeave": [],
-      "Owner": "software"
+      "Owner": "software",
+      "Tag": true
     }
   ]
 }
