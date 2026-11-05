@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using Coanda.Modules.Software.Steps;
 using Coanda.Sdk.Commands;
 using Coanda.Sdk.Repositories;
@@ -38,6 +39,9 @@ public abstract record Push
 
     /// <summary>The push failed or was rejected for <paramref name="Reason"/>, which quotes git with any URL's user information removed.</summary>
     public sealed record Failed(string Reason) : Push;
+
+    /// <summary>Nothing was pushed, because the repo has no clone the module can use, for <paramref name="Reason"/> (<see cref="ProjectClones.UnusableAsync"/>).</summary>
+    public sealed record NoClone(string Reason) : Push;
 }
 
 /// <summary>What rebasing a flow run's branch came to: pushed at a new head, or not pushed, for one of five reasons.</summary>
@@ -74,28 +78,39 @@ public abstract record Rebase
 
     /// <summary>The push failed or was rejected for <paramref name="Reason"/>, which quotes git with any URL's user information removed.</summary>
     public sealed record Failed(string Reason) : Rebase;
+
+    /// <summary>Nothing was rebased or pushed, because the repo has no clone the module can use, for <paramref name="Reason"/> (<see cref="ProjectClones.UnusableAsync"/>).</summary>
+    public sealed record NoClone(string Reason) : Rebase;
 }
 
 /// <summary>
+/// A flow run as the worktree step reads it when its worktree may hold the parcel's branch: its status
+/// as the core names it (running, paused, ended, or stopped), and the work path the core gives it, null
+/// when it gives none.
+/// </summary>
+public sealed record WorktreeHolder(string Status, string? WorkPath);
+
+/// <summary>
 /// What the worktree step reads of the flow runs on the node when another worktree holds the parcel's
-/// branch: a flow run's status as the core names it (running, paused, ended, or stopped; null when the
-/// core holds no such flow run), and a wait that completes once nothing of the core's runs for an ended or
-/// stopped flow run any more: when its ended or stopped feed delivery reaches the module, or when the core
-/// shows it no longer working (<see cref="Steps.WorktreeStep"/>).
+/// branch: a flow run as the core shows it (null when the core holds no such flow run), and a wait that
+/// completes once nothing of the core's runs for an ended or stopped flow run any more: when its ended or
+/// stopped feed delivery reaches the module, or when the core shows it no longer working
+/// (<see cref="Steps.WorktreeStep"/>).
 /// </summary>
 public sealed record WorktreeHolders(
-    Func<Guid, CancellationToken, Task<string?>> StatusOf,
+    Func<Guid, CancellationToken, Task<WorktreeHolder?>> Of,
     Func<Guid, CancellationToken, Task> EndReached);
 
 /// <summary>
-/// The node's clones of its projects' repos and the flow runs' worktrees cut from them. Each project has
-/// one clone, made from the remote of the repo its first step names (<see cref="RepoTarget"/>), kept
-/// where a node home written before repos keeps it; no command registers a project with a second repo,
-/// and a clone of each repo of its own comes with the per-repo layout of the node home. A clone is bare, made the first time any flow run in the project needs it,
-/// with the repo's remote named
-/// <see cref="Git.Remote"/> and the default fetch refspec, so the remote's branches are kept only as
-/// remote-tracking refs and the only local branches are the ones the worktree step creates. Every
-/// git command against one clone runs one at a time, across all of the project's flow runs.
+/// The flow runs' worktrees, cut from the core's clones of the projects' repos. The core makes and holds
+/// one bare clone per repo, at <c>projects/&lt;project&gt;/repos/&lt;repo&gt;</c> under the node home
+/// (<see cref="RepoLayout.ClonePath"/>), with the repo's remote named <see cref="Git.Remote"/>, so the
+/// remote's branches are kept only as remote-tracking refs and the only local branches are the ones the
+/// worktree step creates. The module finds a repo's clone by that layout and makes none: a clone that
+/// is missing, or is not a repository, refuses the step (<see cref="UnusableAsync"/>). A flow run's
+/// worktree is cut at the work path its dispatch carries, and a worktree the module did not cut is told
+/// from a flow run's by the work path the core shows for that flow run. Every git command of the module's
+/// against one clone runs one at a time, across all of the project's flow runs.
 /// </summary>
 /// <remarks>
 /// A flow run's branch is <c>coanda/&lt;short parcel id&gt;</c>, and the parcel that owns it is recorded
@@ -104,7 +119,7 @@ public sealed record WorktreeHolders(
 /// clone's <c>info/exclude</c>, which every worktree of it shares, holds <see cref="ExcludeLine"/>,
 /// so the daemon's own files at a worktree's root are invisible to git there.
 /// </remarks>
-public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogger<ProjectClones> logger)
+public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogger<ProjectClones> logger)
 {
     /// <summary>The line in the clone's <c>info/exclude</c> that hides the daemon's directory at each worktree's root.</summary>
     public const string ExcludeLine = "/.coanda/";
@@ -115,17 +130,19 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     private readonly Git git = new(runner);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new(StringComparer.Ordinal);
 
-    /// <summary>Where the node keeps its clone of <paramref name="project"/>.</summary>
-    public string ClonePathOf(RepoTarget project) => home.ProjectClonePath(project.Project);
+    /// <summary>Where the core keeps its clone of the repo <paramref name="target"/> acts on.</summary>
+    public string ClonePathOf(RepoTarget target) => RepoLayout.ClonePath(homePath, target.Project, target.Repo);
 
     /// <summary>The branch a parcel's flow runs work on.</summary>
-    public static string BranchOf(Guid parcelId) => $"coanda/{ClonePaths.Short(parcelId)}";
+    public static string BranchOf(Guid parcelId) => $"coanda/{ShortId.Of(parcelId)}";
 
     /// <summary>The configuration key naming the parcel that owns <paramref name="branch"/>.</summary>
     public static string OwnerKeyOf(string branch) => $"branch.{branch}.{OwnerSetting}";
 
     /// <summary>
-    /// Makes the flow run's work path a worktree of the project's clone on the parcel's branch. A work
+    /// Makes the flow run's work path, <paramref name="workPath"/>, the one its dispatch carries, a
+    /// worktree of the repo's clone on the parcel's branch. A clone that is missing or is not a
+    /// repository refuses the checkout and makes nothing (<see cref="UnusableAsync"/>). A work
     /// path that already holds it is answered as it stands. Otherwise the remote's branch of that
     /// name is fetched first, so the clone's remote-tracking ref for it, which the push's lease
     /// expects, holds what the remote holds now, or is deleted when the remote has no such branch.
@@ -139,32 +156,33 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// other commit, the checkout is refused naming how to reconcile them.
     /// </summary>
     /// <remarks>
-    /// A branch another worktree has checked out is taken over when that worktree is the work path of
-    /// a flow run <paramref name="holders"/> reports ended or stopped, as a build flow run before a merge flow run
+    /// A branch another worktree has checked out is taken over when that worktree is at the work path the
+    /// core gives a flow run <paramref name="holders"/> reports ended or stopped, as a build flow run before a merge flow run
     /// can be while its removal is still pending: the clone's turn is given back until nothing the core runs
     /// for that flow run is still running, which its end reaching the module through the feed or the core
     /// showing it no longer working tells, and then, in one turn, the worktree is listed again, the holding one removed as
     /// its end's delivery would, and the branch checked out here. A later removal of the ended flow run's
     /// worktree works by that flow run's own work path and finds nothing there. A branch held by a live
-    /// flow run's worktree, or by one at a path that is no flow run's work path or whose flow run the store does
-    /// not hold, is refused naming it. A failing git command throws <see cref="GitCommandException"/>.
+    /// flow run's worktree, or by one at a path that is not the work path the core gives the flow run its
+    /// last segment names, or whose flow run the core does not hold, is refused naming it. A failing git command throws <see cref="GitCommandException"/>.
     /// </remarks>
     public async Task<Checkout> CheckOutAsync(
         RepoTarget project,
         Guid parcelId,
         Guid flowRunId,
+        string workPath,
         string? lastPushed,
         WorktreeHolders holders,
         CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Project);
+        string clone = ClonePathOf(project);
         HashSet<Guid> reached = [];
         while (true)
         {
             Guid? waitFor;
             using (Held held = await LockAsync(clone, cancellationToken))
             {
-                (Checkout? checkout, waitFor) = await CheckOutHeldAsync(project, parcelId, flowRunId, lastPushed, holders, reached, cancellationToken);
+                (Checkout? checkout, waitFor) = await CheckOutHeldAsync(project, parcelId, flowRunId, workPath, lastPushed, holders, reached, cancellationToken);
                 if (checkout is not null)
                 {
                     return checkout;
@@ -187,19 +205,19 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
         RepoTarget project,
         Guid parcelId,
         Guid flowRunId,
+        string workPath,
         string? lastPushed,
         WorktreeHolders holders,
         HashSet<Guid> reached,
         CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Project);
-        string workPath = home.FlowRunWorkPath(project.Project, flowRunId);
+        string clone = ClonePathOf(project);
         string branch = BranchOf(parcelId);
         string reference = $"refs/heads/{branch}";
 
-        if (await EnsureCloneAsync(project, clone, cancellationToken) is { } unrecognized)
+        if (await UnusableAsync(project, cancellationToken) is { } unusable)
         {
-            return (new Checkout.Refused(unrecognized), null);
+            return (new Checkout.Refused(unusable), null);
         }
 
         EnsureExcluded(clone);
@@ -225,9 +243,14 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
 
         if (listed.FirstOrDefault(w => !w.Bare && !w.Stale && w.Branch == reference && !RealPath.Same(w.Path, workPath)) is { } holding)
         {
-            Guid? holder = FlowRunOf(project.Project, holding.Path);
-            string? status = holder is Guid id
-                ? await holders.StatusOf(id, cancellationToken)
+            Guid? holder = FlowRunNamedBy(holding.Path);
+            WorktreeHolder? shown = holder is Guid id
+                ? await holders.Of(id, cancellationToken)
+                : null;
+
+            // A worktree is a flow run's only at the work path the core gives that flow run.
+            string? status = shown is { WorkPath: { } holderPath } && RealPath.Same(holding.Path, holderPath)
+                ? shown.Status
                 : null;
             switch (status)
             {
@@ -248,7 +271,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
             await DiscardAsync(clone, holding, ended, cancellationToken);
             logger.LogInformation(
                 "Removed the worktree of flow run {FlowRun}, which has ended or been stopped, at {Path}, so flow run {Taker} can check out branch {Branch}.",
-                ClonePaths.Short(ended), holding.Path, ClonePaths.Short(flowRunId), branch);
+                ShortId.Of(ended), holding.Path, ShortId.Of(flowRunId), branch);
             listed = await ListAsync(clone, cancellationToken);
         }
 
@@ -332,23 +355,28 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     public static string TrackingRefOf(string branch) => $"refs/remotes/{Git.Remote}/{branch}";
 
     /// <summary>
-    /// Pushes the parcel's branch to the project's remote, after making sure the flow run's worktree has
-    /// no changes git status reports. The push names its lease explicitly, expecting the remote's
+    /// Pushes the parcel's branch to the project's remote, after making sure the flow run's worktree, at
+    /// <paramref name="workPath"/>, has no changes git status reports; a repo with no usable clone pushes
+    /// nothing. The push names its lease explicitly, expecting the remote's
     /// branch to hold what the clone's remote-tracking ref for it holds, or not to exist when the
     /// clone holds no such ref. <see cref="CheckOutAsync"/> refreshed that ref from the remote when the
     /// worktree was made, and once the push succeeds it is set to the pushed commit, so the lease
     /// refuses only an update someone made on the remote since. A failing git command other than the push throws
     /// <see cref="GitCommandException"/>.
     /// </summary>
-    public async Task<Push> PushAsync(RepoTarget project, Guid parcelId, Guid flowRunId, CancellationToken cancellationToken)
+    public async Task<Push> PushAsync(RepoTarget project, Guid parcelId, string workPath, CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Project);
-        string workPath = home.FlowRunWorkPath(project.Project, flowRunId);
+        string clone = ClonePathOf(project);
         string branch = BranchOf(parcelId);
         string reference = $"refs/heads/{branch}";
         string tracking = TrackingRefOf(branch);
 
         using Held held = await LockAsync(clone, cancellationToken);
+        if (await UnusableAsync(project, cancellationToken) is { } unusable)
+        {
+            return new Push.NoClone(unusable);
+        }
+
         string[] changes = await ChangesAsync(workPath, cancellationToken);
         if (changes.Length > 0)
         {
@@ -378,7 +406,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     public static string NoteRefOf(Guid flowRunId) => $"refs/coanda/rebase/{flowRunId}";
 
     /// <summary>
-    /// Rebases the parcel's branch, in the flow run's worktree, from <paramref name="recordedHead"/> onto
+    /// Rebases the parcel's branch, in the flow run's worktree at <paramref name="workPath"/>, from <paramref name="recordedHead"/> onto
     /// the project's primary branch as a fetch brings it, and pushes the result to the remote's
     /// branch with a lease that expects <paramref name="recordedHead"/> there. A rebase an
     /// interrupted performance left in progress is aborted first. A worktree with changes, or a
@@ -395,15 +423,19 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// branch checked out again, as it was before. Every command runs in the clone's one turn at git.
     /// A failing git command other than the rebase and the push throws <see cref="GitCommandException"/>.
     /// </remarks>
-    public async Task<Rebase> RebaseAsync(RepoTarget project, Guid parcelId, Guid flowRunId, string recordedHead, CancellationToken cancellationToken)
+    public async Task<Rebase> RebaseAsync(RepoTarget project, Guid parcelId, Guid flowRunId, string workPath, string recordedHead, CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Project);
-        string workPath = home.FlowRunWorkPath(project.Project, flowRunId);
+        string clone = ClonePathOf(project);
         string branch = BranchOf(parcelId);
         string reference = $"refs/heads/{branch}";
         string note = NoteRefOf(flowRunId);
 
         using Held held = await LockAsync(clone, cancellationToken);
+        if (await UnusableAsync(project, cancellationToken) is { } unusable)
+        {
+            return new Rebase.NoClone(unusable);
+        }
+
         CommandLine abort = Git.In(workPath, "rebase", "--abort");
         CommandResult aborted = await git.TryRunAsync(abort, cancellationToken);
         if (!aborted.Succeeded && !aborted.StandardError.Contains("no rebase in progress", StringComparison.OrdinalIgnoreCase))
@@ -484,77 +516,85 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     }
 
     /// <summary>
-    /// Removes the flow run's worktree, any uncommitted changes in it included, logging the paths of the
-    /// changes it discards; the branch and its commits stay in the clone. A flow run whose project has no
-    /// clone, or whose work path the clone does not list, is left alone. Returns whether a worktree
-    /// was removed; a failing git command throws <see cref="GitCommandException"/>.
+    /// Removes the worktree at <paramref name="workPath"/>, the work path the core gives the flow run
+    /// <paramref name="flowRunId"/>, from whichever of the project's clones lists it, any uncommitted
+    /// changes in it included, logging the paths of the changes it discards; the branch and its commits
+    /// stay in the clone. A project with no clones, or whose clones do not list the path, is left alone.
+    /// Returns whether a worktree was removed. A failing git command in one clone does not keep the others
+    /// from being looked at; once they all have been, the first failure is thrown as the
+    /// <see cref="GitCommandException"/> it was.
     /// </summary>
-    public async Task<bool> RemoveAsync(string project, Guid flowRunId, CancellationToken cancellationToken)
+    public async Task<bool> RemoveAsync(string project, Guid flowRunId, string workPath, CancellationToken cancellationToken)
     {
-        // A project whose name is no plain directory name has no clone, and its flow runs no worktree.
-        if (!ClonePaths.IsPlain(project))
+        bool removed = false;
+        GitCommandException? failed = null;
+        foreach (string clone in ClonesOf(project))
         {
-            return false;
+            try
+            {
+                using Held held = await LockAsync(clone, cancellationToken);
+                ListedWorktree? entry = (await ListAsync(clone, cancellationToken)).FirstOrDefault(w => !w.Bare && RealPath.Same(w.Path, workPath));
+                if (entry is not null)
+                {
+                    await DiscardAsync(clone, entry, flowRunId, cancellationToken);
+                    removed = true;
+                }
+            }
+            catch (GitCommandException failure)
+            {
+                failed ??= failure;
+            }
         }
 
-        string clone = home.ProjectClonePath(project);
-        if (!Directory.Exists(clone))
+        if (failed is not null)
         {
-            return false;
+            ExceptionDispatchInfo.Throw(failed);
         }
 
-        string workPath = home.FlowRunWorkPath(project, flowRunId);
-        using Held held = await LockAsync(clone, cancellationToken);
-        ListedWorktree? entry = (await ListAsync(clone, cancellationToken)).FirstOrDefault(w => !w.Bare && RealPath.Same(w.Path, workPath));
-        if (entry is null)
-        {
-            return false;
-        }
-
-        await DiscardAsync(clone, entry, flowRunId, cancellationToken);
-        return true;
+        return removed;
     }
 
     /// <summary>
-    /// Removes, as <see cref="RemoveAsync"/> does, every worktree an existing clone lists whose path is
-    /// the work path of a flow run that <paramref name="isFinal"/> says has ended or been stopped. A listed
-    /// path that is no flow run's work path, the clone's own included, is left alone, and so is the
-    /// worktree of a flow run the store does not hold or that is still live. A clone, or a worktree, that
-    /// cannot be swept is logged and passed over.
+    /// Removes, as <see cref="RemoveAsync"/> does, every worktree a clone under the node home lists whose
+    /// path is the work path the core gives a flow run that has ended or been stopped, which
+    /// <paramref name="finalWorkPath"/> answers with, given the project and the flow run the path's last
+    /// segment names, and answers null for a flow run that is live or that the core does not hold. A
+    /// listed path that is not that flow run's work path, the clone's own included, is left alone. A
+    /// clone, or a worktree, that cannot be swept is logged and passed over.
     /// </summary>
-    public async Task SweepAsync(Func<string, Guid, CancellationToken, Task<bool>> isFinal, CancellationToken cancellationToken)
+    public async Task SweepAsync(Func<string, Guid, CancellationToken, Task<string?>> finalWorkPath, CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(home.ClonesPath))
+        string projects = RepoLayout.ProjectsPath(homePath);
+        if (!Directory.Exists(projects))
         {
             return;
         }
 
-        foreach (string directory in Directory.EnumerateDirectories(home.ClonesPath))
+        foreach (string project in Directory.EnumerateDirectories(projects).Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal))
         {
-            string project = Path.GetFileName(directory);
-            try
+            foreach (string clone in ClonesOf(project))
             {
-                await SweepCloneAsync(project, isFinal, cancellationToken);
-            }
-            catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
-            {
-                logger.LogError(failure, "Sweeping the worktrees of project '{Project}' failed; they are left as they are.", project);
+                try
+                {
+                    await SweepCloneAsync(project, clone, finalWorkPath, cancellationToken);
+                }
+                catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogError(failure, "Sweeping the worktrees of the clone at {Clone} failed; they are left as they are.", clone);
+                }
             }
         }
     }
 
-    private async Task SweepCloneAsync(string project, Func<string, Guid, CancellationToken, Task<bool>> isFinal, CancellationToken cancellationToken)
+    private async Task SweepCloneAsync(string project, string clone, Func<string, Guid, CancellationToken, Task<string?>> finalWorkPath, CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project);
-        if (!Directory.Exists(clone))
-        {
-            return;
-        }
-
         using Held held = await LockAsync(clone, cancellationToken);
         foreach (ListedWorktree entry in await ListAsync(clone, cancellationToken))
         {
-            if (entry.Bare || FlowRunOf(project, entry.Path) is not Guid flowRunId || !await isFinal(project, flowRunId, cancellationToken))
+            if (entry.Bare
+                || FlowRunNamedBy(entry.Path) is not Guid flowRunId
+                || await finalWorkPath(project, flowRunId, cancellationToken) is not { } workPath
+                || !RealPath.Same(entry.Path, workPath))
             {
                 continue;
             }
@@ -562,50 +602,60 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
             try
             {
                 await DiscardAsync(clone, entry, flowRunId, cancellationToken);
-                logger.LogInformation("Removed the worktree of flow run {FlowRun}, which has ended or been stopped, at {Path}.", ClonePaths.Short(flowRunId), entry.Path);
+                logger.LogInformation("Removed the worktree of flow run {FlowRun}, which has ended or been stopped, at {Path}.", ShortId.Of(flowRunId), entry.Path);
             }
             catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogError(failure, "Removing the worktree of flow run {FlowRun} at {Path} failed; it is left as it is.", ClonePaths.Short(flowRunId), entry.Path);
+                logger.LogError(failure, "Removing the worktree of flow run {FlowRun} at {Path} failed; it is left as it is.", ShortId.Of(flowRunId), entry.Path);
             }
         }
     }
 
-    /// <summary>The flow run whose work path, in <paramref name="project"/>, is <paramref name="path"/>, or null when it is no flow run's.</summary>
-    private Guid? FlowRunOf(string project, string path) =>
+    /// <summary>
+    /// The clones the core keeps of <paramref name="project"/>'s repos, by the layout: every directory in
+    /// its <c>repos</c> directory but one a clone being made occupies, whose name starts with a dot. A
+    /// project whose name is not a plain directory name has none.
+    /// </summary>
+    private IEnumerable<string> ClonesOf(string project)
+    {
+        if (!RepoLayout.IsPlain(project))
+        {
+            return [];
+        }
+
+        string repos = RepoLayout.ReposPath(homePath, project);
+        return Directory.Exists(repos)
+            ? [.. Directory.EnumerateDirectories(repos).Where(d => !Path.GetFileName(d).StartsWith('.')).Order(StringComparer.Ordinal)]
+            : [];
+    }
+
+    /// <summary>
+    /// The flow run whose id is the last segment of <paramref name="path"/>, or null when it names none. It
+    /// is that flow run's worktree only when the path is also the work path the core gives it, which the
+    /// caller checks.
+    /// </summary>
+    private static Guid? FlowRunNamedBy(string path) =>
         Guid.TryParse(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)), out Guid flowRunId)
-            && RealPath.Same(path, home.FlowRunWorkPath(project, flowRunId))
             ? flowRunId
             : null;
 
     /// <summary>
-    /// Makes the clone when the project has none, in a directory beside its path that is moved there
-    /// only once the clone has succeeded; a directory an earlier clone ended part way left there is
-    /// deleted first. Returns the reason to refuse when something git does not recognize as a
-    /// repository is at the clone's path, which is never deleted.
+    /// Why the module cannot use the core's clone of the repo <paramref name="target"/> acts on, or null
+    /// when it can. The module makes no clone: one that is missing, or something git does not recognize
+    /// as a repository at its path, is the reason, which names the path and what puts a clone there.
     /// </summary>
-    private async Task<string?> EnsureCloneAsync(RepoTarget project, string clone, CancellationToken cancellationToken)
+    public async Task<string?> UnusableAsync(RepoTarget target, CancellationToken cancellationToken)
     {
-        if (Directory.Exists(clone) || File.Exists(clone))
+        string clone = ClonePathOf(target);
+        if (!Directory.Exists(clone) && !File.Exists(clone))
         {
-            CommandResult check = await git.TryRunAsync(Git.Against(clone, "rev-parse", "--is-bare-repository"), cancellationToken);
-            return check.Succeeded
-                ? null
-                : $"{clone} is where the node keeps its clone of project '{project.Project}', and git does not recognize what is there as a repository; move it aside and the step clones the project again.";
+            return $"the node holds no clone of repo '{target.Repo}' of project '{target.Project}' at {clone}, where the daemon makes it; the next daemon start makes it there.";
         }
 
-        string partial = home.ProjectClonePartialPath(project.Project);
-        string parent = Path.GetDirectoryName(clone) ?? home.ClonesPath;
-        Directory.CreateDirectory(parent);
-        if (Directory.Exists(partial))
-        {
-            Directory.Delete(partial, recursive: true);
-        }
-
-        await git.RunAsync(new CommandLine("git", ["init", "--bare", "--quiet", partial], parent, Git.Environment) { Limit = Git.Limit }, cancellationToken);
-        await git.RunAsync(Git.Against(partial, "remote", "add", Git.Remote, project.Remote), cancellationToken);
-        Directory.Move(partial, clone);
-        return null;
+        CommandResult check = await git.TryRunAsync(Git.Against(clone, "rev-parse", "--is-bare-repository"), cancellationToken);
+        return check.Succeeded
+            ? null
+            : $"{clone} is where the node keeps its clone of repo '{target.Repo}' of project '{target.Project}', and git does not recognize what is there as a repository; move it aside, and the next daemon start makes the clone there.";
     }
 
     /// <summary>Makes sure the clone's <c>info/exclude</c> holds <see cref="ExcludeLine"/> exactly once, writing it only when it does not.</summary>
@@ -733,19 +783,19 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
             {
                 logger.LogWarning(
                     "The uncommitted changes in the worktree of flow run {FlowRun} at {Path} could not be listed (git status exited with code {Code}); the removal discards them unlisted.",
-                    ClonePaths.Short(flowRunId), entry.Path, status.ExitCode);
+                    ShortId.Of(flowRunId), entry.Path, status.ExitCode);
             }
             else if (status.Truncated)
             {
                 logger.LogWarning(
                     "Removing the worktree of flow run {FlowRun} at {Path} discards more uncommitted changes than can be listed; the last of them are to: {Changes}",
-                    ClonePaths.Short(flowRunId), entry.Path, string.Join(", ", changed));
+                    ShortId.Of(flowRunId), entry.Path, string.Join(", ", changed));
             }
             else if (changed.Length > 0)
             {
                 logger.LogWarning(
                     "Removing the worktree of flow run {FlowRun} at {Path} discards uncommitted changes to: {Changes}",
-                    ClonePaths.Short(flowRunId), entry.Path, string.Join(", ", changed));
+                    ShortId.Of(flowRunId), entry.Path, string.Join(", ", changed));
             }
         }
 

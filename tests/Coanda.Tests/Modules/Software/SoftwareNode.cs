@@ -97,7 +97,9 @@ internal sealed class SoftwareNode : IAsyncDisposable
     /// Starts a node whose module runs commands on <paramref name="runner"/> and reaches GitHub through
     /// <paramref name="github"/>, or through <paramref name="handler"/> when one is given, with the
     /// projects <paramref name="projects"/> (<see cref="Project"/> when none) registered, its log also
-    /// going to <paramref name="log"/> when one is given.
+    /// going to <paramref name="log"/> when one is given. Registering a project makes the core's clone of
+    /// its repo through <paramref name="runner"/>; those commands are forgotten once the node is started,
+    /// so a test reads only what its own steps run, against the clone the core made.
     /// </summary>
     public static async Task<SoftwareNode> StartAsync(
         ScriptedCommandRunner? runner = null,
@@ -126,6 +128,7 @@ internal sealed class SoftwareNode : IAsyncDisposable
             await Publishing.FlowAsync(daemon, project, Steps);
         }
 
+        runner.ForgetCommands();
         return new SoftwareNode(temp, daemon, runner, github);
     }
 
@@ -139,10 +142,12 @@ internal sealed class SoftwareNode : IAsyncDisposable
 
     /// <summary>
     /// Starts a flow run of <see cref="Steps"/> on the parcel, moves it into <paramref name="step"/>, and
-    /// records a dispatch of that step, which the flow run then holds; nothing advances the flow run.
+    /// records a dispatch of that step, which the flow run then holds; nothing advances the flow run. A
+    /// parcel id the project holds no parcel by is given a task first, as a dispatch does.
     /// </summary>
     public async Task<(Guid FlowRunId, Guid DispatchId)> HeldAsync(Guid parcelId, string step, string project = Project)
     {
+        await EnsureTaskAsync(project, parcelId);
         FlowRunService flowRuns = FlowRuns;
         FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, project, parcelId, Steps.Name, None);
         if (started.CurrentStep != step)

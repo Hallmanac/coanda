@@ -11,7 +11,10 @@ namespace Coanda.Modules.Software;
 /// </summary>
 public sealed record SoftwareModuleOptions
 {
-    /// <summary>The node home, where <c>gh</c> runs to read the GitHub token.</summary>
+    /// <summary>
+    /// The node home, where <c>gh</c> runs to read the GitHub token, and under which the core keeps each
+    /// repo's clone where <see cref="Sdk.Repositories.RepoLayout.ClonePath"/> places it.
+    /// </summary>
     public required string HomePath { get; init; }
 
     /// <summary>
@@ -19,12 +22,6 @@ public sealed record SoftwareModuleOptions
     /// one directory per profile, each read only when a project selects it.
     /// </summary>
     public required string ProfilesPath { get; init; }
-
-    /// <summary>The directory under the node home holding one directory per project's clone.</summary>
-    public required string ClonesPath { get; init; }
-
-    /// <summary>The directory under the node home holding one directory per project of its flow runs' work paths.</summary>
-    public required string WorkPath { get; init; }
 
     /// <summary>
     /// Where the core's API is and the module token to present to it. It is read when a step first

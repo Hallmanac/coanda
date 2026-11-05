@@ -17,7 +17,7 @@ namespace Coanda.Modules.Software.Steps;
 /// request pushes nothing. The token is read through the credential profile selected for the module in
 /// the project (<see cref="GitHubToken"/>), and a selected profile that yields none pauses with a lever
 /// naming that setting; the push itself uses this node's own git credentials whatever profile is selected. A worktree with changes, a remote that is no github.com repository, no
-/// token, a failed push, and a request GitHub refuses each pause with the perform-again lever; a push
+/// token, no usable clone of the repo, a failed push, and a request GitHub refuses each pause with the perform-again lever; a push
 /// the lease refuses pauses with a lever to stop the flow run, because performing the step again would
 /// be refused the same way.
 /// </summary>
@@ -74,7 +74,7 @@ public sealed class OpenPrStep(ProjectClones clones, GitHubToken tokens, Func<Gi
             return await context.PerformAgainAsync($"pushed nothing: no GitHub token is available, because {missing.Message}", cancellationToken);
         }
 
-        Push push = await clones.PushAsync(target, request.ParcelId, request.FlowRunId, cancellationToken);
+        Push push = await clones.PushAsync(target, request.ParcelId, request.WorkPath, cancellationToken);
         string head;
         switch (push)
         {
@@ -92,6 +92,8 @@ public sealed class OpenPrStep(ProjectClones clones, GitHubToken tokens, Func<Gi
                     Levers.RemoteBranchMoved(step));
             case Push.Failed failed:
                 return await context.PerformAgainAsync($"could not push: {failed.Reason}", cancellationToken);
+            case Push.NoClone missing:
+                return await context.PerformAgainAsync($"pushed nothing: {missing.Reason}", cancellationToken);
             default:
                 throw new InvalidOperationException($"A push ended in a way the open-pr step does not know: {push.GetType().Name}.");
         }

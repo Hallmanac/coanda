@@ -6,6 +6,7 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
+using Coanda.Daemon.Projects;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.Repositories;
@@ -14,6 +15,7 @@ using Coanda.Tests.Daemon.Commands;
 using Coanda.Tests.Daemon.FlowRuns;
 using Fisher;
 using JasperFx.Events;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Modules.Software.Steps;
 
@@ -48,7 +50,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
 
         Parcel filled = await ShowAsync(Project, task.Id);
         Assert.Equal([RegisteredProjects.Repo], filled.ValueOf(SoftwareSettings.ReposField)?.Items);
-        Assert.Contains($"remote add origin {RegisteredProjects.Remote}", runner.GitCalls);
+        Assert.Contains(runner.Commands, c => c.IsGit("worktree", "add") && c.GitDirectory() == node.Home.ProjectClonePath(Project));
         ParcelFieldSet set = Assert.Single(await FieldSetsAsync(Project, task.Id));
         Assert.Contains(SoftwareSteps.Module, set.SetBy, StringComparison.Ordinal);
 
@@ -68,9 +70,10 @@ public sealed class RepoFieldTests : IAsyncLifetime
 
         Assert.Equal(["two"], (await ShowAsync(Multi, task.Id)).ValueOf(SoftwareSettings.ReposField)?.Items);
         Assert.Single(await FieldSetsAsync(Multi, task.Id));
-        Assert.Contains($"remote add origin {Two}", runner.GitCalls);
+        // every command runs against the core's clone of repo two, and fetches that repo's primary branch
+        Assert.NotEmpty(runner.Commands);
+        Assert.All(runner.Commands, c => Assert.Equal(node.Home.ProjectClonePath(Multi, "two"), c.GitDirectory()));
         Assert.Contains("fetch --no-tags --quiet origin +refs/heads/trunk:refs/remotes/origin/trunk", runner.GitCalls);
-        Assert.DoesNotContain(runner.GitCalls, c => c.Contains(One, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -84,7 +87,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
         Done(await WorktreeAsync(task.Id));
 
         Assert.Empty(await FieldSetsAsync(Project, task.Id));
-        Assert.Contains($"remote add origin {RegisteredProjects.Remote}", runner.GitCalls);
+        Assert.Contains(runner.Commands, c => c.IsGit("worktree", "add") && c.GitDirectory() == node.Home.ProjectClonePath(Project));
     }
 
     [Fact]
@@ -124,7 +127,8 @@ public sealed class RepoFieldTests : IAsyncLifetime
             Assert.Contains("coa parcel set", paused.Lever, StringComparison.Ordinal);
         }
 
-        Assert.Empty(runner.Commands);
+        // no step ran anything; each stop's delivery lists the worktrees of the project's clones
+        Assert.All(runner.Commands, c => Assert.True(c.IsGit("worktree", "list"), c.Display));
     }
 
     [Fact]
@@ -132,6 +136,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
     {
         await node.Projects.AddAsync(Principal.LocalOwner, "bare", RegisteredProjects.Remote, [], None);
         await Publishing.FlowAsync(node.Daemon, "bare", SoftwareNode.Steps);
+        runner.ForgetCommands();
         Parcel task = await node.TaskAsync("No branch", "bare");
 
         SystemStepAnswer.Paused paused = Paused(await WorktreeAsync(task.Id, "bare"));
@@ -165,7 +170,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
         JsonElement opened = JsonSerializer.SerializeToElement(new { verdict = "opened", systemStep = SoftwareSteps.OpenPr, number = 17, url = "https://github.com/example/repo/pull/17", head = ScriptedCommandRunner.PrimaryHead });
         await node.FlowRuns.RecordResultAsync(Principal.LocalOwner, "unchecked", rebasing.Id, "open-pr", SoftwareSteps.OpenPr, opened, None);
         await node.FlowRuns.StartStepAsync(Principal.LocalOwner, "unchecked", rebasing.Id, "rebase", None);
-        string clone = node.Home.Clones().ProjectClonePath("unchecked");
+        string clone = node.Home.ProjectClonePath("unchecked");
         string branch = ProjectClones.BranchOf(task.Id);
         runner.AddWorktree(clone, node.Home.FlowRunWorkPath("unchecked", rebasing.Id), branch, ScriptedCommandRunner.PrimaryHead);
         runner.SetRemoteBranch(clone, branch, ScriptedCommandRunner.PrimaryHead);
@@ -174,16 +179,25 @@ public sealed class RepoFieldTests : IAsyncLifetime
         Assert.Equal("done", Done(await node.DispatchAsync(SoftwareSteps.Rebase, task.Id, rebasing.Id, project: "unchecked")).GetProperty("verdict").GetString());
     }
 
-    /// <summary>Registers <see cref="Multi"/> with a record holding two repos, written straight to the store, as no command yet adds a second repo.</summary>
+    /// <summary>
+    /// Registers <see cref="Multi"/> with a record holding two repos, written straight to the store, as no
+    /// command yet adds a second repo, and has the core make a clone of each, as the next start would.
+    /// </summary>
     private async Task RegisterMultiAsync()
     {
         var registered = new ProjectRegistered(Ids.New(), Multi, [new ProjectRepo("one", One), new ProjectRepo("two", Two)], Principal.LocalOwner.Id, DateTimeOffset.UtcNow);
-        ProjectModulesSet on = ProjectDecider.SetModules(Multi, Coanda.Core.Projects.Project.Create(registered), [SoftwareSteps.Module], Principal.LocalOwner.Id, registered.RegisteredAt);
+        Coanda.Core.Projects.Project project = Coanda.Core.Projects.Project.Create(registered);
+        ProjectModulesSet on = ProjectDecider.SetModules(Multi, project, [SoftwareSteps.Module], Principal.LocalOwner.Id, registered.RegisteredAt);
         await using (IDocumentSession session = node.Store.LightweightSession(Multi))
         {
             session.Events.StartStream<Coanda.Core.Projects.Project>(registered.ProjectId, registered, on);
             await session.SaveChangesAsync(None);
         }
+
+        await node.Services.GetRequiredService<RepoClones>().EnsureAsync(project, None);
+        Assert.True(Directory.Exists(node.Home.ProjectClonePath(Multi, "one")));
+        Assert.True(Directory.Exists(node.Home.ProjectClonePath(Multi, "two")));
+        runner.ForgetCommands();
 
         await node.SetAsync(Multi, SoftwareSettings.PrimaryBranch, new Dictionary<string, string> { ["one"] = "main", ["two"] = "trunk" });
         await node.SetAsync(Multi, SoftwareSettings.RequiredChecks, new[] { RegisteredProjects.RequiredCheck });

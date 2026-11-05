@@ -43,7 +43,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     private ParcelService parcels = null!;
     private ProjectService projects = null!;
 
-    private string Clone => node.Home.Clones().ProjectClonePath(Project);
+    private string Clone => node.Home.ProjectClonePath(Project);
 
     public async Task InitializeAsync() => await StartAsync();
 
@@ -65,7 +65,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
         CommandLine first = runner.Commands[0];
         Assert.True(first.Program == "gh" && string.Join(' ', first.Arguments) == "auth token --hostname github.com");
         Assert.Equal(node.Home.FlowRunWorkPath(Project, flowRunId), runner.Commands.Single(c => c.IsGit("status")).WorkingDirectory);
-        Assert.Equal(["status --porcelain --untracked-files=all", $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}", $"for-each-ref --format=%(objectname) refs/remotes/origin/{branch}", $"push --force-with-lease=refs/heads/{branch}: origin {Moved}:refs/heads/{branch}", $"update-ref refs/remotes/origin/{branch} {Moved}"], runner.GitCalls);
+        Assert.Equal(["rev-parse --is-bare-repository", "status --porcelain --untracked-files=all", $"rev-parse --verify --quiet refs/heads/{branch}^{{commit}}", $"for-each-ref --format=%(objectname) refs/remotes/origin/{branch}", $"push --force-with-lease=refs/heads/{branch}: origin {Moved}:refs/heads/{branch}", $"update-ref refs/remotes/origin/{branch} {Moved}"], runner.GitCalls);
         Assert.All(runner.Commands.Where(c => c.Program == "git" && !c.IsGit("status")), c => Assert.True(c.GitDirectory() == Clone));
         // the next push on the branch expects what this one pushed
         Assert.Equal(Moved, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
@@ -372,6 +372,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     {
         const string Other = "beta";
         await projects.AddAsync(Principal.LocalOwner, Other, "https://someone:s3cr3t-token@gitlab.example.com/team/repo.git", RegisteredProjects.Settings, None);
+        runner.ForgetCommands();
         Parcel parcel = await TaskAsync(Other, "Elsewhere");
 
         SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, await HeldAsync(parcel.Id, Other), Other));
@@ -390,6 +391,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     {
         const string Other = "gamma";
         await projects.AddAsync(Principal.LocalOwner, Other, "https://x-access-token:ghp_inTheRemote@github.com/example/repo.git", RegisteredProjects.Settings, None);
+        runner.ForgetCommands();
         Parcel parcel = await TaskAsync(Other, "Credential in the remote");
 
         SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, await HeldAsync(parcel.Id, Other), Other));

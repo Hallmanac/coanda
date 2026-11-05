@@ -13,8 +13,8 @@ namespace Coanda.Modules.Software.Steps;
 /// with the <c>head</c> it pushed (<see cref="ProjectClones.RebaseAsync"/>). A conflict pauses naming
 /// the unmerged paths, with a lever that sends the resolution through build; a worktree with
 /// changes, a branch tip that is not the recorded head, and a push the lease refuses pause with a
-/// lever to stop the flow run, because performing the step again would pause the same way. Any other
-/// failing git command pauses with the perform-again lever, quoting the end of its error output.
+/// lever to stop the flow run, because performing the step again would pause the same way. No usable
+/// clone of the repo, and any other failing git command, pause with the perform-again lever, quoting the end of its error output.
 /// </summary>
 public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
 {
@@ -49,7 +49,7 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
         Rebase rebase;
         try
         {
-            rebase = await clones.RebaseAsync(target, request.ParcelId, request.FlowRunId, head, cancellationToken);
+            rebase = await clones.RebaseAsync(target, request.ParcelId, request.FlowRunId, request.WorkPath, head, cancellationToken);
         }
         catch (GitCommandException failed)
         {
@@ -71,6 +71,7 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
             Rebase.Stale stale => Refused(
                 step, $"pushed nothing: someone else updated branch {branch} on the remote, which no longer holds {head}, so git refused the push its lease guards. {stale.Reason}"),
             Rebase.Failed failed => new DispatchAnswer.Paused($"Step '{step}' could not push the rebased {branch}: {failed.Reason}", Levers.PerformAgain(step)),
+            Rebase.NoClone missing => new DispatchAnswer.Paused($"Step '{step}' rebased nothing: {missing.Reason}", Levers.PerformAgain(step)),
             _ => throw new InvalidOperationException($"A rebase ended in a way the rebase step does not know: {rebase.GetType().Name}."),
         };
     }

@@ -52,7 +52,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     private ParcelService parcels = null!;
     private FlowRunService flowRuns = null!;
 
-    private string Clone => node.Home.Clones().ProjectClonePath(Project);
+    private string Clone => node.Home.ProjectClonePath(Project);
 
     public async Task InitializeAsync()
     {
@@ -65,23 +65,23 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     public async Task DisposeAsync() => await node.DisposeAsync();
 
     [Fact]
-    public async Task A_first_run_clones_the_project_cuts_the_parcels_branch_from_the_fetched_primary_and_adds_the_worktree()
+    public async Task A_first_run_cuts_the_parcels_branch_from_the_fetched_primary_in_the_cores_clone_and_adds_the_worktree()
     {
         Guid parcelId = Ids.New();
         Guid flowRunId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
         string workPath = node.Home.FlowRunWorkPath(Project, flowRunId);
-        string partial = node.Home.Clones().ProjectClonePartialPath(Project);
+        int before = runner.Commands.Count;
 
         JsonElement result = Done(await DispatchAsync(parcelId, flowRunId));
 
         Assert.Equal(branch, result.GetProperty("branch").GetString());
         Assert.Equal(ScriptedCommandRunner.PrimaryHead, result.GetProperty("head").GetString());
-        Assert.Equal([$"init --bare --quiet {partial}", $"remote add origin {RegisteredProjects.Remote}", "worktree list --porcelain", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}", $"update-ref -d {ProjectClones.TrackingRefOf(branch)}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"ls-tree -z --name-only {ScriptedCommandRunner.PrimaryHead}", $"config {ProjectClones.OwnerKeyOf(branch)} {parcelId}", $"branch --no-track {branch} {ScriptedCommandRunner.PrimaryHead}", $"worktree add --quiet {workPath} {branch}"], runner.GitCalls);
-        Assert.All(runner.Commands.Skip(1), c => Assert.True(c.GitDirectory() == Clone || c.GitDirectory() == partial));
+        // the module finds the clone the core made at registration, and makes none
+        Assert.Equal(["rev-parse --is-bare-repository", "worktree list --porcelain", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{branch}:{ProjectClones.TrackingRefOf(branch)}", $"update-ref -d {ProjectClones.TrackingRefOf(branch)}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"ls-tree -z --name-only {ScriptedCommandRunner.PrimaryHead}", $"config {ProjectClones.OwnerKeyOf(branch)} {parcelId}", $"branch --no-track {branch} {ScriptedCommandRunner.PrimaryHead}", $"worktree add --quiet {workPath} {branch}"], runner.GitCalls.Skip(before));
+        Assert.All(runner.Commands.Skip(before), c => Assert.True(c.GitDirectory() == Clone));
+        Assert.Equal(Path.Combine(node.Home.Path, "projects", Project, "repos", RegisteredProjects.Repo), Clone);
         Assert.Equal(parcelId.ToString(), runner.Config(Clone, ProjectClones.OwnerKeyOf(branch)));
-        Assert.True(Directory.Exists(Clone), "the clone is moved into place once it is made");
-        Assert.False(Directory.Exists(partial));
         Assert.Single(ExcludeLines(), l => l == ProjectClones.ExcludeLine);
     }
 
@@ -121,9 +121,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        Guid earlier = Ids.New();
-        await DispatchAsync(parcelId, earlier);
-        await EndAsync(earlier);
+        await EarlierCheckoutAsync(parcelId);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Moved);
         int before = runner.Commands.Count;
@@ -143,9 +141,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        Guid earlier = Ids.New();
-        await DispatchAsync(parcelId, earlier);
-        await EndAsync(earlier);
+        await EarlierCheckoutAsync(parcelId);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
@@ -173,9 +169,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        Guid earlier = Ids.New();
-        await DispatchAsync(parcelId, earlier);
-        await EndAsync(earlier);
+        await EarlierCheckoutAsync(parcelId);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, ScriptedCommandRunner.PrimaryHead);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Moved);
@@ -193,9 +187,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     {
         Guid parcelId = Ids.New();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        Guid earlier = Ids.New();
-        await DispatchAsync(parcelId, earlier);
-        await EndAsync(earlier);
+        await EarlierCheckoutAsync(parcelId);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
         int before = runner.Commands.Count;
@@ -259,7 +251,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
         await DispatchAsync(Ids.New(), Ids.New());
         runner.AddBranch(Clone, branch, Moved);
         runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
-        string mine = Path.Combine(node.Home.ClonesPath, "someones-own-worktree");
+        string mine = Path.Combine(node.Home.Path, "someones-own-worktree");
         runner.AddWorktree(Clone, mine, branch, Moved);
 
         SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, await AtWorktreeAsync()));
@@ -269,6 +261,27 @@ public sealed class WorktreeStepTests : IAsyncLifetime
         Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
         // nothing removes a worktree whose flow run is unknown
         Assert.Contains(mine, runner.Worktrees(Clone));
+    }
+
+    [Fact]
+    public async Task A_branch_held_by_a_worktree_named_for_a_stopped_flow_run_but_not_at_its_work_path_pauses_and_is_never_removed()
+    {
+        Guid parcelId = await TaskAsync();
+        string branch = $"coanda/{Ids.Short(parcelId)}";
+        FlowRun stopped = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcelId, Recorder.Name, None);
+        await flowRuns.StopAsync(Principal.LocalOwner, Project, stopped.Id, "the test is done with it", None);
+        runner.AddBranch(Clone, branch, Moved);
+        runner.SetConfig(Clone, ProjectClones.OwnerKeyOf(branch), parcelId.ToString());
+        // the last segment names the stopped flow run, and the path is not the work path the core gives it
+        string elsewhere = Path.Combine(node.Home.Path, "elsewhere", stopped.Id.ToString());
+        runner.AddWorktree(Clone, elsewhere, branch, Moved);
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcelId, await AtWorktreeAsync()));
+
+        Assert.Contains(elsewhere, paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("no work path of a flow run the node holds", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains(elsewhere, runner.Worktrees(Clone));
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree remove", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -378,9 +391,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     {
         Guid parcelId = await TaskAsync();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        Guid earlier = Ids.New();
-        await DispatchAsync(parcelId, earlier);
-        await EndAsync(earlier);
+        await EarlierCheckoutAsync(parcelId);
         await RecordedPushAsync(parcelId, Ahead);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
@@ -404,9 +415,7 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     {
         Guid parcelId = await TaskAsync();
         string branch = $"coanda/{Ids.Short(parcelId)}";
-        Guid earlier = Ids.New();
-        await DispatchAsync(parcelId, earlier);
-        await EndAsync(earlier);
+        await EarlierCheckoutAsync(parcelId);
         await RecordedPushAsync(parcelId, ScriptedCommandRunner.PrimaryHead);
         runner.AddBranch(Clone, branch, Moved);
         runner.SetRemoteBranch(Clone, branch, Ahead);
@@ -513,22 +522,19 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_temporary_clone_an_earlier_clone_left_part_way_is_deleted_before_the_next_clone_starts()
+    public async Task A_repo_with_no_clone_pauses_naming_the_path_and_the_start_that_makes_it_and_makes_nothing()
     {
-        string partial = node.Home.Clones().ProjectClonePartialPath(Project);
-        Directory.CreateDirectory(Path.Combine(partial, "objects"));
-        await File.WriteAllTextAsync(Path.Combine(partial, "objects", "half"), "left by a clone ended part way", None);
-        runner.On(c => c.IsGit("init"), (command, _) =>
-        {
-            Assert.False(Directory.Exists(partial), "the leftover is deleted before the clone starts");
-            Directory.CreateDirectory(command.Arguments[^1]);
-            return Task.FromResult(ScriptedCommandRunner.Ok());
-        });
+        Directory.Delete(Clone);
+        Guid flowRunId = await AtWorktreeAsync();
+        int before = runner.Commands.Count;
 
-        Done(await DispatchAsync(Ids.New(), Ids.New()));
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), flowRunId));
 
-        Assert.False(File.Exists(Path.Combine(Clone, "objects", "half")));
-        Assert.False(Directory.Exists(partial));
+        Assert.Contains(Clone, paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("the next daemon start makes it", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(FlowRunLevers.PerformAgain("worktree"), paused.Lever);
+        Assert.Empty(runner.Commands.Skip(before));
+        Assert.False(Directory.Exists(Clone), "the module never makes a clone");
     }
 
     [Fact]
@@ -538,11 +544,15 @@ public sealed class WorktreeStepTests : IAsyncLifetime
         await File.WriteAllTextAsync(Path.Combine(Clone, "notes.txt"), "not a repository", None);
         runner.On(c => c.IsGit("rev-parse", "--is-bare-repository"), ScriptedCommandRunner.Fails(128, $"fatal: not a git repository: '{Clone}'"));
 
-        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), await AtWorktreeAsync()));
+        Guid flowRunId = await AtWorktreeAsync();
+        int before = runner.Commands.Count;
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(Ids.New(), flowRunId));
 
         Assert.Contains(Clone, paused.Reason, StringComparison.Ordinal);
         Assert.Contains("does not recognize", paused.Reason, StringComparison.Ordinal);
-        Assert.Equal(["rev-parse --is-bare-repository"], runner.GitCalls);
+        Assert.Contains("move it aside, and the next daemon start makes the clone", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(["rev-parse --is-bare-repository"], runner.GitCalls.Skip(before));
         Assert.True(File.Exists(Path.Combine(Clone, "notes.txt")), "nothing at the clone's path is ever deleted");
     }
 
@@ -669,7 +679,19 @@ public sealed class WorktreeStepTests : IAsyncLifetime
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private const string Ahead = "aaaabbbbccccddddeeeeffff0000111122223333";
 
-    private Task EndAsync(Guid flowRunId) => node.DeliverEndAsync(flowRunId);
+    /// <summary>
+    /// Checks the parcel's branch out for an earlier flow run the core holds, then stops that flow run and
+    /// waits for the daemon's feed to deliver the stop, whose last command removes the worktree, so the
+    /// branch is left in the clone and nothing of that delivery runs once this returns.
+    /// </summary>
+    private async Task EarlierCheckoutAsync(Guid parcelId)
+    {
+        (Guid earlier, _) = await node.HeldAsync(parcelId, "worktree");
+        Done(await DispatchAsync(parcelId, earlier));
+        string workPath = node.Home.FlowRunWorkPath(Project, earlier);
+        await node.StopAsync(earlier);
+        await FlowRunDriver.UntilAsync(() => !runner.Worktrees(Clone).Contains(workPath), "the stop's delivery has removed the earlier worktree");
+    }
 
     private async Task<Guid> TaskAsync()
     {
