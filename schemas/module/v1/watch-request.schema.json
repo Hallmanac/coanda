@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:watch-request",
+  "title": "Watch request",
+  "description": "The watches the core compiles from the user's triggers for one project, handed to the module at start and whenever a trigger changes. A watch request replaces the module's whole set of watches for the project: a watch it does not carry is gone, and an empty list means the module reports nothing for the project. A watch request has no answer document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "watches"],
+  "properties": {
+    "project": {
+      "description": "The project the watches are for, so the module resolves the project's settings and credential profile.",
+      "type": "string",
+      "minLength": 1
+    },
+    "watches": {
+      "description": "Every watch the project's triggers compile to. The module reports an event when it matches any one of them.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/watch" }
+    }
+  },
+  "definitions": {
+    "watch": {
+      "description": "One event kind plus equality filters. An event matches when it is of the kind and every filter's field holds exactly the filter's value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "filters"],
+      "properties": {
+        "kind": {
+          "description": "The event kind, prefixed by the module's name and a slash, as describe lists it.",
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "filters": {
+          "description": "The equality filters, at most one per field, each on a field describe declares watchable for the kind.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/filter" }
+        }
+      }
+    },
+    "filter": {
+      "description": "One equality filter.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "value"],
+      "properties": {
+        "field": {
+          "description": "The name of the event's field.",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "The value the field must equal exactly.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:coanda:module-api:1:describe",
+  "title": "Describe answer",
+  "description": "What a module answers when the daemon asks it to describe itself, at install and after every start. The running module's answer is what flows are validated against and what the daemon routes by, and a version that differs from the one recorded is how the daemon notices a version change. Describe takes no request document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["moduleApiVersion", "version", "steps", "eventKinds", "subscriptions", "settingsSchema"],
+  "properties": {
+    "moduleApiVersion": {
+      "description": "The module API version the module speaks. This schema is version 1.",
+      "type": "integer",
+      "enum": [1]
+    },
+    "version": {
+      "description": "The version of the module that is running, the same version its manifest names.",
+      "type": "string",
+      "minLength": 1
+    },
+    "steps": {
+      "description": "The system steps the module brings.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/step" }
+    },
+    "eventKinds": {
+      "description": "The external event kinds the module can report, each with the fields a watch may filter on.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/eventKind" }
+    },
+    "subscriptions": {
+      "description": "The core event kinds the module subscribes to, which the feed delivers.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/coreEventKind" }
+    },
+    "settingsSchema": {
+      "description": "The schema of the module's replicated per-project settings.",
+      "$ref": "#/definitions/schema"
+    }
+  },
+  "definitions": {
+    "step": {
+      "description": "One system step the module brings.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "argumentSchema", "resultSchema"],
+      "properties": {
+        "name": {
+          "description": "The step's name, prefixed by the module's name and a slash, as in software/gates.",
+          "$ref": "#/definitions/prefixedName"
+        },
+        "argumentSchema": {
+          "description": "The schema of the arguments a flow author writes for the step.",
+          "$ref": "#/definitions/schema"
+        },
+        "resultSchema": {
+          "description": "The schema of the result a done answer carries. Every result carries a verdict the flow's routes read.",
+          "$ref": "#/definitions/schema"
+        }
+      }
+    },
+    "eventKind": {
+      "description": "One external event kind the module can report.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "watchableFields"],
+      "properties": {
+        "kind": {
+          "description": "The event kind, prefixed by the module's name and a slash.",
+          "$ref": "#/definitions/prefixedName"
+        },
+        "watchableFields": {
+          "description": "The names of the event's fields a watch may filter on.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "coreEventKind": {
+      "description": "A core event kind the feed can deliver: a parcel entered a stage, a flow run ended, stopped, or paused, or a parcel's field was set.",
+      "type": "string",
+      "enum": ["parcel-entered", "flow-run-ended", "flow-run-stopped", "flow-run-paused", "parcel-field-set"]
+    },
+    "prefixedName": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "schema": {
+      "description": "A JSON Schema (draft-07) document. It is left open, because it is the module's own schema.",
+      "type": "object"
+    }
+  }
+}
