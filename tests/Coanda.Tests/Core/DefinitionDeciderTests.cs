@@ -175,7 +175,7 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
-    public void Importing_content_only_an_earlier_version_has_records_the_next_version()
+    public void Importing_content_only_an_earlier_version_has_records_nothing()
     {
         ModuleDefinition idea = ModuleDefinition.FromParcelType(SoftwareTypes.Idea);
         Definition[] held =
@@ -184,10 +184,7 @@ public sealed class DefinitionDeciderTests
             ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea with { Resolutions = ["split"] }), version: 2, moduleVersion: "0.2.0"),
         ];
 
-        (DefinitionDrafted drafted, _) =
-            DefinitionDecider.Import(idea, "software", "0.3.0", held, "import", Now) ?? throw new InvalidOperationException("Nothing was imported.");
-
-        Assert.Equal((3, SoftwareTypes.Idea.Hash, "0.3.0"), (drafted.Version, drafted.ContentHash, drafted.ModuleVersion));
+        Assert.Null(DefinitionDecider.Import(idea, "software", "0.3.0", held, "import", Now));
     }
 
     [Fact]

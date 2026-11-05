@@ -142,7 +142,7 @@ public sealed class ModuleImportTests
     }
 
     [Fact]
-    public async Task Reverting_a_definition_file_to_an_earlier_versions_content_imports_it_as_the_next_version_and_it_governs_again()
+    public async Task Reverting_a_definition_file_to_an_earlier_versions_content_records_nothing_and_the_newest_version_keeps_governing()
     {
         using var temp = new TemporaryHome();
         string software = CopyOfSoftware(temp);
@@ -157,15 +157,13 @@ public sealed class ModuleImportTests
         await File.WriteAllTextAsync(file, original, None);
 
         await StartAndStopAsync(temp.Home, options);
-        await StartAndStopAsync(temp.Home, options);
 
         List<Definition> held = await InNodeAsync(temp.Home);
-        Assert.Equal(13, held.Count);
-        Definition reverted = Assert.Single(held, d => d.Name == "review-on-assignment" && d.VersionNumber == 3);
-        Assert.Equal(SoftwareFlows.ReviewOnAssignment.Hash, reverted.ContentHash);
+        Assert.Equal(12, held.Count);
+        Assert.DoesNotContain(held, d => d.Name == "review-on-assignment" && d.VersionNumber == 3);
         await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
         Definition? governing = await new DefinitionResolver(store).ResolveAsync("alpha", DefinitionKind.Flow, "review-on-assignment", None);
-        Assert.Equal((3, SoftwareFlows.ReviewOnAssignment.Hash), (governing?.VersionNumber, governing?.ContentHash));
+        Assert.Equal((2, (SoftwareFlows.ReviewOnAssignment with { Budget = 4m }).Hash), (governing?.VersionNumber, governing?.ContentHash));
     }
 
     [Theory]
