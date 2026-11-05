@@ -14,6 +14,9 @@ public static class OwnerOnly
 {
     public const UnixFileMode UnixMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
+    /// <summary>The mode an owner-only directory has on macOS and Linux: 0700.</summary>
+    public const UnixFileMode UnixDirectoryMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
     [SupportedOSPlatform("windows")]
     private static InheritanceFlags Inherited => InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
 
@@ -45,6 +48,56 @@ public static class OwnerOnly
         if (!IsOwnerOnly(directory.GetAccessControl()))
         {
             directory.SetAccessControl(DirectorySecurity());
+        }
+    }
+
+    /// <summary>
+    /// Creates the directory owner-only if it is absent, and narrows it to owner-only if it exists:
+    /// mode 0700 on macOS and Linux, and on Windows the owner-only access list <see cref="EnsureDirectory"/>
+    /// gives. Unlike <see cref="EnsureDirectory"/>, it narrows an existing directory's mode on macOS and Linux too.
+    /// </summary>
+    public static void EnsurePrivateDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            EnsureDirectory(path);
+            return;
+        }
+
+        Directory.CreateDirectory(path, UnixDirectoryMode);
+        File.SetUnixFileMode(path, UnixDirectoryMode);
+    }
+
+    /// <summary>
+    /// Creates the directory owner-only if it is absent, and narrows it and every directory and file
+    /// under it to owner-only, at any depth: on macOS and Linux mode 0700 for a directory and 0600 for a
+    /// file, and on Windows an access list that is not inherited and whose only entry grants the current
+    /// user full control. A symbolic link is left as it is and never followed, so nothing outside the
+    /// directory is narrowed through one.
+    /// </summary>
+    public static void NarrowTree(string path)
+    {
+        EnsurePrivateDirectory(path);
+        var pending = new Stack<DirectoryInfo>([new DirectoryInfo(path)]);
+        while (pending.TryPop(out DirectoryInfo? directory))
+        {
+            foreach (FileSystemInfo entry in directory.EnumerateFileSystemInfos())
+            {
+                if (entry.LinkTarget is not null)
+                {
+                    continue;
+                }
+
+                if (entry is DirectoryInfo inner)
+                {
+                    EnsurePrivateDirectory(inner.FullName);
+                    pending.Push(inner);
+                }
+                else
+                {
+                    Narrow(entry.FullName);
+                }
+            }
         }
     }
 
