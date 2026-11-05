@@ -1,3 +1,4 @@
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Types;
 
@@ -9,8 +10,12 @@ public sealed record ParcelMoveRequest(string Project, Guid ParcelId, string To)
 
 public sealed record ParcelCloseRequest(string Project, Guid ParcelId, string Resolution, string Reason);
 
-/// <summary>A value for one of a parcel's fields: exactly one of its text, its items, and its reference, the one the field's kind names.</summary>
-public sealed record ParcelSetFieldRequest(string Project, Guid ParcelId, string Field, FieldValue Value);
+/// <summary>
+/// A value for one of a parcel's fields: exactly one of its text, its items, and its reference, the one
+/// the field's kind names. <see cref="Dispatch"/> names the dispatch the value is set under, by its flow
+/// run and its id; a module's set-field must name one it holds, and any other caller may leave it out.
+/// </summary>
+public sealed record ParcelSetFieldRequest(string Project, Guid ParcelId, string Field, FieldValue Value, NamedDispatch? Dispatch = null);
 
 /// <summary>A field the parcel's type version declares, with the value the parcel holds in it, or null when it holds none.</summary>
 public sealed record ParcelFieldView(string Name, string Kind, FieldValue? Value);

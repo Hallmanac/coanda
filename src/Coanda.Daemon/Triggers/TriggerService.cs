@@ -1,6 +1,7 @@
 using Coanda.Core.Registry;
 using Coanda.Core.Triggers;
 using Coanda.Core.Triggers.Events;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events.Documents;
@@ -10,7 +11,8 @@ namespace Coanda.Daemon.Triggers;
 /// <summary>
 /// The daemon's side of recording external events and subscriptions: pass the registry, ask
 /// <see cref="TriggerDecider"/>, append, save. Both live in their project's tenant. Nothing records
-/// an external event yet except tests; adapters arrive later.
+/// an external event yet except tests; adapters arrive later. A Module principal records only in a
+/// project its module is switched on for, and only kinds prefixed with its own module's name.
 /// </summary>
 public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
 {
@@ -19,6 +21,8 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
     {
         CommandRegistry.Require("event.record", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        ModuleScope.RequireOwnKind(principal, kind);
         ExternalEventRecorded recorded = TriggerDecider.RecordExternalEvent(tenant, kind, fields, principal.Id, clock.GetUtcNow());
 
         await using IDocumentSession session = store.LightweightSession(tenant);
@@ -51,6 +55,7 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
     {
         CommandRegistry.Require("subscription.list", principal);
         string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<Subscription> subscriptions = await session.Query<Subscription>().ToListAsync(cancellationToken);

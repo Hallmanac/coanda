@@ -4,6 +4,7 @@ using Coanda.Core.Definitions.Events;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events.Documents;
@@ -107,14 +108,18 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
     public async Task<IReadOnlyList<Definition>> ListAgentsAsync(Principal principal, string project, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("agent.list", principal);
-        return await resolver.ResolveAllAsync(Tenants.RequireProject(project), DefinitionKind.Agent, cancellationToken);
+        string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await resolver.ResolveAllAsync(tenant, DefinitionKind.Agent, cancellationToken);
     }
 
     /// <summary>The published agent that resolution returns for the project by name, or null when it returns none.</summary>
     public async Task<Definition?> ResolveAgentAsync(Principal principal, string project, string name, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("agent.list", principal);
-        return await resolver.ResolveAsync(Tenants.RequireProject(project), DefinitionKind.Agent, name, cancellationToken);
+        string tenant = Tenants.RequireProject(project);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await resolver.ResolveAsync(tenant, DefinitionKind.Agent, name, cancellationToken);
     }
 
     /// <summary>

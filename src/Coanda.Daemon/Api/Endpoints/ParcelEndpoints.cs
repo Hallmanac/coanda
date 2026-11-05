@@ -74,7 +74,7 @@ public static class ParcelEndpoints
         group.MapPost("/set-field", async (HttpContext context, ParcelService parcels, ParcelSetFieldRequest request, CancellationToken cancellationToken) =>
             {
                 Principal principal = RequestPrincipal.PrincipalOf(context);
-                Parcel parcel = await parcels.SetFieldAsync(principal, request.Project, request.ParcelId, request.Field, request.Value, cancellationToken);
+                Parcel parcel = await parcels.SetFieldAsync(principal, request.Project, request.ParcelId, request.Field, request.Value, request.Dispatch, cancellationToken);
                 return Results.Ok(await ViewAsync(parcels, principal, request.Project, parcel, cancellationToken));
             })
             .Produces<ParcelView>();
