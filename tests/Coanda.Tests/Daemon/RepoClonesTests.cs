@@ -52,8 +52,13 @@ public sealed class RepoClonesTests : IDisposable
         bool listedBeforeTheMove = false;
         runner.On(c => c.IsGit("worktree", "list"), (command, _) =>
         {
-            listedBeforeTheMove = Directory.Exists(Earlier) && !Directory.Exists(Clone);
-            return Task.FromResult(ScriptedCommandRunner.Ok(Listing(Earlier, paused, gone, other)));
+            if (command.GitDirectory() == Earlier)
+            {
+                listedBeforeTheMove = Directory.Exists(Earlier) && !Directory.Exists(Clone);
+            }
+
+            // the moved clone still lists its worktrees, because their entries moved with it
+            return Task.FromResult(ScriptedCommandRunner.Ok(Listing(command.GitDirectory() ?? Earlier, paused, gone, other)));
         });
         List<string> repairedAfterTheMove = [];
         runner.On(c => c.IsGit("worktree", "repair"), (command, _) =>
@@ -73,6 +78,7 @@ public sealed class RepoClonesTests : IDisposable
         Assert.Equal(
             [
                 $"--git-dir={Earlier} worktree list --porcelain",
+                $"--git-dir={Clone} worktree list --porcelain",
                 $"--git-dir={Clone} worktree repair {paused}",
                 $"--git-dir={Clone} worktree repair {other}",
             ],
@@ -183,16 +189,55 @@ public sealed class RepoClonesTests : IDisposable
         WriteEarlierClone(Earlier);
         string first = Directory.CreateDirectory(Home.FlowRunWorkPath(Project, Ids.New())).FullName;
         string second = Directory.CreateDirectory(Home.FlowRunWorkPath(Project, Ids.New())).FullName;
-        runner.AddWorktree(Earlier, first, "coanda/aaaa1111", ScriptedCommandRunner.PrimaryHead);
-        runner.AddWorktree(Earlier, second, "coanda/bbbb2222", ScriptedCommandRunner.PrimaryHead);
+        ListedAtBothPaths(first, "coanda/aaaa1111");
+        ListedAtBothPaths(second, "coanda/bbbb2222");
         runner.On(c => c.IsGit("worktree", "repair") && c.Arguments[^1] == first, ScriptedCommandRunner.Fails(128, "fatal: not a valid path"));
 
         await StartAsync();
 
         Assert.True(Directory.Exists(Clone));
         Assert.False(Directory.Exists(Earlier));
-        Assert.Contains(log.Entries, e => e.Level == LogLevel.Error && e.Message.Contains($"The worktree at {first} could not be repaired", StringComparison.Ordinal));
+        Assert.Contains(log.Entries, e => e.Level == LogLevel.Error && e.Message.Contains($"The worktree at {first} could not be repaired", StringComparison.Ordinal) && e.Message.Contains("the next start tries again", StringComparison.Ordinal));
         Assert.Contains($"worktree repair {second}", runner.GitCalls);
+
+        // the next start repairs the worktree again, from the clone at its new path
+        var again = new ScriptedCommandRunner();
+        again.AddWorktree(Clone, first, "coanda/aaaa1111", ScriptedCommandRunner.PrimaryHead);
+        again.AddWorktree(Clone, second, "coanda/bbbb2222", ScriptedCommandRunner.PrimaryHead);
+        await StartAsync(again);
+
+        Assert.Equal(
+            [$"--git-dir={Clone} worktree list --porcelain", $"--git-dir={Clone} worktree repair {first}", $"--git-dir={Clone} worktree repair {second}"],
+            again.Commands.Where(c => c.IsGit("worktree")).Select(c => string.Join(' ', c.Arguments)));
+    }
+
+    [Fact]
+    public async Task A_start_stopped_between_the_move_and_the_repairs_leaves_them_to_the_next_start_which_makes_them()
+    {
+        await RegisterAsync(Project);
+        WriteEarlierClone(Earlier);
+        string paused = Directory.CreateDirectory(Home.FlowRunWorkPath(Project, Ids.New())).FullName;
+        ListedAtBothPaths(paused, "coanda/aaaa1111");
+        using var stopping = new CancellationTokenSource();
+        runner.On(c => c.IsGit("rev-parse", "--is-bare-repository"), (_, _) =>
+        {
+            // the start is stopped once the clone has moved and before its worktrees are repaired
+            stopping.Cancel();
+            return Task.FromResult(ScriptedCommandRunner.Ok("true\n"));
+        });
+        runner.On(c => c.IsGit("worktree", "list") && c.GitDirectory() == Clone, (_, token) => Task.FromCanceled<CommandResult>(token));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => StartAsync(cancellationToken: stopping.Token));
+
+        Assert.True(Directory.Exists(Clone));
+        Assert.False(Directory.Exists(Earlier));
+        Assert.DoesNotContain(runner.Commands, c => c.IsGit("worktree", "repair"));
+
+        var again = new ScriptedCommandRunner();
+        again.AddWorktree(Clone, paused, "coanda/aaaa1111", ScriptedCommandRunner.PrimaryHead);
+        await StartAsync(again);
+
+        Assert.Contains($"worktree repair {paused}", again.GitCalls);
     }
 
     [Fact]
@@ -254,8 +299,9 @@ public sealed class RepoClonesTests : IDisposable
 
         await StartAsync();
 
+        // listing the clone's worktrees, of which it has none, is the start's repair pass
         Assert.Equal(
-            ["rev-parse --is-bare-repository", "config --get-all remote.origin.url", "config --get-all remote.origin.fetch"],
+            ["rev-parse --is-bare-repository", "worktree list --porcelain", "config --get-all remote.origin.url", "config --get-all remote.origin.fetch"],
             runner.GitCalls.Skip(before));
     }
 
@@ -281,7 +327,7 @@ public sealed class RepoClonesTests : IDisposable
 
         await StartAsync();
 
-        Assert.Equal(["rev-parse --is-bare-repository", "config --get-all remote.origin.url"], runner.GitCalls);
+        Assert.Equal(["rev-parse --is-bare-repository", "worktree list --porcelain", "config --get-all remote.origin.url"], runner.GitCalls);
         Assert.Contains(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("https://github.com/someone/else.git", StringComparison.Ordinal) && e.Message.Contains("not", StringComparison.Ordinal));
     }
 
@@ -304,13 +350,22 @@ public sealed class RepoClonesTests : IDisposable
         WriteEarlierClone(Earlier);
         string paused = Directory.CreateDirectory(Home.FlowRunWorkPath(Project, Ids.New())).FullName;
         runner.AddWorktree(Earlier, paused, "coanda/aaaa1111", ScriptedCommandRunner.PrimaryHead);
+        // the clone at its new path lists the worktree to the core's repair pass, the first listing there
+        bool listedAtTheNewPath = false;
+        runner.On(
+            c => c.IsGit("worktree", "list") && c.GitDirectory() == Clone && !listedAtTheNewPath,
+            (_, _) =>
+            {
+                listedAtTheNewPath = true;
+                return Task.FromResult(ScriptedCommandRunner.Ok(Listing(Clone, paused)));
+            });
 
         await using (RunningDaemon daemon = await Daemons.StartAsync(Home, new DaemonOptions { CommandRunner = runner, LoggerProvider = log }, None))
         {
             IReadOnlyList<string> calls = [.. runner.Commands.Select(c => string.Join(' ', c.Arguments))];
             int repaired = IndexOf(calls, $"--git-dir={Clone} worktree repair {paused}");
             // the software module's start sweep lists the worktrees of the clone at its new path
-            int swept = IndexOf(calls, $"--git-dir={Clone} worktree list --porcelain");
+            int swept = calls.ToList().LastIndexOf($"--git-dir={Clone} worktree list --porcelain");
             Assert.True(IndexOf(calls, $"--git-dir={Earlier} worktree list --porcelain") < repaired);
             Assert.True(repaired < swept, "the clone is moved and repaired before the module starts");
 
@@ -357,6 +412,13 @@ public sealed class RepoClonesTests : IDisposable
         File.WriteAllText(Path.Combine(clone, "refs", "heads", "coanda", "aaaa1111"), ScriptedCommandRunner.PrimaryHead);
     }
 
+    /// <summary>Models a worktree listed by the earlier clone and, once its entry has moved with the clone, by the clone at its new path.</summary>
+    private void ListedAtBothPaths(string worktree, string branch)
+    {
+        runner.AddWorktree(Earlier, worktree, branch, ScriptedCommandRunner.PrimaryHead);
+        runner.AddWorktree(Clone, worktree, branch, ScriptedCommandRunner.PrimaryHead);
+    }
+
     private static string Listing(string clone, params string[] worktrees) =>
         $"worktree {clone}\nbare\n\n" + string.Concat(worktrees.Select(w => $"worktree {w}\nHEAD {ScriptedCommandRunner.PrimaryHead}\nbranch refs/heads/coanda/x\n\n"));
 
@@ -390,10 +452,10 @@ public sealed class RepoClonesTests : IDisposable
     }
 
     /// <summary>Runs what the daemon's start runs of the clones, against the home's store, with <paramref name="commands"/> or the test's runner.</summary>
-    private async Task StartAsync(ICommandRunner? commands = null)
+    private async Task StartAsync(ICommandRunner? commands = null, CancellationToken cancellationToken = default)
     {
         await using IDocumentStore store = await SeededStore.OpenAsync(Home.DatabasePath);
         using ILoggerFactory factory = LoggerFactory.Create(b => b.AddProvider(log));
-        await new RepoClones(store, Home, commands ?? runner, factory.CreateLogger<RepoClones>()).StartAsync(None);
+        await new RepoClones(store, Home, commands ?? runner, factory.CreateLogger<RepoClones>()).StartAsync(cancellationToken);
     }
 }
