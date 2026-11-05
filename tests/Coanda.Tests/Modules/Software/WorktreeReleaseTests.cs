@@ -91,7 +91,7 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_clone_whose_listing_fails_does_not_keep_the_delivery_from_the_other_clones_and_its_failure_is_logged()
+    public async Task A_clone_whose_listing_fails_does_not_keep_the_delivery_from_the_other_clones_and_once_the_worktree_is_removed_its_failure_is_only_a_warning()
     {
         (_, string held, Guid holder) = await HeldAsync();
         // "another" sorts before the project's clone, so its failure comes first.
@@ -104,6 +104,22 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
         await node.DeliverEndAsync(holder);
 
         Assert.DoesNotContain(held, runner.Worktrees(Clone));
+        // the worktree was removed, so the delivery is not reported as failed and the next start has nothing to sweep
+        AssertNoFailureLogged();
+        Assert.Single(log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains($"removing the worktree of flow run {Ids.Short(holder)}, which was removed from another clone", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_clone_whose_listing_fails_when_no_other_clone_lists_the_worktree_fails_the_delivery_and_is_logged()
+    {
+        (_, string held, Guid holder) = await HeldAsync();
+        runner.On(
+            c => c.IsGit("worktree", "list") && c.GitDirectory() == Clone,
+            ScriptedCommandRunner.Fails(128, "fatal: unable to read worktrees"));
+
+        await node.DeliverEndAsync(holder);
+
+        Assert.Contains(held, runner.Worktrees(Clone));
         Assert.Single(log.Entries, e => e.Level == LogLevel.Error && e.Message.Contains($"Removing the worktree of flow run {Ids.Short(holder)}", StringComparison.Ordinal));
     }
 
