@@ -44,7 +44,7 @@ public abstract record Push
     public sealed record NoClone(string Reason) : Push;
 }
 
-/// <summary>What rebasing a flow run's branch came to: pushed at a new head, or not pushed, for one of five reasons.</summary>
+/// <summary>What rebasing a flow run's branch came to: pushed at a new head, or not pushed, for one of seven reasons.</summary>
 public abstract record Rebase
 {
     private Rebase()
@@ -56,6 +56,13 @@ public abstract record Rebase
     /// remote-tracking ref for it all hold <paramref name="Head"/>, the rebased commit.
     /// </summary>
     public sealed record Pushed(string Head) : Rebase;
+
+    /// <summary>
+    /// Nothing was checked out, rebased, noted, or pushed, because git, asked in the flow run's worktree,
+    /// cannot determine a committer identity for the commits a rebase makes; <paramref name="Reason"/>
+    /// quotes its refusal.
+    /// </summary>
+    public sealed record NoIdentity(string Reason) : Rebase;
 
     /// <summary>Nothing was fetched, rebased, or pushed, because the worktree holds the changes <paramref name="Changes"/> lists.</summary>
     public sealed record Unclean(IReadOnlyList<string> Changes) : Rebase;
@@ -429,7 +436,9 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     /// branch whose tip is not the recorded head, is answered before anything is fetched, rebased,
     /// or pushed, unless the remote's branch holds exactly the commit this flow run last noted, and that
     /// is not the recorded head: an earlier performance pushed it and was not recorded, so the branch
-    /// is put at it and nothing is pushed. The remote's branch is read without changing a ref.
+    /// is put at it and nothing is pushed. The remote's branch is read without changing a ref. Before
+    /// any of that, git is asked in the worktree for the committer identity the rebase's commits would
+    /// carry, and one it cannot determine is answered with nothing changed (<see cref="Rebase.NoIdentity"/>).
     /// Once the branch is at a commit the remote holds, by this performance's push or an earlier one's,
     /// that commit is recorded as the one this node last pushed for the branch (<see cref="PushedKeyOf"/>).
     /// </summary>
@@ -452,6 +461,17 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
         if (await UnusableAsync(project, cancellationToken) is { } unusable)
         {
             return new Rebase.NoClone(unusable);
+        }
+
+        // Asked in the worktree, so the repository's configuration counts as well as the user's and the
+        // system's; git fails exactly when it can neither read nor auto-detect an identity.
+        CommandLine identity = Git.In(workPath, "var", "GIT_COMMITTER_IDENT");
+        CommandResult identified = await git.TryRunAsync(identity, cancellationToken);
+        if (!identified.Succeeded)
+        {
+            return IdentityUnknown(identified)
+                ? new Rebase.NoIdentity(new GitCommandException(identity, identified).Message)
+                : throw new GitCommandException(identity, identified);
         }
 
         CommandLine abort = Git.In(workPath, "rebase", "--abort");
@@ -533,6 +553,14 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
             await RecordPushedAsync(clone, branch, pushedHead, cancellationToken);
         }
     }
+
+    /// <summary>
+    /// Whether <paramref name="result"/>, a failed <c>git var GIT_COMMITTER_IDENT</c>, is git's refusal
+    /// to go on without a committer identity, which it words this way whichever part of it is missing.
+    /// </summary>
+    private static bool IdentityUnknown(CommandResult result) =>
+        result.StandardError.Contains("identity unknown", StringComparison.OrdinalIgnoreCase)
+        || result.StandardError.Contains("Please tell me who you are", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The commit this node last pushed for <paramref name="branch"/>, or empty when it holds no record of one.</summary>
     private async Task<string> LastPushedAsync(string clone, string branch, CancellationToken cancellationToken) =>

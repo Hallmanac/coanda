@@ -29,6 +29,8 @@ public sealed class RebaseStepTests : IAsyncLifetime
     private const string Moved = "fedcba9876543210fedcba9876543210fedcba98";
     private static readonly CancellationToken None = CancellationToken.None;
 
+    /// <summary>What git prints, under the C locale, when it can neither read nor auto-detect a committer identity.</summary>
+    private const string NoIdentity = "Committer identity unknown\n\n*** Please tell me who you are.\n\nRun\n\n  git config --global user.email \"you@example.com\"\n  git config --global user.name \"Your Name\"\n\nto set your account's default identity.\nOmit --global to set the identity only in this repository.\n\nfatal: no email was given and auto-detection is disabled\n";
 
     /// <summary>A flow of open-pr then rebase, so a flow run of it can hold a recorded open-pr result and sit in the rebase step.</summary>
     private static readonly Flow Recorder = new()
@@ -83,7 +85,7 @@ public sealed class RebaseStepTests : IAsyncLifetime
 
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
         Assert.Equal(branch, result.GetProperty("branch").GetString());
-        Assert.Equal(["rev-parse --is-bare-repository", "rebase --abort", "status --porcelain --untracked-files=all", $"ls-remote --refs origin refs/heads/{branch}", $"for-each-ref --format=%(objectname) {ProjectClones.NoteRefOf(flowRun)}", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"checkout --quiet --detach {Recorded}", $"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", "rev-parse --verify --quiet HEAD^{commit}", $"update-ref {ProjectClones.NoteRefOf(flowRun)} {Rebased}", $"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", $"checkout --quiet --detach {Rebased}", $"update-ref refs/heads/{branch} {Rebased} {Recorded}", $"checkout --quiet {branch}", $"update-ref {ProjectClones.TrackingRefOf(branch)} {Rebased}", $"config {ProjectClones.PushedKeyOf(branch)} {Rebased}"], runner.GitCalls);
+        Assert.Equal(["rev-parse --is-bare-repository", "var GIT_COMMITTER_IDENT", "rebase --abort", "status --porcelain --untracked-files=all", $"ls-remote --refs origin refs/heads/{branch}", $"for-each-ref --format=%(objectname) {ProjectClones.NoteRefOf(flowRun)}", $"for-each-ref --format=%(objectname) refs/heads/{branch}", $"fetch --no-tags --quiet origin +refs/heads/{RegisteredProjects.Branch}:refs/remotes/origin/{RegisteredProjects.Branch}", $"rev-parse --verify --quiet refs/remotes/origin/{RegisteredProjects.Branch}^{{commit}}", $"checkout --quiet --detach {Recorded}", $"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", "rev-parse --verify --quiet HEAD^{commit}", $"update-ref {ProjectClones.NoteRefOf(flowRun)} {Rebased}", $"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", $"checkout --quiet --detach {Rebased}", $"update-ref refs/heads/{branch} {Rebased} {Recorded}", $"checkout --quiet {branch}", $"update-ref {ProjectClones.TrackingRefOf(branch)} {Rebased}", $"config {ProjectClones.PushedKeyOf(branch)} {Rebased}"], runner.GitCalls);
         Assert.All(runner.Commands.Where(c => c.GitDirectory() is null), c => Assert.True(c.WorkingDirectory == workPath, "the rebase works in the merge flow run's own worktree"));
         Assert.Equal(Rebased, runner.Branch(Clone, branch));
         Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
@@ -317,6 +319,63 @@ public sealed class RebaseStepTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task No_committer_identity_pauses_naming_how_to_set_one_before_anything_is_checked_out_rebased_noted_or_pushed()
+    {
+        (Guid parcel, Guid flowRun, string branch, string workPath) = await ArrangeAsync();
+        runner.On(c => c.IsGit("var", "GIT_COMMITTER_IDENT"), ScriptedCommandRunner.Fails(128, NoIdentity));
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
+
+        Assert.StartsWith("Step 'rebase' rebased nothing: git cannot determine a committer identity", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("no email was given and auto-detection is disabled", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(Levers.CommitterIdentity("rebase", Environment.UserName), paused.Lever);
+        Assert.Contains("git config --global user.name", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains("git config --global user.email", paused.Lever, StringComparison.Ordinal);
+        Assert.Contains(Environment.UserName, paused.Lever, StringComparison.Ordinal);
+        Assert.EndsWith("then resume the flow run to perform step 'rebase' again.", paused.Lever, StringComparison.Ordinal);
+        // git is asked in the flow run's worktree, so the repository's configuration counts too
+        Assert.Equal(["rev-parse --is-bare-repository", "var GIT_COMMITTER_IDENT"], runner.GitCalls);
+        Assert.Equal(workPath, runner.Commands.Single(c => c.IsGit("var")).WorkingDirectory);
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
+        Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
+        Assert.Null(runner.TrackingRef(Clone, ProjectClones.NoteRefOf(flowRun)));
+        Assert.Equal(Recorded, runner.RemoteBranch(Clone, branch));
+        Assert.Equal(Recorded, runner.TrackingRef(Clone, ProjectClones.TrackingRefOf(branch)));
+        Assert.Null(runner.Config(Clone, ProjectClones.PushedKeyOf(branch)));
+    }
+
+    [Fact]
+    public async Task A_resume_once_a_committer_identity_is_set_rebases_and_pushes_as_usual()
+    {
+        (Guid parcel, Guid flowRun, string branch, string workPath) = await ArrangeAsync();
+        runner.On(c => c.IsGit("var", "GIT_COMMITTER_IDENT"), ScriptedCommandRunner.Fails(128, NoIdentity));
+        Paused(await DispatchAsync(parcel, flowRun));
+        runner.On(c => c.IsGit("var", "GIT_COMMITTER_IDENT"), ScriptedCommandRunner.Ok("Some One <some.one@example.com> 1793913952 +0000\n"));
+
+        JsonElement result = Done(await DispatchAsync(parcel, flowRun));
+
+        Assert.Equal(Rebased, result.GetProperty("head").GetString());
+        Assert.Equal(Rebased, runner.Branch(Clone, branch));
+        Assert.Equal(branch, runner.CheckedOut(Clone, workPath));
+        Assert.Equal(Rebased, runner.RemoteBranch(Clone, branch));
+        Assert.Equal(Rebased, runner.Config(Clone, ProjectClones.PushedKeyOf(branch)));
+    }
+
+    [Fact]
+    public async Task An_identity_check_that_fails_any_other_way_pauses_to_perform_again_and_changes_nothing()
+    {
+        (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
+        runner.On(c => c.IsGit("var", "GIT_COMMITTER_IDENT"), ScriptedCommandRunner.Fails(128, "fatal: not a git repository (or any of the parent directories): .git\n"));
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
+
+        Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
+        Assert.Contains("not a git repository", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(["rev-parse --is-bare-repository", "var GIT_COMMITTER_IDENT"], runner.GitCalls);
+        Assert.Equal(Recorded, runner.Branch(Clone, branch));
+    }
+
+    [Fact]
     public async Task A_rebase_left_in_progress_is_aborted_before_the_system_step_starts_again()
     {
         (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
@@ -334,9 +393,10 @@ public sealed class RebaseStepTests : IAsyncLifetime
         int before = runner.Commands.Count;
         JsonElement result = Done(await DispatchAsync(parcel, flowRun));
 
-        // the clone is checked first, and the abort is the first command in the worktree
+        // the clone is checked first, then the committer identity, and the abort is the first command that changes the worktree
         Assert.Equal("rev-parse --is-bare-repository", GitCallAt(before));
-        Assert.Equal("rebase --abort", GitCallAt(before + 1));
+        Assert.Equal("var GIT_COMMITTER_IDENT", GitCallAt(before + 1));
+        Assert.Equal("rebase --abort", GitCallAt(before + 2));
         Assert.Equal(Rebased, result.GetProperty("head").GetString());
         Assert.Equal(Rebased, runner.Branch(Clone, branch));
     }
@@ -362,7 +422,7 @@ public sealed class RebaseStepTests : IAsyncLifetime
 
         Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
         Assert.Contains("cannot lock ref", paused.Reason, StringComparison.Ordinal);
-        Assert.Equal(["rev-parse --is-bare-repository", "rebase --abort"], runner.GitCalls);
+        Assert.Equal(["rev-parse --is-bare-repository", "var GIT_COMMITTER_IDENT", "rebase --abort"], runner.GitCalls);
     }
 
     [Fact]

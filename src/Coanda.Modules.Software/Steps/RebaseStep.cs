@@ -13,7 +13,9 @@ namespace Coanda.Modules.Software.Steps;
 /// with the <c>head</c> it pushed (<see cref="ProjectClones.RebaseAsync"/>). A conflict pauses naming
 /// the unmerged paths, with a lever that sends the resolution through build; a worktree with
 /// changes, a branch tip that is not the recorded head, and a push the lease refuses pause with a
-/// lever to stop the flow run, because performing the step again would pause the same way. No usable
+/// lever to stop the flow run, because performing the step again would pause the same way. A node
+/// where git, asked in the worktree, cannot determine a committer identity pauses before anything is
+/// checked out, with a lever naming the commands that set one for the user the daemon runs as. No usable
 /// clone of the repo, and any other failing git command, pause with the perform-again lever, quoting the end of its error output.
 /// </summary>
 public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
@@ -60,6 +62,9 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
         return rebase switch
         {
             Rebase.Pushed pushed => Results.DoneWith(Name, ("branch", branch), ("head", pushed.Head)),
+            Rebase.NoIdentity unknown => new DispatchAnswer.Paused(
+                $"Step '{step}' rebased nothing: git cannot determine a committer identity for the commits a rebase of {branch} makes, so nothing was checked out, rebased, or pushed. {unknown.Reason}",
+                Levers.CommitterIdentity(step, Environment.UserName)),
             Rebase.Unclean unclean => Refused(
                 step, $"rebased nothing: the worktree of {branch} has changes that git status reports, which a rebase would carry or lose: {string.Join(", ", unclean.Changes)}."),
             Rebase.Moved moved => Refused(
