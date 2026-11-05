@@ -94,7 +94,10 @@ session of the `claude` executable on the PATH, under whatever login that execut
 and that session's spend is billed to that login. Install Claude Code and sign in to it before a
 flow run reaches its first agent step; without it, the agent step pauses saying why. To exercise flow runs
 with no sessions and no spend, write a `node.json` naming the `scripted` executor, under which
-every agent step pauses.
+every agent step pauses. Whatever the executor, a running daemon writes each project's events as
+signed lines on `refs/coanda/nodes/<node-id>` in the project's clones and pushes that ref to each
+repo's remote, at start and every 15 seconds after; `"ledgerExport": false` in `node.json` turns
+this off, so nothing reaches the remote but the branches a build flow run pushes.
 
 A build flow run's worktree and gates steps start real processes. The daemon needs git 2.31 or later
 and the project's build and test tools on its PATH, and it has to reach the project's remote with
