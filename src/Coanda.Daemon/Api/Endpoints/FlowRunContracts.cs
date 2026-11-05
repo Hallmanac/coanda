@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
+using Coanda.Daemon.FlowRuns;
 
 namespace Coanda.Daemon.Api.Endpoints;
 
@@ -16,7 +17,9 @@ public sealed record FlowRunResumeRequest(string Project, string? Note);
 /// A flow run as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or
 /// stopped; a running or paused flow run is the live one its parcel names. A flow run a follow started
 /// carries its <see cref="ParentFlowRunId"/>, and every flow run its <see cref="RootFlowRunId"/> and
-/// <see cref="Depth"/>, zero for a root.
+/// <see cref="Depth"/>, zero for a root. <see cref="Working"/> is true while a worker of the daemon
+/// advances the flow run or a person's stop of it is being saved, so an ended or stopped flow run that is
+/// not working has nothing of the core's still running in its work path.
 /// </summary>
 public sealed record FlowRunView(
     Guid Id,
@@ -40,13 +43,15 @@ public sealed record FlowRunView(
     Guid RootFlowRunId,
     int Depth,
     decimal Cost,
-    Measurement? PauseUsage)
+    Measurement? PauseUsage,
+    bool Working)
 {
-    public static FlowRunView From(string project, FlowRun flowRun) => new(
+    public static FlowRunView From(string project, FlowRun flowRun, FlowRunWorkers workers) => new(
         flowRun.Id, project, flowRun.ParcelId, flowRun.FlowName, flowRun.FlowVersion, flowRun.FlowHash,
         StatusName(flowRun.Status), flowRun.CurrentStep, flowRun.Spawns, flowRun.StartedBy, flowRun.StartedAt, flowRun.UpdatedAt,
         [.. flowRun.Steps.Select(FlowRunStepView.From)], flowRun.PauseReason, flowRun.Lever, flowRun.Outcome, flowRun.StopReason,
-        flowRun.ParentFlowRunId, flowRun.RootFlowRunId, flowRun.Depth, flowRun.Cost, flowRun.PauseUsage);
+        flowRun.ParentFlowRunId, flowRun.RootFlowRunId, flowRun.Depth, flowRun.Cost, flowRun.PauseUsage,
+        workers.IsWorking(flowRun.Id));
 
     public static string StatusName(FlowRunStatus status) => status switch
     {
