@@ -1,4 +1,5 @@
 using Coanda.Core;
+using Coanda.Core.Registry;
 
 namespace Coanda.Daemon;
 
@@ -30,6 +31,22 @@ public sealed record NodeHome(string Path)
 
     /// <summary>Every file in the home that only its owner may read or write.</summary>
     public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath];
+
+    /// <summary>
+    /// The module area: <c>modules-private/</c> under the home, holding one directory per module, each
+    /// owner-only. A module's directory holds its credential profiles, one entry each, named by the
+    /// profile, with the secret material inside, which the core never reads. Everything under it is
+    /// created owner-only and narrowed to that at every start.
+    /// </summary>
+    public string ModuleAreaPath => System.IO.Path.Combine(Path, "modules-private");
+
+    /// <summary>
+    /// The module's own area, <c>modules-private/&lt;module&gt;</c> under the home: the entries directly
+    /// inside it are the credential profiles the node holds for the module. The module must be a plain
+    /// name, so the path never leaves the module area.
+    /// </summary>
+    public string ModuleAreaOf(string module) =>
+        System.IO.Path.Combine(ModuleAreaPath, ModuleNames.Require(module));
 
     /// <summary>
     /// Where a flow run's agent steps work: <c>work/&lt;project&gt;/&lt;flow run id&gt;</c> under the home.
@@ -112,8 +129,9 @@ public sealed record NodeHome(string Path)
     /// Creates the home if it is absent and narrows to owner-only access anything an earlier run
     /// left wider: on Windows the directory itself, whose access list every file created in it
     /// inherits, and on every platform the token file, the database and its companion files, the
-    /// log, and the detached daemon's output. Called before anything opens the database or writes
-    /// to any of those files.
+    /// log, and the detached daemon's output. It also creates the module area owner-only and narrows
+    /// every directory and file under it, the area included, to owner-only (<see cref="OwnerOnly.NarrowTree"/>).
+    /// Called before anything opens the database or writes to any of those files.
     /// </summary>
     public NodeHome EnsureExists()
     {
@@ -123,7 +141,17 @@ public sealed record NodeHome(string Path)
             OwnerOnly.Narrow(path);
         }
 
+        OwnerOnly.NarrowTree(ModuleAreaPath);
         return this;
+    }
+
+    /// <summary>The module's own area (<see cref="ModuleAreaOf"/>), created owner-only when it is absent.</summary>
+    public string EnsureModuleArea(string module)
+    {
+        string area = ModuleAreaOf(module);
+        OwnerOnly.EnsurePrivateDirectory(ModuleAreaPath);
+        OwnerOnly.EnsurePrivateDirectory(area);
+        return area;
     }
 
     /// <summary>

@@ -21,6 +21,10 @@ public sealed class OwnerOnlyAccessTests
     private const UnixFileMode Wider =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead;
 
+    private const UnixFileMode WiderDirectory =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+
     [Fact]
     public async Task A_daemon_started_in_a_new_empty_home_keeps_every_file_owner_only()
     {
@@ -117,6 +121,71 @@ public sealed class OwnerOnlyAccessTests
         Assert.Equal("earlier" + Environment.NewLine + "later" + Environment.NewLine, await File.ReadAllTextAsync(home.LogPath, CancellationToken.None));
     }
 
+    [Fact]
+    public void The_narrowing_the_daemon_runs_at_start_narrows_every_directory_and_file_under_the_module_area()
+    {
+        using var scratch = new ScratchHome(create: true);
+        NodeHome home = scratch.Home;
+        home.EnsureExists();
+        AssertOwnerOnlyDirectory(home.ModuleAreaPath);
+
+        // A module's directory that already exists, as OwnerOnly.EnsureDirectory would leave it, a profile
+        // directory inside it, and files at both depths, each written with wider access.
+        string module = Path.Combine(home.ModuleAreaPath, "test");
+        string profile = Path.Combine(module, "work");
+        Directory.CreateDirectory(profile);
+        string flat = Path.Combine(module, "personal");
+        string token = Path.Combine(profile, "token");
+        File.WriteAllText(flat, "secret");
+        File.WriteAllText(token, "secret");
+        string[] directories = [home.ModuleAreaPath, module, profile];
+        string[] files = [flat, token];
+        foreach (string path in directories)
+        {
+            WidenDirectory(path);
+            AssertWiderDirectory(path);
+        }
+
+        foreach (string path in files)
+        {
+            WidenAnywhere(path);
+            AssertWider(path);
+        }
+
+        home.EnsureExists();
+
+        foreach (string path in directories)
+        {
+            AssertOwnerOnlyDirectory(path);
+        }
+
+        foreach (string path in files)
+        {
+            AssertOwnerOnly(path);
+            if (OperatingSystem.IsWindows())
+            {
+                // a file under the module area holds its own list, not one inherited from its directory
+                FileSecurity security = new FileInfo(path).GetAccessControl();
+                Assert.True(security.AreAccessRulesProtected, $"{path}'s access list is not inherited from its parent");
+                Assert.False(SingleRule(security, path).IsInherited);
+            }
+        }
+    }
+
+    [Fact]
+    public void A_modules_own_area_is_created_owner_only_and_its_name_must_be_plain()
+    {
+        using var scratch = new ScratchHome(create: true);
+        NodeHome home = scratch.Home;
+
+        string area = home.EnsureModuleArea("test");
+
+        Assert.Equal(Path.Combine(home.Path, "modules-private", "test"), area);
+        AssertOwnerOnlyDirectory(home.ModuleAreaPath);
+        AssertOwnerOnlyDirectory(area);
+        Assert.Throws<Coanda.Core.DomainException>(() => home.ModuleAreaOf("../test"));
+    }
+
     private static string Wal(NodeHome home) => home.DatabasePath + "-wal";
 
     private static string Shm(NodeHome home) => home.DatabasePath + "-shm";
@@ -189,6 +258,77 @@ public sealed class OwnerOnlyAccessTests
         if (!OperatingSystem.IsWindows())
         {
             File.SetUnixFileMode(path, Wider);
+        }
+    }
+
+    /// <summary>
+    /// Gives a file wider access whatever directory it is in: on macOS and Linux a mode the group and
+    /// others can read, and on Windows an access list that inherits from its parent and grants every user read.
+    /// </summary>
+    private static void WidenAnywhere(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var file = new FileInfo(path);
+            FileSecurity security = file.GetAccessControl();
+            security.SetAccessRuleProtection(isProtected: false, preserveInheritance: true);
+            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), FileSystemRights.Read, AccessControlType.Allow));
+            file.SetAccessControl(security);
+        }
+        else
+        {
+            File.SetUnixFileMode(path, Wider);
+        }
+    }
+
+    /// <summary>On macOS and Linux mode 0755; on Windows an access list that inherits from its parent and grants every user read.</summary>
+    private static void WidenDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var directory = new DirectoryInfo(path);
+            DirectorySecurity security = directory.GetAccessControl();
+            security.SetAccessRuleProtection(isProtected: false, preserveInheritance: true);
+            security.AddAccessRule(new FileSystemAccessRule(
+                new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), FileSystemRights.Read,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            directory.SetAccessControl(security);
+        }
+        else
+        {
+            File.SetUnixFileMode(path, WiderDirectory);
+        }
+    }
+
+    private static void AssertWiderDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            int rules = new DirectoryInfo(path).GetAccessControl()
+                .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
+                .Count;
+            Assert.True(rules > 1, $"{path} is seeded with wider access, but holds {rules} access rule(s).");
+        }
+        else
+        {
+            // {path} is seeded with wider access
+            Assert.Equal(WiderDirectory, File.GetUnixFileMode(path));
+        }
+    }
+
+    /// <summary>On macOS and Linux mode 0700; on Windows an access list that is not inherited and whose only entry grants the current user full control.</summary>
+    private static void AssertOwnerOnlyDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            DirectorySecurity security = new DirectoryInfo(path).GetAccessControl();
+            Assert.True(security.AreAccessRulesProtected, $"{path}'s access list is not inherited from its parent");
+            Assert.False(SingleRule(security, path).IsInherited);
+        }
+        else
+        {
+            // {path} is owner-only
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(path));
         }
     }
 
