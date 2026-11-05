@@ -82,9 +82,10 @@ public sealed class SoftwareModuleHostingTests
         using var temp = new TemporaryHome();
         Guid older;
         Guid named;
-        await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.EnsureExists().EnsureDatabase().DatabasePath))
+        await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.EnsureExists().EnsureDatabase().DatabasePath))
         {
-            // What a node home written before modules were holds: the registration and nothing after it.
+            // What a node home written before modules were holds: the parcel types every daemon
+            // records on its first start, the registration, and nothing after it.
             older = await RegisterAsync(store, "older");
             named = await RegisterAsync(store, "named", new ProjectModulesSet(Guid.Empty, "named", [], "owner", DateTimeOffset.UnixEpoch));
         }
