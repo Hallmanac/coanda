@@ -6,9 +6,11 @@ using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
 using Coanda.Sdk.Contract;
 using Coanda.Sdk.Hosting;
+using Fisher;
 using Microsoft.Data.Sqlite;
 
 namespace Coanda.Tests.Daemon;
@@ -237,6 +239,34 @@ public sealed class RecordExportTests
         Assert.Equal(26, position);
         Assert.Equal(held[25].Id, RecordHomes.Events(home.DatabasePath)[(int)position - 1].Id);
         Assert.Equal(held[27].Id, RecordHomes.Events(home.DatabasePath)[(int)position].Id);
+    }
+
+    [Fact]
+    public async Task A_ledger_lines_store_sequence_names_the_event_it_named_and_its_chain_sequence_stays_as_it_was()
+    {
+        using var temp = new TemporaryHome();
+        NodeHome home = temp.Home;
+        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
+        Guid lined = Guid.Parse(held[30].Id);
+        await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
+        {
+            await store.ApplyAllConfiguredChangesToDatabaseAsync(None);
+            await using IDocumentSession session = store.LightweightSession(held[30].Tenant);
+            session.Store(new LedgerLine { Id = lined, Origin = Guid.Parse("01a1ad07-0000-7000-8000-000000000001"), Sequence = 7, Signature = "seeded", Hash = "seeded", Segment = "2026-11", Line = "{}", StoreSequence = 31 });
+            await session.SaveChangesAsync(None);
+        }
+
+        SqliteConnection.ClearAllPools();
+        RecordExportResult export = await ExportAsync(home);
+        await RebuildAsync(home, export.Path);
+
+        // The 31st event is kept and the 27th, the checks event, is left out, so the line's event is the 30th now.
+        JsonNode line = JsonNode.Parse(Assert.Single(RecordHomes.Documents(home.DatabasePath, StoreConfiguration.DocumentTableOf(typeof(LedgerLine)))).Data)
+            ?? throw new InvalidOperationException("The line record does not parse.");
+        Assert.Equal(30, line["storeSequence"]?.GetValue<long>());
+        Assert.Equal(7, line["sequence"]?.GetValue<long>());
+        Assert.Equal(held[30].Id, RecordHomes.Events(home.DatabasePath)[29].Id);
     }
 
     private static long TriggerPositionOf(NodeHome home) =>
