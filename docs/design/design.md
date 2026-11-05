@@ -545,7 +545,14 @@ deny hook's carve-out is unchanged.
 The module calls the daemon's existing loopback command and query API, presenting a module token,
 under a Module role (decision c4d0586a: every call carries a principal). The same token middleware
 resolves three kinds of token: the daemon token (owner), a session token bound to one agent step's
-launch, and a module token bound to one installed module.
+launch, and a module token bound to one installed module. A call holding only the daemon token acts
+as the node's owner, the operating system account the daemon runs as, whose principal id is that
+account's name and is what the CLI sends in its principal header. Such a call that sends no
+principal header, or a blank one, acts as the owner too; one whose header names any other id is
+refused before any service runs, so the daemon token cannot be used to record under someone else's
+name. A call holding a session or module token acts as the principal its token resolves to, and its
+principal header is not read. For now the account name is the owner's only source; once a node joins
+a project, the owner's id comes from the project's root record.
 
 **Events.** A module reports external events (review requested on a pull request, mail arrived from
 this sender) by recording them, with the kind prefixed by the module's name and an external id, so
@@ -553,7 +560,10 @@ recording is idempotent on project, kind, and external id. What follows is the u
 creates a parcel of a type, or targets the parcel the event names, and starts a flow. The module
 identifies (its reads are wide, so it may look up the parcel for pull request 12 and put its id in
 the event); it never decides. When deciding takes judgment, the trigger starts a flow whose first
-step is an agent that may answer "not for me" (section 7).
+step is an agent that may answer "not for me" (section 7). A kind with a module's prefix
+(`<module>/<name>`) is recorded only by the module the prefix names. Every other principal is
+refused it, the owner and members included, so a record that reads as a module's report always came
+from that module; an owner who must repair a module's record does it through the module.
 
 **Watch requests.** An external event is a project-scope record that replicates to every teammate's
 node, so a module must not report everything it sees. The core compiles the user's triggers (event
@@ -594,7 +604,8 @@ What the role allows:
 
 - **Reads, wide.** Parcels, flow runs, types, flows, agents, triggers, the project and its repos,
   and its own settings, in any project the module is switched on for.
-- **Events.** Record external events with module-prefixed kinds in those projects.
+- **Events.** Record external events with kinds prefixed by its own name in those projects, and no
+  other kinds. No other principal records a kind with its prefix.
 - **Writes during a dispatch, narrow.** A step result, and set-field on the parcel, only on the flow
   run and parcel of a dispatch the module currently holds, checked by dispatch id, as a session is
   scoped to its launch today.
