@@ -82,7 +82,10 @@ on a follower still waiting to start.
 `coa flow-run pause <id> --reason <why>` pauses a running flow run without freeing the parcel, and a resume
 then performs the step it was paused at again.
 
-The record lives at `~/.coanda/coanda.db`. Do not edit it by hand. The node's executor and
+The record lives at `~/.coanda/coanda.db`. Do not edit it by hand. `coa record export` writes a full
+export of it, in current shapes, to an owner-only file under the node home, and
+`coa record rebuild <export>` rebuilds the record from one, moving the old database aside; both refuse
+while a daemon runs. [Rebuilding the record](rebuilding-the-record.md) gives the steps. The node's executor and
 credential profiles live in `~/.coanda/node.json`, described in
 [node configuration](node-configuration.md).
 
