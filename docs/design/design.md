@@ -151,6 +151,42 @@ hash chain per node). A reader verifies any prefix and detects a rewind or fork 
 breaking. Trust is recomputed on import against the members and succession records. Git signing was
 considered and withdrawn because the relay has no commit to sign.
 
+The line. One chain and one contiguous sequence run per origin per project: an origin's sequence in
+a project starts at 1 and steps by one, and its first line in that project names no previous line.
+A line is one JSON object on one line, UTF-8, with these members in this order and nothing else:
+
+- `format`: the line format's version, the integer 1. A later format (a skip link, for instance)
+  takes the next number and is read beside this one; a reader refuses a version it does not know.
+- `project`: the project's id as its registration records it (`ProjectId`), not its name, since
+  names can repeat across owners.
+- `origin`: the origin's node id.
+- `sequence`: the origin's sequence in that project, an integer from 1.
+- `previous`: the hash of the origin's previous line in that project, or `null` for its first line.
+- `tag`: an array of the names of the repos that carry the event, in ordinal order with none
+  repeated, or the string `"project-wide"`, which no array, an empty one included, can equal.
+- `stream`: the event's stream id.
+- `type`: the event's type name as the events table stores it (for example `definition_drafted`).
+- `data`: the event's data, exactly the JSON text the events table stores with only the whitespace
+  outside its strings removed, so every number keeps its digits and every string its characters and
+  escapes.
+- `signer`: the signer's ed25519 public key, 32 bytes in standard base64 with padding.
+- `signature`: the ed25519 signature, 64 bytes in standard base64 with padding.
+
+Ids are lowercase hyphenated UUIDs, integers are plain decimal, and the strings outside `data` are
+escaped as RFC 8785 escapes them (a quote, a backslash, and the control characters, nothing else).
+The signature covers every member but itself: it is over the UTF-8 bytes of the line with its
+signature member removed, that is, the line up to the comma before `"signature"`, closed with `}`. A
+line has one way to be written, and a line written any other way does not parse, so its bytes are a
+function of what it says. The line does not use the JSON Canonicalization Scheme the module approval
+uses, because that scheme writes numbers through IEEE doubles and event data can hold any number
+(9007199254740993 and 9007199254740992 would canonicalize alike); no event is refused for the size or
+precision of a number. A line's hash is `sha256:` and the full SHA-256 digest, in lowercase hex and
+never truncated, of the whole line as written, signature included, without its line ending.
+
+A node's identity is its node id, a UUIDv7, and its ed25519 key pair, made at the daemon's first start
+on a home and kept in the home's owner-only `node-identity.json`, never rewritten. A home holding part
+of one, or one that does not parse, is refused at start rather than given a second identity.
+
 Identity: one owner root, one key per node, vouches, root-only revocation, succession by ranked
 keys exactly as hall9k's design (successor named, root rotated, successor revoked; an earlier key
 outranks a later one; first rotation to land wins), carried over as events. An offline heir key is
@@ -374,7 +410,8 @@ process started on demand; service registration is later. Windows through the sa
 seam. One local-time daemon log per node, and beside it one log per module process (section 14.7),
 plus the measurement events, which are what gets queried. The node
 home's token file (daemon.json), its database with the files SQLite keeps beside it, its log,
-and the file a detached daemon prints to outside its log (daemon.out) are readable and writable
+the file a detached daemon prints to outside its log (daemon.out), and the node identity with its
+private key (node-identity.json) are readable and writable
 by their owner alone from the moment each is created: mode 0600 on macOS and Linux, and on Windows the node home carries an owner-only access list, not inherited from its
 parent, that every file created inside it inherits. A start narrows any of them an earlier run left
 wider before it opens the database.
