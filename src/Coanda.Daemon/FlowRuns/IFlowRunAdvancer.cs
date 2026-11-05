@@ -3,8 +3,8 @@ namespace Coanda.Daemon.FlowRuns;
 /// <summary>
 /// The daemon's requests of the worker that advances a flow run by its id. The start endpoint, a
 /// resume, and the daemon's own start ask for an advance; a person's pause asks for the agent step in
-/// progress to end, and a person's stop for the agent step or system step in progress to end and the
-/// flow run's worktree to be removed. <see cref="FlowRunAdvancer"/> answers all three.
+/// progress to end, and a person's stop for the agent step or system step in progress to end and a
+/// dispatch it holds to be stopped. <see cref="FlowRunAdvancer"/> answers all of them.
 /// </summary>
 public interface IFlowRunAdvancer
 {
@@ -26,8 +26,8 @@ public interface IFlowRunAdvancer
     /// <summary>
     /// Tells the worker advancing the flow run that a person's stop of it was saved: the agent step it is
     /// running ends as for <see cref="EndAgentStep"/>, the call on a system step it is making is cancelled, ending
-    /// any command the system step runs and every process that command started, a dispatch the flow run holds with
-    /// no call in progress is stopped, and the flow run's worktree is removed once the worker has returned from its step. It returns without waiting for any of that.
+    /// any command the system step runs and every process that command started, and a dispatch the flow run holds with
+    /// no call in progress is stopped once the worker has returned from its step. It returns without waiting for any of that.
     /// </summary>
     void Stopped(string project, Guid flowRunId);
 

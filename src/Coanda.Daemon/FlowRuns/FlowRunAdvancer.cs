@@ -13,7 +13,6 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
-using Coanda.Daemon.Modules;
 using Coanda.Sdk;
 using Fisher;
 using Microsoft.Extensions.Hosting;
@@ -50,9 +49,9 @@ namespace Coanda.Daemon.FlowRuns;
 /// recorded before the stop but not yet routed is routed without being performed again. A
 /// person's pause or stop, once saved, ends the agent step in progress at once, its session stopped
 /// through the executor. A pause lets a system step in progress run on; a stop cancels it, ending any
-/// command it runs, and the system step records nothing. When a flow run ends, or once its worker has
-/// returned from the step it was performing when it was stopped, the flow run's worktree is removed; a
-/// removal that fails is logged, and the daemon's next start sweeps what is left. Every agent step
+/// command it runs, and the system step records nothing. The advancer removes no worktree: a module
+/// that keeps one in a flow run's work path removes it on the flow run's ended or stopped delivery,
+/// which the module feed holds until the flow run's worker has returned (<see cref="FlowRunWorkers"/>). Every agent step
 /// that launched a session records what it spent: in its answer, in its pause, or, when neither
 /// was recorded (a person paused or stopped the flow run, or its visit no longer expects the session),
 /// in a record of its usage alone. An answer or a pause from a session the visit no longer expects,
@@ -69,7 +68,7 @@ namespace Coanda.Daemon.FlowRuns;
 /// dispatching it blindly, and dispatches it again under the same id only when the step does not
 /// know it. A person's pause leaves such a dispatch held, and the resume stops it before the step
 /// is dispatched again under a new id; a person's stop of a flow run holding one with no call in
-/// progress stops it before the worktree is removed, and records nothing for the step.
+/// progress stops it, on the worker the stop starts, and records nothing for the step.
 /// </remarks>
 public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposable
 {
@@ -83,7 +82,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     private readonly FlowSystemSteps systemSteps;
     private readonly IAgentExecutor executor;
     private readonly CredentialProfiles profiles;
-    private readonly InterimWorktreeLink worktrees;
     private readonly NodeHome home;
     private readonly SessionTokens sessionTokens;
     private readonly TimeProvider clock;
@@ -113,7 +111,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         FlowSystemSteps systemSteps,
         IAgentExecutor executor,
         CredentialProfiles profiles,
-        InterimWorktreeLink worktrees,
         NodeHome home,
         SessionTokens sessionTokens,
         TimeProvider clock,
@@ -130,7 +127,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         this.systemSteps = systemSteps;
         this.executor = executor;
         this.profiles = profiles;
-        this.worktrees = worktrees;
         this.home = home;
         this.sessionTokens = sessionTokens;
         this.clock = clock;
@@ -198,32 +194,11 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         }
 
         // The worker reads the stopped flow run once it returns from its step, or a new one reads it now,
-        // and either removes its worktree.
+        // and either stops a dispatch it holds.
         _ = RequestAdvance(project, flowRunId);
     }
 
     public IDisposable Stopping(Guid flowRunId) => flowRunWorkers.Stopping(flowRunId);
-
-    /// <summary>
-    /// Asks the software module, through the interim seam it registered its sweep with, to remove the
-    /// worktree of every flow run an existing project clone lists that has ended or been stopped, as an
-    /// end or a stop would have, leaving the worktrees of live flow runs as they are. The daemon runs it at
-    /// start, before any live flow run is advanced; a sweep that fails is logged.
-    /// </summary>
-    public async Task SweepWorktreesAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await worktrees.SweepAsync(
-                async (project, flowRunId, token) =>
-                    await flowRuns.ShowAsync(ScanPrincipal, project, flowRunId, token) is { Status: FlowRunStatus.Ended or FlowRunStatus.Stopped },
-                cancellationToken);
-        }
-        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
-        {
-            logger.LogError(failure, "Sweeping the worktrees of ended and stopped flow runs failed; the daemon starts without it.");
-        }
-    }
 
     /// <summary>
     /// Requests an advance of every live flow run on the node; a paused one is read and left as it is.
@@ -401,7 +376,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             if (flowRun is { Status: FlowRunStatus.Ended or FlowRunStatus.Stopped })
             {
                 await StopHeldDispatchAsync(flowRun, cancellationToken);
-                await RemoveWorktreeAsync(project, flowRunId, cancellationToken);
                 return;
             }
 
@@ -1209,31 +1183,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     }
 
     /// <summary>
-    /// Asks the software module, through the interim seam, to remove the flow run's worktree once the flow
-    /// run has ended or been stopped and its worker is between steps. A flow run that never made one is
-    /// left alone; a removal that fails is logged, since the end or the stop is already recorded, and the
-    /// next start's sweep tries again.
-    /// </summary>
-    private async Task RemoveWorktreeAsync(string project, Guid flowRunId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (await worktrees.RemoveAsync(project, flowRunId, cancellationToken))
-            {
-                logger.LogInformation("Removed the worktree of flow run {FlowRun} in project {Project}.", Ids.Short(flowRunId), project);
-            }
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception failure)
-        {
-            logger.LogError(failure, "Removing the worktree of flow run {FlowRun} in project {Project} failed; the daemon's next start sweeps it.", Ids.Short(flowRunId), project);
-        }
-    }
-
-    /// <summary>
     /// What is left of the budgets an agent step is performed under. <see cref="Spent"/> is the reason an
     /// agent step may not be performed because a budget is spent, or null when none is;
     /// <see cref="Ceiling"/> is the cost ceiling its spawn carries otherwise.
@@ -1503,8 +1452,8 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// <summary>
     /// Tells the system step of a stopped flow run's current visit to stop the dispatch it holds with
     /// no outcome and no call in progress (it answered running, or a person paused the flow run while
-    /// it ran, or the stop ended its dispatch call), before the flow run's worktree is removed; it
-    /// records nothing for the step. A dispatch this worker already told to stop, on an earlier pass
+    /// it ran, or the stop ended its dispatch call), before the worker returns and so before the module
+    /// feed delivers the stop; it records nothing for the step. A dispatch this worker already told to stop, on an earlier pass
     /// over the stopped flow run, is passed over. A stop that fails is logged, since the flow run's stop
     /// is already recorded.
     /// </summary>
@@ -1557,7 +1506,6 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
                 return true;
             case FlowRunMove.End end:
                 await flowRuns.EndAsync(principal, project, flowRun.Id, end.Outcome, cancellationToken);
-                await RemoveWorktreeAsync(project, flowRun.Id, cancellationToken);
                 return false;
             case FlowRunMove.Pause pause:
                 await PauseAsync(principal, project, flowRun.Id, pause.Reason, FlowRunLevers.PerformAgain(step.Name), cancellationToken);

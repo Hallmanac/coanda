@@ -8,7 +8,8 @@ namespace Coanda.Modules.Software;
 /// <summary>
 /// The software module's describe answer: its five steps, each with the schema of the arguments a flow
 /// author writes for it (none, today) and of the result its done answer carries, no external event
-/// kinds and no subscriptions yet, and its settings schema. The settings schema is the one copy of the
+/// kinds, its subscriptions to the ends and stops of flow runs, whose worktrees it removes, and its
+/// settings schema. The settings schema is the one copy of the
 /// module's settings: the daemon checks the settings a project records for the module against this.
 /// </summary>
 public static class SoftwareDescribe
@@ -76,7 +77,7 @@ public static class SoftwareDescribe
                 """)),
         ],
         [],
-        [],
+        [CoreEventKind.FlowRunEnded, CoreEventKind.FlowRunStopped],
         Settings);
 
     /// <summary>

@@ -7,7 +7,6 @@ using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.FlowRuns;
-using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.SystemSteps;
@@ -82,22 +81,28 @@ internal sealed class SoftwareNode : IAsyncDisposable
     /// <summary>A flow run service of the test's own on the daemon's store, which hands nothing to the daemon's advancer.</summary>
     public FlowRunService FlowRuns => new(Store, TimeProvider.System);
 
-    /// <summary>The daemon's workers, as the worktree step waits on them through the interim seam.</summary>
+    /// <summary>The daemon's workers, which the module feed holds a flow run's ended or stopped delivery on.</summary>
     public FlowRunWorkers Workers => Services.GetRequiredService<FlowRunWorkers>();
 
-    /// <summary>The daemon's side of the interim seam, which removes a flow run's worktree through the module.</summary>
-    public InterimWorktreeLink Worktrees => Services.GetRequiredService<InterimWorktreeLink>();
+    /// <summary>
+    /// Delivers to the module, as the module feed would, that the flow run <paramref name="flowRunId"/>
+    /// ended, for a flow run the store need not hold, so the module removes its worktree.
+    /// </summary>
+    public Task DeliverEndAsync(Guid flowRunId, string project = Project) =>
+        Services.GetRequiredService<SoftwareModule>().FeedAsync(new FeedDelivery([new FeedEvent.FlowRunEnded(project, 1, flowRunId)]), None);
 
     /// <summary>
     /// Starts a node whose module runs commands on <paramref name="runner"/> and reaches GitHub through
     /// <paramref name="github"/>, or through <paramref name="handler"/> when one is given, with the
-    /// projects <paramref name="projects"/> (<see cref="Project"/> when none) registered.
+    /// projects <paramref name="projects"/> (<see cref="Project"/> when none) registered, its log also
+    /// going to <paramref name="log"/> when one is given.
     /// </summary>
     public static async Task<SoftwareNode> StartAsync(
         ScriptedCommandRunner? runner = null,
         FakeGitHub? github = null,
         Func<HttpMessageHandler>? handler = null,
         TimeSpan? gatesCommandLimit = null,
+        RecordingLogger? log = null,
         params string[] projects)
     {
         var temp = new TemporaryHome();
@@ -110,6 +115,7 @@ internal sealed class SoftwareNode : IAsyncDisposable
                 CommandRunner = runner,
                 GitHubHandler = handler ?? github.Handler,
                 GatesCommandLimit = gatesCommandLimit ?? DaemonOptions.DefaultGatesCommandLimit,
+                LoggerProvider = log,
             },
             None);
         foreach (string project in projects.Length == 0 ? [Project] : projects)

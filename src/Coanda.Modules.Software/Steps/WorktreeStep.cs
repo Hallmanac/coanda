@@ -10,14 +10,15 @@ namespace Coanda.Modules.Software.Steps;
 /// <c>head</c> checked out. The commit last recorded as pushed among all the parcel's flow runs is what
 /// tells a person's local rewrite of the branch from a remote someone else moved, and a branch still
 /// checked out in the worktree of a flow run that has ended or been stopped is taken over once that flow
-/// run's worker, which the host's <paramref name="interim"/> waits on, has returned
-/// (<see cref="ProjectClones.CheckOutAsync"/>). A project the core shows no record of, or a refusal (a
+/// run's end is in <paramref name="ends"/>: once its ended or stopped feed delivery has reached the
+/// module, which the step waits for when it has not, or at once when the module's start-up sweep found
+/// it ended (<see cref="ProjectClones.CheckOutAsync"/>). A project the core shows no record of, or a refusal (a
 /// branch another parcel owns, a branch a live flow run's or an unknown worktree holds, a commit
 /// tracking <c>.coanda</c> in any letter case or files under it, something at the clone's path that is
 /// no repository), pauses with the perform-again lever; a failing git command throws, and the core
 /// pauses quoting it.
 /// </summary>
-public sealed class WorktreeStep(ProjectClones clones, IInterimWorktrees interim) : ISoftwareStep
+public sealed class WorktreeStep(ProjectClones clones, FlowRunEnds ends) : ISoftwareStep
 {
     public string Name => SoftwareSteps.Worktree;
 
@@ -37,7 +38,7 @@ public sealed class WorktreeStep(ProjectClones clones, IInterimWorktrees interim
         string? lastPushed = await RecordedHeads.OfParcelAsync(context, cancellationToken);
         var holders = new WorktreeHolders(
             async (flowRunId, token) => await StatusOfAsync(context, flowRunId, token),
-            interim.WorkerReturnedAsync);
+            ends.ReachedAsync);
         Checkout checkout = await clones.CheckOutAsync(project, request.ParcelId, request.FlowRunId, lastPushed, holders, cancellationToken);
         return checkout switch
         {

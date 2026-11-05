@@ -194,6 +194,44 @@ public sealed class DispatchFlowRunTests
     }
 
     [Fact]
+    public async Task A_stopped_flow_runs_worktree_whose_running_dispatch_holds_no_outcome_is_removed_only_after_the_steps_stop_call_has_returned()
+    {
+        using var temp = new TemporaryHome();
+        var runner = new ScriptedCommandRunner();
+        var step = new RunningSystemStep();
+        await using RunningDaemon daemon = await StartDaemonAsync(temp, step, runner);
+        using var client = new DaemonClient(temp.Home);
+        (Guid flowRunId, _) = await StartFlowRunAsync(daemon, client);
+        Guid held = await AnsweredRunningAsync(daemon, step, flowRunId);
+        string clone = temp.Home.ProjectClonePath(Project);
+        string workPath = temp.Home.FlowRunWorkPath(Project, flowRunId);
+        Directory.CreateDirectory(clone);
+        runner.AddWorktree(clone, workPath, "task/dispatched", ScriptedCommandRunner.PrimaryHead);
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        step.Stopping = async (_, _) =>
+        {
+            stopping.TrySetResult();
+            await release.Task;
+        };
+
+        await FlowRunDriver.StopAsync(client, Project, flowRunId, "Not needed.");
+        await stopping.Task.WaitAsync(Patience);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), None);
+
+        // the stop call has not returned, so the feed has not delivered the stop and the worktree stays
+        Assert.Equal([workPath], runner.Worktrees(clone));
+        Assert.DoesNotContain(runner.GitCalls, c => c.StartsWith("worktree remove", StringComparison.Ordinal));
+
+        release.SetResult();
+        await FlowRunDriver.UntilAsync(() => runner.Worktrees(clone).Count == 0, "the stopped flow run's worktree is removed");
+
+        Assert.Equal([held], step.Stops);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_persons_stop_of_a_flow_run_holding_a_running_dispatch_stops_it_before_the_worktree_is_removed_and_records_nothing()
     {
         using var temp = new TemporaryHome();

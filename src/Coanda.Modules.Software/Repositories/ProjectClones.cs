@@ -79,12 +79,13 @@ public abstract record Rebase
 /// <summary>
 /// What the worktree step reads of the flow runs on the node when another worktree holds the parcel's
 /// branch: a flow run's status as the core names it (running, paused, ended, or stopped; null when the
-/// core holds no such flow run), and a wait that completes once the flow run's worker, which removes an
-/// ended or stopped flow run's worktree, has returned.
+/// core holds no such flow run), and a wait that completes once the module knows an ended or stopped
+/// flow run's end, because its ended or stopped feed delivery has reached the module or the module's
+/// start-up sweep found it ended, at once when it already does (<see cref="FlowRunEnds"/>).
 /// </summary>
 public sealed record WorktreeHolders(
     Func<Guid, CancellationToken, Task<string?>> StatusOf,
-    Func<Guid, CancellationToken, Task> WorkerReturned);
+    Func<Guid, CancellationToken, Task> EndReached);
 
 /// <summary>
 /// The node's clones of its projects' repositories and the flow runs' worktrees cut from them. A clone
@@ -137,9 +138,10 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// <remarks>
     /// A branch another worktree has checked out is taken over when that worktree is the work path of
     /// a flow run <paramref name="holders"/> reports ended or stopped, as a build flow run before a merge flow run
-    /// can be while its removal is still pending: the clone's turn is given back while that flow run's
-    /// worker returns, and then, in one turn, the worktree is listed again, the holding one removed as
-    /// the end of its flow run would, and the branch checked out here. A later removal of the ended flow run's
+    /// can be while its removal is still pending: the clone's turn is given back until that flow run's
+    /// end has reached the module, which the core sends only once nothing it runs for the flow run is
+    /// still running, and then, in one turn, the worktree is listed again, the holding one removed as
+    /// its end's delivery would, and the branch checked out here. A later removal of the ended flow run's
     /// worktree works by that flow run's own work path and finds nothing there. A branch held by a live
     /// flow run's worktree, or by one at a path that is no flow run's work path or whose flow run the store does
     /// not hold, is refused naming it. A failing git command throws <see cref="GitCommandException"/>.
@@ -153,30 +155,30 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
         CancellationToken cancellationToken)
     {
         string clone = home.ProjectClonePath(project.Name);
-        HashSet<Guid> returned = [];
+        HashSet<Guid> reached = [];
         while (true)
         {
             Guid? waitFor;
             using (Held held = await LockAsync(clone, cancellationToken))
             {
-                (Checkout? checkout, waitFor) = await CheckOutHeldAsync(project, parcelId, flowRunId, lastPushed, holders, returned, cancellationToken);
+                (Checkout? checkout, waitFor) = await CheckOutHeldAsync(project, parcelId, flowRunId, lastPushed, holders, reached, cancellationToken);
                 if (checkout is not null)
                 {
                     return checkout;
                 }
             }
 
-            // Outside the clone's turn: the holding flow run's worker may need it to finish its own removal.
+            // Outside the clone's turn: the holding flow run's end, once it arrives, removes its worktree through it.
             Guid holder = waitFor ?? throw new InvalidOperationException("A checkout neither ended nor named a flow run to wait for.");
-            await holders.WorkerReturned(holder, cancellationToken);
-            returned.Add(holder);
+            await holders.EndReached(holder, cancellationToken);
+            reached.Add(holder);
         }
     }
 
     /// <summary>
     /// <see cref="CheckOutAsync"/> within one turn at the clone: the checkout, or the ended or stopped
-    /// flow run whose worker must return before its worktree is taken over, when it is not in
-    /// <paramref name="returned"/> yet.
+    /// flow run whose end must reach the module before its worktree is taken over, when it is not in
+    /// <paramref name="reached"/> yet.
     /// </summary>
     private async Task<(Checkout? Checkout, Guid? WaitFor)> CheckOutHeldAsync(
         CoreProject project,
@@ -184,7 +186,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
         Guid flowRunId,
         string? lastPushed,
         WorktreeHolders holders,
-        HashSet<Guid> returned,
+        HashSet<Guid> reached,
         CancellationToken cancellationToken)
     {
         string clone = home.ProjectClonePath(project.Name);
@@ -235,7 +237,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
             }
 
             Guid ended = holder.GetValueOrDefault();
-            if (!returned.Contains(ended))
+            if (!reached.Contains(ended))
             {
                 return (null, ended);
             }

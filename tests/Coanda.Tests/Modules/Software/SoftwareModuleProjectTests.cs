@@ -3,6 +3,8 @@ using System.Xml.Linq;
 using Coanda.Core.Flows;
 using Coanda.Daemon.Api;
 using Coanda.Modules.Software;
+using Coanda.Sdk.Hosting;
+using Coanda.Tests.Daemon.Modules;
 using Coanda.Tests.Sdk;
 
 namespace Coanda.Tests.Modules.Software;
@@ -10,7 +12,7 @@ namespace Coanda.Tests.Modules.Software;
 /// <summary>
 /// The software module stands on the module SDK alone: its project references no other Coanda project,
 /// the code it was carved from is gone from the daemon and the core, and outside the host adapter the
-/// daemon reaches it only through the interim seam, which carries exactly three things.
+/// daemon reaches it only through the module API's calls.
 /// </summary>
 public sealed class SoftwareModuleProjectTests
 {
@@ -66,14 +68,19 @@ public sealed class SoftwareModuleProjectTests
     }
 
     [Fact]
-    public void The_interim_seam_carries_the_removal_the_sweep_and_the_wait_and_nothing_else()
+    public void The_daemon_reaches_the_module_through_the_module_API_calls_and_nothing_else()
     {
-        MemberInfo[] members = typeof(IInterimWorktrees).GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly);
+        // The interim seam for worktree removal, the start-up sweep, and the worker wait is gone from both sides.
+        Assert.DoesNotContain(typeof(SoftwareModule).Assembly.GetTypes(), type => type.Name == "IInterimWorktrees");
+        Assert.DoesNotContain(typeof(DaemonHost).Assembly.GetTypes(), type => type.Name == "InterimWorktreeLink");
+        Assert.False(File.Exists(RepositoryFiles.PathOf("src/Coanda.Modules.Software/IInterimWorktrees.cs")));
 
-        Assert.Equal(
-            ["OnRemove", "OnSweep", "WorkerReturnedAsync"],
-            members.Select(m => m.Name).Order(StringComparer.Ordinal));
-        Assert.Empty(typeof(IInterimWorktrees).GetInterfaces());
+        // The module is built from its options alone, and every public method it has beyond disposal is a call the adapter carries.
+        ConstructorInfo constructor = Assert.Single(typeof(SoftwareModule).GetConstructors());
+        Assert.Equal([typeof(SoftwareModuleOptions)], constructor.GetParameters().Select(p => p.ParameterType));
+        Assert.DoesNotContain(typeof(SoftwareModuleOptions).GetProperties(), p => p.PropertyType.IsInterface && p.PropertyType.Assembly == typeof(SoftwareModule).Assembly);
+        IReadOnlyList<string> calls = [.. ModuleHostAdapterTests.CallsOf(typeof(SoftwareModule)).Where(call => call != "dispose")];
+        Assert.Equal(ModuleHostAdapterTests.CallsOf(typeof(IModule)).Order(StringComparer.Ordinal), calls.Order(StringComparer.Ordinal));
     }
 
     [Fact]

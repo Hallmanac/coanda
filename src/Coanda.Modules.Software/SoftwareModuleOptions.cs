@@ -5,9 +5,9 @@ using Microsoft.Extensions.Logging;
 namespace Coanda.Modules.Software;
 
 /// <summary>
-/// What the host gives the software module when it builds it, beside the interim seam
-/// (<see cref="IInterimWorktrees"/>). Nothing else about the daemon reaches the module: every dispatch
-/// carries only the dispatch request, and the module reads the rest through the core's API.
+/// What the host gives the software module when it builds it. Nothing else about the daemon reaches the
+/// module: every call on it carries only the module API's documents, and the module reads the rest
+/// through the core's API.
 /// </summary>
 public sealed record SoftwareModuleOptions
 {

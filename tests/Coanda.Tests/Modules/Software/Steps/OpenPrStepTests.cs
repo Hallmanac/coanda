@@ -105,7 +105,7 @@ public sealed class OpenPrStepTests : IAsyncLifetime
         Guid first = await HeldAsync(parcel.Id);
         await node.DispatchAsync(SoftwareSteps.Worktree, parcel.Id, first);
         Opened(await DispatchAsync(parcel.Id, first));
-        await node.Worktrees.RemoveAsync(Project, first, None);
+        await node.DeliverEndAsync(first);
         await node.StopAsync(first);
         runner.SetRemoteBranch(Clone, branch, Theirs);
         runner.AddAncestry(ScriptedCommandRunner.PrimaryHead, Theirs);
