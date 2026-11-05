@@ -98,7 +98,8 @@ public sealed record DaemonOptions
     /// <summary>
     /// How often the daemon exports the events it authored in each project and pushes them from every
     /// clone of the project's repos; null runs no export loop, though a service call still exports a
-    /// project at once. <c>coa daemon run</c> supplies <see cref="Transport.LedgerExport.DefaultInterval"/>.
+    /// project at once. <c>coa daemon run</c> supplies <see cref="Transport.LedgerExport.DefaultInterval"/>
+    /// unless the node configuration sets <c>ledgerExport</c> to false (<see cref="NodeConfiguration"/>).
     /// </summary>
     public TimeSpan? ExportInterval { get; init; }
 

@@ -54,6 +54,13 @@ only there is not used; name it in `~/.ssh/config` instead, which still applies.
 remote, a credential helper that already holds the credential works. When any of these is missing,
 the flow run pauses at its worktree step and the pause quotes git's own error.
 
+The daemon also pushes to each registered repo's remote on its own, from the moment it starts:
+every 15 seconds it writes the events it recorded in the project as signed lines on
+`refs/coanda/nodes/<node-id>` and pushes that one ref, never a branch. A remote it cannot push to
+gets a warning in the log each round. To keep a remote untouched while you try coanda, set
+`"ledgerExport": false` in the [node configuration](node-configuration.md) before the daemon
+starts.
+
 A build flow run ends once its pull request is open. Its open-pr step pushes the flow run's branch to the
 remote with git's own credentials, opens a pull request from it against the primary branch (or
 reuses the open one that already has that branch as its head), records it in the task's pull-request

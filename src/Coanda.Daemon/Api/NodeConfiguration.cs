@@ -3,14 +3,16 @@ using System.Text.Json.Serialization;
 using Coanda.Core;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Executors.ClaudeCode;
+using Coanda.Daemon.Transport;
 
 namespace Coanda.Daemon.Api;
 
 /// <summary>
 /// Reads the node configuration, <see cref="NodeHome.ConfigurationPath"/>, into the options the
-/// daemon starts with: the executor, named by key, and the credential profiles the node holds per
-/// vendor. It is read once, when <c>coa daemon run</c> starts. A missing file is the Claude Code
-/// executor running <c>claude</c> from the PATH, with no profiles, so a cold install runs agent steps.
+/// daemon starts with: the executor, named by key, the credential profiles the node holds per
+/// vendor, and whether the daemon exports and pushes its ledger. It is read once, when <c>coa daemon run</c>
+/// starts. A missing file is the Claude Code executor running <c>claude</c> from the PATH, with no profiles,
+/// exporting every <see cref="LedgerExport.DefaultInterval"/>, so a cold install runs agent steps.
 /// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
 /// naming the file and the offending entry.
 /// </summary>
@@ -50,7 +52,11 @@ public static class NodeConfiguration
 
         if (!File.Exists(path))
         {
-            return new DaemonOptions { Executor = ClaudeCodeOf(home, Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable, []) };
+            return new DaemonOptions
+            {
+                Executor = ClaudeCodeOf(home, Executors.ClaudeCode.ClaudeCodeExecutor.DefaultExecutable, []),
+                ExportInterval = LedgerExport.DefaultInterval,
+            };
         }
 
         string text;
@@ -88,7 +94,12 @@ public static class NodeConfiguration
             _ => throw Refused(path, $"names the executor '{file.Executor}', which is not a key this daemon knows; the keys are \"{ClaudeCodeExecutor}\" and \"{ScriptedExecutor}\"."),
         };
 
-        return new DaemonOptions { Executor = executor, Profiles = profiles };
+        return new DaemonOptions
+        {
+            Executor = executor,
+            Profiles = profiles,
+            ExportInterval = file.LedgerExport == false ? null : LedgerExport.DefaultInterval,
+        };
     }
 
     /// <summary>
@@ -220,6 +231,8 @@ public static class NodeConfiguration
         public string? ClaudeExecutable { get; init; }
 
         public Dictionary<string, List<ProfileShape?>?>? Profiles { get; init; }
+
+        public bool? LedgerExport { get; init; }
     }
 
     private sealed class ProfileShape

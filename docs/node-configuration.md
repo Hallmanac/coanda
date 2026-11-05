@@ -6,7 +6,8 @@ also what `coa daemon start` launches. A change takes effect at the next start; 
 while the daemon runs.
 
 The file is optional. Without it, the daemon runs every agent step on Claude Code, starting the
-`claude` executable it finds on the PATH, and holds no credential profiles.
+`claude` executable it finds on the PATH, holds no credential profiles, and exports and pushes its
+ledger.
 
 ```json
 {
@@ -248,6 +249,27 @@ described under how a Claude Code session runs. Managed settings that disable ho
 everything else, so they switch off the guard and the session-start hook alike; the daemon then
 sees no marker and stops every session rather than letting one run unguarded.
 
+## The ledger export
+
+While it runs, the daemon writes the events it recorded in each project as signed lines on
+`refs/coanda/nodes/<node-id>` in every clone of the project's repos, and pushes that ref alone to
+each repo's remote. It does this once at start and then every 15 seconds; a round with nothing new
+contacts no remote. A push that fails, for want of credentials or because the remote is read-only,
+is logged as a warning and tried again the next round.
+
+`ledgerExport` turns this off when it is `false`; it is `true` when left out. With it off, the
+daemon writes no line, writes no ref, and pushes nothing, so a node trying coanda against a real
+remote can keep that remote untouched by anything but the branches its flow runs push. The events
+are kept in the store all the same, and the first daemon started with the export on writes and
+pushes every one of them.
+
+```json
+{
+  "executor": "claude-code",
+  "ledgerExport": false
+}
+```
+
 ## Credential profiles
 
 `profiles` is optional. It holds named credential profiles per vendor, and the only vendor a profile
@@ -280,7 +302,8 @@ command, and neither is checked for existence.
 
 The daemon does not start, and exits with code 2, when the file cannot be parsed as JSON, holds a
 property this page does not name (property names are case-sensitive), names no executor, names an
-executor other than `claude-code` or `scripted`, or gives a `claudeExecutable` under `scripted`. It does the same for a profile under a vendor other than
+executor other than `claude-code` or `scripted`, gives a `claudeExecutable` under `scripted`, or gives a
+`ledgerExport` that is not `true` or `false`. It does the same for a profile under a vendor other than
 `claude-code`, a profile with a blank name, two profiles with the same name under one vendor, and a
 profile that does not hold exactly one non-blank `configDirectory` or `apiKeyHelper`.
 
