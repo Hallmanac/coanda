@@ -159,8 +159,12 @@ session; change that file to `claude-code` to run real sessions there. The workt
 open-pr steps are real even there: a build flow run fetches from the project's remote, runs its build and
 test commands, and pushes and opens its pull request on GitHub, so the prerequisites above apply to
 that home too. A flow run there pushes a real `coanda/<short id>` branch and opens a real pull request on
-the project's remote, and once the checks the project names pass, the merge that follows merges it,
-so register a scratch repository in that home rather than one whose pull requests other people watch.
+the project's remote, and once the checks the project names pass, the merge that follows merges it.
+The ledger export is on there too: within 15 seconds of a project's first event, the daemon writes
+`refs/coanda/nodes/<node-id>` in the project's clones and pushes it to each repo's remote, and a push
+that fails is logged as a warning every round. Register a scratch repository in that home rather than
+one whose pull requests other people watch, or add `"ledgerExport": false` to that `node.json` to keep
+the ledger ref off the remote.
 
 If you ran any build from before the stage and step names, its record does not carry over, and the
 daemon refuses to start on it, naming the file. Move the home aside (for example
