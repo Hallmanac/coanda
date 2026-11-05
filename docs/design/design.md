@@ -215,7 +215,10 @@ project, so this version changes those inherited rules into forms that need none
 - Rank follows the rotation chain from the original root: the original root ranks 0, and a counting
   rotation, signed by a successor its superseded key named, ranks the successor one below the key it
   supersedes. The rank of a key is settled by the keys that outrank it alone, since a revocation of a
-  key that outranks its signer, or of the signer itself, is ignored.
+  key that outranks its signer, or of the signer itself, is ignored. For the same reason a successor
+  counts only when a key that outranks it vouched its node directly with the named key, and that vouch
+  is read from the vouches of the keys that outrank it alone: a vouch from any other key, conflicting
+  or not, neither makes nor unseats a successor.
 - Revoking a successor voids every root-set act its key signed (revocations, namings, successor
   revocations, member changes, and its rotation), whenever made. The vouch that admitted its node,
   and the vouches its key signed, stand unless a node revocation revokes its key.

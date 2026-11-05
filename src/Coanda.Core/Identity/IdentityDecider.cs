@@ -11,15 +11,25 @@ namespace Coanda.Core.Identity;
 /// </summary>
 public static class IdentityDecider
 {
-    /// <summary>Records the project's owner root, unless the records already hold one.</summary>
+    /// <summary>
+    /// Records the project's owner root: the trusted root key, for the node that records it. Refused when
+    /// the key is not the trusted root key, since such a record would not count, and when the records
+    /// already hold a root record that counts.
+    /// </summary>
     public static OwnerRootRecorded RecordOwnerRoot(
-        IReadOnlyCollection<IdentityRecord> records, Guid nodeId, string key, DateTimeOffset now)
+        string trustedRoot, IReadOnlyCollection<IdentityRecord> records, Guid nodeId, string key, DateTimeOffset now)
     {
         RequireKey(key, "The owner root's key");
-        if (IdentityTrust.Of<OwnerRootRecorded>(records).Select(r => r.Event).FirstOrDefault() is { } existing)
+        if (key != trustedRoot)
         {
             throw new DomainException(
-                $"The project already has an owner root, node {existing.NodeId} with key {existing.Key}; a project has one owner root.");
+                $"The owner root's key {key} is not the trusted root key {trustedRoot}; a root record counts only when it names the trusted root key, which signs it.");
+        }
+
+        if (IdentityTrust.CountingRootNodes(trustedRoot, records) is [Guid existing, ..])
+        {
+            throw new DomainException(
+                $"The project already has an owner root, node {existing} with key {trustedRoot}; a project has one owner root.");
         }
 
         return new OwnerRootRecorded(nodeId, key, now);
@@ -36,22 +46,30 @@ public static class IdentityDecider
         return new NodeRevoked(nodeId, key, now);
     }
 
-    /// <summary>Names a successor: a vouched node with the exact key a counting vouch gives it. Only a live root-set key names one.</summary>
+    /// <summary>
+    /// Names a successor: a node a root-set key at or above the signer's rank vouched, with the exact key
+    /// that vouch gives it, which is not a voided successor, a member's root key, or already in the root
+    /// set. Only a live root-set key names one.
+    /// </summary>
     public static SuccessorNamed NameSuccessor(
         string trustedRoot, IReadOnlyCollection<IdentityRecord> records, string signer, Guid nodeId, string key, DateTimeOffset now)
     {
         RequireKey(key, "The successor's key");
         IdentityVerdict verdict = IdentityTrust.Evaluate(trustedRoot, records);
         RequireRootSetKey(verdict, signer, "name a successor");
-        string? vouched = verdict.VouchedKeyOf(nodeId);
-        if (vouched != key)
+        string? refusal = verdict.NominationOf(signer, nodeId) switch
         {
-            throw new DomainException(vouched is null
-                ? $"Node {nodeId} has no counting vouch, so it cannot be named a successor; a successor is a vouched node named with the exact key a counting vouch gives it."
-                : $"Node {nodeId} was named a successor with the key {key}, but a counting vouch gives it {vouched}; a successor is named with the exact key a counting vouch gives it.");
-        }
+            null => $"Node {nodeId} has no counting vouch from a root-set key at or above the rank of {signer}, so it cannot be named a successor; a successor is a node the root set vouched, named with the exact key that vouch gives it.",
+            { Key: string vouched } when vouched != key => $"Node {nodeId} was named a successor with the key {key}, but the root set's counting vouch gives it {vouched}; a successor is named with the exact key that vouch gives it.",
+            { Standing: NominationStanding.Voided } => $"The key {key} was revoked as a successor, so it cannot be named one again; a successor revocation voids its key for good.",
+            { Standing: NominationStanding.Member } => $"The key {key} is a member's root key, so it cannot be named a successor; no member joins the ranked root set.",
+            { Standing: NominationStanding.Ranked } => $"Node {nodeId} with the key {key} is already in the ranked root set, so it cannot be named a successor.",
+            _ => null,
+        };
 
-        return new SuccessorNamed(nodeId, key, now);
+        return refusal is null
+            ? new SuccessorNamed(nodeId, key, now)
+            : throw new DomainException(refusal);
     }
 
     /// <summary>Revokes a successor's rank. Only a live root-set key revokes, and never a key that outranks it or its own.</summary>
@@ -97,7 +115,10 @@ public static class IdentityDecider
         return new RootRotated(signer, supersededKey, now);
     }
 
-    /// <summary>Adds a member by its root node id and root key, with a role. Only a live root-set key adds one.</summary>
+    /// <summary>
+    /// Adds a member by its root node id and root key, with a role. Only a live root-set key adds one, and
+    /// never a key or node of the ranked root set, since no member joins it.
+    /// </summary>
     public static MemberAdded AddMember(
         string trustedRoot,
         IReadOnlyCollection<IdentityRecord> records,
@@ -108,7 +129,14 @@ public static class IdentityDecider
         DateTimeOffset now)
     {
         RequireKey(rootKey, "The member's root key");
-        RequireRootSetKey(IdentityTrust.Evaluate(trustedRoot, records), signer, "add a member");
+        IdentityVerdict verdict = IdentityTrust.Evaluate(trustedRoot, records);
+        RequireRootSetKey(verdict, signer, "add a member");
+        if (verdict.RootSet.FirstOrDefault(k => k.Key == rootKey || k.NodeId == rootNodeId) is { } ranked)
+        {
+            throw new DomainException(
+                $"Node {rootNodeId} with the key {rootKey} cannot be added as a member: the root-set key {ranked.Key} (rank {ranked.Rank}) holds node {ranked.NodeId}; no member joins the ranked root set, and a node and a key are bound one to one.");
+        }
+
         return new MemberAdded(rootNodeId, rootKey, role, now);
     }
 

@@ -19,7 +19,7 @@ public sealed class IdentityDeciderTests
     [Fact]
     public void An_owner_root_is_recorded_in_a_project_with_none()
     {
-        Assert.Equal(new OwnerRootRecorded(Root.Node, Root.Key, Now), IdentityDecider.RecordOwnerRoot([], Root.Node, Root.Key, Now));
+        Assert.Equal(new OwnerRootRecorded(Root.Node, Root.Key, Now), IdentityDecider.RecordOwnerRoot(Root.Key, [], Root.Node, Root.Key, Now));
     }
 
     [Fact]
@@ -27,7 +27,24 @@ public sealed class IdentityDeciderTests
     {
         RefusedWith(
             $"The project already has an owner root, node {Root.Node} with key {Root.Key}; a project has one owner root.",
-            () => IdentityDecider.RecordOwnerRoot(new Ledger().Root(Root).Records, X.Node, X.Key, Now));
+            () => IdentityDecider.RecordOwnerRoot(Root.Key, new Ledger().Root(Root).Records, A.Node, Root.Key, Now));
+    }
+
+    [Fact]
+    public void A_root_record_the_trust_rule_ignores_does_not_block_the_owner_root()
+    {
+        // X recorded itself, and the trusted root's own pairing, as the root; neither counts for a node that trusts the root key.
+        IReadOnlyList<IdentityRecord> records = new Ledger().Root(X).Sign(X, new OwnerRootRecorded(Root.Node, Root.Key, Now)).Records;
+
+        Assert.Equal(new OwnerRootRecorded(Root.Node, Root.Key, Now), IdentityDecider.RecordOwnerRoot(Root.Key, records, Root.Node, Root.Key, Now));
+    }
+
+    [Fact]
+    public void An_owner_root_naming_a_key_other_than_the_trusted_root_is_refused()
+    {
+        RefusedWith(
+            $"The owner root's key {X.Key} is not the trusted root key {Root.Key}; a root record counts only when it names the trusted root key, which signs it.",
+            () => IdentityDecider.RecordOwnerRoot(Root.Key, [], X.Node, X.Key, Now));
     }
 
     [Fact]
@@ -35,7 +52,7 @@ public sealed class IdentityDeciderTests
     {
         RefusedWith(
             "The owner root's key 'AAAA' is not a public key; a key is 32 bytes in standard base64 with padding.",
-            () => IdentityDecider.RecordOwnerRoot([], Root.Node, "AAAA", Now));
+            () => IdentityDecider.RecordOwnerRoot(Root.Key, [], Root.Node, "AAAA", Now));
         string unpadded = Root.Key.TrimEnd('=');
         RefusedWith(
             $"The revoked key '{unpadded}' is not a public key; a key is 32 bytes in standard base64 with padding.",
@@ -108,11 +125,60 @@ public sealed class IdentityDeciderTests
         IReadOnlyList<IdentityRecord> records = Ranked();
 
         RefusedWith(
-            $"Node {A.Node} was named a successor with the key {X.Key}, but a counting vouch gives it {A.Key}; a successor is named with the exact key a counting vouch gives it.",
+            $"Node {A.Node} was named a successor with the key {X.Key}, but the root set's counting vouch gives it {A.Key}; a successor is named with the exact key that vouch gives it.",
             () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, A.Node, X.Key, Now));
         RefusedWith(
-            $"Node {X.Node} has no counting vouch, so it cannot be named a successor; a successor is a vouched node named with the exact key a counting vouch gives it.",
+            $"Node {X.Node} has no counting vouch from a root-set key at or above the rank of {Root.Key}, so it cannot be named a successor; a successor is a node the root set vouched, named with the exact key that vouch gives it.",
             () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, X.Node, X.Key, Now));
+    }
+
+    [Fact]
+    public void A_successor_vouched_only_through_a_node_outside_the_root_set_is_refused()
+    {
+        IReadOnlyList<IdentityRecord> records = new Ledger().Root(Root).Vouch(Root, A).Vouch(A, B).Records;
+
+        RefusedWith(
+            $"Node {B.Node} has no counting vouch from a root-set key at or above the rank of {Root.Key}, so it cannot be named a successor; a successor is a node the root set vouched, named with the exact key that vouch gives it.",
+            () => IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, B.Node, B.Key, Now));
+    }
+
+    [Fact]
+    public void A_clashing_vouch_from_outside_the_root_set_does_not_stop_a_successor_being_named()
+    {
+        IReadOnlyList<IdentityRecord> records = new Ledger().Root(Root).Vouch(Root, A).Vouch(Root, S).Vouch(A, S.Node, X.Key).Records;
+
+        Assert.Equal(new SuccessorNamed(S.Node, S.Key, Now), IdentityDecider.NameSuccessor(Root.Key, records, Root.Key, S.Node, S.Key, Now));
+    }
+
+    [Fact]
+    public void A_voided_successor_a_member_or_a_root_set_key_is_refused_as_a_successor()
+    {
+        IReadOnlyList<IdentityRecord> voided = new Ledger().Root(Root).Vouch(Root, S).Name(Root, S).Rotate(S, Root).RevokeSuccessor(Root, S).Records;
+        RefusedWith(
+            $"The key {S.Key} was revoked as a successor, so it cannot be named one again; a successor revocation voids its key for good.",
+            () => IdentityDecider.NameSuccessor(Root.Key, voided, Root.Key, S.Node, S.Key, Now));
+
+        IReadOnlyList<IdentityRecord> member = new Ledger().Root(Root).Add(Root, M).Vouch(Root, M).Records;
+        RefusedWith(
+            $"The key {M.Key} is a member's root key, so it cannot be named a successor; no member joins the ranked root set.",
+            () => IdentityDecider.NameSuccessor(Root.Key, member, Root.Key, M.Node, M.Key, Now));
+
+        RefusedWith(
+            $"Node {S.Node} with the key {S.Key} is already in the ranked root set, so it cannot be named a successor.",
+            () => IdentityDecider.NameSuccessor(Root.Key, Ranked(), S.Key, S.Node, S.Key, Now));
+    }
+
+    [Fact]
+    public void A_member_add_binding_a_root_set_key_or_node_is_refused()
+    {
+        IReadOnlyList<IdentityRecord> records = Ranked();
+
+        RefusedWith(
+            $"Node {S.Node} with the key {S.Key} cannot be added as a member: the root-set key {S.Key} (rank 1) holds node {S.Node}; no member joins the ranked root set, and a node and a key are bound one to one.",
+            () => IdentityDecider.AddMember(Root.Key, records, Root.Key, S.Node, S.Key, MemberRole.Owner, Now));
+        RefusedWith(
+            $"Node {Root.Node} with the key {M.Key} cannot be added as a member: the root-set key {Root.Key} (rank 0) holds node {Root.Node}; no member joins the ranked root set, and a node and a key are bound one to one.",
+            () => IdentityDecider.AddMember(Root.Key, records, S.Key, Root.Node, M.Key, MemberRole.Member, Now));
     }
 
     [Fact]

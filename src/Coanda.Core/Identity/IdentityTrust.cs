@@ -13,12 +13,14 @@ namespace Coanda.Core.Identity;
 /// The root record counts when the trusted root key signed it, it names that key, and its origin is the
 /// node it names. The ranked root set is then settled one rank at a time from the original root (rank
 /// 0): the acts of the key at rank r (node revocations, successor namings, successor revocations, member
-/// changes) are applied, trust is recomputed, and the key at rank r + 1 is the successor that key named
-/// earliest in its own chain whose rotation superseding it counts. Because a revocation of a key that
-/// outranks its signer, or of the signer itself, is ignored, no key's acts can undo the standing of a
-/// key that outranks it or its own, which is what keeps the rule well founded: a key's standing is
-/// settled by the keys above it alone. A live key of the ranked root set may sign for the node its
-/// rank was settled on.
+/// changes) are applied, and the key at rank r + 1 is the successor that key named earliest in its own
+/// chain whose rotation superseding it counts. A named successor counts only when a key at rank r or
+/// above vouched its node directly with the named key, read from those keys' vouches alone, conflicts
+/// included, so no vouch from outside the root set can make or unseat a successor. Because a
+/// revocation of a key that outranks its signer, or of the signer itself, is ignored, no key's acts can
+/// undo the standing of a key that outranks it or its own, which is what keeps the rule well founded: a
+/// key's standing is settled by the keys above it alone. A live key of the ranked root set may sign for
+/// the node its rank was settled on.
 /// </para>
 /// <para>
 /// Trust follows vouches transitively from the root-set keys and from the root keys of members a
@@ -39,14 +41,7 @@ public static class IdentityTrust
         ArgumentNullException.ThrowIfNull(records);
         IdentityRecord[] all = [.. records];
 
-        Guid[] rootNodes =
-        [
-            .. Of<OwnerRootRecorded>(all)
-                .Where(r => r.Record.Signer == trustedRoot && r.Event.Key == trustedRoot && r.Event.NodeId == r.Record.Origin)
-                .Select(r => r.Event.NodeId)
-                .Distinct()
-                .Order(),
-        ];
+        Guid[] rootNodes = CountingRootNodes(trustedRoot, all);
 
         return rootNodes switch
         {
@@ -56,27 +51,39 @@ public static class IdentityTrust
         };
     }
 
+    /// <summary>The node ids of the root records that count: signed by the trusted root key, naming it, from the node they name.</summary>
+    internal static Guid[] CountingRootNodes(string trustedRoot, IEnumerable<IdentityRecord> records) =>
+    [
+        .. Of<OwnerRootRecorded>(records)
+            .Where(r => r.Record.Signer == trustedRoot && r.Event.Key == trustedRoot && r.Event.NodeId == r.Record.Origin)
+            .Select(r => r.Event.NodeId)
+            .Distinct()
+            .Order(),
+    ];
+
     private static IdentityVerdict Settle(string trustedRoot, Guid rootNode, IdentityRecord[] all)
     {
         List<RankedKey> chain = [new RankedKey(trustedRoot, 0, rootNode)];
         var acts = new Acts();
         var namers = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var nominations = new Dictionary<string, IReadOnlyDictionary<Guid, Nomination>>(StringComparer.Ordinal);
 
         while (true)
         {
             RankedKey current = chain[^1];
             ApplyActs(current, chain, all, acts);
-            TrustGraph trust = TrustGraph.Compute(all, chain, acts);
 
-            // The successors the current key named, each with the exact key a counting vouch gives its node.
+            // What the current key may name: the pairings the root set so far vouched, read from its vouches alone.
+            Dictionary<Guid, Nomination> nameable = TrustGraph.RootSetVouches(all, chain, acts)
+                .ToDictionary(v => v.Key, v => new Nomination(v.Value, StandingOf(v.Key, v.Value, chain, acts)));
+            nominations[current.Key] = nameable;
+
             (Guid NodeId, string Key, long Sequence)[] named =
             [
                 .. Of<SuccessorNamed>(all)
                     .Where(r => r.Record.Signer == current.Key && r.Record.Origin == current.NodeId)
-                    .Where(r => trust.IsVouched(r.Event.NodeId, r.Event.Key)
-                        && !acts.Voided.Contains(r.Event.Key)
-                        && !acts.IsMemberKey(r.Event.Key)
-                        && !chain.Any(k => k.Key == r.Event.Key || k.NodeId == r.Event.NodeId))
+                    .Where(r => nameable.TryGetValue(r.Event.NodeId, out Nomination? nomination)
+                        && nomination == new Nomination(r.Event.Key, NominationStanding.Nameable))
                     .Select(r => (r.Event.NodeId, r.Event.Key, r.Record.Sequence)),
             ];
 
@@ -105,12 +112,21 @@ public static class IdentityTrust
 
             if (winner is not { } next)
             {
-                return IdentityVerdict.Settled(trustedRoot, chain, acts, trust, namers);
+                return IdentityVerdict.Settled(trustedRoot, chain, acts, TrustGraph.Compute(all, chain, acts), namers, nominations);
             }
 
             chain.Add(new RankedKey(next.Key, current.Rank + 1, next.NodeId));
         }
     }
+
+    private static NominationStanding StandingOf(Guid nodeId, string key, List<RankedKey> chain, Acts acts) =>
+        (acts.Voided.Contains(key), acts.IsMemberKey(key), chain.Any(k => k.Key == key || k.NodeId == nodeId)) switch
+        {
+            (true, _, _) => NominationStanding.Voided,
+            (_, true, _) => NominationStanding.Member,
+            (_, _, true) => NominationStanding.Ranked,
+            _ => NominationStanding.Nameable,
+        };
 
     /// <summary>
     /// Applies the root-set acts <paramref name="current"/> signed from its own node. A revocation of a
