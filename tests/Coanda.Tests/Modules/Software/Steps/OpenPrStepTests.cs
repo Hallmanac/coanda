@@ -250,6 +250,20 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_step_naming_the_prefixed_open_pr_and_routing_only_on_done_gets_the_verdict_the_module_answered()
+    {
+        Parcel parcel = await TaskAsync(Project, "Prefixed and routed on done");
+        Flow earlier = PreviousFlows.BuildWithGatedMerge;
+        Flow prefixed = earlier with
+        {
+            Name = "prefixed-build",
+            Steps = [.. earlier.Steps.Select(s => s.Name == "open-pr" ? s with { SystemStep = SoftwareSteps.OpenPr } : s)],
+        };
+
+        Answered(await PerformUnderAsync(prefixed, parcel.Id), OpenPrStep.OpenedVerdict);
+    }
+
+    [Fact]
     public async Task A_step_routing_on_both_opened_and_done_is_answered_opened()
     {
         Parcel parcel = await TaskAsync(Project, "Routes on both");
