@@ -103,6 +103,13 @@ public sealed record DaemonOptions
     /// </summary>
     public TimeSpan? ExportInterval { get; init; }
 
+    /// <summary>
+    /// How often the daemon fetches its peers' ledger refs into every clone of each project's repos and
+    /// imports their lines; null runs no import loop, though a service call still imports a project at once.
+    /// <c>coa daemon run</c> supplies <see cref="Transport.LedgerImport.DefaultInterval"/>.
+    /// </summary>
+    public TimeSpan? ImportInterval { get; init; }
+
     /// <summary>How long one agent step, its retry included, may run before its session is stopped and the flow run pauses.</summary>
     public TimeSpan AgentStepLimit { get; init; } = DefaultAgentStepLimit;
 

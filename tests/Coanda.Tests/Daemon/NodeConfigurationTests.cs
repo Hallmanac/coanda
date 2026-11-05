@@ -21,6 +21,7 @@ public sealed class NodeConfigurationTests
         Assert.Empty(options.Gates);
         Assert.Equal(DaemonOptions.DefaultAgentStepLimit, options.AgentStepLimit);
         Assert.Equal(LedgerExport.DefaultInterval, options.ExportInterval);
+        Assert.Equal(LedgerImport.DefaultInterval, options.ImportInterval);
     }
 
     [Theory]
@@ -35,6 +36,7 @@ public sealed class NodeConfigurationTests
         DaemonOptions options = NodeConfiguration.Load(temp.Home);
 
         Assert.Equal(exports ? LedgerExport.DefaultInterval : (TimeSpan?)null, options.ExportInterval);
+        Assert.Equal(LedgerImport.DefaultInterval, options.ImportInterval);
     }
 
     [Theory]

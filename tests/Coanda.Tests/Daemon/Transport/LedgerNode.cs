@@ -1,5 +1,6 @@
 using System.Text;
 using Coanda.Core;
+using Coanda.Core.Identity.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
@@ -18,11 +19,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Coanda.Tests.Daemon.Transport;
 
 /// <summary>
-/// A node home for the export tests: a store holding the software module's definitions, the node's
-/// identity, the export, and for each project a local bare repository standing in for its one repo's
-/// remote, under the home, the only remote these tests push to. The clones are the core's, made by
-/// <see cref="RepoClones"/> with real git, which contacts nothing to make one. The export's own git
-/// commands are recorded in <see cref="ExportGit"/>.
+/// A node home for the export and import tests: a store holding the software module's definitions, the
+/// node's identity, the export, the import, and for each project a local bare repository standing in for
+/// its one repo's remote, under the home, the only remote these tests push to and fetch from. The clones
+/// are the core's, made by <see cref="RepoClones"/> with real git, which contacts nothing to make one. The
+/// export's own git commands are recorded in <see cref="ExportGit"/>, and the import's in <see cref="ImportGit"/>.
 /// </summary>
 internal sealed class LedgerNode : IAsyncDisposable
 {
@@ -38,6 +39,7 @@ internal sealed class LedgerNode : IAsyncDisposable
         Store = store;
         Identity = identity;
         Export = ExportAs(identity);
+        Import = new LedgerImport(store, temp.Home, identity, ImportGit, TimeProvider.System, new Logger<LedgerImport>(new LoggerFactory([Logs])));
     }
 
     public NodeHome Home => temp.Home;
@@ -48,10 +50,15 @@ internal sealed class LedgerNode : IAsyncDisposable
 
     public LedgerExport Export { get; }
 
+    public LedgerImport Import { get; }
+
     public RecordingLogger Logs { get; } = new();
 
     /// <summary>The git commands the exports this node made ran, each as its arguments after any <c>--git-dir</c>.</summary>
     public RecordingRunner ExportGit { get; } = new(Runner);
+
+    /// <summary>The git commands the import ran, each as its arguments after any <c>--git-dir</c>.</summary>
+    public RecordingRunner ImportGit { get; } = new(Runner);
 
     public string RefName => Export.RefName;
 
@@ -101,15 +108,22 @@ internal sealed class LedgerNode : IAsyncDisposable
     /// Registers <paramref name="project"/> with one repo at each of <paramref name="remotes"/>, recorded as
     /// a registration of those repos, and makes each remote, a bare repository, and each repo's clone.
     /// </summary>
-    public async Task<Project> AddProjectAsync(string project, IReadOnlyList<string> remotes)
+    public Task<Project> AddProjectAsync(string project, IReadOnlyList<string> remotes) =>
+        AddProjectAsync(project, Ids.New(), remotes);
+
+    /// <summary>
+    /// Registers <paramref name="project"/> under the project id <paramref name="id"/>, as a node holding a
+    /// peer's project records it, with one repo at each of <paramref name="remotes"/>, and makes each repo's
+    /// clone; each remote that is not yet a repository is made, a bare one.
+    /// </summary>
+    public async Task<Project> AddProjectAsync(string project, Guid id, IReadOnlyList<string> remotes)
     {
-        foreach (string remote in remotes)
+        foreach (string remote in remotes.Where(r => !Directory.Exists(r)))
         {
             Directory.CreateDirectory(remote);
             await GitAsync(remote, "init", "--bare", "--quiet");
         }
 
-        Guid id = Ids.New();
         await using (IDocumentSession session = Store.LightweightSession(project))
         {
             session.Events.StartStream<Project>(id, new ProjectRegistered(
@@ -121,6 +135,26 @@ internal sealed class LedgerNode : IAsyncDisposable
         await new RepoClones(Store, Home, Runner, NullLogger<RepoClones>.Instance).EnsureAsync(added, None);
         return added;
     }
+
+    /// <summary>Seeds the node-local record of the root key the import trusts for <paramref name="project"/>, as only tests do.</summary>
+    public async Task TrustRootAsync(string project, string key)
+    {
+        await using IDocumentSession session = Store.LightweightSession(project);
+        session.Store(new LedgerRoot { Key = key });
+        await session.SaveChangesAsync(None);
+    }
+
+    /// <summary>Records <paramref name="events"/>, identity events, on a stream of their own in the project's tenant.</summary>
+    public async Task RecordAsync(string project, params IIdentityEvent[] events)
+    {
+        await using IDocumentSession session = Store.LightweightSession(project);
+        session.Events.StartStream(Ids.New(), [.. events.Cast<object>()]);
+        await session.SaveChangesAsync(None);
+    }
+
+    /// <summary>Records the owner root for this node's own key in the project, as the root node of it does.</summary>
+    public Task RecordRootAsync(string project) =>
+        RecordAsync(project, new OwnerRootRecorded(Identity.NodeId, Identity.Key.PublicKey, DateTimeOffset.UtcNow));
 
     /// <summary>Makes the stand-in remote of <paramref name="project"/>, a bare repository.</summary>
     public async Task MakeRemoteAsync(string project)
@@ -207,6 +241,8 @@ internal sealed class LedgerNode : IAsyncDisposable
     {
         await Export.StopAsync(None);
         Export.Dispose();
+        await Import.StopAsync(None);
+        Import.Dispose();
         await Store.DisposeAsync();
         Writable(new DirectoryInfo(Home.Path));
         temp.Dispose();
