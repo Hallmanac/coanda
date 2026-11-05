@@ -61,13 +61,15 @@ internal sealed class TrustGraph
     public bool IsProposed(Guid nodeId, string key) => proposed.Contains((nodeId, key));
 
     /// <summary>
-    /// The pairings the keys of <paramref name="chain"/> vouched directly, each from the node its rank was
-    /// settled on, keyed by node id: the vouches a successor's standing is read from. Only those keys'
-    /// vouches take part, conflicts included, so no key outside the chain can make or break a successor;
-    /// a vouch naming a revoked key, or breaking a binding, does not count, and pairings that share a node
-    /// id or a key give neither.
+    /// The pairing a successor may be named with for each node, keyed by node id. A pairing the keys of
+    /// <paramref name="chain"/> vouched directly, each from the node its rank was settled on, comes first,
+    /// read from those keys' vouches alone with their conflicts among themselves, so no key outside the
+    /// chain can unseat it. A node no such vouch gives a key takes the pairing the full trust graph for
+    /// <paramref name="chain"/> and <paramref name="acts"/> trusts, so a clash from outside the chain can
+    /// stop only a successor vouched through some other node. A vouch naming a revoked key, or breaking a
+    /// binding, gives neither.
     /// </summary>
-    public static Dictionary<Guid, string> RootSetVouches(IdentityRecord[] all, IReadOnlyList<RankedKey> chain, Acts acts)
+    public static Dictionary<Guid, string> SuccessorPairings(IdentityRecord[] all, IReadOnlyList<RankedKey> chain, Acts acts)
     {
         HashSet<(Guid NodeId, string Key)> bound = Bound(chain, acts);
         HashSet<(Guid NodeId, string Key)> vouched =
@@ -79,7 +81,18 @@ internal sealed class TrustGraph
         ];
 
         HashSet<(Guid NodeId, string Key)> conflicted = Conflicts(vouched);
-        return vouched.Where(p => !conflicted.Contains(p)).ToDictionary(p => p.NodeId, p => p.Key);
+        Dictionary<Guid, string> pairings = vouched.Where(p => !conflicted.Contains(p)).ToDictionary(p => p.NodeId, p => p.Key);
+        HashSet<string> keys = [.. pairings.Values];
+
+        foreach ((Guid nodeId, string key) in Compute(all, chain, acts).trusted)
+        {
+            if (!pairings.ContainsKey(nodeId) && keys.Add(key))
+            {
+                pairings[nodeId] = key;
+            }
+        }
+
+        return pairings;
     }
 
     /// <summary>Pairings bound by a root-set key's rank or by a member add; a vouch may not pair either side with another.</summary>

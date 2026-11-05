@@ -237,11 +237,30 @@ public sealed class IdentityTrustTests
     }
 
     [Fact]
-    public void A_successor_vouched_only_through_a_node_outside_the_root_set_does_not_count()
+    public void A_successor_vouched_through_a_node_outside_the_root_set_counts_with_the_key_trust_gives_it()
     {
         IdentityVerdict verdict = Settled.Of(new Ledger().Root(Root).Vouch(Root, A).Vouch(A, S).Name(Root, S).Rotate(S, Root));
 
+        RootSetIs(verdict, Root, S);
+        Signs(verdict, S);
+    }
+
+    [Fact]
+    public void A_clash_from_below_stops_a_successor_vouched_only_through_another_node()
+    {
+        // C, an ordinary vouched node, pairs S's node with X's key, which conflicts the pairing A gave S.
+        IdentityVerdict verdict = Settled.Of(new Ledger().Root(Root).Vouch(Root, A).Vouch(Root, C).Vouch(A, S).Vouch(C, S.Node, X.Key).Name(Root, S).Rotate(S, Root));
+
         RootSetIs(verdict, Root);
+        Refused(verdict, S, SigningRefusal.Conflicted);
+    }
+
+    [Fact]
+    public void A_successor_vouched_directly_by_the_root_set_and_through_another_node_is_not_unseated_by_a_clash_from_below()
+    {
+        IdentityVerdict verdict = Settled.Of(new Ledger().Root(Root).Vouch(Root, A).Vouch(Root, S).Vouch(A, S).Vouch(A, S.Node, X.Key).Name(Root, S).Rotate(S, Root));
+
+        RootSetIs(verdict, Root, S);
         Signs(verdict, S);
     }
 
