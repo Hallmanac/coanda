@@ -162,6 +162,35 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
+    public void Importing_content_the_highest_version_has_records_nothing()
+    {
+        ModuleDefinition idea = ModuleDefinition.FromParcelType(SoftwareTypes.Idea);
+        Definition[] held =
+        [
+            ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea with { Resolutions = ["split"] })),
+            ModuleVersions.Of(idea, version: 2, moduleVersion: "0.2.0"),
+        ];
+
+        Assert.Null(DefinitionDecider.Import(idea, "software", "0.2.0", held, "import", Now));
+    }
+
+    [Fact]
+    public void Importing_content_only_an_earlier_version_has_records_the_next_version()
+    {
+        ModuleDefinition idea = ModuleDefinition.FromParcelType(SoftwareTypes.Idea);
+        Definition[] held =
+        [
+            ModuleVersions.Of(idea),
+            ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea with { Resolutions = ["split"] }), version: 2, moduleVersion: "0.2.0"),
+        ];
+
+        (DefinitionDrafted drafted, _) =
+            DefinitionDecider.Import(idea, "software", "0.3.0", held, "import", Now) ?? throw new InvalidOperationException("Nothing was imported.");
+
+        Assert.Equal((3, SoftwareTypes.Idea.Hash, "0.3.0"), (drafted.Version, drafted.ContentHash, drafted.ModuleVersion));
+    }
+
+    [Fact]
     public void A_parcel_type_whose_content_cannot_be_read_is_refused()
     {
         foreach (string content in new[] { "not json", "{}", "null", """{"Name":"task","Stages":null}""" })

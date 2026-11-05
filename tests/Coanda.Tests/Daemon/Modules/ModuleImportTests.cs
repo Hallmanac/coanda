@@ -141,6 +141,33 @@ public sealed class ModuleImportTests
         Assert.Equal(next.ContentHash, (await new DefinitionResolver(store).ResolveAsync("alpha", DefinitionKind.Flow, "review-on-assignment", None))?.ContentHash);
     }
 
+    [Fact]
+    public async Task Reverting_a_definition_file_to_an_earlier_versions_content_imports_it_as_the_next_version_and_it_governs_again()
+    {
+        using var temp = new TemporaryHome();
+        string software = CopyOfSoftware(temp);
+        var options = new DaemonOptions { SoftwareModulePath = software };
+        string file = Path.Combine(software, "definitions", "flows", "review-on-assignment.json");
+        string original = await File.ReadAllTextAsync(file, None);
+        await StartAndStopAsync(temp.Home, options);
+        JsonObject edited = JsonNode.Parse(original)?.AsObject() ?? throw new InvalidOperationException("Not an object.");
+        edited["Budget"] = 4;
+        await File.WriteAllTextAsync(file, edited.ToJsonString(), None);
+        await StartAndStopAsync(temp.Home, options);
+        await File.WriteAllTextAsync(file, original, None);
+
+        await StartAndStopAsync(temp.Home, options);
+        await StartAndStopAsync(temp.Home, options);
+
+        List<Definition> held = await InNodeAsync(temp.Home);
+        Assert.Equal(13, held.Count);
+        Definition reverted = Assert.Single(held, d => d.Name == "review-on-assignment" && d.VersionNumber == 3);
+        Assert.Equal(SoftwareFlows.ReviewOnAssignment.Hash, reverted.ContentHash);
+        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        Definition? governing = await new DefinitionResolver(store).ResolveAsync("alpha", DefinitionKind.Flow, "review-on-assignment", None);
+        Assert.Equal((3, SoftwareFlows.ReviewOnAssignment.Hash), (governing?.VersionNumber, governing?.ContentHash));
+    }
+
     [Theory]
     [InlineData("module.json")]
     [InlineData("definitions")]

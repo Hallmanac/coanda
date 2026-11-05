@@ -136,9 +136,10 @@ public sealed class DefinitionService(IDocumentStore store, TimeProvider clock, 
     /// <summary>
     /// Imports a module's definitions, whatever their kind, as published module-scope definitions
     /// carrying the module's name and version, in one save: when any of them breaks a rule, nothing
-    /// is recorded, and the refusal names the file it came from. A definition whose content hash is
-    /// already among the module-scope versions of its kind and name is skipped, so a second import of
-    /// the same definitions records nothing; a new hash becomes the next version; and a kind and name
+    /// is recorded, and the refusal names the file it came from. A definition whose content hash the
+    /// highest module-scope version of its kind and name already has is skipped, so a second import of
+    /// the same definitions records nothing; any other hash, an earlier version's included, becomes the
+    /// next version; and a kind and name
     /// another module's module-scope definition holds is refused. Returns the definitions it recorded.
     /// </summary>
     public async Task<IReadOnlyList<Definition>> ImportAsync(ModuleArtifact module, CancellationToken cancellationToken)
