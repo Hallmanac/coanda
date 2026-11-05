@@ -1,16 +1,17 @@
 using Coanda.Cli;
-using Coanda.Core;
-using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
+using Coanda.Core.Projects;
 using Coanda.Core.Registry;
-using Coanda.Daemon.Api;
+using Coanda.Core;
 using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Api;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Fisher;
-using JasperFx.Events;
 using JasperFx.Events.Documents;
+using JasperFx.Events;
 
 namespace Coanda.Tests.Daemon;
 
@@ -31,7 +32,7 @@ public sealed class ProjectProfileTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System, Held);
+        var projects = new ProjectService(store, TimeProvider.System, Held, ModuleSettingsSchemas.None);
         await RegisteredProjects.AddAsync(store, Project, None);
 
         // a project names no profile until one is set
@@ -66,7 +67,7 @@ public sealed class ProjectProfileTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System, Held);
+        var projects = new ProjectService(store, TimeProvider.System, Held, ModuleSettingsSchemas.None);
         await RegisteredProjects.AddAsync(store, Project, None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(new Principal("flow-run:x", Role.Agent), Project, "work", None));
@@ -81,7 +82,7 @@ public sealed class ProjectProfileTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System, Held);
+        var projects = new ProjectService(store, TimeProvider.System, Held, ModuleSettingsSchemas.None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(Owner, "nowhere", "work", None));
         Assert.Equal(ProjectService.Unregistered("nowhere"), exception.Message);
@@ -97,7 +98,7 @@ public sealed class ProjectProfileTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System, Held);
+        var projects = new ProjectService(store, TimeProvider.System, Held, ModuleSettingsSchemas.None);
         await RegisteredProjects.AddAsync(store, Project, None);
 
         await Assert.ThrowsAsync<DomainException>(() => projects.SetProfileAsync(Owner, Project, profile, None));
@@ -111,7 +112,7 @@ public sealed class ProjectProfileTests
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         await RegisteredProjects.AddAsync(store, Project, None);
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => new ProjectService(store, TimeProvider.System, Held).SetProfileAsync(Owner, Project, "personal", None));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => new ProjectService(store, TimeProvider.System, Held, ModuleSettingsSchemas.None).SetProfileAsync(Owner, Project, "personal", None));
         Assert.Equal("The running daemon's node configuration holds no credential profile named 'personal', so project 'coanda' cannot name it; the configuration holds 'ci', 'work'.", exception.Message);
         DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => new ProjectService(store, TimeProvider.System).SetProfileAsync(Owner, Project, "work", None));
         Assert.EndsWith("the configuration holds no credential profiles.", exception2.Message, StringComparison.Ordinal);

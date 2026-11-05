@@ -51,7 +51,10 @@ public sealed class SoftwareModuleHostingTests
         DomainException refused = await Assert.ThrowsAsync<DomainException>(
             () => settings.SetAsync(Principal.LocalOwner, Project, SoftwareSteps.Module, "required-checks", Json("[]"), None));
         Assert.Equal("The value given for setting 'required-checks' of module 'software' does not meet the setting's schema: TooFewItems at #/.", refused.Message);
-        Assert.Empty(await DocumentsAsync<ModuleSettings>(node, Project));
+        // Nothing beyond what the registration recorded.
+        Assert.Equal(
+            [("primary-branch", """{"repo":"main"}"""), ("required-checks", """["build-test (ubuntu-latest)"]""")],
+            Assert.Single(await DocumentsAsync<ModuleSettings>(node, Project)).Values.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => (v.Key, v.Value)));
 
         ModuleSettingsShown shown = await settings.SetAsync(Principal.LocalOwner, Project, SoftwareSteps.Module, "build", Json("\"make all\""), None);
 
@@ -62,13 +65,14 @@ public sealed class SoftwareModuleHostingTests
     public async Task A_new_project_has_the_software_module_switched_on_with_nothing_configured()
     {
         await using SoftwareNode node = await SoftwareNode.StartAsync();
+        await node.Projects.AddAsync(Principal.LocalOwner, "fresh", RegisteredProjects.Remote, [], None);
 
-        Project? project = await node.Projects.ShowAsync(Principal.LocalOwner, Project, None);
+        Project? project = await node.Projects.ShowAsync(Principal.LocalOwner, "fresh", None);
 
         Assert.Equal([SoftwareSteps.Module], project?.Modules);
-        Assert.Empty(await DocumentsAsync<ModuleSettings>(node, Project));
+        Assert.Empty(await DocumentsAsync<ModuleSettings>(node, "fresh"));
         Assert.Empty(await DocumentsAsync<ModuleProfileSelection>(node, Tenants.Node));
-        ModuleConfiguration state = await node.Services.GetRequiredService<ModuleSettingsService>().StateAsync(Project, SoftwareSteps.Module, None);
+        ModuleConfiguration state = await node.Services.GetRequiredService<ModuleSettingsService>().StateAsync("fresh", SoftwareSteps.Module, None);
         Assert.Equal(ModuleState.Configured, state.State);
     }
 
@@ -202,7 +206,10 @@ public sealed class SoftwareModuleHostingTests
         Assert.Equal(Role.Module, caller?.Role);
         Assert.Equal(SoftwareSteps.Module, caller?.Module);
         Assert.All(forwarder.Calls, c => Assert.Equal(read.Token, c.Token));
-        RecordingForwarder.Call write = Assert.Single(forwarder.Calls, c => c.Method == "POST" && c.PathAndQuery == "/parcels/set-field");
+        // The repos field the module owns is written under no dispatch; the pull request field under the step's.
+        RecordingForwarder.Call repos = Assert.Single(forwarder.Calls, c => c.Method == "POST" && c.PathAndQuery == "/parcels/set-field" && c.Body.Contains("\"repos\"", StringComparison.Ordinal));
+        Assert.Null(JsonNode.Parse(repos.Body)?["dispatch"]);
+        RecordingForwarder.Call write = Assert.Single(forwarder.Calls, c => c.Method == "POST" && c.PathAndQuery == "/parcels/set-field" && c.Body.Contains("\"pull-request\"", StringComparison.Ordinal));
         Assert.Equal((int)HttpStatusCode.OK, write.Status);
         Assert.Equal(ended.Id.ToString(), JsonNode.Parse(write.Body)?["dispatch"]?["flowRunId"]?.GetValue<string>());
 
@@ -260,7 +267,7 @@ public sealed class SoftwareModuleHostingTests
     private static async Task<Guid> RegisterAsync(IDocumentStore store, string name, params ProjectModulesSet[] after)
     {
         ProjectRegistered registered = ProjectDecider.Register(
-            name, RegisteredProjects.Remote, RegisteredProjects.Branch, null, "owner", DateTimeOffset.UnixEpoch);
+            name, RegisteredProjects.Remote, null, "owner", DateTimeOffset.UnixEpoch);
         await using IDocumentSession session = store.LightweightSession(name);
         session.Events.StartStream<Project>(registered.ProjectId, [registered, .. after.Select(a => a with { ProjectId = registered.ProjectId })]);
         await session.SaveChangesAsync(None);

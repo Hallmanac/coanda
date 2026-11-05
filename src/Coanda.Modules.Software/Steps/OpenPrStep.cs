@@ -8,12 +8,15 @@ using Coanda.Sdk.Contract;
 namespace Coanda.Modules.Software.Steps;
 
 /// <summary>
-/// Pushes the flow run's branch to the project's remote and opens a pull request from it against the
-/// primary branch, or reuses the open one whose head it already is, then records that pull request
+/// Pushes the flow run's branch to the remote of the repo the task works in
+/// (<see cref="StepTargets.TargetAsync"/>) and opens a pull request from it against that repo's primary
+/// branch, or reuses the open one whose head it already is, then records that pull request
 /// in the task's <c>pull-request</c> field, under the dispatch it holds, and answers
 /// <see cref="OpenedVerdict"/> with its <c>number</c> and <c>url</c> and the <c>head</c> pushed. The
 /// remote is parsed and the token read before anything is pushed, so a flow run that cannot open a pull
-/// request pushes nothing. A worktree with changes, a remote that is no github.com repository, no
+/// request pushes nothing. The token is read through the credential profile selected for the module in
+/// the project (<see cref="GitHubToken"/>), and a selected profile that yields none pauses with a lever
+/// naming that setting; the push itself uses this node's own git credentials whatever profile is selected. A worktree with changes, a remote that is no github.com repository, no
 /// token, a failed push, and a request GitHub refuses each pause with the perform-again lever; a push
 /// the lease refuses pauses with a lever to stop the flow run, because performing the step again would
 /// be refused the same way.
@@ -41,26 +44,37 @@ public sealed class OpenPrStep(ProjectClones clones, GitHubToken tokens, Func<Gi
             return await context.PerformAgainAsync($"has no repository to open a pull request in: {missing.Message}", cancellationToken);
         }
 
-        CoreParcel parcel = await context.Core.ParcelAsync(request.Project, request.ParcelId, cancellationToken);
+        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        {
+            return pause;
+        }
 
-        if (GitHubRepository.Parse(project.Remote) is not { } repository)
+        CoreParcel parcel = await context.ParcelAsync(cancellationToken);
+        if (GitHubRepository.Parse(target.Remote) is not { } repository)
         {
             return await context.PerformAgainAsync(
-                $"pushed nothing: the remote '{GitHubRepository.Redact(project.Remote)}' of project '{project.Name}' is not a github.com repository in a form the step reads ({GitHubRepository.Forms}).",
+                $"pushed nothing: the remote '{GitHubRepository.Redact(target.Remote)}' of repo '{target.Repo}' in project '{project.Name}' is not a github.com repository in a form the step reads ({GitHubRepository.Forms}).",
                 cancellationToken);
         }
 
         string token;
         try
         {
-            token = await tokens.ReadAsync(cancellationToken);
+            token = await tokens.ReadAsync((await context.SettingsAsync(cancellationToken)).CredentialProfile, cancellationToken);
+        }
+        catch (GitHubProfileTokenException failing)
+        {
+            return await context.PausedAsync(
+                $"pushed nothing: no GitHub token is available, because {failing.Message}",
+                step => Levers.SelectProfile(step, project.Name, failing.TokenPath),
+                cancellationToken);
         }
         catch (GitHubTokenUnavailableException missing)
         {
             return await context.PerformAgainAsync($"pushed nothing: no GitHub token is available, because {missing.Message}", cancellationToken);
         }
 
-        Push push = await clones.PushAsync(project, request.ParcelId, request.FlowRunId, cancellationToken);
+        Push push = await clones.PushAsync(target, request.ParcelId, request.FlowRunId, cancellationToken);
         string head;
         switch (push)
         {
@@ -88,7 +102,7 @@ public sealed class OpenPrStep(ProjectClones clones, GitHubToken tokens, Func<Gi
         try
         {
             pullRequest = await client.FindOpenAsync(repository, branch, token, cancellationToken)
-                ?? await client.OpenAsync(repository, branch, project.PrimaryBranch, parcel.Title, Body(parcel), token, cancellationToken);
+                ?? await client.OpenAsync(repository, branch, target.PrimaryBranch, parcel.Title, Body(parcel), token, cancellationToken);
         }
         catch (GitHubRefusedException refused)
         {
@@ -103,8 +117,7 @@ public sealed class OpenPrStep(ProjectClones clones, GitHubToken tokens, Func<Gi
         CoreFieldValue recorded = CoreFieldValue.OfReference(number, pullRequest.Url);
         if (parcel.ValueOf(PullRequestField)?.Reference != recorded.Reference)
         {
-            await context.Core.SetFieldAsync(
-                request.Project, request.ParcelId, PullRequestField, recorded, request.FlowRunId, request.DispatchId, cancellationToken);
+            await context.SetFieldAsync(PullRequestField, recorded, cancellationToken);
         }
 
         return Results.With(OpenedVerdict, Name, ("number", pullRequest.Number), ("url", pullRequest.Url), ("head", head));

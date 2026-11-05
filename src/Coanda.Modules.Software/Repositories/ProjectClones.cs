@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Coanda.Sdk.Client;
+using Coanda.Modules.Software.Steps;
 using Coanda.Sdk.Commands;
 using Coanda.Sdk.Repositories;
 using Microsoft.Extensions.Logging;
@@ -88,8 +88,11 @@ public sealed record WorktreeHolders(
     Func<Guid, CancellationToken, Task> EndReached);
 
 /// <summary>
-/// The node's clones of its projects' repositories and the flow runs' worktrees cut from them. A clone
-/// is bare, made the first time any flow run in the project needs it, with the project's remote named
+/// The node's clones of its projects' repos and the flow runs' worktrees cut from them. Each project has
+/// one clone, made from the remote of the repo its first step names (<see cref="RepoTarget"/>), kept
+/// where a node home written before repos keeps it; no command registers a project with a second repo,
+/// and a clone of each repo of its own comes with the per-repo layout of the node home. A clone is bare, made the first time any flow run in the project needs it,
+/// with the repo's remote named
 /// <see cref="Git.Remote"/> and the default fetch refspec, so the remote's branches are kept only as
 /// remote-tracking refs and the only local branches are the ones the worktree step creates. Every
 /// git command against one clone runs one at a time, across all of the project's flow runs.
@@ -113,7 +116,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new(StringComparer.Ordinal);
 
     /// <summary>Where the node keeps its clone of <paramref name="project"/>.</summary>
-    public string ClonePathOf(CoreProject project) => home.ProjectClonePath(project.Name);
+    public string ClonePathOf(RepoTarget project) => home.ProjectClonePath(project.Project);
 
     /// <summary>The branch a parcel's flow runs work on.</summary>
     public static string BranchOf(Guid parcelId) => $"coanda/{ClonePaths.Short(parcelId)}";
@@ -147,14 +150,14 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// not hold, is refused naming it. A failing git command throws <see cref="GitCommandException"/>.
     /// </remarks>
     public async Task<Checkout> CheckOutAsync(
-        CoreProject project,
+        RepoTarget project,
         Guid parcelId,
         Guid flowRunId,
         string? lastPushed,
         WorktreeHolders holders,
         CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Name);
+        string clone = home.ProjectClonePath(project.Project);
         HashSet<Guid> reached = [];
         while (true)
         {
@@ -181,7 +184,7 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// <paramref name="reached"/> yet.
     /// </summary>
     private async Task<(Checkout? Checkout, Guid? WaitFor)> CheckOutHeldAsync(
-        CoreProject project,
+        RepoTarget project,
         Guid parcelId,
         Guid flowRunId,
         string? lastPushed,
@@ -189,8 +192,8 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
         HashSet<Guid> reached,
         CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Name);
-        string workPath = home.FlowRunWorkPath(project.Name, flowRunId);
+        string clone = home.ProjectClonePath(project.Project);
+        string workPath = home.FlowRunWorkPath(project.Project, flowRunId);
         string branch = BranchOf(parcelId);
         string reference = $"refs/heads/{branch}";
 
@@ -216,13 +219,13 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
             {
                 string whose = owner.Length == 0 ? "names no parcel as its owner" : $"belongs to parcel {owner}";
                 return (new Checkout.Refused(
-                    $"Branch {branch} already exists in the node's clone of project '{project.Name}' and {whose}, so it is not checked out for parcel {parcelId}."), null);
+                    $"Branch {branch} already exists in the node's clone of project '{project.Project}' and {whose}, so it is not checked out for parcel {parcelId}."), null);
             }
         }
 
         if (listed.FirstOrDefault(w => !w.Bare && !w.Stale && w.Branch == reference && !RealPath.Same(w.Path, workPath)) is { } holding)
         {
-            Guid? holder = FlowRunOf(project.Name, holding.Path);
+            Guid? holder = FlowRunOf(project.Project, holding.Path);
             string? status = holder is Guid id
                 ? await holders.StatusOf(id, cancellationToken)
                 : null;
@@ -267,11 +270,11 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
                         // was rewritten, as a person's rebase does; the push replaces the remote's.
                         logger.LogInformation(
                             "Branch {Branch} in the node's clone of project '{Project}' is at {Tip}, rewritten from {Remote}, the commit last recorded as pushed, which the remote still holds; it is checked out as it stands.",
-                            branch, project.Name, tip, remote);
+                            branch, project.Project, tip, remote);
                         break;
                     case Ancestry.Diverged:
                         return (new Checkout.Refused(
-                            $"Branch {branch} in the node's clone of project '{project.Name}' is at {tip}, and the remote's branch, at {remote}, has commits it does not, while it has commits the remote's does not, and the remote's is not the commit last recorded as pushed for the parcel, so neither can be brought onto the other without someone deciding which to keep. "
+                            $"Branch {branch} in the node's clone of project '{project.Project}' is at {tip}, and the remote's branch, at {remote}, has commits it does not, while it has commits the remote's does not, and the remote's is not the commit last recorded as pushed for the parcel, so neither can be brought onto the other without someone deciding which to keep. "
                             + $"Reconcile them by hand in {clone}, by moving {reference} to a commit that contains {remote}, or by deleting {reference} there to start again from the remote's branch, and the step checks it out."), null);
                 }
             }
@@ -337,10 +340,10 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// refuses only an update someone made on the remote since. A failing git command other than the push throws
     /// <see cref="GitCommandException"/>.
     /// </summary>
-    public async Task<Push> PushAsync(CoreProject project, Guid parcelId, Guid flowRunId, CancellationToken cancellationToken)
+    public async Task<Push> PushAsync(RepoTarget project, Guid parcelId, Guid flowRunId, CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Name);
-        string workPath = home.FlowRunWorkPath(project.Name, flowRunId);
+        string clone = home.ProjectClonePath(project.Project);
+        string workPath = home.FlowRunWorkPath(project.Project, flowRunId);
         string branch = BranchOf(parcelId);
         string reference = $"refs/heads/{branch}";
         string tracking = TrackingRefOf(branch);
@@ -392,10 +395,10 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// branch checked out again, as it was before. Every command runs in the clone's one turn at git.
     /// A failing git command other than the rebase and the push throws <see cref="GitCommandException"/>.
     /// </remarks>
-    public async Task<Rebase> RebaseAsync(CoreProject project, Guid parcelId, Guid flowRunId, string recordedHead, CancellationToken cancellationToken)
+    public async Task<Rebase> RebaseAsync(RepoTarget project, Guid parcelId, Guid flowRunId, string recordedHead, CancellationToken cancellationToken)
     {
-        string clone = home.ProjectClonePath(project.Name);
-        string workPath = home.FlowRunWorkPath(project.Name, flowRunId);
+        string clone = home.ProjectClonePath(project.Project);
+        string workPath = home.FlowRunWorkPath(project.Project, flowRunId);
         string branch = BranchOf(parcelId);
         string reference = $"refs/heads/{branch}";
         string note = NoteRefOf(flowRunId);
@@ -581,17 +584,17 @@ public sealed class ProjectClones(ClonePaths home, ICommandRunner runner, ILogge
     /// deleted first. Returns the reason to refuse when something git does not recognize as a
     /// repository is at the clone's path, which is never deleted.
     /// </summary>
-    private async Task<string?> EnsureCloneAsync(CoreProject project, string clone, CancellationToken cancellationToken)
+    private async Task<string?> EnsureCloneAsync(RepoTarget project, string clone, CancellationToken cancellationToken)
     {
         if (Directory.Exists(clone) || File.Exists(clone))
         {
             CommandResult check = await git.TryRunAsync(Git.Against(clone, "rev-parse", "--is-bare-repository"), cancellationToken);
             return check.Succeeded
                 ? null
-                : $"{clone} is where the node keeps its clone of project '{project.Name}', and git does not recognize what is there as a repository; move it aside and the step clones the project again.";
+                : $"{clone} is where the node keeps its clone of project '{project.Project}', and git does not recognize what is there as a repository; move it aside and the step clones the project again.";
         }
 
-        string partial = home.ProjectClonePartialPath(project.Name);
+        string partial = home.ProjectClonePartialPath(project.Project);
         string parent = Path.GetDirectoryName(clone) ?? home.ClonesPath;
         Directory.CreateDirectory(parent);
         if (Directory.Exists(partial))

@@ -14,6 +14,12 @@ public sealed record SoftwareModuleOptions
     /// <summary>The node home, where <c>gh</c> runs to read the GitHub token.</summary>
     public required string HomePath { get; init; }
 
+    /// <summary>
+    /// The module's area of the node home, holding the credential profiles this node keeps for the module,
+    /// one directory per profile, each read only when a project selects it.
+    /// </summary>
+    public required string ProfilesPath { get; init; }
+
     /// <summary>The directory under the node home holding one directory per project's clone.</summary>
     public required string ClonesPath { get; init; }
 

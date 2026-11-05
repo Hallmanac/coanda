@@ -6,7 +6,7 @@ namespace Coanda.Modules.Software.Steps;
 
 /// <summary>
 /// Makes the flow run's work path, where its agent steps run, a git worktree of the node's clone of the
-/// project's repository on the parcel's branch, and answers done with the <c>branch</c> and the
+/// repo the task works in (<see cref="StepTargets.TargetAsync"/>) on the parcel's branch, and answers done with the <c>branch</c> and the
 /// <c>head</c> checked out. The commit last recorded as pushed among all the parcel's flow runs is what
 /// tells a person's local rewrite of the branch from a remote someone else moved, and a branch still
 /// checked out in the worktree of a flow run that has ended or been stopped is taken over once nothing of
@@ -41,11 +41,16 @@ public sealed class WorktreeStep(ProjectClones clones, FlowRunEnds ends) : ISoft
             return await context.PerformAgainAsync($"has no repository to make a worktree of: {missing.Message}", cancellationToken);
         }
 
+        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        {
+            return pause;
+        }
+
         string? lastPushed = await RecordedHeads.OfParcelAsync(context, cancellationToken);
         var holders = new WorktreeHolders(
             async (flowRunId, token) => await StatusOfAsync(context, flowRunId, token),
             (flowRunId, token) => SettledAsync(context, flowRunId, token));
-        Checkout checkout = await clones.CheckOutAsync(project, request.ParcelId, request.FlowRunId, lastPushed, holders, cancellationToken);
+        Checkout checkout = await clones.CheckOutAsync(target, request.ParcelId, request.FlowRunId, lastPushed, holders, cancellationToken);
         return checkout switch
         {
             Checkout.Ready ready => Results.DoneWith(Name, ("branch", ready.Branch), ("head", ready.Head)),

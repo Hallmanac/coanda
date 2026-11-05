@@ -46,14 +46,9 @@ public sealed class ModuleSettingsService(IDocumentStore store, TimeProvider clo
         try
         {
             SettingsSchema schema = await RequireSwitchedOnAsync(tenant, moduleName, cancellationToken);
-            ReplicatedSetting declared = schema.Replicated.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal))
-                ?? throw new DomainException(
-                    $"Module '{moduleName}' declares no replicated setting named '{name}'; it declares "
-                    + (schema.Replicated.Count == 0 ? "none." : $"{string.Join(", ", schema.Replicated.Select(s => $"'{s.Name}'"))}."));
-            string text = await RequireValidAsync(moduleName, declared, value, cancellationToken);
-
             ModuleSettings? existing = await FindSettingsAsync(tenant, moduleName, cancellationToken);
-            var set = new ModuleSettingSet(existing?.Id ?? Ids.New(), tenant, moduleName, declared.Name, text, principal.Id, clock.GetUtcNow());
+            ModuleSettingSet set = await DecideAsync(
+                schema, existing?.Id ?? Ids.New(), tenant, moduleName, name, value, principal.Id, clock.GetUtcNow(), cancellationToken);
             await using IDocumentSession session = store.LightweightSession(tenant);
             if (existing is null)
             {
@@ -189,6 +184,33 @@ public sealed class ModuleSettingsService(IDocumentStore store, TimeProvider clo
         return schemas.Find(module)
             ?? throw new DomainException(
                 $"This node holds no settings schema for module '{module}', so it has no settings this node can set or show; a module declares its settings.");
+    }
+
+    /// <summary>
+    /// The event that gives the module's replicated setting <paramref name="name"/> the value
+    /// <paramref name="value"/> in the project <paramref name="tenant"/>, under the settings stream
+    /// <paramref name="settingsId"/>, once the module's settings schema <paramref name="schema"/> declares
+    /// the setting and the value meets its schema; otherwise a <see cref="DomainException"/> saying which
+    /// fails. It records nothing and checks neither the project nor the module's switch-on, which the
+    /// caller has decided.
+    /// </summary>
+    internal static async Task<ModuleSettingSet> DecideAsync(
+        SettingsSchema schema,
+        Guid settingsId,
+        string tenant,
+        string module,
+        string name,
+        JsonElement value,
+        string setBy,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ReplicatedSetting declared = schema.Replicated.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal))
+            ?? throw new DomainException(
+                $"Module '{module}' declares no replicated setting named '{name}'; it declares "
+                + (schema.Replicated.Count == 0 ? "none." : $"{string.Join(", ", schema.Replicated.Select(s => $"'{s.Name}'"))}."));
+        string text = await RequireValidAsync(module, declared, value, cancellationToken);
+        return new ModuleSettingSet(settingsId, tenant, module, declared.Name, text, setBy, now);
     }
 
     /// <summary>The value as the JSON text recorded for it, once it meets the setting's schema.</summary>

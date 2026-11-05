@@ -1,6 +1,10 @@
 using System.ComponentModel;
+using System.Text.Json;
+using Coanda.Core.Projects;
 using Coanda.Daemon;
 using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Modules;
+using Coanda.Modules.Software;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -16,38 +20,48 @@ public class ProjectNameSettings : CommandSettings
 public sealed class ProjectAddSettings : ProjectNameSettings
 {
     [CommandOption("--repo <URL>")]
-    [Description("The remote of the project's repository, recorded exactly as given.")]
-    public required string Repo { get; init; }
+    [Description("The remote of the project's first repo, recorded exactly as given. The repo is named after the remote's last path segment.")]
+    public string? Repo { get; init; }
 
     [CommandOption("--branch <NAME>")]
-    [Description("The repository's primary branch, recorded exactly as given.")]
-    public required string Branch { get; init; }
+    [Description("The repo's primary branch, recorded as the software module's primary-branch setting for the project.")]
+    public string? Branch { get; init; }
 
     [CommandOption("--build <COMMAND>")]
-    [Description("The command line the gates run first, in the flow run's worktree, through the platform's shell. Defaults to dotnet build.")]
+    [Description("The command line the gates run first, in the flow run's worktree, through the platform's shell, recorded as the software module's build setting. Defaults to dotnet build.")]
     public string? Build { get; init; }
 
     [CommandOption("--test <COMMAND>")]
-    [Description("The command line the gates run once the build passes, in the same way. Defaults to dotnet test.")]
+    [Description("The command line the gates run once the build passes, in the same way, recorded as the software module's test setting. Defaults to dotnet test.")]
     public string? Test { get; init; }
 
-    /// <summary>The request this registration sends; an option left out is sent as null, so the daemon records the default.</summary>
-    public ProjectAddRequest ToRequest() => new(Name, Repo, Branch, Build, Test);
-}
-
-public sealed class ProjectSetSettings : ProjectNameSettings
-{
-    [CommandOption("--required-check <CHECK>")]
-    [Description("A check a merge of the project's pull requests waits for: a check run's name or a commit status's context, exactly as GitHub reports it. Repeat it for each check; the checks given replace the project's list.")]
-    public string[] RequiredChecks { get; init; } = [];
-
     public override ValidationResult Validate() =>
-        RequiredChecks.Length == 0
-            ? ValidationResult.Error("Name at least one check with --required-check; the checks given replace the project's list.")
-            : ValidationResult.Success();
+        (Repo, Branch) switch
+        {
+            (var repo, _) when string.IsNullOrWhiteSpace(repo) => ValidationResult.Error("Name the remote of the project's repo with --repo <url>."),
+            (_, var branch) when string.IsNullOrWhiteSpace(branch) => ValidationResult.Error("Name the repo's primary branch with --branch <name>."),
+            _ => ValidationResult.Success(),
+        };
 
-    /// <summary>The request this command sends: the checks given, in order, exactly as given.</summary>
-    public ProjectRequiredChecksRequest ToRequest() => new([.. RequiredChecks]);
+    /// <summary>
+    /// The request this registration sends: the project and its repo's remote, and as the software
+    /// module's settings, the repo's primary branch and the build and test commands given. An option
+    /// left out is not sent, so the module's default stands.
+    /// </summary>
+    public ProjectAddRequest ToRequest()
+    {
+        string remote = Repo ?? string.Empty;
+        List<ModuleSettingValue> settings =
+        [
+            Setting(SoftwareSettings.PrimaryBranch, new Dictionary<string, string?> { [ProjectRepo.NameOf(remote)] = Branch }),
+            .. Build is null ? Array.Empty<ModuleSettingValue>() : [Setting(SoftwareSettings.Build, Build)],
+            .. Test is null ? Array.Empty<ModuleSettingValue>() : [Setting(SoftwareSettings.Test, Test)],
+        ];
+        return new ProjectAddRequest(Name, remote, settings);
+    }
+
+    private static ModuleSettingValue Setting(string name, object value) =>
+        new(SoftwareSteps.Module, name, JsonSerializer.SerializeToElement(value));
 }
 
 public sealed class ProjectSetProfileSettings : ProjectNameSettings
@@ -64,19 +78,8 @@ public sealed class ProjectAddCommand : AsyncCommand<ProjectAddSettings>
         using var client = new DaemonClient(NodeHome.Resolve());
         ProjectView project = await client.PostAsync<ProjectView>(
             "/projects", settings.ToRequest(), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"Registered project {project.Name}: {project.Remote} on {project.PrimaryBranch}");
-        return 0;
-    }
-}
-
-public sealed class ProjectSetCommand : AsyncCommand<ProjectSetSettings>
-{
-    protected override async Task<int> ExecuteAsync(CommandContext context, ProjectSetSettings settings, CancellationToken cancellationToken)
-    {
-        using var client = new DaemonClient(NodeHome.Resolve());
-        ProjectView project = await client.PutAsync<ProjectView>(
-            ProjectEndpoints.RequiredChecksPathOf(settings.Name), settings.ToRequest(), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated($"A merge in project {project.Name} waits for {string.Join(", ", project.RequiredChecks)}.");
+        AnsiConsole.MarkupLineInterpolated(
+            $"Registered project {project.Name} with repo {string.Join(", ", project.Repos.Select(r => $"{r.Name} ({r.Remote})"))}; coa project module show {project.Name} {SoftwareSteps.Module} shows the software module's settings for it.");
         return 0;
     }
 }
@@ -110,17 +113,15 @@ public sealed class ProjectShowCommand : AsyncCommand<ProjectNameSettings>
         return 0;
     }
 
-    /// <summary>The rows <c>coa project show</c> prints, as markup with the project's own text escaped.</summary>
+    /// <summary>
+    /// The rows <c>coa project show</c> prints, as markup with the project's own text escaped: its name,
+    /// each repo's name and remote, the agent-step profile it names, and its registration. A module's
+    /// settings for it are <c>coa project module show</c>'s.
+    /// </summary>
     public static IReadOnlyList<(string Key, string Value)> ShowRows(ProjectView project) =>
     [
         ("Name", Markup.Escape(project.Name)),
-        ("Remote", Markup.Escape(project.Remote)),
-        ("Branch", Markup.Escape(project.PrimaryBranch)),
-        ("Build", Markup.Escape(project.Build)),
-        ("Test", Markup.Escape(project.Test)),
-        ("Required checks", project.RequiredChecks.Count == 0
-            ? "none set; coa project set --required-check names them, and a merge pauses until it does"
-            : Markup.Escape(string.Join(", ", project.RequiredChecks))),
+        .. project.Repos.Select(r => ("Repo", $"{Markup.Escape(r.Name)}  {Markup.Escape(r.Remote)}")),
         ("Profile", project.Profile is null
             ? "none set; coa project set-profile names one"
             : Markup.Escape(project.Profile)),
@@ -140,13 +141,33 @@ public sealed class ProjectListCommand : AsyncCommand
             return 0;
         }
 
-        int nameWidth = projects.Max(p => p.Name.Length);
-        int remoteWidth = projects.Max(p => p.Remote.Length);
-        foreach (ProjectView project in projects)
+        foreach (string line in ListLines(projects))
         {
-            AnsiConsole.MarkupLineInterpolated($"{project.Name.PadRight(nameWidth)}  {project.Remote.PadRight(remoteWidth)}  {project.PrimaryBranch}");
+            AnsiConsole.WriteLine(line);
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// The lines <c>coa project list</c> prints: each project's name, then for each of its repos the
+    /// repo's name and remote, in aligned columns, a project's later repos on lines of their own.
+    /// </summary>
+    public static IReadOnlyList<string> ListLines(IReadOnlyList<ProjectView> projects)
+    {
+        int nameWidth = projects.Max(p => p.Name.Length);
+        int repoWidth = projects.SelectMany(p => p.Repos).Select(r => r.Name.Length).DefaultIfEmpty(0).Max();
+        List<string> lines = [];
+        foreach (ProjectView project in projects)
+        {
+            string name = project.Name;
+            foreach (ProjectRepoView repo in project.Repos)
+            {
+                lines.Add($"{name.PadRight(nameWidth)}  {repo.Name.PadRight(repoWidth)}  {repo.Remote}");
+                name = string.Empty;
+            }
+        }
+
+        return lines;
     }
 }

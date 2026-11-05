@@ -162,7 +162,7 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     public async Task A_named_check_still_pending_after_another_named_check_succeeded_answers_pending_naming_it()
     {
         (Guid parcel, Guid flowRun) = await ArrangeAsync();
-        await projects.SetRequiredChecksAsync(Principal.LocalOwner, Project, ["build-test (ubuntu-latest)", "build-test (windows-latest)"], None);
+        await node.SetAsync(Project, SoftwareSettings.RequiredChecks, new[] { "build-test (ubuntu-latest)", "build-test (windows-latest)" });
         RunsAre(
             FakeGitHub.CheckRun(1, "build-test (ubuntu-latest)", "completed", "success"),
             FakeGitHub.CheckRun(2, "build-test (windows-latest)", "queued", null));
@@ -300,8 +300,7 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     [Fact]
     public async Task A_remote_that_is_no_github_repository_pauses()
     {
-        await projects.AddAsync(Principal.LocalOwner, "elsewhere", "git@gitlab.example:team/repo.git", "main", None);
-        await projects.SetRequiredChecksAsync(Principal.LocalOwner, "elsewhere", [RegisteredProjects.RequiredCheck], None);
+        await projects.AddAsync(Principal.LocalOwner, "elsewhere", "git@gitlab.example:team/repo.git", RegisteredProjects.Settings, None);
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "elsewhere", "task", "Merge me", null, None);
         await parcels.SetFieldAsync(Principal.LocalOwner, "elsewhere", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
 
@@ -316,14 +315,20 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     [Fact]
     public async Task A_project_that_names_no_check_pauses_rather_than_merging()
     {
-        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.Branch, None);
+        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.BranchOnly, None);
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "unchecked", "task", "Merge me", null, None);
         await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
         Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
 
         SystemStepAnswer outcome = await DispatchAsync(parcel.Id, flowRun, "unchecked");
 
-        Assert.Contains("project 'unchecked' names no check for a merge to wait for", PausedToPerformAgain(outcome), StringComparison.Ordinal);
+        SystemStepAnswer.Paused paused = Paused(outcome);
+        Assert.Equal(
+            "Step 'gated-merge' merged nothing: the software module's setting 'required-checks' names no check for a merge to wait for in project 'unchecked', so the step cannot tell whether every expected check has reported.",
+            paused.Reason);
+        Assert.Equal(
+            "Give the software module's setting 'required-checks' a value in project 'unchecked' (coa project module set unchecked software required-checks '[\"<check>\"]'), then resume the flow run to perform step 'gated-merge' again.",
+            paused.Lever);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
     }
 
@@ -430,7 +435,7 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     [Fact]
     public async Task A_project_that_names_no_check_pauses_before_a_behind_head_is_answered_behind()
     {
-        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.Branch, None);
+        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.BranchOnly, None);
         Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "unchecked", "task", "Merge me", null, None);
         await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
         Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
@@ -438,7 +443,8 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
 
         SystemStepAnswer outcome = await DispatchAsync(parcel.Id, flowRun, "unchecked");
 
-        Assert.Contains("names no check", PausedToPerformAgain(outcome), StringComparison.Ordinal);
+        Assert.Contains("names no check", Paused(outcome).Reason, StringComparison.Ordinal);
+        Assert.Contains("coa project module set unchecked software required-checks", Paused(outcome).Lever, StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsCompare);
     }
 

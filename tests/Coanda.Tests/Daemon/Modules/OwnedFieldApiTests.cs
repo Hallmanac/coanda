@@ -38,18 +38,18 @@ public sealed class OwnedFieldApiTests
     private const string Relay = "relay";
     private static readonly CancellationToken None = CancellationToken.None;
 
-    private static readonly ParcelType ProbeType = SoftwareTypes.Task with
+    private static readonly ParcelType ProbeType = SoftwareTypes.UnownedTask with
     {
         Name = Probe,
         FlowBindings = [],
-        Fields = [.. SoftwareTypes.Task.Fields, new FieldDeclaration { Name = Mirror, Kind = FieldKinds.Text, Owner = ModuleNode.Module }],
+        Fields = [.. SoftwareTypes.UnownedTask.Fields, new FieldDeclaration { Name = Mirror, Kind = FieldKinds.Text, Owner = ModuleNode.Module }],
     };
 
-    private static readonly ParcelType RelayType = SoftwareTypes.Task with
+    private static readonly ParcelType RelayType = SoftwareTypes.UnownedTask with
     {
         Name = Relay,
         FlowBindings = [],
-        Fields = [.. SoftwareTypes.Task.Fields, new FieldDeclaration { Name = Foreign, Kind = FieldKinds.Text, Owner = ModuleNode.Other }],
+        Fields = [.. SoftwareTypes.UnownedTask.Fields, new FieldDeclaration { Name = Foreign, Kind = FieldKinds.Text, Owner = ModuleNode.Other }],
     };
 
     [Fact]

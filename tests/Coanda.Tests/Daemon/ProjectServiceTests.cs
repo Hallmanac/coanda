@@ -1,12 +1,20 @@
-using Coanda.Core;
-using Coanda.Core.Parcels;
+using System.Text.Json;
+using Coanda.Core.Modules.Events;
+using Coanda.Core.Modules;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Parcels;
+using Coanda.Core.Projects.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Registry;
+using Coanda.Core;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
+using Coanda.Modules.Software;
 using Fisher;
+using JasperFx.Events.Documents;
+using JasperFx.Events;
 
 namespace Coanda.Tests.Daemon;
 
@@ -17,12 +25,12 @@ public sealed class ProjectServiceTests
     private static readonly Principal Owner = Principal.LocalOwner;
 
     [Fact]
-    public async Task An_added_project_shows_and_lists_with_its_remote_and_branch_and_survives_reopening_the_store()
+    public async Task An_added_project_shows_and_lists_with_its_repo_and_survives_reopening_the_store()
     {
         using var temp = new TemporaryHome();
         await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath))
         {
-            Project added = await new ProjectService(store, TimeProvider.System).AddAsync(Owner, " coanda ", Remote, "main", None);
+            Project added = await new ProjectService(store, TimeProvider.System).AddAsync(Owner, " coanda ", Remote, [], None);
             Assert.Equal("coanda", added.Name);
             Assert.Equal(Owner.Id, added.RegisteredBy);
         }
@@ -33,8 +41,7 @@ public sealed class ProjectServiceTests
         Project? shown = await projects.ShowAsync(Owner, "coanda", None);
         Assert.NotNull(shown);
         Assert.Equal("coanda", shown.Name);
-        Assert.Equal(Remote, shown.Remote);
-        Assert.Equal("main", shown.PrimaryBranch);
+        Assert.Equal([new ProjectRepo("coanda", Remote)], shown.Repos);
 
         // names are compared after trimming
         Assert.NotNull(await projects.ShowAsync(Owner, "  coanda", None));
@@ -49,9 +56,9 @@ public sealed class ProjectServiceTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System);
-        await projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", "main", None);
+        await projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", [], None);
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "Coanda", "https://example.invalid/b.git", "main", None));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "Coanda", "https://example.invalid/b.git", [], None));
         Assert.StartsWith("Project 'Coanda' differs from the registered project 'coanda' only in letter case", exception.Message, StringComparison.Ordinal);
 
         Assert.Equal(["coanda"], (await projects.ListAsync(Owner, None)).Select(p => p.Name));
@@ -63,14 +70,14 @@ public sealed class ProjectServiceTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System);
-        await projects.AddAsync(Owner, "beta", "https://example.invalid/beta.git", "trunk", None);
-        await projects.AddAsync(Owner, "alpha", "https://example.invalid/alpha.git", "main", None);
-        await projects.AddAsync(Owner, "Gamma", "https://example.invalid/gamma.git", "main", None);
+        await projects.AddAsync(Owner, "beta", "https://example.invalid/beta.git", [], None);
+        await projects.AddAsync(Owner, "alpha", "https://example.invalid/alpha.git", [], None);
+        await projects.AddAsync(Owner, "Gamma", "https://example.invalid/gamma.git", [], None);
 
         IReadOnlyList<Project> listed = await projects.ListAsync(Owner, None);
 
         Assert.Equal(["Gamma", "alpha", "beta"], listed.Select(p => p.Name));
-        Assert.Single(listed, p => p.Name == "beta" && p.Remote == "https://example.invalid/beta.git" && p.PrimaryBranch == "trunk");
+        Assert.Single(listed, p => p.Name == "beta" && p.Repos.SequenceEqual([new ProjectRepo("beta", "https://example.invalid/beta.git")]));
     }
 
     [Fact]
@@ -79,12 +86,12 @@ public sealed class ProjectServiceTests
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System);
-        await projects.AddAsync(Owner, "coanda", Remote, "main", None);
+        await projects.AddAsync(Owner, "coanda", Remote, [], None);
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, " coanda ", "https://example.invalid/other.git", "trunk", None));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, " coanda ", "https://example.invalid/other.git", [], None));
         Assert.StartsWith("Project 'coanda' is already registered", exception.Message, StringComparison.Ordinal);
 
-        Assert.Equal(Remote, Assert.Single(await projects.ListAsync(Owner, None)).Remote);
+        Assert.Equal(Remote, Assert.Single(Assert.Single(await projects.ListAsync(Owner, None)).Repos).Remote);
     }
 
     [Fact]
@@ -96,8 +103,8 @@ public sealed class ProjectServiceTests
 
         Task<Project>[] adds =
         [
-            projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", "main", None),
-            projects.AddAsync(Owner, "coanda", "https://example.invalid/b.git", "main", None),
+            projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", [], None),
+            projects.AddAsync(Owner, "coanda", "https://example.invalid/b.git", [], None),
         ];
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => Task.WhenAll(adds));
         Assert.Contains("already registered", exception.Message, StringComparison.Ordinal);
@@ -107,20 +114,99 @@ public sealed class ProjectServiceTests
     }
 
     [Theory]
-    [InlineData("", Remote, "main", "A project name is required*")]
-    [InlineData("_node", Remote, "main", "*reserved for node-level records*")]
-    [InlineData("_NODE", Remote, "main", "*reserved for node-level records*")]
-    [InlineData("coanda", " ", "main", "*needs the remote of its repository*")]
-    [InlineData("coanda", Remote, "", "*needs the primary branch of its repository*")]
-    public async Task A_blank_name_the_reserved_name_a_blank_remote_or_a_blank_branch_is_refused(string name, string remote, string branch, string rule)
+    [InlineData("", Remote, "A project name is required*")]
+    [InlineData("_node", Remote, "*reserved for node-level records*")]
+    [InlineData("_NODE", Remote, "*reserved for node-level records*")]
+    [InlineData("coanda", " ", "*needs the remote of a repo*")]
+    public async Task A_blank_name_the_reserved_name_or_a_blank_remote_is_refused(string name, string remote, string rule)
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
         var projects = new ProjectService(store, TimeProvider.System);
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, name, remote, branch, None));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, name, remote, [], None));
         Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
         Assert.Empty(await projects.ListAsync(Owner, None));
+    }
+
+    [Fact]
+    public async Task A_registration_records_its_module_settings_in_the_same_save_as_the_project()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var projects = new ProjectService(store, TimeProvider.System);
+
+        Project added = await projects.AddAsync(
+            Owner,
+            "coanda",
+            Remote,
+            [
+                RegisteredProjects.Setting(SoftwareSettings.PrimaryBranch, new Dictionary<string, string> { ["coanda"] = "trunk" }),
+                RegisteredProjects.Setting(SoftwareSettings.Build, "make"),
+                RegisteredProjects.Setting(SoftwareSettings.Test, "make test"),
+            ],
+            None);
+
+        await using IQuerySession session = store.QuerySession("coanda");
+        ModuleSettings settings = Assert.Single(await session.Query<ModuleSettings>().ToListAsync(None));
+        Assert.Equal(SoftwareSteps.Module, settings.Module);
+        Assert.Equal(
+            [(SoftwareSettings.Build, "\"make\""), (SoftwareSettings.PrimaryBranch, """{"coanda":"trunk"}"""), (SoftwareSettings.Test, "\"make test\"")],
+            settings.Values.OrderBy(v => v.Key, StringComparer.Ordinal).Select(v => (v.Key, v.Value)));
+
+        // One save: the project's stream and the settings' stream are written together, at one sequence.
+        IReadOnlyList<IEvent> projectEvents = await session.Events.FetchStreamAsync(added.Id, token: None);
+        IReadOnlyList<IEvent> settingEvents = await session.Events.FetchStreamAsync(settings.Id, token: None);
+        Assert.Equal([typeof(ProjectRegistered), typeof(ProjectModulesSet)], projectEvents.Select(e => e.Data.GetType()));
+        Assert.Equal(3, settingEvents.Count);
+        Assert.All(settingEvents, e => Assert.Equal(Owner.Id, ((ModuleSettingSet)e.Data).SetBy));
+        Assert.Equal(projectEvents[^1].Sequence + 1, settingEvents[0].Sequence);
+    }
+
+    public static TheoryData<string, ModuleSettingValue[], string> RefusedSettings => new()
+    {
+        {
+            "a blank build command",
+            [RegisteredProjects.Setting(SoftwareSettings.PrimaryBranch, new Dictionary<string, string> { ["coanda"] = "main" }), RegisteredProjects.Setting(SoftwareSettings.Build, " ")],
+            "The value given for setting 'build' of module 'software' does not meet the setting's schema: PatternMismatch at #/."
+        },
+        {
+            "a blank test command",
+            [RegisteredProjects.Setting(SoftwareSettings.Test, "")],
+            "The value given for setting 'test' of module 'software' does not meet the setting's schema: PatternMismatch at #/."
+        },
+        {
+            "a setting the module does not declare",
+            [RegisteredProjects.Setting("colour", "red")],
+            "Module 'software' declares no replicated setting named 'colour'; it declares 'primary-branch', 'build', 'test', 'required-checks'."
+        },
+        {
+            "a module the registration does not switch on",
+            [new ModuleSettingValue("mail", "channel", JsonSerializer.SerializeToElement("#builds"))],
+            "Project 'coanda' was given a setting of module 'mail', which its registration does not switch on; a registration records the settings of the modules it switches on, 'software'."
+        },
+        {
+            "a setting given twice",
+            [RegisteredProjects.Setting(SoftwareSettings.Build, "make"), RegisteredProjects.Setting(SoftwareSettings.Build, "ninja")],
+            "Project 'coanda' was given setting 'build' of module 'software' more than once; give each setting once."
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(RefusedSettings))]
+    public async Task A_registration_whose_settings_are_refused_registers_nothing(string refused, ModuleSettingValue[] settings, string rule)
+    {
+        Assert.NotEmpty(refused);
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var projects = new ProjectService(store, TimeProvider.System);
+
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "coanda", Remote, settings, None));
+
+        Assert.Equal(rule, exception.Message);
+        Assert.Empty(await projects.ListAsync(Owner, None));
+        await using IQuerySession session = store.QuerySession("coanda");
+        Assert.Empty(await session.Query<ModuleSettings>().ToListAsync(None));
     }
 
     [Fact]
@@ -132,12 +218,12 @@ public sealed class ProjectServiceTests
         var agent = new Principal("build-session", Role.Agent);
         var member = new Principal("teammate", Role.Member);
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(agent, "coanda", Remote, "main", None));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(agent, "coanda", Remote, [], None));
         Assert.Equal("'project.add' is not open to the Agent role.", exception.Message);
-        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(member, "coanda", Remote, "main", None));
+        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(member, "coanda", Remote, [], None));
         Assert.Equal("'project.add' is not open to the Member role.", exception2.Message);
 
-        await projects.AddAsync(Owner, "coanda", Remote, "main", None);
+        await projects.AddAsync(Owner, "coanda", Remote, [], None);
         Assert.NotNull(await projects.ShowAsync(agent, "coanda", None));
         Assert.Single(await projects.ListAsync(agent, None));
     }

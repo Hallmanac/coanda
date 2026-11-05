@@ -19,12 +19,13 @@ public sealed class ParcelTypeFieldTests
     }
 
     [Fact]
-    public void The_shipped_task_names_no_owner_and_hashes_to_the_literal_it_had_before_owners()
+    public void The_shipped_task_names_the_software_module_as_the_owner_of_its_repos_field_alone_and_hashes_to_its_literal()
     {
-        Assert.All(SoftwareTypes.Task.Fields, f => Assert.Null(f.Owner));
-        // the task's fields name no module, so its hash is the one it had before a field could name one
-        Assert.Equal("f5bc1ad145ab7a9f", SoftwareTypes.Task.Hash);
-        Assert.DoesNotContain("\"Owner\"", ParcelType.CanonicalJson(SoftwareTypes.Task), StringComparison.Ordinal);
+        Assert.Equal([("repos", "software")], SoftwareTypes.Task.Fields.Where(f => f.Owner is not null).Select(f => (f.Name, f.Owner)));
+        // without the repos field, the task's hash is the one it had before a field could name an owner
+        Assert.Equal("f5bc1ad145ab7a9f", SoftwareTypes.UnownedTask.Hash);
+        Assert.Equal("ea1d4a852606b5ea", SoftwareTypes.Task.Hash);
+        Assert.DoesNotContain("\"Owner\"", ParcelType.CanonicalJson(SoftwareTypes.UnownedTask), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -65,9 +66,9 @@ public sealed class ParcelTypeFieldTests
     };
 
     [Fact]
-    public void The_shipped_task_declares_its_objective_criteria_non_goals_and_pull_request()
+    public void The_shipped_task_declares_its_objective_criteria_non_goals_pull_request_and_repos()
     {
-        Assert.Equal([("objective", FieldKinds.Text, "refine"), ("criteria", FieldKinds.TextList, "refine"), ("non-goals", FieldKinds.TextList, ""), ("pull-request", FieldKinds.Reference, "build")], SoftwareTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))));
+        Assert.Equal([("objective", FieldKinds.Text, "refine"), ("criteria", FieldKinds.TextList, "refine"), ("non-goals", FieldKinds.TextList, ""), ("pull-request", FieldKinds.Reference, "build"), ("repos", FieldKinds.TextList, "")], SoftwareTypes.Task.Fields.Select(f => (f.Name, f.Kind, string.Join(",", f.RequiredToLeave))));
         SoftwareTypes.Task.Validate(Gates);
     }
 

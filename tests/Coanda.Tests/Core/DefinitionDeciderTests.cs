@@ -14,7 +14,7 @@ public sealed class DefinitionDeciderTests
 
     private static DefinitionDrafted DraftTask(ParcelType? type = null, DefinitionScope scope = DefinitionScope.Project, string? project = "alpha", int latest = 0)
     {
-        ParcelType task = type ?? SoftwareTypes.Task;
+        ParcelType task = type ?? SoftwareTypes.UnownedTask;
         return DefinitionDecider.Draft(
             DefinitionKind.ParcelType, task.Name, scope, scope == DefinitionScope.Project ? project : null, latest,
             ParcelType.CanonicalJson(task), task.Hash, null, "brian", Now);
@@ -26,10 +26,10 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void Draft_records_every_field_and_the_next_version()
     {
-        ParcelType fork = SoftwareTypes.Task with { Stages = [.. SoftwareTypes.Task.Stages, "qa"] };
+        ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
         DefinitionDrafted drafted = DefinitionDecider.Draft(
             DefinitionKind.ParcelType, "task", DefinitionScope.Project, " alpha ", 2,
-            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task))]);
+            ParcelType.CanonicalJson(fork), fork.Hash, new ForkBase("task", 1), "brian", Now, moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask))]);
 
         Definition definition = Definition.Create(drafted);
         Assert.Equal(DefinitionKind.ParcelType, definition.Kind);
@@ -49,8 +49,8 @@ public sealed class DefinitionDeciderTests
     [InlineData("build", 1)]
     public void A_fork_base_naming_no_module_scope_definition_of_the_drafts_kind_is_refused_naming_it(string baseName, int baseVersion)
     {
-        ParcelType fork = SoftwareTypes.Task with { Stages = [.. SoftwareTypes.Task.Stages, "qa"] };
-        Definition[] shipped = [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task)), ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea))];
+        ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
+        Definition[] shipped = [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask)), ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Idea))];
 
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
@@ -61,7 +61,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_fork_base_is_refused_when_no_module_versions_are_given_and_matched_by_name_without_case()
     {
-        ParcelType fork = SoftwareTypes.Task with { Stages = [.. SoftwareTypes.Task.Stages, "qa"] };
+        ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
         string content = ParcelType.CanonicalJson(fork);
 
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
@@ -70,7 +70,7 @@ public sealed class DefinitionDeciderTests
 
         Assert.Equal(new ForkBase("Task", 1), DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Owner, null, 0, content, fork.Hash, new ForkBase("Task", 1), "brian", Now,
-                moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task))])
+                moduleVersions: [ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask))])
             .ForkBase);
     }
 
@@ -119,7 +119,7 @@ public sealed class DefinitionDeciderTests
     public void Retiring_a_module_scope_definition_is_refused()
     {
         (DefinitionDrafted drafted, DefinitionPublished published) =
-            DefinitionDecider.Import(ModuleDefinition.FromParcelType(SoftwareTypes.Task), "software", "0.1.0", [], "import", Now)
+            DefinitionDecider.Import(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask), "software", "0.1.0", [], "import", Now)
             ?? throw new InvalidOperationException("Nothing was imported.");
         Definition imported = Definition.Create(drafted);
         imported.Apply(published);
@@ -135,7 +135,7 @@ public sealed class DefinitionDeciderTests
     {
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Module, null, 0,
-                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Task.Hash, null, "brian", Now));
+                ParcelType.CanonicalJson(SoftwareTypes.UnownedTask), SoftwareTypes.UnownedTask.Hash, null, "brian", Now));
         Assert.StartsWith("A definition cannot be drafted into module scope", exception.Message, StringComparison.Ordinal);
     }
 
@@ -201,7 +201,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_parcel_type_that_fails_validation_is_refused()
     {
-        ParcelType broken = SoftwareTypes.Task with { TerminalStage = "finished" };
+        ParcelType broken = SoftwareTypes.UnownedTask with { TerminalStage = "finished" };
 
         DomainException exception = Assert.Throws<DomainException>(() => DraftTask(broken));
         Assert.Contains("terminal stage", exception.Message, StringComparison.Ordinal);
@@ -212,7 +212,7 @@ public sealed class DefinitionDeciderTests
     {
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Project, "alpha", 0,
-                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Idea.Hash, null, "brian", Now));
+                ParcelType.CanonicalJson(SoftwareTypes.UnownedTask), SoftwareTypes.Idea.Hash, null, "brian", Now));
         Assert.StartsWith($"The content hash '{SoftwareTypes.Idea.Hash}' differs from the parcel type's hash", exception.Message, StringComparison.Ordinal);
     }
 
@@ -221,7 +221,7 @@ public sealed class DefinitionDeciderTests
     {
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "bug", DefinitionScope.Project, "alpha", 0,
-                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Task.Hash, null, "brian", Now));
+                ParcelType.CanonicalJson(SoftwareTypes.UnownedTask), SoftwareTypes.UnownedTask.Hash, null, "brian", Now));
         Assert.StartsWith("A parcel-type definition is named for its type", exception.Message, StringComparison.Ordinal);
     }
 
@@ -233,7 +233,7 @@ public sealed class DefinitionDeciderTests
 
         DomainException exception2 = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(
                 DefinitionKind.ParcelType, "task", DefinitionScope.Owner, "alpha", 0,
-                ParcelType.CanonicalJson(SoftwareTypes.Task), SoftwareTypes.Task.Hash, null, "brian", Now));
+                ParcelType.CanonicalJson(SoftwareTypes.UnownedTask), SoftwareTypes.UnownedTask.Hash, null, "brian", Now));
         Assert.StartsWith("Only a project-scope definition belongs to a project", exception2.Message, StringComparison.Ordinal);
     }
 
@@ -358,7 +358,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_drafted_parcel_type_is_validated_against_the_gate_names_it_is_given()
     {
-        ParcelType gated = SoftwareTypes.Task with { Fields = [], GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
+        ParcelType gated = SoftwareTypes.UnownedTask with { Fields = [], GateBindings = [new GateBinding("refine", "build", "has-an-owner")] };
         string content = ParcelType.CanonicalJson(gated);
 
         DomainException exception = Assert.Throws<DomainException>(() => DefinitionDecider.Draft(

@@ -12,8 +12,9 @@ namespace Coanda.Modules.Software;
 /// <summary>
 /// The software engineering module, answering the module API's calls on it: health, describe,
 /// dispatch, status, stop, and the feed. A dispatch carries only the dispatch request; the step reads the
-/// project's record, the parcel, and the flow runs on it through the core's API, presenting the
-/// module's token, and writes the pull request field the same way. It reaches GitHub and the core
+/// project's record, the module's settings in the project, the parcel, and the flow runs on it through
+/// the core's API, presenting the module's token, and writes the task's repos and pull request fields
+/// the same way. It reaches GitHub and the core
 /// through typed clients of its own <see cref="IHttpClientFactory"/>, and the daemon only through the
 /// module API's calls and the core's API.
 /// </summary>
@@ -49,7 +50,7 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
         var paths = new ClonePaths(options.ClonesPath, options.WorkPath);
         clones = new ProjectClones(paths, options.CommandRunner, options.LoggerFactory.CreateLogger<ProjectClones>());
         logger = options.LoggerFactory.CreateLogger<SoftwareModule>();
-        var tokens = new GitHubToken(options.CommandRunner, options.HomePath);
+        var tokens = new GitHubToken(options.CommandRunner, options.HomePath, options.ProfilesPath);
 
         // A typed client is resolved for each use, so it never holds a handler past its rotation.
         GitHubClient GitHub() => services.GetRequiredService<GitHubClient>();

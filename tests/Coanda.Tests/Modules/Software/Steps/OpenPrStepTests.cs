@@ -357,12 +357,12 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     public async Task A_remote_that_is_no_github_repository_pauses_quoting_it_without_its_user_information_and_pushes_nothing()
     {
         const string Other = "beta";
-        await projects.AddAsync(Principal.LocalOwner, Other, "https://someone:s3cr3t-token@gitlab.example.com/team/repo.git", "main", None);
+        await projects.AddAsync(Principal.LocalOwner, Other, "https://someone:s3cr3t-token@gitlab.example.com/team/repo.git", RegisteredProjects.Settings, None);
         Parcel parcel = await TaskAsync(Other, "Elsewhere");
 
         SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, await HeldAsync(parcel.Id, Other), Other));
 
-        Assert.StartsWith("Step 'open-pr' pushed nothing: the remote 'https://gitlab.example.com/team/repo.git' of project 'beta' is not a github.com repository", paused.Reason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'open-pr' pushed nothing: the remote 'https://gitlab.example.com/team/repo.git' of repo 'repo' in project 'beta' is not a github.com repository", paused.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("s3cr3t", paused.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("someone", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("open-pr"), paused.Lever);
@@ -375,12 +375,12 @@ public sealed class OpenPrStepTests : IAsyncLifetime
     public async Task A_github_remote_carrying_a_credential_does_not_parse_and_the_pause_quotes_it_without_one()
     {
         const string Other = "gamma";
-        await projects.AddAsync(Principal.LocalOwner, Other, "https://x-access-token:ghp_inTheRemote@github.com/example/repo.git", "main", None);
+        await projects.AddAsync(Principal.LocalOwner, Other, "https://x-access-token:ghp_inTheRemote@github.com/example/repo.git", RegisteredProjects.Settings, None);
         Parcel parcel = await TaskAsync(Other, "Credential in the remote");
 
         SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, await HeldAsync(parcel.Id, Other), Other));
 
-        Assert.Contains("the remote 'https://github.com/example/repo.git' of project 'gamma'", paused.Reason, StringComparison.Ordinal);
+        Assert.Contains("the remote 'https://github.com/example/repo.git' of repo 'repo' in project 'gamma'", paused.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("ghp_inTheRemote", paused.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("x-access-token", paused.Reason, StringComparison.Ordinal);
         Assert.Empty(runner.Commands);

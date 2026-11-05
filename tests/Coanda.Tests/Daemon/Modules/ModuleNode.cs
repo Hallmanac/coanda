@@ -63,7 +63,8 @@ internal sealed class ModuleNode : IAsyncDisposable
         var node = new ModuleNode(temp, daemon, step);
         foreach (string project in new[] { On, Off })
         {
-            await RegisteredProjects.AddAsync(daemon, project, None);
+            // Registered with none of the software module's settings, so a module's settings are only what a test sets.
+            await RegisteredProjects.AddAsync(daemon, project, [], None);
             await Publishing.FlowAsync(daemon, project, Dispatching);
         }
 

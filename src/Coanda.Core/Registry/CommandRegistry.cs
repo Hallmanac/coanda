@@ -15,8 +15,7 @@ public static class CommandRegistry
 
     public static readonly IReadOnlyList<RegistryEntry> Entries =
     [
-        new("project.add", EntryKind.Command, "Register a project with its repository remote and primary branch.", OwnerOnly),
-        new("project.set", EntryKind.Command, "Replace the checks a merge of a project's pull requests waits for.", OwnerOnly),
+        new("project.add", EntryKind.Command, "Register a project with its first repo's remote, and with module settings its modules' settings schemas accept.", OwnerOnly),
         new("project.set-profile", EntryKind.Command, "Name the credential profile of this node that a project's agent steps spawn with.", OwnerOnly),
         new("project.set-modules", EntryKind.Command, "Replace the set of modules switched on for a project.", OwnerOnly),
         new("project-module.set", EntryKind.Command, "Give one of a module's replicated settings in a project a value its settings schema accepts, replacing the value it held.", OwnerAndModules),

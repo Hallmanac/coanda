@@ -45,7 +45,7 @@ public sealed class ParcelFieldApiTests
         using var client = new DaemonClient(temp.Home);
         ParcelView added = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Fielded", null), None);
 
-        Assert.Equal([("objective", FieldKinds.Text, null), ("criteria", FieldKinds.TextList, null), ("non-goals", FieldKinds.TextList, null), ("pull-request", FieldKinds.Reference, null)], added.Fields.Select(f => (f.Name, f.Kind, f.Value)));
+        Assert.Equal([("objective", FieldKinds.Text, null), ("criteria", FieldKinds.TextList, null), ("non-goals", FieldKinds.TextList, null), ("pull-request", FieldKinds.Reference, null), ("repos", FieldKinds.TextList, null)], added.Fields.Select(f => (f.Name, f.Kind, f.Value)));
 
         await SetAsync(client, added.Id, "objective", new ParcelSetSettings { Id = "x", Field = "objective", Text = "Ship fields." }.ToValue());
         await SetAsync(client, added.Id, "criteria", new ParcelSetSettings { Id = "x", Field = "criteria", Items = ["It builds.", "It tests."] }.ToValue());
@@ -66,6 +66,7 @@ public sealed class ParcelFieldApiTests
                 ["criteria", "- It builds.\n- It tests."],
                 ["non-goals", "not set"],
                 ["pull-request", "42 (https://example.com/pull/42)"],
+                ["repos", "not set"],
             ],
             ParcelRendering.FieldRows(shown));
 

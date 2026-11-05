@@ -41,6 +41,10 @@ public sealed class CoreApiClient(HttpClient http, CoreApiOptions options)
     public Task<CoreProject> ProjectAsync(string project, CancellationToken cancellationToken) =>
         GetAsync<CoreProject>($"/projects/{string.Join('/', project.Split('/').Select(Uri.EscapeDataString))}", cancellationToken);
 
+    /// <summary>The settings of the module <paramref name="module"/> in <paramref name="project"/>, which a module reads only of its own.</summary>
+    public Task<CoreModuleSettings> ModuleSettingsAsync(string project, string module, CancellationToken cancellationToken) =>
+        GetAsync<CoreModuleSettings>($"/project-modules?project={Uri.EscapeDataString(project)}&module={Uri.EscapeDataString(module)}", cancellationToken);
+
     /// <summary>The parcel <paramref name="parcelId"/> in <paramref name="project"/>.</summary>
     public Task<CoreParcel> ParcelAsync(string project, Guid parcelId, CancellationToken cancellationToken) =>
         GetAsync<CoreParcel>($"/parcels/{parcelId}?project={Uri.EscapeDataString(project)}", cancellationToken);
@@ -64,6 +68,17 @@ public sealed class CoreApiClient(HttpClient http, CoreApiOptions options)
         using HttpRequestMessage request = Request(HttpMethod.Post, "/parcels/set-field");
         request.Content = JsonContent.Create(
             new SetFieldRequest(project, parcelId, field, value, new DispatchName(flowRunId, dispatchId)), options: Json);
+        return await SendAsync<CoreParcel>(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Records <paramref name="value"/> in the parcel's field <paramref name="field"/>, one the module owns,
+    /// which it sets under no dispatch, and returns the parcel as the write left it.
+    /// </summary>
+    public async Task<CoreParcel> SetOwnedFieldAsync(string project, Guid parcelId, string field, CoreFieldValue value, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = Request(HttpMethod.Post, "/parcels/set-field");
+        request.Content = JsonContent.Create(new SetFieldRequest(project, parcelId, field, value, null), options: Json);
         return await SendAsync<CoreParcel>(request, cancellationToken);
     }
 
@@ -114,7 +129,7 @@ public sealed class CoreApiClient(HttpClient http, CoreApiOptions options)
         return request;
     }
 
-    private sealed record SetFieldRequest(string Project, Guid ParcelId, string Field, CoreFieldValue Value, DispatchName Dispatch);
+    private sealed record SetFieldRequest(string Project, Guid ParcelId, string Field, CoreFieldValue Value, DispatchName? Dispatch);
 
     private sealed record DispatchName(Guid FlowRunId, Guid DispatchId);
 

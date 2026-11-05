@@ -65,7 +65,7 @@ public sealed class DaemonSeedingTests
         using var temp = new TemporaryHome();
         await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
 
-        ParcelType qa = SoftwareTypes.Task with { EntryStages = ["refine", "build"] };
+        ParcelType qa = SoftwareTypes.UnownedTask with { EntryStages = ["refine", "build"] };
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
             var definitions = new DefinitionService(store, TimeProvider.System, systemSteps: PreviousFlows.SystemSteps);

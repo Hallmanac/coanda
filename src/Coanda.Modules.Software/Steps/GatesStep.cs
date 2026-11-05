@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Coanda.Modules.Software.Repositories;
 using Coanda.Sdk;
 using Coanda.Sdk.Client;
@@ -7,14 +8,15 @@ using Coanda.Sdk.Contract;
 namespace Coanda.Modules.Software.Steps;
 
 /// <summary>
-/// Runs the project's build command and then its test command, each as one command line through the
+/// Runs the build command and then the test command the module's settings name in the project, their
+/// defaults included, each as one command line through the
 /// platform's shell in the flow run's work path, stopping at the first that exits nonzero. Both passing
 /// answers done; one failing, the shell's own exit for a command it cannot find included, answers
 /// failed with a <c>reason</c> naming the command and its exit code and carrying at most the last
 /// <see cref="QuotedLines"/> lines of its output, so the flow routes to its fix step. A command
 /// still running after <paramref name="commandLimit"/> is ended and answers failed the same way. A
 /// shell that cannot be started, or a project the core shows no record of, pauses with the perform-again
-/// lever instead.
+/// lever instead, and a command with no value and no default pauses with a lever naming its setting.
 /// </summary>
 public sealed class GatesStep(ClonePaths paths, ICommandRunner runner, TimeSpan commandLimit) : ISoftwareStep
 {
@@ -26,10 +28,10 @@ public sealed class GatesStep(ClonePaths paths, ICommandRunner runner, TimeSpan 
     public async Task<DispatchAnswer> DispatchAsync(StepContext context, CancellationToken cancellationToken)
     {
         DispatchRequest request = context.Request;
-        CoreProject project;
+        CoreModuleSettings settings;
         try
         {
-            project = await context.Core.ProjectAsync(request.Project, cancellationToken);
+            settings = await context.SettingsAsync(cancellationToken);
         }
         catch (CoreApiException missing)
         {
@@ -37,8 +39,18 @@ public sealed class GatesStep(ClonePaths paths, ICommandRunner runner, TimeSpan 
                 $"has no build or test command to run for project '{request.Project}': {missing.Message}", cancellationToken);
         }
 
+        if (Command(settings, SoftwareSettings.Build) is not { } build)
+        {
+            return await MissingAsync(SoftwareSettings.Build, $"'{SoftwareSettings.DefaultBuild}'");
+        }
+
+        if (Command(settings, SoftwareSettings.Test) is not { } test)
+        {
+            return await MissingAsync(SoftwareSettings.Test, $"'{SoftwareSettings.DefaultTest}'");
+        }
+
         string workPath = paths.FlowRunWorkPath(request.Project, request.FlowRunId);
-        foreach ((string kind, string command) in new[] { ("build", project.Build), ("test", project.Test) })
+        foreach ((string kind, string command) in new[] { ("build", build), ("test", test) })
         {
             CommandResult result;
             try
@@ -57,8 +69,22 @@ public sealed class GatesStep(ClonePaths paths, ICommandRunner runner, TimeSpan 
             }
         }
 
-        return Results.DoneWith(Name, ("build", project.Build), ("test", project.Test));
+        return Results.DoneWith(Name, ("build", build), ("test", test));
+
+        Task<DispatchAnswer> MissingAsync(string setting, string example) =>
+            StepTargets.MissingSettingAsync(
+                context,
+                setting,
+                $"has no {setting} command to run: the software module's setting '{setting}' has no value and no default in project '{request.Project}'.",
+                example,
+                cancellationToken);
     }
+
+    /// <summary>The command the setting <paramref name="name"/> names, its default included, or null when it names none.</summary>
+    private static string? Command(CoreModuleSettings settings, string name) =>
+        settings.ValueOf(name) is { ValueKind: JsonValueKind.String } value && value.GetString() is { } command && !string.IsNullOrWhiteSpace(command)
+            ? command
+            : null;
 
     private static string Reason(string kind, string command, CommandResult result, TimeSpan limit)
     {
