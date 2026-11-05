@@ -1,5 +1,7 @@
 <Project>
   <ItemGroup>
+    <!-- MIT, fully managed: ed25519 with no native library, so nothing beyond the .NET runtime is installed on any platform. -->
+    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageVersion Include="Fisher" Version="1.27.0" />
     <PackageVersion Include="JasperFx.Events" Version="2.98.0" />
     <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.98.0" />
