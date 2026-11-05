@@ -42,15 +42,18 @@ code, and `decisions.md` in its worktree carries the binding rules.
 
 - `src/Coanda.Core`: the meta-model (parcels, types, relations), definitions (types, flows,
   agents), the interpreter, the registry. No store dependency.
-- `src/Coanda.Daemon`: the store (Fisher on SQLite), loops, adapters, transport, the loopback API.
+- `src/Coanda.Daemon`: the store (Fisher on SQLite), loops, adapters, transport, the loopback API,
+  and the bare clone of each project's repo, which the core makes at registration and at start under
+  `projects/<project>/repos/<repo>/` (`Projects/RepoClones.cs`).
 - `src/Coanda.Sdk`: the module SDK, referencing no other Coanda project: the module API's
   contract types, the interface an in-process module answers the module API's calls through, a
-  client for the core's loopback API, and the command runner and git wrapper, which the daemon uses
-  too.
+  client for the core's loopback API, the command runner and git wrapper, which the daemon uses
+  too, and `RepoLayout`, the one rule placing a repo's clone under the node home.
 - `src/Coanda.Modules.Software`: the software engineering module: the worktree, gates, open-pr,
-  gated-merge, and rebase steps, the GitHub client, and the clones and worktrees they act on. It
-  removes a flow run's worktree when the module feed delivers that flow run's end or stop, and sweeps
-  what is left at its start. It references the SDK and no other Coanda project, and the daemon hosts
+  gated-merge, and rebase steps, the GitHub client, and the worktrees they act on, which it cuts from
+  the core's clones at the work path each dispatch carries; it makes no clone. It removes a flow run's
+  worktree, at the work path the core's flow run view shows, when the module feed delivers that flow
+  run's end or stop, and sweeps what is left at its start. It references the SDK and no other Coanda project, and the daemon hosts
   it in process until phase 5.
   Its `module.json` and its `definitions` folder (one JSON file per type, flow, and agent) are copied
   to `modules/software/` beside the daemon, which imports the definitions in module scope at start.

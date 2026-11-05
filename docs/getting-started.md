@@ -13,13 +13,14 @@ A project records its name and the repos its work acts on, so a parcel can be cr
 project that `coa project add` has registered. Registering it records one repo, at the remote
 `--repo` names, stored as given, and named after the remote's last path segment, lowercased and
 without `.git` (the remote above is the repo `try-coanda`); `coa project show` and `coa project list`
-print each repo's name and remote. Nothing contacts the remote until a build flow run needs a
-worktree. The primary branch, the build and test commands, and the checks a merge waits for are not
+print each repo's name and remote. Registering the project makes the node's bare clone of the repo,
+at `projects/<project>/repos/<repo>/` under the node home, without contacting the remote, and nothing
+contacts the remote until a build flow run needs a worktree. The primary branch, the build and test commands, and the checks a merge waits for are not
 the project's: they are settings of the software engineering module, which every project has
 switched on. `coa project add` records `--branch` as the module's `primary-branch` setting for the
 repo, and `--build <command>` and `--test <command>` as its `build` and `test` settings when they are
 given, all in the one command, so the build flow runs with nothing else set. Each build flow run then
-works in a git worktree of the node's own clone of the repo, under the node home, on a branch named
+works in a git worktree of that clone, at the flow run's work path under the node home, on a branch named
 `coanda/<short parcel id>`, and its gates run the module's build and test commands there:
 `dotnet build` and `dotnet test` unless they were set, and `coa project module show try-coanda software`
 prints the two the gates will run. `coa project module set` changes a setting later:

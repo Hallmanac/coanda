@@ -37,7 +37,7 @@ tests, a unit test over the generated command sequence is the ceiling). `Coanda.
 SDK, which references no other Coanda project: the module API's contract types, the interface an
 in-process module answers through, a client for the core's loopback API, and the command runner and
 git wrapper the daemon also uses. `Coanda.Modules.Software` is the software engineering module: its
-worktree, gates, open-pr, gated-merge, and rebase steps, its GitHub client and clones, and the
+worktree, gates, open-pr, gated-merge, and rebase steps, its GitHub client and worktree handling, and the
 definitions folder of its types, flows, and agents, with the primary branch, build and test commands,
 and required checks as its settings rather than the project's. Packages pinned centrally; Fisher pinned to one version.
 
