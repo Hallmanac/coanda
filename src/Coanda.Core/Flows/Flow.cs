@@ -65,9 +65,11 @@ public sealed record Flow
 
     /// <summary>
     /// Refuses a flow that breaks a rule, with a <see cref="DomainException"/> quoting it.
-    /// <paramref name="knownSystemSteps"/> is every system step name the caller's catalogs define.
+    /// <paramref name="knownSystemSteps"/> is every system step name the caller's catalogs define, and
+    /// <paramref name="stepArguments"/>, when given, what each system step's argument schema says of a
+    /// step's arguments, asked once the arguments are plain names with scalar values.
     /// </summary>
-    public void Validate(IReadOnlySet<string> knownSystemSteps)
+    public void Validate(IReadOnlySet<string> knownSystemSteps, StepArgumentCheck? stepArguments = null)
     {
         if (string.IsNullOrWhiteSpace(Name))
         {
@@ -113,7 +115,7 @@ public sealed record Flow
         ValidateStepNames();
         foreach (FlowStep step in Steps)
         {
-            ValidateStep(step, knownSystemSteps);
+            ValidateStep(step, knownSystemSteps, stepArguments);
         }
     }
 
@@ -165,7 +167,7 @@ public sealed record Flow
         }
     }
 
-    private void ValidateStep(FlowStep step, IReadOnlySet<string> knownSystemSteps)
+    private void ValidateStep(FlowStep step, IReadOnlySet<string> knownSystemSteps, StepArgumentCheck? stepArguments)
     {
         bool hasAgent = !string.IsNullOrWhiteSpace(step.Agent);
         bool hasSystemStep = !string.IsNullOrWhiteSpace(step.SystemStep);
@@ -184,7 +186,7 @@ public sealed record Flow
 
         if (!string.IsNullOrWhiteSpace(step.SystemStep))
         {
-            ValidateSystemStep(step, step.SystemStep, knownSystemSteps, hasSchema);
+            ValidateSystemStep(step, step.SystemStep, knownSystemSteps, stepArguments, hasSchema);
         }
         else if (step.Arguments.Count > 0)
         {
@@ -278,7 +280,7 @@ public sealed record Flow
         }
     }
 
-    private void ValidateSystemStep(FlowStep step, string systemStep, IReadOnlySet<string> knownSystemSteps, bool hasSchema)
+    private void ValidateSystemStep(FlowStep step, string systemStep, IReadOnlySet<string> knownSystemSteps, StepArgumentCheck? stepArguments, bool hasSchema)
     {
         if (hasSchema)
         {
@@ -303,6 +305,12 @@ public sealed record Flow
                 throw new DomainException(
                     $"Argument '{argument}' of step '{step.Name}' in flow '{Name}' must be a JSON string, number, or boolean.");
             }
+        }
+
+        if (stepArguments?.Invoke(systemStep, step.Arguments) is { Count: > 0 } complaints)
+        {
+            throw new DomainException(
+                $"Step '{step.Name}' of flow '{Name}' gives the system step '{systemStep}' arguments its argument schema refuses: {string.Join("; ", complaints)}.");
         }
     }
 
