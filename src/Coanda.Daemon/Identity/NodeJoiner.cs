@@ -172,8 +172,9 @@ public sealed class NodeJoiner(
         string registrationType = TypeNameOf(typeof(ProjectRegistered));
 
         // A root record counts only when the key it names signed it, from the node it names.
-        var roots = (
-            from chain in chains
+        List<(Guid Origin, SignedLine Line, OwnerRootRecorded Root)> roots =
+        [
+            .. from chain in chains
             from line in chain.Lines
             where line.Content.Event.Type == rootType
             let root = Read<OwnerRootRecorded>(line)
@@ -183,7 +184,8 @@ public sealed class NodeJoiner(
                 && root.Key == line.Signer
                 && root.NodeId == chain.Origin
                 && line.Content.Origin == chain.Origin
-            select (chain.Origin, Line: line, Root: root)).ToList();
+            select (chain.Origin, line, root),
+        ];
 
         if (roots.Count == 0)
         {
