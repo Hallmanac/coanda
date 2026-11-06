@@ -97,7 +97,9 @@ with no sessions and no spend, write a `node.json` naming the `scripted` executo
 every agent step pauses. Whatever the executor, a running daemon writes each project's events as
 signed lines on `refs/coanda/nodes/<node-id>` in the project's clones and pushes that ref to each
 repo's remote, at start and every 15 seconds after; `"ledgerExport": false` in `node.json` turns
-this off, so nothing reaches the remote but the branches a build flow run pushes.
+this off, so nothing reaches the remote but the branches a build flow run pushes. On the same
+schedule it fetches every other node's ledger ref from each remote and imports their lines;
+`"ledgerImport": false` turns that off, so the daemon does not contact the remote for it at all.
 
 A build flow run's worktree and gates steps start real processes. The daemon needs git 2.31 or later
 and the project's build and test tools on its PATH, and it has to reach the project's remote with

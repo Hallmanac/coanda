@@ -59,7 +59,10 @@ every 15 seconds it writes the events it recorded in the project as signed lines
 `refs/coanda/nodes/<node-id>` and pushes that one ref, never a branch. A remote it cannot push to
 gets a warning in the log each round. To keep a remote untouched while you try coanda, set
 `"ledgerExport": false` in the [node configuration](node-configuration.md) before the daemon
-starts.
+starts. On the same schedule the daemon fetches the other nodes' ledger refs from each remote, one
+fetch per clone every round, and a remote it cannot fetch from gets a warning each round too. The
+fetch never writes to the remote; to stop it, for example while working offline, set
+`"ledgerImport": false` as well.
 
 A build flow run ends once its pull request is open. Its open-pr step pushes the flow run's branch to the
 remote with git's own credentials, opens a pull request from it against the primary branch (or

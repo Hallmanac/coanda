@@ -10,10 +10,10 @@ namespace Coanda.Daemon.Api;
 /// <summary>
 /// Reads the node configuration, <see cref="NodeHome.ConfigurationPath"/>, into the options the
 /// daemon starts with: the executor, named by key, the credential profiles the node holds per
-/// vendor, and whether the daemon exports and pushes its ledger. It is read once, when <c>coa daemon run</c>
-/// starts. A missing file is the Claude Code executor running <c>claude</c> from the PATH, with no profiles,
-/// exporting every <see cref="LedgerExport.DefaultInterval"/>, so a cold install runs agent steps. The
-/// daemon imports its peers' ledgers every <see cref="LedgerImport.DefaultInterval"/> whatever the file says.
+/// vendor, whether the daemon exports and pushes its ledger, and whether it fetches and imports its peers'
+/// ledgers. It is read once, when <c>coa daemon run</c> starts. A missing file is the Claude Code executor
+/// running <c>claude</c> from the PATH, with no profiles, exporting every <see cref="LedgerExport.DefaultInterval"/>
+/// and importing every <see cref="LedgerImport.DefaultInterval"/>, so a cold install runs agent steps.
 /// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
 /// naming the file and the offending entry.
 /// </summary>
@@ -91,6 +91,11 @@ public static class NodeConfiguration
             throw Refused(path, "gives \"ledgerExport\" as null; it is true or false, and left out it is true.");
         }
 
+        if (file.LedgerImportNull)
+        {
+            throw Refused(path, "gives \"ledgerImport\" as null; it is true or false, and left out it is true.");
+        }
+
         string? claudeExecutable = Given(file.ClaudeExecutable);
         List<CredentialProfile> profiles = Profiles(home, path, file.Profiles);
         IAgentExecutor executor = (file.Executor, claudeExecutable) switch
@@ -105,8 +110,12 @@ public static class NodeConfiguration
         {
             Executor = executor,
             Profiles = profiles,
-            ExportInterval = file.LedgerExport == false ? null : LedgerExport.DefaultInterval,
-            ImportInterval = LedgerImport.DefaultInterval,
+            ExportInterval = file.LedgerExport == false
+                ? null
+                : LedgerExport.DefaultInterval,
+            ImportInterval = file.LedgerImport == false
+                ? null
+                : LedgerImport.DefaultInterval,
         };
     }
 
@@ -256,6 +265,23 @@ public static class NodeConfiguration
         /// <summary>Whether the file gives <c>ledgerExport</c> as null, which is neither <c>true</c> nor <c>false</c>.</summary>
         [JsonIgnore]
         public bool LedgerExportNull { get; private init; }
+
+        private readonly bool? ledgerImport;
+
+        /// <summary>The <c>ledgerImport</c> setting, or null when the file leaves it out or gives it as null.</summary>
+        public bool? LedgerImport
+        {
+            get => ledgerImport;
+            init
+            {
+                ledgerImport = value;
+                LedgerImportNull = value is null;
+            }
+        }
+
+        /// <summary>Whether the file gives <c>ledgerImport</c> as null, which is neither <c>true</c> nor <c>false</c>.</summary>
+        [JsonIgnore]
+        public bool LedgerImportNull { get; private init; }
     }
 
     private sealed class ProfileShape

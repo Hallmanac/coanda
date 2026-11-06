@@ -6,8 +6,8 @@ also what `coa daemon start` launches. A change takes effect at the next start; 
 while the daemon runs.
 
 The file is optional. Without it, the daemon runs every agent step on Claude Code, starting the
-`claude` executable it finds on the PATH, holds no credential profiles, and exports and pushes its
-ledger.
+`claude` executable it finds on the PATH, holds no credential profiles, exports and pushes its
+ledger, and fetches and imports its peers' ledgers.
 
 ```json
 {
@@ -270,6 +270,29 @@ pushes every one of them.
 }
 ```
 
+## The ledger import
+
+While it runs, the daemon also fetches every other node's ledger ref, `refs/coanda/nodes/*` but its
+own, from each repo's remote into the project's clone of that repo, and stores each new line that
+verifies and is signed by a key the project's identity records allow. It does this once at start and
+then every 15 seconds, and unlike the export it contacts each remote every round, one fetch per clone,
+whether or not anything is new. The fetch reads only those refs; it never fetches a branch or a tag
+and never writes to the remote. A fetch that fails, for want of credentials or because the remote
+cannot be reached, is logged as a warning and tried again the next round. An event stored from a
+peer's line is that peer's work: the daemon starts no flow run on it and advances none it started.
+
+`ledgerImport` turns this off when it is `false`; it is `true` when left out. With it off, the
+daemon fetches nothing from the remote and stores no peer's line, so a node running offline, or
+against a remote it holds no credentials for, logs no warning about it every round. A node with no
+root key record for a project imports nothing from another node in that project either way.
+
+```json
+{
+  "executor": "claude-code",
+  "ledgerImport": false
+}
+```
+
 ## Credential profiles
 
 `profiles` is optional. It holds named credential profiles per vendor, and the only vendor a profile
@@ -303,7 +326,7 @@ command, and neither is checked for existence.
 The daemon does not start, and exits with code 2, when the file cannot be parsed as JSON, holds a
 property this page does not name (property names are case-sensitive), names no executor, names an
 executor other than `claude-code` or `scripted`, gives a `claudeExecutable` under `scripted`, or gives a
-`ledgerExport` that is not `true` or `false`. It does the same for a profile under a vendor other than
+`ledgerExport` or `ledgerImport` that is not `true` or `false`. It does the same for a profile under a vendor other than
 `claude-code`, a profile with a blank name, two profiles with the same name under one vendor, and a
 profile that does not hold exactly one non-blank `configDirectory` or `apiKeyHelper`.
 
