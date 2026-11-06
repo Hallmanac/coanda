@@ -39,8 +39,10 @@ namespace Coanda.Daemon.Triggers;
 /// Once events replicate, the loop reads every event, imported ones too, and starts a flow run only where
 /// the parcel's claims let this node (<see cref="ClaimDecider.Triggers"/>), read as they stand when the loop
 /// handles the start: on a parcel this node holds, whichever node recorded the event; on an unclaimed parcel,
-/// only from an event this node recorded; on a parcel claimed and not held here, never. An external event
-/// another node recorded creates no parcel and starts nothing.
+/// only from an event this node recorded; on a parcel another node's claim wins, never. An entry on a parcel
+/// whose own claim is not yet held waits (<see cref="HeldBackEntries"/>), and is handled again, as the claims
+/// stand then, once the claim is held or lost. An external event another node recorded creates no parcel and
+/// starts nothing.
 /// </summary>
 /// <remarks>
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
@@ -73,11 +75,21 @@ public sealed class TriggerLoop(
     public static readonly Principal LoopPrincipal = new("coanda-triggers", Role.Agent);
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>How often the loop looks again at the parcels whose entries it holds back.</summary>
+    private static readonly TimeSpan HeldBackInterval = TimeSpan.FromSeconds(1);
     private const int PageSize = 256;
 
     private readonly CancellationTokenSource stopping = new();
     private Task running = Task.CompletedTask;
     private long position;
+
+    // Whether any entry may be held back: true at start, for those a run before this one held back.
+    private bool heldBack = true;
+    private DateTimeOffset nextHeldBackLook = DateTimeOffset.MinValue;
+
+    // The parcel whose held back entries are being handled again, which are not held back behind themselves.
+    private Guid? replaying;
 
     /// <summary>
     /// The principal a binding's start acts as: the Agent role, named for the binding and the entry event, by the id
@@ -138,6 +150,15 @@ public sealed class TriggerLoop(
                 {
                 }
 
+                try
+                {
+                    await HandleHeldBackAsync(cancellationToken);
+                }
+                catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogError(failure, "The trigger loop could not handle again the entries it holds back; the next look tries again.");
+                }
+
                 await Task.Delay(PollInterval, clock, cancellationToken);
             }
             catch (Exception) when (cancellationToken.IsCancellationRequested)
@@ -196,13 +217,126 @@ public sealed class TriggerLoop(
         {
             await using IQuerySession session = store.QuerySession(project);
             IReadOnlyList<IEvent> events = await session.Events.QueryEventsAsync(e => e.Sequence > from && e.Sequence <= to, cancellationToken);
-            IReadOnlyDictionary<Guid, LedgerLine> lines = await ImportedEvents.LinesAsync(session, [.. events.Select(e => e.Id)], cancellationToken);
-            page.AddRange(events.Select(e => lines.TryGetValue(e.Id, out LedgerLine? line) && line.Origin != identity.NodeId
-                ? (e, false, ImportedEvents.OriginalIdOf(e.Id, line))
-                : (e, true, e.Id)));
+            page.AddRange(await TaggedAsync(session, events, cancellationToken));
         }
 
         return [.. page.OrderBy(e => e.Entry.Sequence)];
+    }
+
+    /// <summary>Each of <paramref name="events"/>, of <paramref name="session"/>'s project, with whether this node recorded it and the id its origin gave it.</summary>
+    private async Task<IEnumerable<(IEvent Entry, bool Own, Guid OriginalId)>> TaggedAsync(
+        IQuerySession session, IReadOnlyList<IEvent> events, CancellationToken cancellationToken)
+    {
+        IReadOnlyDictionary<Guid, LedgerLine> lines = await ImportedEvents.LinesAsync(session, [.. events.Select(e => e.Id)], cancellationToken);
+        return events.Select(e => lines.TryGetValue(e.Id, out LedgerLine? line) && line.Origin != identity.NodeId
+            ? (e, false, ImportedEvents.OriginalIdOf(e.Id, line))
+            : (e, true, e.Id));
+    }
+
+    /// <summary>
+    /// Handles again, in the order they were read, the entries held back on each parcel whose own claim is now held
+    /// or lost, and keeps waiting those on a parcel whose claim is still not yet held. It looks at most once a
+    /// <see cref="HeldBackInterval"/>, and not at all once a look found nothing held back, until an entry is again.
+    /// A stop before the document is cleared handles the entries again on the next start, which finds the work done.
+    /// </summary>
+    private async Task HandleHeldBackAsync(CancellationToken cancellationToken)
+    {
+        DateTimeOffset now = clock.GetUtcNow();
+        if (!heldBack || now < nextHeldBackLook)
+        {
+            return;
+        }
+
+        nextHeldBackLook = now + HeldBackInterval;
+        bool waiting = false;
+        foreach (string project in await ProjectsAsync(cancellationToken))
+        {
+            IReadOnlyList<HeldBackEntries> held;
+            await using (IQuerySession session = store.QuerySession(project))
+            {
+                held = await session.Query<HeldBackEntries>().ToListAsync(cancellationToken);
+            }
+
+            foreach (HeldBackEntries parcel in held)
+            {
+                if (await StandingAsync(project, parcel.Id, cancellationToken) is ClaimStanding.NotYetHeld)
+                {
+                    waiting = true;
+                    continue;
+                }
+
+                long[] sequences = [.. parcel.Sequences];
+                List<(IEvent Entry, bool Own, Guid OriginalId)> entries;
+                await using (IQuerySession session = store.QuerySession(project))
+                {
+                    IReadOnlyList<IEvent> events = await session.Events.QueryEventsAsync(e => sequences.Contains(e.Sequence), cancellationToken);
+                    entries = [.. (await TaggedAsync(session, events, cancellationToken)).OrderBy(e => e.Entry.Sequence)];
+                }
+
+                replaying = parcel.Id;
+                try
+                {
+                    foreach ((IEvent entry, bool own, Guid originalId) in entries)
+                    {
+                        await HandleAsync(entry, own, originalId, cancellationToken);
+                    }
+                }
+                finally
+                {
+                    replaying = null;
+                }
+
+                // An entry held back again while these were handled stays.
+                await using IDocumentSession write = store.LightweightSession(project);
+                HeldBackEntries? current = await write.LoadAsync<HeldBackEntries>(parcel.Id, cancellationToken);
+                List<long> left = [.. current?.Sequences.Except(sequences) ?? []];
+                if (left.Count == 0)
+                {
+                    write.Delete<HeldBackEntries>(parcel.Id);
+                }
+                else
+                {
+                    waiting = true;
+                    write.Store(new HeldBackEntries { Id = parcel.Id, Sequences = left });
+                }
+
+                await write.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        heldBack = waiting;
+    }
+
+    /// <summary>Keeps <paramref name="sequence"/>'s entry on the parcel to be handled again once this node's claim on it is held or lost.</summary>
+    private async Task HoldBackAsync(string project, Guid parcelId, long sequence, CancellationToken cancellationToken)
+    {
+        await using IDocumentSession session = store.LightweightSession(project);
+        HeldBackEntries held = await session.LoadAsync<HeldBackEntries>(parcelId, cancellationToken)
+            ?? new HeldBackEntries { Id = parcelId };
+        if (!held.Sequences.Contains(sequence))
+        {
+            held.Sequences.Add(sequence);
+        }
+
+        session.Store(held);
+        await session.SaveChangesAsync(cancellationToken);
+        heldBack = true;
+    }
+
+    private async Task<bool> HasHeldBackAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        return await session.LoadAsync<HeldBackEntries>(parcelId, cancellationToken) is not null;
+    }
+
+    /// <summary>The parcel's standing among its claims now, or null when there is no such parcel.</summary>
+    private async Task<ClaimStanding?> StandingAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        Parcel? parcel = await session.LoadAsync<Parcel>(parcelId, cancellationToken);
+        return parcel is null
+            ? null
+            : await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken);
     }
 
     /// <summary>Every project with a parcel or an external event: the only projects whose record the loop reads.</summary>
@@ -234,17 +368,17 @@ public sealed class TriggerLoop(
             {
                 case ParcelCreated created:
                     // A parcel being created has had no flow run yet, so nothing was live at this entry.
-                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.Stage, originalId, null, own, cancellationToken);
+                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.Stage, originalId, null, own, entry.Sequence, cancellationToken);
                     break;
                 case ParcelMoved moved:
                     await MovedAsync(entry.TenantId, moved, entry, originalId, own, cancellationToken);
                     break;
                 case ParcelFlowRunReleased released:
                     // A release starts the follows waiting on it and never a stage entry.
-                    await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, own, cancellationToken);
+                    await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, entry.Sequence, cancellationToken);
                     break;
                 case FlowRunEnded ended:
-                    await EndedAsync(entry.TenantId, ended, own, cancellationToken);
+                    await EndedAsync(entry.TenantId, ended, own, entry.Sequence, cancellationToken);
                     break;
                 case ExternalEventRecorded external when own:
                     await ExternalAsync(external, cancellationToken);
@@ -280,7 +414,7 @@ public sealed class TriggerLoop(
         Parcel before = await parcels.ShowAtAsync(LoopPrincipal, project, moved.ParcelId, entry.Version - 1, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(moved.ParcelId)} in project '{project}'.");
 
-        await EnteredAsync(project, before.Id, before.TypeName, moved.ToStage, entryId, before.LiveFlowRunId, own, cancellationToken);
+        await EnteredAsync(project, before.Id, before.TypeName, moved.ToStage, entryId, before.LiveFlowRunId, own, entry.Sequence, cancellationToken);
     }
 
     /// <summary>
@@ -290,7 +424,7 @@ public sealed class TriggerLoop(
     /// Either refusal reaches the loop's warning log, and nothing is kept to start it later.
     /// </summary>
     private async Task EnteredAsync(
-        string project, Guid parcelId, string typeName, string stage, Guid entryId, Guid? liveAtEntry, bool own, CancellationToken cancellationToken)
+        string project, Guid parcelId, string typeName, string stage, Guid entryId, Guid? liveAtEntry, bool own, long sequence, CancellationToken cancellationToken)
     {
         ParcelType? type = await parcels.ResolveTypeAsync(LoopPrincipal, project, typeName, cancellationToken);
         if (type is null)
@@ -300,7 +434,7 @@ public sealed class TriggerLoop(
 
         TriggerEvent entered = TriggerEvent.ParcelEntered(type.Name, stage);
         FlowBinding? binding = type.FlowBindings.FirstOrDefault(b => Trigger.ForBinding(type, b).Matches(entered));
-        if (binding is null || !await TriggersAsync(project, parcelId, own, $"its entry into '{stage}'", cancellationToken))
+        if (binding is null || !await TriggersAsync(project, parcelId, own, sequence, $"its entry into '{stage}'", cancellationToken))
         {
             return;
         }
@@ -324,29 +458,41 @@ public sealed class TriggerLoop(
     /// <summary>
     /// Whether the parcel's claims, as they stand now, let this node start a flow run for an event it recorded when
     /// <paramref name="own"/> (<see cref="ClaimDecider.Triggers"/>); when they do not, says so in the log, naming
-    /// <paramref name="cause"/>, the event the start would have answered.
+    /// <paramref name="cause"/>, the event the start would have answered. While this node's own claim on the
+    /// parcel is not yet held, the entry at <paramref name="sequence"/> is held back to be handled again, and so is
+    /// any entry on a parcel that already has entries held back, so they are handled in the order they were read.
     /// </summary>
-    private async Task<bool> TriggersAsync(string project, Guid parcelId, bool own, string cause, CancellationToken cancellationToken)
+    private async Task<bool> TriggersAsync(string project, Guid parcelId, bool own, long sequence, string cause, CancellationToken cancellationToken)
     {
-        await using IQuerySession session = store.QuerySession(project);
-        Parcel? parcel = await session.LoadAsync<Parcel>(parcelId, cancellationToken);
-        if (parcel is null)
+        if (parcelId != replaying && await HasHeldBackAsync(project, parcelId, cancellationToken))
         {
-            // The start that follows says there is no such parcel.
+            await HoldBackAsync(project, parcelId, sequence, cancellationToken);
+            logger.LogInformation(
+                "Parcel {Parcel} in project {Project} holds back {Cause} behind the entries it already holds back.",
+                Ids.Short(parcelId), project, cause);
+            return false;
+        }
+
+        ClaimStanding? standing = await StandingAsync(project, parcelId, cancellationToken);
+        if (standing is null || ClaimDecider.Triggers(standing, own))
+        {
+            // With no such parcel, the start that follows says so.
             return true;
         }
 
-        ClaimStanding standing = await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken);
-        if (ClaimDecider.Triggers(standing, own))
+        if (standing is ClaimStanding.NotYetHeld held)
         {
-            return true;
+            await HoldBackAsync(project, parcelId, sequence, cancellationToken);
+            logger.LogInformation(
+                "Parcel {Parcel} in project {Project} holds back {Cause} until this node's claim on it is held or lost, since it is not yet held: {Why}.",
+                Ids.Short(parcelId), project, cause, held.Reason);
+            return false;
         }
 
         string why = standing switch
         {
             ClaimStanding.Unclaimed => "the parcel is unclaimed and another node recorded the event",
             ClaimStanding.Lost lost => $"node {lost.Winner}'s claim wins the parcel",
-            ClaimStanding.NotYetHeld pending => $"this node's claim on it is not yet held: {pending.Reason}",
             _ => "this node does not hold the parcel",
         };
         logger.LogInformation(
@@ -370,13 +516,13 @@ public sealed class TriggerLoop(
     /// parcel, and no follow starts on a closed parcel. Each refusal is logged and the other
     /// followers still start.
     /// </summary>
-    private async Task EndedAsync(string project, FlowRunEnded ended, bool own, CancellationToken cancellationToken)
+    private async Task EndedAsync(string project, FlowRunEnded ended, bool own, long sequence, CancellationToken cancellationToken)
     {
         FlowRun parent = await flowRuns.ShowAsync(LoopPrincipal, project, ended.FlowRunId, cancellationToken)
             ?? throw new DomainException($"No flow run {Ids.Short(ended.FlowRunId)} in project '{project}'.");
         Parcel parcel = await parcels.ShowAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(parent.ParcelId)} in project '{project}'.");
-        if (!await TriggersAsync(project, parcel.Id, own, $"the end of flow run {Ids.Short(parent.Id)}", cancellationToken))
+        if (!await TriggersAsync(project, parcel.Id, own, sequence, $"the end of flow run {Ids.Short(parent.Id)}", cancellationToken))
         {
             return;
         }
@@ -476,9 +622,10 @@ public sealed class TriggerLoop(
     /// <summary>
     /// Starts the follows waiting on the parcel, oldest first, until one has to wait for a release
     /// again, which the first one started makes the next do. A follow leaves the list once it has
-    /// started, was already started, or was refused.
+    /// started, was already started, or was refused. Any node's release frees the parcel: a follow waits here only
+    /// once this node's claims let it start, so whichever node recorded the release, the follow is this node's own.
     /// </summary>
-    private async Task StartDeferredFollowsAsync(string project, Guid parcelId, bool own, CancellationToken cancellationToken)
+    private async Task StartDeferredFollowsAsync(string project, Guid parcelId, long sequence, CancellationToken cancellationToken)
     {
         DeferredFollows? deferred;
         await using (IQuerySession session = store.QuerySession(project))
@@ -486,7 +633,7 @@ public sealed class TriggerLoop(
             deferred = await session.LoadAsync<DeferredFollows>(parcelId, cancellationToken);
         }
 
-        if (deferred is null || !await TriggersAsync(project, parcelId, own, "a release of its live flow run", cancellationToken))
+        if (deferred is null || !await TriggersAsync(project, parcelId, own: true, sequence, "a release of its live flow run", cancellationToken))
         {
             return;
         }

@@ -98,7 +98,8 @@ public static class ClaimDecider
     /// Whether the trigger loop starts a flow run on a parcel standing at <paramref name="standing"/> for an
     /// event, recorded by this node when <paramref name="ownEvent"/>: on a parcel this node holds, whichever
     /// node recorded the event; on an unclaimed one, only for an event of this node's; on a parcel another
-    /// node's claim wins or this node does not hold yet, never.
+    /// node's claim wins or this node does not hold yet, never. The trigger loop holds back an event on a parcel
+    /// it does not hold yet and asks again once the claim is held or lost, so this answers only for now.
     /// </summary>
     public static bool Triggers(ClaimStanding standing, bool ownEvent) => standing switch
     {

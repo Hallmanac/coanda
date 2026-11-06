@@ -249,6 +249,108 @@ public sealed class ImportedEventsTests
         await daemon.StopAsync(None);
     }
 
+    [Fact]
+    public async Task A_bound_entry_made_while_this_nodes_own_claim_is_not_yet_held_starts_once_the_claim_is_held()
+    {
+        using var temp = new TemporaryHome();
+        NodeIdentity identity = await NodeIdentity.EnsureAsync(temp.Home, None);
+        Guid claimed = Guid.Empty;
+        long through = 0;
+        await SeedAsync(temp, async (store, parcels, flowRuns) =>
+        {
+            Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Claimed here, moved before it is held", null, None);
+            await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, cancellationToken: None);
+            claimed = parcel.Id;
+
+            // This node's claim, on the first line of its chain and pushed, with no fetch since.
+            await parcels.ClaimAsync(Principal.LocalOwner, Project, parcel.Id, identity.NodeId, None);
+            await using (IDocumentSession node = store.LightweightSession(Tenants.Node))
+            {
+                node.Store(new LedgerOrigin { NodeId = identity.NodeId });
+                await node.SaveChangesAsync(None);
+            }
+
+            await RecordLinesAsync(store, identity.NodeId, parcel.Id);
+            through = (await EventsOfAsync(store, parcel.Id)).Count;
+            await LedgerProgress.AdvanceAsync(store, Project, LedgerProgress.PushedId, through, None);
+
+            // This node's own move into the bound stage.
+            await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
+        });
+
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        using var client = new DaemonClient(temp.Home);
+        IDocumentStore running = daemon.Services.GetRequiredService<IDocumentStore>();
+
+        // The loop handles entries in order, so once a later entry has its flow run, the claimed parcel's entry was read.
+        ParcelView later = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Moved after the claim");
+        await FlowRunDriver.BoundAsync(client, Project, later.Id);
+        Assert.Empty(await FlowRunDriver.OfParcelAsync(client, Project, claimed));
+
+        // A fetch after the push holds the parcel, and the entry held back starts the bound flow.
+        await LedgerProgress.AdvanceAsync(running, Project, LedgerProgress.FetchedId, through, None);
+        Assert.Equal(SoftwareFlows.Build.Name, (await FlowRunDriver.BoundAsync(client, Project, claimed)).FlowName);
+        await FlowRunDriver.UntilAsync(
+            async () =>
+            {
+                await using IQuerySession session = running.QuerySession(Project);
+                return await session.LoadAsync<HeldBackEntries>(claimed, None) is null;
+            },
+            "the held back entry is cleared");
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task On_an_unclaimed_parcel_a_follow_waiting_on_a_peers_live_flow_run_starts_on_the_peers_release()
+    {
+        using var temp = new TemporaryHome();
+        Guid peer = Ids.New();
+        Guid parcelId = Guid.Empty;
+        Guid ended = Guid.Empty;
+        Guid peersRun = Ids.New();
+        await SeedAsync(temp, async (store, parcels, flowRuns) =>
+        {
+            // The peer's parcel, entered into the bound stage, which starts nothing here.
+            parcelId = await AtBuildAsync(parcels, "Followed here after a peer's flow run");
+            await RecordLinesAsync(store, peer, parcelId);
+
+            // This node's flow run on it ends, and before the loop reads the end the peer's flow run is attached.
+            FlowRun run = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcelId, SoftwareFlows.Build.Name, None);
+            await flowRuns.EndAsync(Principal.LocalOwner, Project, run.Id, SoftwareFlows.Build.Outcome, None);
+            ended = run.Id;
+            await AppendAsPeerAsync(store, peer, 1000, parcelId, new ParcelFlowRunAttached(parcelId, peersRun, DateTimeOffset.UtcNow));
+        });
+
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>());
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
+        using var client = new DaemonClient(temp.Home);
+        IDocumentStore running = daemon.Services.GetRequiredService<IDocumentStore>();
+
+        // The end's follow waits for the peer's flow run, live on the parcel, to be released.
+        await FlowRunDriver.UntilAsync(
+            async () =>
+            {
+                await using IQuerySession session = running.QuerySession(Project);
+                return await session.LoadAsync<DeferredFollows>(parcelId, None) is not null;
+            },
+            "the follow waits");
+        Assert.DoesNotContain(await FlowRunDriver.OfParcelAsync(client, Project, parcelId), f => f.ParentFlowRunId == ended);
+
+        // The peer's release, imported, starts it.
+        await AppendAsPeerAsync(running, peer, 1001, parcelId, new ParcelFlowRunReleased(parcelId, peersRun, DateTimeOffset.UtcNow));
+        await FlowRunDriver.FollowerAsync(client, Project, parcelId, ended, "merge");
+        await daemon.StopAsync(None);
+    }
+
+    /// <summary>Appends <paramref name="data"/> to <paramref name="stream"/> with the record the import keeps for a line of <paramref name="origin"/>, in one save.</summary>
+    private static async Task AppendAsPeerAsync(IDocumentStore store, Guid origin, long sequence, Guid stream, object data)
+    {
+        await using IDocumentSession session = store.LightweightSession(Project);
+        IEvent appended = session.Events.Append(stream, data).Events[^1];
+        session.Store(new LedgerLine { Id = appended.Id, Origin = origin, Sequence = sequence, Hash = $"sha256:{Convert.ToHexStringLower(Guid.NewGuid().ToByteArray())}{new string('0', 32)}" });
+        await session.SaveChangesAsync(None);
+    }
+
     /// <summary>Gives each event of <paramref name="stream"/> past version <paramref name="after"/> the record the import keeps for a line of <paramref name="origin"/>, numbered from <paramref name="sequence"/>.</summary>
     private static async Task RecordStreamAsync(IDocumentStore store, Guid origin, long sequence, Guid stream, long after = 0)
     {
