@@ -668,7 +668,19 @@ public sealed class LedgerImport(
             return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence} is a '{stored.Type}', a type this build has no event type for: an earlier shape, which import refuses."));
         }
 
-        if (EarlierRecords.EarlierShapeOf(stored) is { } why)
+        // The line is judged before its signer is, so its data may be anything a key put in it: whatever
+        // judging it throws refuses this line rather than ending the project's round.
+        string? why;
+        try
+        {
+            why = EarlierRecords.EarlierShapeOf(stored);
+        }
+        catch (Exception unjudged)
+        {
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence}'s data could not be judged as this build's '{stored.Type}': {unjudged.Message}"));
+        }
+
+        if (why is not null)
         {
             return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence} is in an earlier shape, which import refuses: {why}."));
         }

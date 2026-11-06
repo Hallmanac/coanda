@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
@@ -463,6 +464,30 @@ public sealed class LedgerImportTests
         await using Peers peers = await Peers.StartAsync();
         PeerChain peer = peers.Vouched();
         Guid definition = Ids.New();
+    [Theory]
+    [InlineData("1.5")]
+    [InlineData("4294967296")]
+    public async Task A_line_from_any_key_whose_data_cannot_be_judged_stops_only_its_origin(string kind)
+    {
+        await using Peers peers = await Peers.StartAsync();
+        // An origin no key vouches for, whose ref is read first, carrying a step kind no step kind reads as.
+        PeerChain stranger = PeerChain.Of(peers.Node.Store, peers.ProjectId, Guid.Empty);
+        Guid flowRun = Ids.New();
+        string started = stranger.Stored(new StepStarted(flowRun, "gates", StepKind.SystemStep, "gates", At)).Data;
+        string unjudged = Regex.Replace(started, "\"kind\":[^,]+", $"\"kind\":{kind}");
+        Assert.NotEqual(started, unjudged);
+        stranger.Add(new StoredEvent("step_started", unjudged), flowRun);
+        PeerChain sound = peers.Vouched();
+        Fill(sound, 1);
+        await peers.PushAsync(peers.Root, stranger, sound);
+
+        LedgerImportReport report = await peers.Node.Import.ImportAsync(Alpha, None);
+
+        AssertStopped(report, stranger, ImportFaultKind.EarlierShape, at: 1, stored: 0);
+        Assert.Contains("could not be judged", Of(report, stranger).Fault?.Reason, StringComparison.Ordinal);
+        Assert.Equal(new OriginImport(sound.Origin, 1, 1, null), Of(report, sound));
+    }
+
         Guid flowRun = Ids.New();
         peer.Add(Drafted(definition, null, """{"name":"build","steps":[{"name":"worktree","systemStep":"worktree"}]}"""), definition);
         peer.Add(new FlowRunStarted(flowRun, Ids.New(), "build", 1, "sha256:flow", "peer", "implement", StepKind.AgentStep, "implementer", At), flowRun);
