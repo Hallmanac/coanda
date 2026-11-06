@@ -13,6 +13,13 @@ internal static class StoreFiles
     /// SQLite takes on the record and its shared-memory file refuse each other, so a read is refused whenever
     /// it meets a write, a checkpoint, or another connection's open. And closing the read's own handle drops
     /// every lock SQLite holds on that file in this process, which the store still relies on.
+    /// <para>
+    /// What this reads is narrower than the store's whole history. When the last connection closes, SQLite
+    /// copies the newest version of each page from the write-ahead log into the record and deletes the log, so
+    /// a value written and then overwritten before the store closed may have sat in an older log frame that
+    /// never reaches these files. A test showing a value is never written can rely on this only for values
+    /// that stay in place until the store closes.
+    /// </para>
     /// </remarks>
     public static async Task<IReadOnlyList<StoreFile>> ReadOnceClosedAsync(NodeHome home, Func<ValueTask> close)
     {
