@@ -62,14 +62,24 @@ internal sealed class ModuleNode : IAsyncDisposable
         RunningDaemon daemon = await Daemons.StartAsync(
             temp.Home, new DaemonOptions { SystemSteps = [step], ModuleSettingsSchemas = settingsSchemas, ModulePaths = modulePaths ?? [] }, None);
         var node = new ModuleNode(temp, daemon, step);
-        foreach (string project in new[] { On, Off })
+        try
         {
-            // Registered with none of the software module's settings, so a module's settings are only what a test sets.
-            await RegisteredProjects.AddAsync(daemon, project, [], None);
-            await Publishing.FlowAsync(daemon, project, Dispatching);
+            foreach (string project in new[] { On, Off })
+            {
+                // Registered with none of the software module's settings, so a module's settings are only what a test sets.
+                await RegisteredProjects.AddAsync(daemon, project, [], None);
+                await Publishing.FlowAsync(daemon, project, Dispatching);
+            }
+
+            await node.SwitchOnAsync(On, Module);
+        }
+        catch
+        {
+            // the caller is never handed the node, so nothing else would stop its daemon or remove its home
+            await node.DisposeAsync();
+            throw;
         }
 
-        await node.SwitchOnAsync(On, Module);
         return node;
     }
 

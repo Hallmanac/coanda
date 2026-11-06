@@ -38,6 +38,7 @@ internal sealed class SoftwareNode : IAsyncDisposable
     private static readonly CancellationToken None = CancellationToken.None;
 
     private readonly TemporaryHome temp;
+    private bool disposed;
 
     private SoftwareNode(TemporaryHome temp, RunningDaemon daemon, ScriptedCommandRunner runner, FakeGitHub github)
     {
@@ -123,14 +124,24 @@ internal sealed class SoftwareNode : IAsyncDisposable
                 LoggerProvider = log,
             },
             None);
-        foreach (string project in projects.Length == 0 ? [Project] : projects)
+        var node = new SoftwareNode(temp, daemon, runner, github);
+        try
         {
-            await RegisteredProjects.AddAsync(daemon, project, None);
-            await Publishing.FlowAsync(daemon, project, Steps);
+            foreach (string project in projects.Length == 0 ? [Project] : projects)
+            {
+                await RegisteredProjects.AddAsync(daemon, project, None);
+                await Publishing.FlowAsync(daemon, project, Steps);
+            }
+        }
+        catch
+        {
+            // the caller is never handed the node, so nothing else would stop its daemon or remove its home
+            await node.DisposeAsync();
+            throw;
         }
 
         runner.ForgetCommands();
-        return new SoftwareNode(temp, daemon, runner, github);
+        return node;
     }
 
     /// <summary>
@@ -228,8 +239,18 @@ internal sealed class SoftwareNode : IAsyncDisposable
         await session.SaveChangesAsync(None);
     }
 
+    /// <summary>
+    /// Stops and disposes the daemon and removes the home, once: a test class disposing the node a test
+    /// already disposed, because the node that test started in its place failed to start, disposes nothing again.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
         await Daemon.StopAsync(None);
         await Daemon.DisposeAsync();
         temp.Dispose();
