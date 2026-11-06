@@ -46,7 +46,13 @@ public sealed class ParcelClaimant(IDocumentStore store, ParcelService parcels, 
             ClaimStanding.Held => new ParcelClaimResult(parcel.Id, recorded, ParcelClaimResult.Held, null, null),
             ClaimStanding.Lost lost => new ParcelClaimResult(parcel.Id, recorded, ParcelClaimResult.Lost, lost.Winner, null),
             ClaimStanding.NotYetHeld pending => new ParcelClaimResult(
-                parcel.Id, recorded, ParcelClaimResult.NotYetHeld, null, failures.Length > 0 ? string.Join(" ", failures) : pending.Reason),
+                parcel.Id,
+                recorded,
+                ParcelClaimResult.NotYetHeld,
+                null,
+                failures.Length > 0
+                    ? string.Join(" ", failures)
+                    : pending.Reason),
             _ => throw new InvalidOperationException($"Parcel {Ids.Short(parcel.Id)} holds this node's claim and reads as unclaimed."),
         };
     }
