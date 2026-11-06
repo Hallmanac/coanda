@@ -194,10 +194,15 @@ public sealed class LedgerImport(
         Dictionary<Guid, List<Source>> origins = [];
         foreach (ProjectRepo repo in project.Repos)
         {
-            string? clone = RepoLayout.IsPlain(project.Name) && RepoLayout.IsPlain(repo.Name) ? home.RepoClonePath(project.Name, repo.Name) : null;
+            string? clone = RepoLayout.IsPlain(project.Name) && RepoLayout.IsPlain(repo.Name)
+                ? home.RepoClonePath(project.Name, repo.Name)
+                : null;
             if (clone is null || !Directory.Exists(clone))
             {
-                failures.Add($"Repo '{repo.Name}' of project '{project.Name}' has no clone {(clone is null ? "under the node home, since its name or the project's is not a plain directory name" : $"at {clone}; the next start makes it")}, so no peer's ledger is read from it.");
+                string where = clone is null
+                    ? "under the node home, since its name or the project's is not a plain directory name"
+                    : $"at {clone}; the next start makes it";
+                failures.Add($"Repo '{repo.Name}' of project '{project.Name}' has no clone {where}, so no peer's ledger is read from it.");
                 continue;
             }
 
@@ -275,9 +280,15 @@ public sealed class LedgerImport(
             imported.Add(new OriginImport(origin, count, held, fault));
             if (fault is not null)
             {
+                string stoppedAt = fault.Sequence is { } at
+                    ? $"line {at}"
+                    : "its first line read";
+                string holds = held is { } h
+                    ? $"line {h}"
+                    : "none of its lines";
                 logger.LogWarning(
                     "The import of origin {Origin} in project {Project} stopped at {Line}: {Reason} It stored {Stored} lines, holds {Held}, and the next round tries again from there.",
-                    origin, project.Name, fault.Sequence is { } at ? $"line {at}" : "its first line read", fault.Reason, count, held is { } h ? $"line {h}" : "none of its lines");
+                    origin, project.Name, stoppedAt, fault.Reason, count, holds);
             }
             else if (count > 0)
             {
@@ -325,7 +336,9 @@ public sealed class LedgerImport(
             }
         }
 
-        return (stored, fault ?? (clean ? null : rewind));
+        return clean
+            ? (stored, fault)
+            : (stored, fault ?? rewind);
     }
 
     /// <summary>Reads one ref of <paramref name="origin"/> from the position held and stores each line that passes every check, up to the first that does not.</summary>
@@ -333,7 +346,9 @@ public sealed class LedgerImport(
     {
         string tenant = project.Name;
         LedgerLine? held = await HeldAsync(tenant, origin, cancellationToken);
-        HeldPosition? position = held is null ? null : new HeldPosition(held.Sequence, held.Hash);
+        HeldPosition? position = held is null
+            ? null
+            : new HeldPosition(held.Sequence, held.Hash);
         List<(RefLine Line, SignedLine? Parsed)> run;
         try
         {
@@ -356,8 +371,15 @@ public sealed class LedgerImport(
 
             if (skipped == run.Count)
             {
-                long? last = run.Count == 0 ? null : run[^1].Parsed?.Content.Sequence;
-                string ends = last is { } at ? $"ends at line {at}" : run.Count == 0 ? "holds no line" : "ends in a line that does not parse";
+                long? last = run.Count == 0
+                    ? null
+                    : run[^1].Parsed?.Content.Sequence;
+                string ends = (last, run.Count) switch
+                {
+                    ({ } at, _) => $"ends at line {at}",
+                    (_, 0) => "holds no line",
+                    _ => "ends in a line that does not parse",
+                };
                 return (0, new ImportFault(last, ImportFaultKind.Rewind, $"Its ref in repo '{source.Repo}' {ends}, before line {held.Sequence}, the last this node holds of it: the origin's chain has been rewound."));
             }
 
@@ -387,7 +409,9 @@ public sealed class LedgerImport(
                 break;
             }
 
-            IdentityRecord? record = data is IIdentityEvent identityEvent ? new IdentityRecord(identityEvent, line.Signer, origin, sequence) : null;
+            IdentityRecord? record = data is IIdentityEvent identityEvent
+                ? new IdentityRecord(identityEvent, line.Signer, origin, sequence)
+                : null;
             candidates.Add(new Pending(line, refLine.Segment, data, record));
         }
 
@@ -525,7 +549,9 @@ public sealed class LedgerImport(
         for (int index = 0; index <= admitted.Count; index++)
         {
             bool last = index == admitted.Count;
-            Guid? stream = last ? null : admitted[index].Line.Content.StreamId;
+            Guid? stream = last
+                ? null
+                : admitted[index].Line.Content.StreamId;
             bool interleaves = stream is { } next
                 && index > from
                 && admitted[index - 1].Line.Content.StreamId != next
@@ -674,7 +700,9 @@ public sealed class LedgerImport(
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<IEvent> events = await session.Events.QueryEventsAsync(e => names.Contains(e.EventTypeName), cancellationToken);
         Guid[] ids = [.. events.Select(e => e.Id)];
-        IReadOnlyList<LedgerLine> lines = ids.Length == 0 ? [] : await session.Query<LedgerLine>().Where(l => ids.Contains(l.Id)).ToListAsync(cancellationToken);
+        IReadOnlyList<LedgerLine> lines = ids.Length == 0
+            ? []
+            : await session.Query<LedgerLine>().Where(l => ids.Contains(l.Id)).ToListAsync(cancellationToken);
         Dictionary<Guid, LedgerLine> byEvent = lines.ToDictionary(l => l.Id);
         List<IdentityRecord> records = [];
         foreach (IEvent entry in events)
@@ -695,7 +723,9 @@ public sealed class LedgerImport(
     {
         await using IQuerySession session = store.QuerySession(tenant);
         LedgerRoot? root = await session.LoadAsync<LedgerRoot>(LedgerRoot.DocumentId, cancellationToken);
-        return root is not null && IdentityKeys.IsKey(root.Key) ? root.Key : null;
+        return root is not null && IdentityKeys.IsKey(root.Key)
+            ? root.Key
+            : null;
     }
 
     /// <summary>The last line this node holds of <paramref name="origin"/> in the project, or null when it holds none.</summary>
