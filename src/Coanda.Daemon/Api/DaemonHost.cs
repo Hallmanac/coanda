@@ -7,6 +7,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon.Identity;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
@@ -106,7 +107,7 @@ public sealed class DaemonHost
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(identity);
-        builder.Services.AddSingleton(NodeOwner.OfAccount());
+        builder.Services.AddSingleton(NodeOwner.Of(home));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.
@@ -174,6 +175,8 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<FlowRunService>();
         builder.Services.AddSingleton<LostClaims>();
         builder.Services.AddSingleton<ParcelClaimant>();
+        builder.Services.AddSingleton<NodeVoucher>();
+        builder.Services.AddSingleton<NodeJoiner>();
         builder.Services.AddSingleton<TriggerService>();
         builder.Services.AddSingleton<TriggerLoop>();
 
@@ -209,6 +212,7 @@ public sealed class DaemonHost
         app.MapProjectEndpoints();
         app.MapProjectModuleEndpoints();
         app.MapParcelEndpoints();
+        app.MapNodeEndpoints();
 
         // Served in every environment: the slim builder's environment is Production unless set.
         app.MapOpenApi();
