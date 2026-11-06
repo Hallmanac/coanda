@@ -319,11 +319,18 @@ public sealed class DaemonClient : IDisposable
         response.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// The principal the CLI names in its header: the node's owner id record (<see cref="NodeOwnerRecord"/>), read
+    /// at each call so a join or a registration takes effect at once, or the operating system account's name on a
+    /// node that has none.
+    /// </summary>
+    internal string PrincipalId => NodeOwnerRecord.Read(Home) ?? Environment.UserName;
+
     private HttpRequestMessage Request(HttpMethod method, DaemonInfo info, string path)
     {
         var request = new HttpRequestMessage(method, $"{info.BaseAddress}{path}");
         request.Headers.Add(DaemonHost.TokenHeader, sessionToken ?? info.Token);
-        request.Headers.Add(DaemonHost.PrincipalHeader, Environment.UserName);
+        request.Headers.Add(DaemonHost.PrincipalHeader, PrincipalId);
         return request;
     }
 
