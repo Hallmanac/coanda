@@ -219,11 +219,9 @@ public sealed class ModuleSettingsTests
 
         byte[] marker = Encoding.UTF8.GetBytes(Marker);
         byte[] wide = Encoding.Unicode.GetBytes(Marker);
-        string[] files = [node.Home.DatabasePath, .. node.Home.DatabaseCompanionPaths.Where(File.Exists)];
         bool namesFound = false;
-        foreach (string file in files)
+        foreach ((string file, byte[] content) in await StoreFiles.ReadOnceClosedAsync(node.Home, node.CloseDaemonAsync))
         {
-            byte[] content = ReadShared(file);
             Assert.True(content.AsSpan().IndexOf(marker) < 0 && content.AsSpan().IndexOf(wide) < 0, $"{file} holds the profile's marker.");
             namesFound |= content.AsSpan().IndexOf("personal"u8) >= 0;
         }
@@ -456,14 +454,6 @@ public sealed class ModuleSettingsTests
 
         Assert.True(tenanted > 0, $"No table carries a tenant_id column; the tables are {string.Join(", ", tables)}.");
         return text.ToString();
-    }
-
-    private static byte[] ReadShared(string path)
-    {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var copy = new MemoryStream();
-        stream.CopyTo(copy);
-        return copy.ToArray();
     }
 
     private sealed class ConfigurationComparer : IEqualityComparer<ModuleConfiguration>
