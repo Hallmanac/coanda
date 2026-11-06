@@ -283,10 +283,59 @@ told, for each origin, how many lines were stored, the sequence now held, and th
 never import the same lines twice. The daemon imports every 15 seconds, unless the node configuration
 turns the import off.
 
-An imported event records its origin's work, not this node's. The trigger loop starts nothing on an event
-the import appended (a peer's parcel entering a bound stage, or a peer's flow run ending), and the advance
-at the daemon's start leaves alone a live flow run whose start was imported, so a peer's flow run is never
-run twice. An event is imported when its per-line record names an origin other than this node.
+An imported event records its origin's work, not this node's. An event is this node's own when it has no
+per-line record, or its record names this node as origin; the export writes a record for every line of this
+node's own, so having a record does not mean the event was imported. A flow run is this node's when this
+node recorded its start. A node writes only to the flow runs it started: the flow run service refuses a
+resume, a pause, a stop, an end, or a step's record on a flow run another node started, whoever asks, with a
+rule naming that node, and the advance at the daemon's start adopts only the live flow runs this node
+started, so a peer's flow run is never run twice. Whether the trigger loop starts anything on an event is
+read from the parcel's claims, below.
+
+The claim. A node claims a parcel with `coa parcel claim <parcel>`, which records a parcel claimed event
+naming the node, then exports and pushes this node's ledger ref, fetches and imports its peers' refs, and
+reports one of three results: held; lost, naming the winning node; or recorded but not yet held, with the
+reason the push or the fetch failed. Run again, it records nothing new and runs the push and the fetch
+again. A closed parcel is claimed by nobody, and a node that already stores another node's claim on a
+parcel, and has none of its own there, is refused a claim, with a rule naming the node holding the stored
+claim; so any two claims stored on one parcel were made by nodes that had not seen each other's. The claim
+takes the People role set; the Agent role is refused it. A claim counts only when the node that recorded
+it is the node it names.
+
+The winning claim on a parcel is the one whose ledger line has the lowest line hash, the full SHA-256 the
+line format defines, compared as unsigned bytes: one pure function in the core
+(`ClaimDecider.Winner`) that returns the same winner for every order of its input, so every node holding
+the same claims names the same winner. This node's own claim has a line hash only once the export has put
+it on a line, and until then no winner is named. A node holds a parcel when its own claim is the winner
+among the claims it stores, a push of its ref carrying that claim to every clone succeeded, and a fetch of
+its peers' refs from every clone that began after that push also succeeded and the import of what it
+brought finished, whether the claim command or the export and import intervals made them. A round with no
+root key record to trust a peer's line by reads none of their claims and does not count; a peer origin
+whose import stopped at a faulty line does not keep the parcel from being held. The push and the fetch are kept in a node-local record in the project's tenant
+(`LedgerProgress`) that is never exported. The publish-and-fetch round before a node acts on its claim is
+what gives a peer that claimed first the chance to arrive; it is not a lock, and a claim that arrives later
+with a lower hash still wins.
+
+A parcel with no stored claim is unclaimed; any other is claimed, and on a claimed parcel only the holder
+starts a flow run. The trigger loop reads every event, imported ones too, and weighs the parcel's claims as
+they stand when it handles the start, not as they stood at the triggering event: on a parcel this node
+holds, it starts flow runs from bound stage entries, follows, and deferred follows whichever node recorded
+the triggering event; on an unclaimed parcel, only from an event this node recorded; on a claimed parcel it
+does not hold, nothing. An external event another node recorded creates no parcel and starts nothing. The
+flow run service refuses a start or a follow on a claimed parcel this node does not hold, whether a person
+or the trigger loop asks for it, with a rule naming the winning node or saying that this node's own claim is
+not yet held. When an import makes another node's claim the winner on a parcel where a flow run this node
+started is live, running or paused, the daemon stops that flow run with a reason naming the winning node
+(`flow-run.yield`, the daemon's own entry). A bound entry the stopped flow run held is not started again by
+the winner (decision 2d0ab2d3); a person starts it. A follow another node already started on the parcel,
+for the same parent and flow, is not started again on the holder either.
+
+A parcel's live flow run, as any node folds it, is the first flow run attached while none was live, and a
+release clears it only when it names that flow run. So the winning node's own live flow run stays the
+parcel's live flow run after it imports the losing node's start, stop, and release, in whatever order the
+loser recorded its stop against its import of the winner's start, and is adopted at a restart. The nodes do
+not always agree on it: a node that had another flow run live when the winner's attach arrived ignored that
+attach, so once its own flow run is released it folds no live flow run while the winner's still runs.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
@@ -332,8 +381,9 @@ project, so this version changes those inherited rules into forms that need none
 The relay, when it exists, is a dumb multi-tenant pass-through with no retention. Whether it is
 pure pass-through or an encrypted store-and-forward buffer it cannot read is still open.
 
-There are no locks or leases. Contention is settled by hash arbitration; the publish-and-fetch seam
-and the generation fence stay local to a node.
+There are no locks or leases. Contention is settled by hash arbitration, the lowest line hash among claims
+that did not see each other, with a publish-and-fetch round before a node acts on its claim (the claim,
+above); the publish-and-fetch seam and the generation fence stay local to a node.
 
 ## 7. Flows, flow runs, triggers, and the interpreter
 
@@ -357,7 +407,11 @@ may ship one (decision d97f5f86). It is an event subscription: an event kind plu
 data that routes and never computes (decision fa75e412). A parcel entering a stage on this node, a
 schedule tick, a manual start, another flow run's typed outcome, or an external event a module
 reports, such as a PR assigned to a person. A trigger starts a flow run of the flow it names, on a
-new parcel of a type it names or on the parcel the event names (section 14.4). An external event
+new parcel of a type it names or on the parcel the event names (section 14.4). Once events replicate, a node
+triggers only on its own events or on parcels it holds: on a parcel it holds, whichever node recorded the
+event; on an unclaimed parcel, only an event it recorded; on a parcel another node's claim wins, never; and it
+writes only to the flow runs it started (section 6, the claim). A parcel's live flow run is the first one
+attached while none was live, and only its own release clears it. An external event
 carries an external id, so recording it is idempotent on project, kind, and external id, and the
 core compiles the triggers on a module's event kinds into the watch requests it
 hands that module (decision d97f5f86). A matching event also resumes a step waiting for it (section
@@ -686,7 +740,10 @@ describe declares the core event kinds the module subscribes to (parcel entered 
 ended, stopped, paused, field set), and the core delivers them in sequence order with a per-module
 position kept in the node tenant, as the trigger loop keeps its own, at least once, under the
 module's idempotency obligation, only from projects the module is switched on for and narrowed by
-its per-project settings. The rule of thumb: if a person should see the effect in the parcel's
+its per-project settings. The feed skips a flow run ended or flow run stopped event that another node
+recorded, which the import appended from its lines: what that flow run left behind (its worktree, say) is
+on its own node, and a module here acting on its end would tidy away what is this node's. Every other
+event the import appended is delivered as this node's own are. The rule of thumb: if a person should see the effect in the parcel's
 history, it is a step the daemon dispatches; a mirror of Coanda elsewhere or a message about the
 work is a feed reaction. Work goes in flows; the feed is for observing and mirroring. The feed lets
 something happen in the world that no flow run records, and only this rule and review stand between
