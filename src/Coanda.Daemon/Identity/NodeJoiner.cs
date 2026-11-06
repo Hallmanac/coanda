@@ -20,15 +20,18 @@ namespace Coanda.Daemon.Identity;
 /// the project's remote and the fingerprint of the owner's root key, which a person carries from the owner's
 /// <c>coa node show</c>. The join fetches the remote's ledger refs into a scratch clone under the node home,
 /// finds the owner root record whose key has that fingerprint, and verifies its origin's chain, signed by that
-/// key, through both that record and the project's registration. Only then does it place the clone at the
-/// layout path, write the project's trusted root key record (<see cref="LedgerRoot"/>) with that key, record
+/// key, through both that record and the project's registration. Only then does it write the project's trusted
+/// root key record (<see cref="LedgerRoot"/>) with that key, place the clone at the layout path, record
 /// the registration's <see cref="ProjectRegistered.RegisteredBy"/> as this node's owner id, and import the
 /// project at once, which stores the owner's registration rather than recording one here.
 /// </summary>
 /// <remarks>
 /// A refused join leaves nothing: no registration, no root key record, no clone, no scratch fetch, no owner id
-/// record, and no stored event, since each is written only once every check has passed. A join of a project this
-/// node already holds under the same id changes nothing and says so.
+/// record, and no stored event, since each is written only once every check has passed. A join that passed every
+/// check and then stopped before the import stored the owner's registration (cancelled, the daemon stopped, or a
+/// line of the owner's that does not import) leaves its root key record, its clone, and perhaps its owner id
+/// record; the same join run again finds them, verifies the remote again, and picks up from there. A join of a
+/// project this node already holds under the same id changes nothing and says so.
 /// </remarks>
 public sealed class NodeJoiner(
     IDocumentStore store,
@@ -37,9 +40,10 @@ public sealed class NodeJoiner(
     NodeOwner owner,
     ICommandRunner runner,
     LedgerImport import,
+    ProjectService projects,
+    RepoClones clones,
     ILogger<NodeJoiner> logger)
 {
-    private readonly SemaphoreSlim turn = new(1, 1);
     private readonly Git git = new(runner);
 
     public async Task<JoinResult> JoinAsync(Principal principal, string remote, string fingerprint, CancellationToken cancellationToken)
@@ -55,23 +59,31 @@ public sealed class NodeJoiner(
             throw new DomainException($"'{fingerprint}' is not a root key fingerprint; a fingerprint is {KeyFingerprint.Rule}, as the owner's coa node show prints it.");
         }
 
-        await turn.WaitAsync(cancellationToken);
-        try
+        // The registration gate, not one of the join's own: a project add between the join's checks and the
+        // import that stores the owner's registration could register the same name or pin another owner id.
+        return await projects.RegisteringAsync(async () =>
         {
             (Project project, string rootKey, bool held) = await PlaceAsync(remote, fingerprint, cancellationToken);
             if (held)
             {
-                return new JoinResult(project.Name, identity.NodeId, identity.Key.PublicKey, true, [], [], await TrustedAsync(project.Name, rootKey, cancellationToken));
+                return new JoinResult(project.Name, identity.NodeId, identity.Key.PublicKey, true, true, [], [], await TrustedAsync(project.Name, rootKey, cancellationToken));
             }
 
+            // The join placed only the clone of the repo it was given; every other repo's clone the import and
+            // publication need is made here, as a registration makes them, rather than at the next start.
+            await clones.EnsureAsync(project, cancellationToken);
             LedgerImportReport report = await import.ImportJoiningAsync(project, cancellationToken);
+            bool registered = await ProjectService.FindAsync(store, project.Name, cancellationToken) is not null;
             return new JoinResult(
-                project.Name, identity.NodeId, identity.Key.PublicKey, false, report.Origins, report.Failures, await TrustedAsync(project.Name, rootKey, cancellationToken));
-        }
-        finally
-        {
-            turn.Release();
-        }
+                project.Name,
+                identity.NodeId,
+                identity.Key.PublicKey,
+                false,
+                registered,
+                report.Origins,
+                report.Failures,
+                await TrustedAsync(project.Name, rootKey, cancellationToken));
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -132,25 +144,46 @@ public sealed class NodeJoiner(
             }
 
             string clone = home.RepoClonePath(project.Name, repo.Name);
-            if (Directory.Exists(clone) || File.Exists(clone))
+            bool resumed = Directory.Exists(clone) || File.Exists(clone);
+            if (resumed && !await UnfinishedAsync(project, repo, clone, rootKey, cancellationToken))
             {
-                throw new DomainException($"The join was refused: something is already at {clone}, where the clone of repo '{repo.Name}' goes; it is left as it is.");
+                throw new DomainException(
+                    $"The join was refused: something is already at {clone}, where the clone of repo '{repo.Name}' goes, and it is not a clone an earlier join of project '{project.Name}' from {remote} left; it is left as it is.");
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(clone) ?? clone);
-            Directory.Move(scratch, clone);
-            placed = true;
-
+            // The root key record goes first, so a clone at the layout path for a project not registered here,
+            // with a root key record naming this key, is always one an earlier join of it placed and did not
+            // finish, which the same join run again picks up (UnfinishedAsync). The move and the owner id record
+            // after it are synchronous, so nothing is cancelled between them.
             await using (IDocumentSession session = store.LightweightSession(project.Name))
             {
                 session.Store(new LedgerRoot { Key = rootKey });
                 await session.SaveChangesAsync(cancellationToken);
             }
 
+            if (!resumed)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(clone) ?? clone);
+                    Directory.Move(scratch, clone);
+                    placed = true;
+                }
+                catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+                {
+                    // No clone was placed, so no root key record may stay for a project this node does not hold.
+                    await using IDocumentSession session = store.LightweightSession(project.Name);
+                    session.Delete<LedgerRoot>(LedgerRoot.DocumentId);
+                    // Uncancellable on purpose: a cancelled cleanup would leave the record it exists to remove.
+                    await session.SaveChangesAsync(CancellationToken.None);
+                    throw new DomainException($"The join was refused: the fetched clone could not be moved to {clone}: {failure.Message}");
+                }
+            }
+
             owner.Record(project.RegisteredBy);
             logger.LogInformation(
-                "Joined project '{Project}' ({ProjectId}) from {Remote}, trusting the root key {Key}; its clone is at {Clone}.",
-                project.Name, project.Id, remote, rootKey, clone);
+                "Joined project '{Project}' ({ProjectId}) from {Remote}, trusting the root key {Key}; its clone is at {Clone}{Resumed}.",
+                project.Name, project.Id, remote, rootKey, clone, resumed ? ", placed by an earlier join that did not finish" : string.Empty);
             return (project, rootKey, false);
         }
         finally
@@ -218,10 +251,13 @@ public sealed class NodeJoiner(
                 $"The join was refused: the chain of node {origin}, whose root record has the fingerprint {fingerprint}, carries no registration of project {projectId}, so the project's name and repos cannot be verified through it.");
         }
 
+        // The prefix is cut at where the two lines sit in the chain, not at the sequences they claim, which nothing
+        // has verified yet: a line claiming an earlier sequence than its place would otherwise fall outside it.
+        int end = Math.Max(lines.IndexOf(rootLine), lines.IndexOf(registrationLine));
         long through = Math.Max(rootLine.Content.Sequence, registrationLine.Content.Sequence);
         ChainVerification verified = ChainVerifier.Verify(
-            [.. lines.TakeWhile(l => l.Content.Sequence <= through).Select(l => l.Bytes)], projectId, origin, [rootRecord.Key]);
-        if (verified.Outcome != ChainOutcome.Verified || verified.VerifiedThrough < through)
+            [.. lines.Take(end + 1).Select(l => l.Bytes)], projectId, origin, [rootRecord.Key]);
+        if (verified.Outcome != ChainOutcome.Verified || verified.VerifiedLines != end + 1 || verified.VerifiedThrough < through)
         {
             string why = verified.Fault is { } fault
                 ? $"line {fault.Sequence}: {fault.Reason}"
@@ -237,6 +273,34 @@ public sealed class NodeJoiner(
         }
 
         return (Project.Create(registration), rootRecord.Key);
+    }
+
+    /// <summary>
+    /// Whether what is at <paramref name="clone"/> is the clone an earlier join of <paramref name="project"/> from
+    /// the repo's remote placed and did not finish: the project is not registered here (the caller checked), its
+    /// root key record names <paramref name="rootKey"/>, which only a join writes for a project not registered
+    /// here, and the clone is a bare repository whose origin is the repo's remote.
+    /// </summary>
+    private async Task<bool> UnfinishedAsync(Project project, ProjectRepo repo, string clone, string rootKey, CancellationToken cancellationToken)
+    {
+        LedgerRoot? root;
+        await using (IQuerySession session = store.QuerySession(project.Name))
+        {
+            root = await session.LoadAsync<LedgerRoot>(LedgerRoot.DocumentId, cancellationToken);
+        }
+
+        if (root?.Key != rootKey || !Directory.Exists(clone))
+        {
+            return false;
+        }
+
+        CommandResult bare = await git.TryRunAsync(Git.Against(clone, "rev-parse", "--is-bare-repository"), cancellationToken);
+        CommandResult origin = await git.TryRunAsync(Git.Against(clone, "config", "--get-all", $"remote.{Git.Remote}.url"), cancellationToken);
+        return bare is { Succeeded: true, Truncated: false }
+            && bare.StandardOutput.Trim() == "true"
+            && origin is { Succeeded: true, Truncated: false }
+            && origin.StandardOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries) is [string url]
+            && string.Equals(url, repo.Remote, StringComparison.Ordinal);
     }
 
     /// <summary>Whether this node's own key may sign for it in the project by the identity records this node now holds on lines.</summary>
@@ -288,7 +352,8 @@ public sealed class NodeJoiner(
 
 /// <summary>
 /// What a join came to: the project's name, this node's id and public key, whether this node already held the
-/// project (and so changed nothing), the import's result for each origin and every reason a clone could not be
+/// project (and so changed nothing), whether the project is now registered here (an import that stopped before the
+/// owner's registration leaves it unregistered, and the same join run again picks up from there), the import's result for each origin and every reason a clone could not be
 /// fetched or read, and whether this node's own key is yet trusted in the project.
 /// </summary>
 public sealed record JoinResult(
@@ -296,6 +361,7 @@ public sealed record JoinResult(
     Guid NodeId,
     string PublicKey,
     bool AlreadyHeld,
+    bool Registered,
     IReadOnlyList<OriginImport> Origins,
     IReadOnlyList<string> Failures,
     bool Trusted);

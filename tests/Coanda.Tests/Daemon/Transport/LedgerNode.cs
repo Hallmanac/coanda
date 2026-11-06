@@ -65,7 +65,16 @@ internal sealed class LedgerNode : IAsyncDisposable
 
     /// <summary>The join command's side of this node as <paramref name="owner"/>, its fetch's git commands recorded in <see cref="ImportGit"/>.</summary>
     public NodeJoiner JoinerOf(NodeOwner owner) =>
-        new(Store, Home, Identity, owner, ImportGit, Import, new Logger<NodeJoiner>(new LoggerFactory([Logs])));
+        new(
+            Store,
+            Home,
+            Identity,
+            owner,
+            ImportGit,
+            Import,
+            new ProjectService(Store, TimeProvider.System),
+            new RepoClones(Store, Home, Runner, new Logger<RepoClones>(new LoggerFactory([Logs]))),
+            new Logger<NodeJoiner>(new LoggerFactory([Logs])));
 
     /// <summary>The fingerprint of this node's key, which <c>coa node show</c> prints.</summary>
     public string Fingerprint => KeyFingerprint.Of(Identity.Key.PublicKey);

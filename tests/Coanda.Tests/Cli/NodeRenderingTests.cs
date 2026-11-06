@@ -45,6 +45,7 @@ public sealed class NodeRenderingTests
             Node,
             Key,
             false,
+            true,
             [new OriginImport(Peer, 4, 4, null), new OriginImport(Node, 0, null, new ImportFault(1, ImportFaultKind.UntrustedSigner, "Line 1 is untrusted."))],
             ["Repo 'repo' could not be fetched."],
             false);
@@ -61,5 +62,8 @@ public sealed class NodeRenderingTests
             ],
             JoinCommand.Describe(joined));
         Assert.Equal("This node already holds project alpha under the same id; the join changed nothing.", JoinCommand.Describe(joined with { AlreadyHeld = true, Trusted = true })[0]);
+        Assert.Equal(
+            "The join of project alpha is not finished: the import has not yet stored the owner's registration of it. Run the same coa join again to pick up from where it stopped.",
+            JoinCommand.Describe(joined with { Registered = false })[0]);
     }
 }

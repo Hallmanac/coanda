@@ -114,6 +114,26 @@ public sealed class JoinDaemonTests
             Assert.DoesNotContain(after, e => e.Data is ProjectModulesSet);
             await daemon.StopAsync(None);
         }
+
+        // An imported registration is not this node's own, so the start records no owner id for it.
+        Assert.Null(NodeOwnerRecord.Read(joined.Home));
+    }
+
+    [Fact]
+    public async Task A_home_that_registered_a_project_before_the_owner_id_record_existed_records_the_id_it_has_acted_as_at_start()
+    {
+        await using LedgerNode earlier = await LedgerNode.StartAsync(Alpha);
+        Assert.Null(NodeOwnerRecord.Read(earlier.Home));
+        await earlier.CloseStoreAsync();
+
+        await using (RunningDaemon daemon = await Daemons.StartAsync(earlier.Home, None))
+        {
+            Assert.Equal(NodeOwner.OfAccount().Id, NodeOwnerRecord.Read(earlier.Home));
+            NodeOwner owner = daemon.Services.GetRequiredService<NodeOwner>();
+            Assert.Equal((NodeOwner.OfAccount().Id, true), (owner.Id, owner.Recorded));
+            Assert.NotNull(owner.RefusalOf("someone-else"));
+            await daemon.StopAsync(None);
+        }
     }
 
     private static IReadOnlyList<string> Titles(IEnumerable<ParcelView> parcels) => [.. parcels.Select(p => p.Title).Order(StringComparer.Ordinal)];

@@ -135,9 +135,24 @@ This node's key is trusted in the project: the owner's vouch for it has arrived.
 The origin line is the import's verdict on the owner's history: every line stored, and no
 `stopped:` reason after it. A join made before step 3 still succeeds and says the key is not yet
 trusted; the owner's node then stores what the Windows machine records once the vouch is recorded.
-A refused join names its case (no root record with that fingerprint, a chain that does not verify,
-a remote that is not exactly the registration's, a project of that name already here, or a fetch
-that failed) and leaves nothing behind, so fix the cause and run it again.
+A refused join names its case and leaves nothing behind, so fix the cause and run it again. The
+cases are these:
+
+- No root record on the remote has a key with that fingerprint.
+- The root's chain does not verify through its root record and the registration.
+- The remote's lines root more than one project at that key.
+- The remote is not exactly the remote of one of the registration's repos.
+- A project of that name, in any letter case, is already registered here under another id.
+- This node already records a different owner id ("This node already records the owner id ...").
+  The Windows machine has registered or joined a project as someone else. Give it a fresh home, as
+  "When a vouch was a mistake" below describes, and start again from step 1.
+- Something other than an unfinished join's clone is already where the clone goes.
+- The fetch failed.
+
+A join that is cut short after its checks pass (Ctrl-C, the daemon stopping, or an import that stops
+before the owner's registration, which prints "The join of project coanda is not finished") leaves
+its clone in place. Run the same `coa join` again: it verifies the remote again and picks up from
+where the first one stopped.
 
 ### 5. On both machines: compare the parcels
 
@@ -218,8 +233,19 @@ the vouch are records of the project, and the root key record is the owner's own
 
 ## When a vouch was a mistake
 
-No command in this phase revokes a node or removes a vouch. A vouch for the wrong key (a typo, the
-wrong machine) is recovered by giving the Windows machine a fresh home: stop its daemon, move its
-node home aside (`%USERPROFILE%\.coanda`, or the directory `COANDA_HOME` names), and start again
-from step 1, which makes a new node id and key for the owner to vouch for. The mistaken vouch stays
-in the project's record and names a key nobody holds.
+No command in this phase revokes a node or removes a vouch, and what a mistaken vouch costs depends
+on whose key it names.
+
+A vouch for a key nobody holds (a mistyped node id or key) grants nothing anyone can use. It is
+recovered by giving the Windows machine a fresh home: stop its daemon, move its node home aside
+(`%USERPROFILE%\.coanda`, or the directory `COANDA_HOME` names), and start again from step 1, which
+makes a new node id and key for the owner to vouch for. The mistaken vouch stays in the project's
+record and names a key nobody holds.
+
+A vouch for a real key on the wrong machine is different, and these steps do not recover it. That
+machine still holds the key the owner vouched for, so it stays trusted in the project and anything it
+publishes is imported by the owner's node like any other vouched node's records. Resetting the
+intended Windows machine's home does nothing about it. Undoing that vouch takes a revocation, which
+this phase does not have, so stop the gate run there: stop the wrong machine's daemon so it publishes
+nothing more, and treat the project's record as carrying a trusted node it should not until
+revocation exists.
