@@ -7,6 +7,7 @@ using Coanda.Core.Registry;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Transport;
 using Coanda.Modules.Software;
 using Coanda.Sdk.Contract;
 using Fisher;
@@ -23,13 +24,20 @@ namespace Coanda.Daemon.Projects;
 /// concurrent adds of one name cannot both pass the duplicate check, and two settings of one project's
 /// profile cannot both start its stream.
 /// </summary>
-public sealed class ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, RepoClones? clones)
+public sealed class ProjectService(
+    IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, RepoClones? clones, NodeOwner? owner)
 {
     private readonly SemaphoreSlim writes = new(1, 1);
 
+    /// <summary>A project service that records no owner id when it registers a project, for a store opened without the daemon.</summary>
+    public ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, RepoClones? clones)
+        : this(store, clock, profiles, schemas, clones, null)
+    {
+    }
+
     /// <summary>A project service that makes no clone when it registers a project, for a store opened without the daemon.</summary>
     public ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas)
-        : this(store, clock, profiles, schemas, null)
+        : this(store, clock, profiles, schemas, null, null)
     {
     }
 
@@ -63,7 +71,10 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     /// records, so a setting its schema refuses, one naming a module the registration does not switch on,
     /// and one named twice each register nothing. Once the registration is saved, the core makes the
     /// clone of the project's repo (<see cref="RepoClones.EnsureAsync"/>) before this returns; a clone it
-    /// cannot make is logged and leaves the registration as it is.
+    /// cannot make is logged and leaves the registration as it is. A node with no owner id record records
+    /// the id that registered the project as its owner id (<see cref="NodeOwner"/>): registering is open to the
+    /// Owner role alone, which a call reaches only as the node's owner, so that id is the owner's own, and the
+    /// record keeps it from then on.
     /// </summary>
     public async Task<Project> AddAsync(
         Principal principal,
@@ -99,6 +110,10 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
 
             await session.SaveChangesAsync(cancellationToken);
             added = project;
+            if (owner is { Recorded: false })
+            {
+                owner.Record(owner.Id);
+            }
         }
         finally
         {
@@ -277,7 +292,9 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
     /// Switches the modules the daemon hosts by default on for every project registered on the node
     /// before modules were, which is every project whose record has never named its modules, with
     /// nothing configured, so such a project runs the software module's flows as it did. A project whose modules
-    /// were named, even as none, is left as it is. The daemon runs it at start.
+    /// were named, even as none, is left as it is, and so is a project whose registration was imported from
+    /// another node's line: its modules are the owner's to switch on, and arrive with the owner's lines. The
+    /// daemon runs it at start.
     /// </summary>
     public async Task SwitchOnDefaultsAsync(CancellationToken cancellationToken)
     {
@@ -294,7 +311,7 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
             {
                 await using IDocumentSession session = store.LightweightSession(project.Name);
                 IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(project.Id, token: cancellationToken);
-                if (events.Any(e => e.Data is ProjectModulesSet))
+                if (events.Any(e => e.Data is ProjectModulesSet) || await ImportedAsync(store, session, events, cancellationToken))
                 {
                     continue;
                 }
@@ -309,6 +326,28 @@ public sealed class ProjectService(IDocumentStore store, TimeProvider clock, Cre
         {
             writes.Release();
         }
+    }
+
+    /// <summary>
+    /// Whether the registration among <paramref name="events"/>, a project stream's, was stored from another node's
+    /// line: its ledger record names an origin other than the one this store exports under, or the store has
+    /// exported no line yet and so holds no line of its own.
+    /// </summary>
+    internal static async Task<bool> ImportedAsync(IDocumentStore store, IQuerySession session, IReadOnlyList<IEvent> events, CancellationToken cancellationToken)
+    {
+        if (events.FirstOrDefault(e => e.Data is ProjectRegistered) is not { } registration)
+        {
+            return false;
+        }
+
+        if (await session.LoadAsync<LedgerLine>(registration.Id, cancellationToken) is not { } line)
+        {
+            return false;
+        }
+
+        await using IQuerySession node = store.QuerySession(Tenants.Node);
+        LedgerOrigin? self = await node.LoadAsync<LedgerOrigin>(LedgerOrigin.DocumentId, cancellationToken);
+        return self is null || line.Origin != self.NodeId;
     }
 
     /// <summary>
