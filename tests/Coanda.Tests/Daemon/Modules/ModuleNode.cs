@@ -150,7 +150,11 @@ internal sealed class ModuleNode : IAsyncDisposable
 
     public static string NotOpen(string entry) => $"'{entry}' is not open to the Module role.";
 
-    /// <summary>Stops and disposes the node's daemon, keeping its home; the node's disposal then removes the home.</summary>
+    /// <summary>
+    /// Stops and disposes the node's daemon, keeping its home; the node's disposal then removes the home.
+    /// The daemon is disposed even when its stop throws, and counts as closed only once it is disposed,
+    /// so the node's disposal never removes the home of a daemon still holding it.
+    /// </summary>
     public async ValueTask CloseDaemonAsync()
     {
         if (daemonClosed)
@@ -158,9 +162,15 @@ internal sealed class ModuleNode : IAsyncDisposable
             return;
         }
 
-        daemonClosed = true;
-        await Daemon.StopAsync(None);
-        await Daemon.DisposeAsync();
+        try
+        {
+            await Daemon.StopAsync(None);
+        }
+        finally
+        {
+            await Daemon.DisposeAsync();
+            daemonClosed = true;
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -242,6 +242,8 @@ internal sealed class SoftwareNode : IAsyncDisposable
     /// <summary>
     /// Stops and disposes the daemon and removes the home, once: a test class disposing the node a test
     /// already disposed, because the node that test started in its place failed to start, disposes nothing again.
+    /// The daemon is disposed even when its stop throws, and the home is removed only once the daemon is
+    /// disposed, so a failed stop never leaves the home removed under a daemon still holding it.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
@@ -250,9 +252,16 @@ internal sealed class SoftwareNode : IAsyncDisposable
             return;
         }
 
-        disposed = true;
-        await Daemon.StopAsync(None);
-        await Daemon.DisposeAsync();
+        try
+        {
+            await Daemon.StopAsync(None);
+        }
+        finally
+        {
+            await Daemon.DisposeAsync();
+            disposed = true;
+        }
+
         temp.Dispose();
     }
 
