@@ -269,6 +269,38 @@ public sealed class RecordExportTests
         Assert.Equal(held[30].Id, RecordHomes.Events(home.DatabasePath)[29].Id);
     }
 
+    [Fact]
+    public async Task A_held_back_entry_names_the_event_it_named_after_a_rebuild()
+    {
+        using var temp = new TemporaryHome();
+        NodeHome home = temp.Home;
+        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
+        Guid parcel = Guid.Parse("01a1ad07-0000-7000-8000-000000000002");
+        await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
+        {
+            await store.ApplyAllConfiguredChangesToDatabaseAsync(None);
+            await using IDocumentSession session = store.LightweightSession(held[30].Tenant);
+
+            // The 26th event is before the checks event, the 31st after it, and the 27th is the checks event, which the export leaves out.
+            session.Store(new HeldBackEntries { Id = parcel, Sequences = [31, 26, 27] });
+            await session.SaveChangesAsync(None);
+        }
+
+        SqliteConnection.ClearAllPools();
+        Assert.Equal("project_required_checks_set", held[26].Type);
+        RecordExportResult export = await ExportAsync(home);
+        await RebuildAsync(home, export.Path);
+
+        JsonNode document = JsonNode.Parse(Assert.Single(RecordHomes.Documents(home.DatabasePath, StoreConfiguration.DocumentTableOf(typeof(HeldBackEntries)))).Data)
+            ?? throw new InvalidOperationException("The held-back entries do not parse.");
+        long[] sequences = [.. (document["sequences"]?.AsArray() ?? []).Select(s => s?.GetValue<long>() ?? -1)];
+        Assert.Equal([30, 26], sequences);
+        IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> rebuilt = RecordHomes.Events(home.DatabasePath);
+        Assert.Equal(held[30].Id, rebuilt[29].Id);
+        Assert.Equal(held[25].Id, rebuilt[25].Id);
+    }
+
     private static long TriggerPositionOf(NodeHome home) =>
         JsonNode.Parse(Assert.Single(RecordHomes.Documents(home.DatabasePath, "fi_doc_triggerposition")).Data)?["sequence"]?.GetValue<long>() ?? -1;
 
