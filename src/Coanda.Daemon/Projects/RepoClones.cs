@@ -243,11 +243,22 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
             Directory.Delete(partial, recursive: true);
         }
 
-        await git.RunAsync(new CommandLine("git", ["init", "--bare", "--quiet", partial], parent, Git.Environment) { Limit = Git.Limit }, cancellationToken);
-        await git.RunAsync(Git.Against(partial, "remote", "add", Git.Remote, repo.Remote), cancellationToken);
-        await git.RunAsync(Git.Against(partial, "config", "--add", FetchKey, LedgerRefspec), cancellationToken);
+        await InitAsync(git, partial, repo.Remote, cancellationToken);
         Directory.Move(partial, clone);
         logger.LogInformation("Made the clone of repo '{Repo}' of project '{Project}' at {Clone}.", repo.Name, project, clone);
+    }
+
+    /// <summary>
+    /// Makes a bare repository at <paramref name="path"/> configured as a clone of <paramref name="remote"/>: its
+    /// <c>origin</c> is the remote, fetching by <see cref="DefaultRefspec"/> and <see cref="LedgerRefspec"/>. It
+    /// contacts no remote. The join makes its fetch in one, which becomes the clone once the join is decided.
+    /// </summary>
+    internal static async Task InitAsync(Git git, string path, string remote, CancellationToken cancellationToken)
+    {
+        string parent = Path.GetDirectoryName(path) ?? path;
+        await git.RunAsync(new CommandLine("git", ["init", "--bare", "--quiet", path], parent, Git.Environment) { Limit = Git.Limit }, cancellationToken);
+        await git.RunAsync(Git.Against(path, "remote", "add", Git.Remote, remote), cancellationToken);
+        await git.RunAsync(Git.Against(path, "config", "--add", FetchKey, LedgerRefspec), cancellationToken);
     }
 
     /// <summary>

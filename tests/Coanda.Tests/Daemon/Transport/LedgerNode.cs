@@ -1,11 +1,13 @@
 using System.Text;
 using Coanda.Core;
+using Coanda.Core.Identity;
 using Coanda.Core.Identity.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.FlowRuns;
+using Coanda.Daemon.Identity;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Transport;
@@ -48,7 +50,34 @@ internal sealed class LedgerNode : IAsyncDisposable
         Import = new LedgerImport(store, temp.Home, identity, ImportGit, TimeProvider.System, new Logger<LedgerImport>(loggers), LostClaims);
         ImportWithoutYield = new LedgerImport(store, temp.Home, identity, ImportGit, TimeProvider.System, new Logger<LedgerImport>(loggers));
         Claimant = new ParcelClaimant(store, new ParcelService(store, TimeProvider.System), Export, Import, identity);
+        Owner = NodeOwner.Of(temp.Home);
+        Voucher = new NodeVoucher(store, Export, identity, TimeProvider.System);
     }
+
+    /// <summary>This node's owner, read from its home when the node started.</summary>
+    public NodeOwner Owner { get; }
+
+    /// <summary>The vouch command's side of this node, publishing through <see cref="Export"/>.</summary>
+    public NodeVoucher Voucher { get; }
+
+    /// <summary>The join command's side of this node, as <see cref="Owner"/>, importing through <see cref="Import"/>.</summary>
+    public NodeJoiner Joiner => JoinerOf(Owner);
+
+    /// <summary>The join command's side of this node as <paramref name="owner"/>, its fetch's git commands recorded in <see cref="ImportGit"/>.</summary>
+    public NodeJoiner JoinerOf(NodeOwner owner) =>
+        new(
+            Store,
+            Home,
+            Identity,
+            owner,
+            ImportGit,
+            Import,
+            new ProjectService(Store, TimeProvider.System),
+            new RepoClones(Store, Home, Runner, new Logger<RepoClones>(new LoggerFactory([Logs]))),
+            new Logger<NodeJoiner>(new LoggerFactory([Logs])));
+
+    /// <summary>The fingerprint of this node's key, which <c>coa node show</c> prints.</summary>
+    public string Fingerprint => KeyFingerprint.Of(Identity.Key.PublicKey);
 
     public NodeHome Home => temp.Home;
 

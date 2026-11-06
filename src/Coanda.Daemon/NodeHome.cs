@@ -34,6 +34,12 @@ public sealed record NodeHome(string Path)
     /// </summary>
     public string NodeIdentityPath => System.IO.Path.Combine(Path, "node-identity.json");
 
+    /// <summary>
+    /// The node's one owner id (<see cref="NodeOwnerRecord"/>), recorded when this node registers or joins a
+    /// project; a home without it names its owner by the operating system account.
+    /// </summary>
+    public string NodeOwnerPath => System.IO.Path.Combine(Path, "node-owner.json");
+
     /// <summary>The empty file a start holds an exclusive lock on while it makes the node identity, so two starts at once make one.</summary>
     public string NodeIdentityLockPath => System.IO.Path.Combine(Path, "node-identity.lock");
 
@@ -53,7 +59,7 @@ public sealed record NodeHome(string Path)
     public string ExportsPath => System.IO.Path.Combine(Path, "exports");
 
     /// <summary>Every file in the home that only its owner may read or write.</summary>
-    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath, NodeIdentityPath, LockPath];
+    public IReadOnlyList<string> OwnerOnlyPaths => [DaemonInfoPath, DatabasePath, .. DatabaseCompanionPaths, LogPath, DaemonOutputPath, NodeIdentityPath, NodeOwnerPath, LockPath];
 
     /// <summary>
     /// The module area: <c>modules-private/</c> under the home, holding one directory per module, each

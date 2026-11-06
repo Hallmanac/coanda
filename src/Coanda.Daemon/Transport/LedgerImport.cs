@@ -151,6 +151,18 @@ public sealed class LedgerImport(
         return await TurnAsync(found, cancellationToken);
     }
 
+    /// <summary>
+    /// Fetches and imports <paramref name="project"/>, a registration read from the root origin's verified lines
+    /// that this node does not hold yet, for the join: the project's clones and its root key record are in place,
+    /// and its registration arrives through this import, under the project id it carries.
+    /// </summary>
+    public Task<LedgerImportReport> ImportJoiningAsync(Project project, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        Tenants.RequireProject(project.Name);
+        return TurnAsync(project, cancellationToken);
+    }
+
     private async Task RunAsync(TimeSpan interval, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)

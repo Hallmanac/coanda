@@ -7,6 +7,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Flows;
+using Coanda.Daemon.Identity;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
@@ -106,7 +107,7 @@ public sealed class DaemonHost
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton(home);
         builder.Services.AddSingleton(identity);
-        builder.Services.AddSingleton(NodeOwner.OfAccount());
+        builder.Services.AddSingleton(NodeOwner.Of(home));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddCoandaStore(home);
         // The shipped gates run whatever the options name; the options add gates, never remove one.
@@ -174,6 +175,8 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<FlowRunService>();
         builder.Services.AddSingleton<LostClaims>();
         builder.Services.AddSingleton<ParcelClaimant>();
+        builder.Services.AddSingleton<NodeVoucher>();
+        builder.Services.AddSingleton<NodeJoiner>();
         builder.Services.AddSingleton<TriggerService>();
         builder.Services.AddSingleton<TriggerLoop>();
 
@@ -209,6 +212,7 @@ public sealed class DaemonHost
         app.MapProjectEndpoints();
         app.MapProjectModuleEndpoints();
         app.MapParcelEndpoints();
+        app.MapNodeEndpoints();
 
         // Served in every environment: the slim builder's environment is Production unless set.
         app.MapOpenApi();
@@ -223,6 +227,9 @@ public sealed class DaemonHost
             softwareCore.Connect(
                 new Uri($"http://127.0.0.1:{boundPort}"),
                 await app.Services.GetRequiredService<ModuleTokens>().ReissueAsync(SoftwareSteps.Module, cancellationToken));
+
+            // A node that registered projects before its owner id was recorded records the id it has acted as.
+            await app.Services.GetRequiredService<ProjectService>().RecordOwnerAsync(cancellationToken);
 
             // A project registered before modules were has the default modules switched on, before any
             // of its live flow runs reaches a module's step and before a module's start reads it.
