@@ -284,7 +284,9 @@ peer's line is that peer's work: the daemon starts no flow run on it and advance
 `ledgerImport` turns this off when it is `false`; it is `true` when left out. With it off, the
 daemon fetches nothing from the remote and stores no peer's line, so a node running offline, or
 against a remote it holds no credentials for, logs no warning about it every round. A node with no
-root key record for a project imports nothing from another node in that project either way.
+root key record for a project imports nothing from another node in that project either way, and
+says so in one warning for that project the first round it finds another node's ref, not again while
+the daemon runs.
 
 ```json
 {
