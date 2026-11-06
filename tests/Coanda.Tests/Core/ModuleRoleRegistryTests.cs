@@ -69,6 +69,9 @@ public sealed class ModuleRoleRegistryTests
         ["definition.draft"] = Everyone,
         ["definition.publish"] = Owner,
         ["definition.retire"] = Owner,
+        ["node.show"] = Everyone,
+        ["node.vouch"] = Owner,
+        ["node.join"] = Owner,
         ["daemon.status"] = Everyone,
         ["daemon.stop"] = People,
     };
