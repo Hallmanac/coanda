@@ -63,7 +63,15 @@ Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
   `coa project module select-profile <project> <module> <profile>`,
   `coa project module show <project> <module>`
 - `coa parcel add`, `coa parcel list`, `coa parcel show <id>`, `coa parcel move <id> <stage>`,
-  `coa parcel close <id>`
+  `coa parcel close <id>`, `coa parcel claim <id>`
+- `coa node show`, `coa node vouch <node-id> <public-key> --project <project>`,
+  `coa join <remote> --root <fingerprint>`
+
+  `coa node show` prints this node's id, its public key, and the key's fingerprint. The owner vouches
+  for another node's id and exact key in a project with `coa node vouch`, and that node joins the
+  project with `coa join`, given the project's remote exactly as its registration records it and the
+  owner's fingerprint, carried by a person. [Joining a second node](joining-a-second-node.md) gives
+  the steps.
 - `coa flow list`, `coa flow start <flow> --parcel <id>`
 - `coa flow-run list --parcel <id>`, `coa flow-run show <id>`, `coa flow-run pause <id> --reason <why>`,
   `coa flow-run stop <id> --reason <why>`, `coa flow-run resume <id>`

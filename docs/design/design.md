@@ -153,7 +153,8 @@ node per month before filtering, 2 to 3 MB packed; 25 to 35 MB per node per year
 The ledger home is a seam whose value is a replicated project setting. Its default kind is the
 project's repos, all of them, each carrying the ledger in its ref namespace (decision 1c6c858b);
 the relay is a later kind, and when it exists a project's requirement of at least one repo lifts
-(section 14.9). Because every node can regenerate its segments for any destination from its own
+(section 14.9). In phase 3 the ledger home has one kind, the project's own repos, and no setting names
+it: the setting that would name another kind waits for the relay. Because every node can regenerate its segments for any destination from its own
 table, a hosting repo is a mailbox, not an archive: a move command pushes to the new home, writes
 the new location, and leaves a forwarding ref in the old one. Runbook rule: move before you
 archive.
@@ -344,6 +345,59 @@ parcel's live flow run after it imports the losing node's start, stop, and relea
 loser recorded its stop against its import of the winner's start, and is adopted at a restart. The nodes do
 not always agree on it: a node that had another flow run live when the winner's attach arrived ignored that
 attach, so once its own flow run is released it folds no live flow run while the winner's still runs.
+
+The vouch. `coa node vouch <node-id> <public-key> --project <project>`, open to the Owner role alone,
+records a node vouched event for that node id and that exact key in the project's tenant, then exports
+and pushes the project before it answers, and reports that the vouch is pushed, or that it is recorded but
+not yet pushed with the push's reason. Run again with the same id and key, it records nothing and pushes
+again. It records nothing, and is refused with a rule naming the case, when the node id or the key is
+this node's own, when the project's records already pair the node id with another key or the key with
+another node id (by a vouch or by the owner root), or when the key is not 32 bytes in the line format's
+key form. The owner root is recorded with the owner's first vouch in a project: on a node that recorded
+the project's registration itself, a vouch in a project holding no owner root first records the owner
+root naming this node's id and key, and writes this node's root key record for the project naming its
+own key, in the same save, so the owner's node imports what the nodes it vouches for push. The root
+node's lines before its root record are signed by the key that record names, and import admits them
+through it: a run of lines from one origin that verifies with the trusted root key and carries a root
+record naming that origin and that key is judged with that record counted, on a node's first import and
+in every later round, so a project registered and worked in before its first vouch reaches a joined node
+whole. A node whose registration of a project was imported never records an owner root, and its vouch in
+a project with no owner root is refused, since the owner's node records the root with its first vouch.
+A project in which nothing was ever vouched has no identity event and no root key record.
+
+The join. A node joins a project with `coa join <remote> --root <fingerprint>`, given the project's
+remote exactly as its registration records it and the fingerprint of the owner's root key, which a person
+carries from the owner's `coa node show` and which is never read from the remote. A fingerprint is
+`sha256:` and the full SHA-256 digest of the key's 32 bytes in lowercase hex, 64 digits, never
+truncated, the one printable form `coa node show` prints and `coa join` reads. The join fetches the
+remote's ledger refs into a scratch clone under the node home, and takes the root key from the owner
+root record whose key has that fingerprint: one signed by the key it names, from the node it names, whose
+origin's chain, signed by that key, verifies through both that record and the project's registration.
+It hands that key to the trust function as the project's root. It then moves the scratch clone to
+`projects/<project>/repos/<repo>/` with the given remote as its origin, writes the root key record with
+that key, and imports the project at once, which stores the owner's registration line rather than
+recording a registration here, so the joined node holds one registration, the owner's, under the owner's
+project id and name, and its export never writes one. It prints the project's name, this node's id and
+public key, the import's result for each origin, and whether this node's own key is yet trusted in the
+project. A join succeeds whether or not the owner's vouch for this node has arrived; the owner's node
+stores what this node records once the vouch is recorded, the lines recorded before it included. The join
+is refused, and leaves no registration, root key record, clone, scratch fetch, owner id record, or stored
+event, when no root record on the remote has a key with the fingerprint, when that record's chain does
+not verify through it and the registration, when the remote's lines root more than one project at that
+key, when the remote is not exactly the remote of one of the registration's repos, when a project of the
+same name in any letter case is registered here under another id, when this node records an owner id
+other than the registration's, and when the fetch fails. A join of a project this node holds under the
+same id changes nothing and says so. The daemon's start-time switch-on of the default modules records
+nothing in a project whose registration was imported: its modules are the owner's, and arrive on the
+owner's lines.
+
+The owner id. Each node keeps one owner id, in a node-local record in the node home
+(`node-owner.json`) that is never exported. The CLI names it as its principal, and the daemon checks a
+call's principal header against it; a node with no record uses the operating system account's name. A
+node that registers a project with no record records the id that registered it, and a node that joins
+records the registered-by id of the owner's registration it imported, so the joined node's commands and
+its records carry the owner's id, not the account name of the machine it runs on. A join is refused when
+the node already records another id.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
@@ -708,15 +762,17 @@ The module calls the daemon's existing loopback command and query API, presentin
 under a Module role (decision c4d0586a: every call carries a principal). The same token middleware
 resolves three kinds of token: the daemon token (owner), a session token bound to one agent step's
 launch, and a module token bound to one installed module. A call holding only the daemon token acts
-as the node's owner, the operating system account the daemon runs as, whose principal id is that
-account's name and is what the CLI sends in its principal header. When the runtime names no account
+as the node's owner, whose principal id is the node's owner id (section 6) and is what the CLI sends in
+its principal header; a node with no owner id record names its owner by the operating system account
+the daemon runs as. When the runtime names no account
 (a process running as a user it cannot look up), the owner's id is `owner` and the daemon still
 starts; the CLI there sends a blank header, which acts as the owner. Such a call that sends no
 principal header, or a blank one, acts as the owner too; one whose header names any other id is
 refused before any service runs, so the daemon token cannot be used to record under someone else's
 name. A call holding a session or module token acts as the principal its token resolves to, and its
-principal header is not read. For now the account name is the owner's only source; once a node joins
-a project, the owner's id comes from the project's root record.
+principal header is not read. The root record carries a node id and a key but no principal id, so a
+node that joins a project takes its owner id from the registered-by id of the owner's registration it
+imports.
 
 **Events.** A module reports external events (review requested on a pull request, mail arrived from
 this sender) by recording them, with the kind prefixed by the module's name and an external id, so
