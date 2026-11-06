@@ -57,6 +57,9 @@ public static class CommandRegistry
         new("definition.draft", EntryKind.Command, "Record a draft of a parcel type, flow, or agent; a draft governs nothing.", Everyone),
         new("definition.publish", EntryKind.Command, "Publish a draft so that it governs work.", OwnerOnly),
         new("definition.retire", EntryKind.Command, "Retire a published definition so that it no longer governs work.", OwnerOnly),
+        new("node.show", EntryKind.Query, "Show this node's id, its public key, and the key's fingerprint.", Everyone),
+        new("node.vouch", EntryKind.Command, "Vouch, in a project, for a node id and its exact key, recording the owner root first on the owner's node, then publish the project.", OwnerOnly),
+        new("node.join", EntryKind.Command, "Join a project from its remote and the fingerprint of its owner's root key, and import it.", OwnerOnly),
         new("daemon.status", EntryKind.Query, "Report the daemon's state.", Everyone),
         new("daemon.stop", EntryKind.Command, "Stop the daemon.", People),
     ];

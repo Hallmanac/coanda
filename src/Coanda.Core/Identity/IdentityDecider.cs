@@ -35,6 +35,50 @@ public static class IdentityDecider
         return new OwnerRootRecorded(nodeId, key, now);
     }
 
+    /// <summary>
+    /// Vouches for a node: its id and the exact key it signs with. Refused when the key is not in the line
+    /// format's key form, when the node or the key is the vouching node's own, and when the project's records
+    /// already bind the node id to another key or the key to another node id, by a vouch or by the owner root,
+    /// since a node id and a key are bound one to one and such a pairing would not count. A vouch the records
+    /// already hold for exactly that node and key is not recorded again: the answer is null.
+    /// </summary>
+    public static NodeVouched? Vouch(
+        IReadOnlyCollection<IdentityRecord> records, Guid selfNode, string selfKey, Guid nodeId, string key, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(records);
+        RequireKey(key, "The vouched key");
+        if (nodeId == selfNode)
+        {
+            throw new DomainException($"Node {nodeId} is this node's own id; a node is not vouched for by itself.");
+        }
+
+        if (key == selfKey)
+        {
+            throw new DomainException($"The key {key} is this node's own key; a node is not vouched for by itself, and a key is bound to one node id.");
+        }
+
+        Binding[] bindings =
+        [
+            .. IdentityTrust.Of<NodeVouched>(records).Select(r => new Binding(r.Event.NodeId, r.Event.Key, IsVouch: true)),
+            .. IdentityTrust.Of<OwnerRootRecorded>(records).Select(r => new Binding(r.Event.NodeId, r.Event.Key, IsVouch: false)),
+        ];
+        if (bindings.FirstOrDefault(b => b.NodeId == nodeId && b.Key != key) is { } byNode)
+        {
+            throw new DomainException(
+                $"Node {nodeId} already has {byNode.What} in the project for the key {byNode.Key}, not {key}; a node id and a key are bound one to one, so a vouch pairing it with another key would not count.");
+        }
+
+        if (bindings.FirstOrDefault(b => b.Key == key && b.NodeId != nodeId) is { } byKey)
+        {
+            throw new DomainException(
+                $"The key {key} already has {byKey.What} in the project for node {byKey.NodeId}, not {nodeId}; a node id and a key are bound one to one, so a vouch pairing it with another node would not count.");
+        }
+
+        return bindings.Any(b => b.NodeId == nodeId && b.Key == key && b.IsVouch)
+            ? null
+            : new NodeVouched(nodeId, key, now);
+    }
+
     /// <summary>Revokes a node's key. Only a live root-set key revokes, and never a key that outranks it or its own.</summary>
     public static NodeRevoked RevokeNode(
         string trustedRoot, IReadOnlyCollection<IdentityRecord> records, string signer, Guid nodeId, string key, DateTimeOffset now)
@@ -174,5 +218,13 @@ public static class IdentityDecider
             throw new DomainException(
                 $"The key {signer} (rank {rank}) cannot {act} {key} (rank {target}): that key outranks it; a root-set key may not revoke a key that outranks it, nor itself.");
         }
+    }
+
+    /// <summary>A node id and key the records bind to each other, by a vouch or by the owner root.</summary>
+    private sealed record Binding(Guid NodeId, string Key, bool IsVouch)
+    {
+        public string What => IsVouch
+            ? "a vouch"
+            : "the owner root";
     }
 }
