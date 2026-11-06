@@ -8,6 +8,7 @@ using Fisher;
 using JasperFx.MultiTenancy;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Coanda.Daemon.Store;
 
@@ -21,11 +22,19 @@ public static class StoreConfiguration
     {
         services.AddFisher(options => Configure(options, home.DatabasePath))
             .ApplyAllDatabaseChangesOnStartup();
+
+        // Every other store service Fisher registers resolves this one, so the daemon's store, which the
+        // container disposes, is a home store.
+        services.Replace(ServiceDescriptor.Singleton<DocumentStore, HomeStore>(provider => new HomeStore(provider.GetRequiredService<StoreOptions>())));
         return services;
     }
 
-    public static IDocumentStore Open(string databasePath) =>
-        DocumentStore.For(options => Configure(options, databasePath));
+    public static IDocumentStore Open(string databasePath)
+    {
+        var options = new StoreOptions();
+        Configure(options, databasePath);
+        return new HomeStore(options);
+    }
 
     public static void Configure(StoreOptions options, string databasePath)
     {
