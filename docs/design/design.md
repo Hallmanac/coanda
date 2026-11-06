@@ -324,7 +324,8 @@ they stand when it handles the start, not as they stood at the triggering event:
 holds, it starts flow runs from bound stage entries, follows, and deferred follows whichever node recorded
 the triggering event; on an unclaimed parcel, only from an event this node recorded; on a parcel another
 node's claim wins, nothing. An entry on a parcel where this node's own claim is not yet held is held back,
-in a node-local document per parcel that is never exported, and is handled again in the order it was read
+in a node-local document per parcel that never reaches the ledger (a record export carries it, each
+sequence renumbered to its event's place in the export), and is handled again in the order it was read
 once the claim is held or lost, so a claim waiting on its push and fetch does not drop the starts it was
 made to protect; while any entry is held back on a parcel, later entries on it wait behind it. A follow
 waiting for a release starts on any node's release, since it waits only once this node's claims let it

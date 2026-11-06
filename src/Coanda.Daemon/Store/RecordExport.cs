@@ -20,7 +20,7 @@ namespace Coanda.Daemon.Store;
 /// (<see cref="EarlierProjectRecords"/>), since the export writes the registration without them. Every
 /// event is written in its current shape (<see cref="EarlierRecords.Exported"/>), and every document
 /// other than an inline snapshot as it is stored, a deferred follow in its current shape and each loop
-/// position, and each ledger line's store sequence, renumbered to the export's sequences: a position names
+/// position, each held-back entry's event sequence, and each ledger line's store sequence, renumbered to the export's sequences: a position names
 /// the same event it named, or, when that event is left out, the last exported event before it. Nothing is pushed, and nothing is written
 /// to any clone or remote.
 /// </summary>
@@ -34,6 +34,9 @@ public static class RecordExport
     private static readonly string LedgerLinesTable = StoreConfiguration.DocumentTableOf(typeof(LedgerLine));
 
     private static readonly string DeferredFollowsTable = StoreConfiguration.DocumentTableOf(typeof(DeferredFollows));
+
+    /// <summary>The trigger loop's held-back entries, whose <c>sequences</c> each name one event exactly rather than a position.</summary>
+    private static readonly string HeldBackEntriesTable = StoreConfiguration.DocumentTableOf(typeof(HeldBackEntries));
 
     /// <summary>The columns every document table holds, and the only ones an export carries.</summary>
     private static readonly IReadOnlyList<string> DocumentColumns = ["tenant_id", "id", "data", "dotnet_type", "last_modified"];
@@ -131,6 +134,8 @@ public static class RecordExport
             return index < 0 ? 0 : kept[index].Export;
         }
 
+        Dictionary<long, long> exportedAt = kept.ToDictionary(k => k.Record, k => k.Export);
+
         List<ExportedDocumentTable> documents = [];
         foreach (string table in DocumentTables(connection))
         {
@@ -138,7 +143,7 @@ public static class RecordExport
             documents.Add(new ExportedDocumentTable(
                 table,
                 Schema(connection, table),
-                [.. rows.Select(row => row with { Data = CurrentDocument(table, row.Data, PositionOf) })]));
+                [.. rows.Select(row => row with { Data = CurrentDocument(table, row.Data, PositionOf, exportedAt) })]));
         }
 
         return new RecordExportFile(RecordExportFile.CurrentFormat, DaemonHost.Version, clock.GetUtcNow(), last, streams, events, documents);
@@ -147,13 +152,20 @@ public static class RecordExport
     /// <summary>
     /// A document's JSON as the export writes it: a loop position, and the store sequence a ledger line
     /// records, in the export's sequences; a deferred follow in its current shape; and any other as it is
-    /// stored. A ledger line's own <c>sequence</c> is its origin's chain sequence and is never renumbered.
+    /// stored. A ledger line's own <c>sequence</c> is its origin's chain sequence and is never renumbered. Each
+    /// sequence a held-back entries document holds names one event, not a position, so it is renumbered to that
+    /// event's export sequence exactly, and dropped when the export leaves that event out.
     /// </summary>
-    private static string CurrentDocument(string table, string data, Func<long, long> positionOf)
+    private static string CurrentDocument(string table, string data, Func<long, long> positionOf, IReadOnlyDictionary<long, long> exportedAt)
     {
         if (table == DeferredFollowsTable)
         {
             return EarlierRecords.CurrentDeferredFollows(data);
+        }
+
+        if (table == HeldBackEntriesTable)
+        {
+            return CurrentHeldBack(data, exportedAt);
         }
 
         string? member = table == LedgerLinesTable
@@ -169,6 +181,29 @@ public static class RecordExport
 
         position[member] = positionOf(sequence.GetValue<long>());
         return position.ToJsonString();
+    }
+
+    /// <summary>A held-back entries document with each sequence it holds renumbered to its event's export sequence.</summary>
+    private static string CurrentHeldBack(string data, IReadOnlyDictionary<long, long> exportedAt)
+    {
+        if (JsonNode.Parse(data) is not JsonObject held || held["sequences"] is not JsonArray sequences)
+        {
+            return data;
+        }
+
+        JsonArray renumbered = [];
+        foreach (JsonNode? sequence in sequences)
+        {
+            if (sequence is JsonValue value
+                && value.GetValueKind() == JsonValueKind.Number
+                && exportedAt.TryGetValue(value.GetValue<long>(), out long exported))
+            {
+                renumbered.Add(exported);
+            }
+        }
+
+        held["sequences"] = renumbered;
+        return held.ToJsonString();
     }
 
     private static async Task<string> SaveAsync(NodeHome home, RecordExportFile export, TimeProvider clock, CancellationToken cancellationToken)

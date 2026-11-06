@@ -3,7 +3,8 @@ namespace Coanda.Daemon.Triggers;
 /// <summary>
 /// The entries the trigger loop read on a parcel while this node's own claim on it was not yet held, which it
 /// handles again once the claim is held or lost: a start that waits on a push and a fetch is not dropped for
-/// them. One document per parcel in the parcel's project, so it survives a restart; it is never exported.
+/// them. One document per parcel in the parcel's project, so it survives a restart. It is never
+/// written to the ledger; a record export carries it with each sequence renumbered to its event's export sequence.
 /// </summary>
 public sealed class HeldBackEntries
 {
