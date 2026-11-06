@@ -310,8 +310,10 @@ it on a line, and until then no winner is named. A node holds a parcel when its 
 among the claims it stores, a push of its ref carrying that claim to every clone succeeded, and a fetch of
 its peers' refs from every clone that began after that push also succeeded and the import of what it
 brought finished, whether the claim command or the export and import intervals made them. A round with no
-root key record to trust a peer's line by reads none of their claims and does not count; a peer origin
-whose import stopped at a faulty line does not keep the parcel from being held. The push and the fetch are kept in a node-local record in the project's tenant
+root key record to trust a peer's line by reads none of their claims and does not count, and neither does
+one in which a peer's ref could not be read or the store refused a line that passed every check, since a
+claim behind either went unread; a peer origin whose import stopped at a faulty line does not keep the
+parcel from being held. The push and the fetch are kept in a node-local record in the project's tenant
 (`LedgerProgress`) that is never exported. The publish-and-fetch round before a node acts on its claim is
 what gives a peer that claimed first the chance to arrive; it is not a lock, and a claim that arrives later
 with a lower hash still wins.

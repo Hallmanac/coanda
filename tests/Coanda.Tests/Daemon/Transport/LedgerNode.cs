@@ -317,13 +317,22 @@ internal sealed class RecordingRunner(ICommandRunner inner) : ICommandRunner
         }
     }
 
+    /// <summary>Whether a git command, by its arguments as <see cref="Calls"/> records them, fails without running.</summary>
+    public Func<string, bool>? Refuses { get; set; }
+
     public Task<CommandResult> RunAsync(CommandLine command, CancellationToken cancellationToken)
     {
         if (command.Program == "git")
         {
+            string arguments = string.Join(' ', command.GitArguments());
             lock (gate)
             {
-                calls.Add(string.Join(' ', command.GitArguments()));
+                calls.Add(arguments);
+            }
+
+            if (Refuses?.Invoke(arguments) == true)
+            {
+                return Task.FromResult(new CommandResult(1, "", "refused by the test", "refused by the test"));
             }
         }
 

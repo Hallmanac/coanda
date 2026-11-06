@@ -215,6 +215,34 @@ public sealed class ParcelClaimTests
     }
 
     [Fact]
+    public async Task A_claim_is_not_held_while_a_peers_ref_cannot_be_read_and_is_weighed_against_its_claim_once_it_can()
+    {
+        await using LedgerNode first = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode second = await LedgerNode.StartAsync();
+        Guid parcel = await SharedParcelAsync(first, second);
+        Assert.Equal((true, ParcelClaimResult.Held, (Guid?)null), Of(await first.Claimant.ClaimAsync(Owner, Alpha, parcel, None)));
+
+        // The fetch and the listing succeed, and the first node's ref, carrying its claim, cannot be read.
+        second.ImportGit.Refuses = arguments => arguments.StartsWith("ls-tree", StringComparison.Ordinal);
+        ParcelClaimResult claimed = await second.Claimant.ClaimAsync(Owner, Alpha, parcel, None);
+
+        Assert.Equal((true, ParcelClaimResult.NotYetHeld, (Guid?)null), Of(claimed));
+        Assert.IsType<ClaimStanding.NotYetHeld>(await StandingAsync(second, parcel));
+        DomainException start = await Assert.ThrowsAsync<DomainException>(() => Runs(second).StartAsync(Owner, Alpha, parcel, SoftwareFlows.Build.Name, None));
+        Assert.Contains("this node's own claim on it is not yet held", start.Message, StringComparison.Ordinal);
+
+        // Once the ref is read, the first node's claim is weighed, and the lower line hash wins on both nodes.
+        second.ImportGit.Refuses = null;
+        ParcelClaimResult again = await second.Claimant.ClaimAsync(Owner, Alpha, parcel, None);
+        bool firstWins = string.CompareOrdinal(await ClaimHashAsync(first, parcel), await ClaimHashAsync(second, parcel)) < 0;
+        Assert.Equal(
+            firstWins
+                ? (false, ParcelClaimResult.Lost, (Guid?)first.Identity.NodeId)
+                : (false, ParcelClaimResult.Held, (Guid?)null),
+            Of(again));
+    }
+
+    [Fact]
     public async Task A_claim_is_refused_to_the_agent_role_and_on_a_closed_parcel()
     {
         await using LedgerNode node = await LedgerNode.StartAsync(Alpha);
