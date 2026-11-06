@@ -106,7 +106,8 @@ public sealed record DaemonOptions
     /// <summary>
     /// How often the daemon fetches its peers' ledger refs into every clone of each project's repos and
     /// imports their lines; null runs no import loop, though a service call still imports a project at once.
-    /// <c>coa daemon run</c> supplies <see cref="Transport.LedgerImport.DefaultInterval"/>.
+    /// <c>coa daemon run</c> supplies <see cref="Transport.LedgerImport.DefaultInterval"/> unless the node
+    /// configuration sets <c>ledgerImport</c> to false (<see cref="NodeConfiguration"/>).
     /// </summary>
     public TimeSpan? ImportInterval { get; init; }
 

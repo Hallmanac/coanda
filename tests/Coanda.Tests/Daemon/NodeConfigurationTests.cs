@@ -51,6 +51,36 @@ public sealed class NodeConfigurationTests
         Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
     }
 
+    [Theory]
+    [InlineData("", true)]
+    [InlineData(""", "ledgerImport": true""", true)]
+    [InlineData(""", "ledgerImport": false""", false)]
+    public void The_ledger_import_runs_unless_the_configuration_turns_it_off(string setting, bool imports)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted"{{setting}} }""");
+
+        DaemonOptions options = NodeConfiguration.Load(temp.Home);
+
+        TimeSpan? expected = imports
+            ? LedgerImport.DefaultInterval
+            : null;
+        Assert.Equal(expected, options.ImportInterval);
+        Assert.Equal(LedgerExport.DefaultInterval, options.ExportInterval);
+    }
+
+    [Theory]
+    [InlineData("\"no\"")]
+    [InlineData("null")]
+    [InlineData("0")]
+    public void A_ledger_import_that_is_not_true_or_false_is_refused(string setting)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted", "ledgerImport": {{setting}} }""");
+
+        Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+    }
+
     [Fact]
     public void A_configuration_that_selects_claude_code_with_no_executable_runs_claude_from_the_path()
     {
