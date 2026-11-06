@@ -322,8 +322,13 @@ A parcel with no stored claim is unclaimed; any other is claimed, and on a claim
 starts a flow run. The trigger loop reads every event, imported ones too, and weighs the parcel's claims as
 they stand when it handles the start, not as they stood at the triggering event: on a parcel this node
 holds, it starts flow runs from bound stage entries, follows, and deferred follows whichever node recorded
-the triggering event; on an unclaimed parcel, only from an event this node recorded; on a claimed parcel it
-does not hold, nothing. An external event another node recorded creates no parcel and starts nothing. The
+the triggering event; on an unclaimed parcel, only from an event this node recorded; on a parcel another
+node's claim wins, nothing. An entry on a parcel where this node's own claim is not yet held is held back,
+in a node-local document per parcel that is never exported, and is handled again in the order it was read
+once the claim is held or lost, so a claim waiting on its push and fetch does not drop the starts it was
+made to protect; while any entry is held back on a parcel, later entries on it wait behind it. A follow
+waiting for a release starts on any node's release, since it waits only once this node's claims let it
+start. An external event another node recorded creates no parcel and starts nothing. The
 flow run service refuses a start or a follow on a claimed parcel this node does not hold, whether a person
 or the trigger loop asks for it, with a rule naming the winning node or saying that this node's own claim is
 not yet held. When an import makes another node's claim the winner on a parcel where a flow run this node
