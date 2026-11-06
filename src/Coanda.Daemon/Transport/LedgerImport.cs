@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Coanda.Core;
 using Coanda.Core.Identity;
 using Coanda.Core.Identity.Events;
@@ -365,7 +367,7 @@ public sealed class LedgerImport(
         string[] signers = [.. run.Select(l => l.Parsed?.Signer).OfType<string>().Distinct(StringComparer.Ordinal)];
         ChainVerification verification = ChainVerifier.Verify([.. run.Select(l => l.Line.Bytes)], project.Id, origin, signers, position);
 
-        // The verified lines after the one held, in order, up to the first whose event is in an earlier shape.
+        // The verified lines after the one held, in order, up to the first whose event is not in this build's current shape.
         List<Pending> candidates = [];
         ImportFault? fault = null;
         for (int index = 0; index < verification.VerifiedLines; index++)
@@ -378,9 +380,10 @@ public sealed class LedgerImport(
                 continue;
             }
 
-            if (CurrentOf(line) is not { } data)
+            (object? current, ImportFault? shape) = CurrentOf(line);
+            if (current is not { } data)
             {
-                fault = new ImportFault(sequence, ImportFaultKind.EarlierShape, EarlierReason(line));
+                fault = shape;
                 break;
             }
 
@@ -623,34 +626,45 @@ public sealed class LedgerImport(
         await session.SaveChangesAsync(cancellationToken);
     }
 
-    /// <summary>The line's event as this build's type of it, or null when it is in an earlier shape.</summary>
-    private object? CurrentOf(SignedLine line)
-    {
-        StoredEvent stored = line.Content.Event;
-        if (!eventTypes.Value.TryGetValue(stored.Type, out Type? type) || EarlierRecords.EarlierShapeOf(stored) is not null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return store.Options.Serializer.FromJson(type, stored.Data);
-        }
-        catch (Exception unread) when (unread is System.Text.Json.JsonException or NotSupportedException or InvalidOperationException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    private string EarlierReason(SignedLine line)
+    /// <summary>
+    /// The line's event as this build's type of it, or the fault that refuses it: a type this build has no event
+    /// type for, an earlier shape, data that does not read as the type, or data that holds what this build's
+    /// type of it does not, as a later build's shape would. The event is stored as this build writes it, so a
+    /// line is stored only when that is the line's data exactly, member for member, and the stored event and
+    /// the signed line kept beside it never differ.
+    /// </summary>
+    private (object? Data, ImportFault? Fault) CurrentOf(SignedLine line)
     {
         StoredEvent stored = line.Content.Event;
         long sequence = line.Content.Sequence;
-        return eventTypes.Value.ContainsKey(stored.Type)
-            ? EarlierRecords.EarlierShapeOf(stored) is { } why
-                ? $"Line {sequence} is in an earlier shape, which import refuses: {why}."
-                : $"Line {sequence}'s data does not read as this build's '{stored.Type}'."
-            : $"Line {sequence} is a '{stored.Type}', a type this build has no event type for: an earlier shape, which import refuses.";
+        if (!eventTypes.Value.TryGetValue(stored.Type, out Type? type))
+        {
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence} is a '{stored.Type}', a type this build has no event type for: an earlier shape, which import refuses."));
+        }
+
+        if (EarlierRecords.EarlierShapeOf(stored) is { } why)
+        {
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence} is in an earlier shape, which import refuses: {why}."));
+        }
+
+        object? data;
+        try
+        {
+            data = store.Options.Serializer.FromJson(type, stored.Data);
+        }
+        catch (Exception unread) when (unread is JsonException or NotSupportedException or InvalidOperationException or ArgumentException)
+        {
+            data = null;
+        }
+
+        if (data is null)
+        {
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence}'s data does not read as this build's '{stored.Type}'."));
+        }
+
+        return JsonNode.DeepEquals(JsonNode.Parse(stored.Data), JsonNode.Parse(store.Options.Serializer.ToJson(data)))
+            ? (data, null)
+            : (null, new ImportFault(sequence, ImportFaultKind.LaterShape, $"Line {sequence}'s data is not this build's '{stored.Type}' as it writes one: it holds a member this build does not know or a value it writes otherwise, as a later build's shape would, and storing it would drop that from the stored event."));
     }
 
     /// <summary>The identity events in every line this node holds a record of, each with its signer key, origin, and sequence.</summary>

@@ -36,6 +36,12 @@ public enum ImportFaultKind
     /// <summary>The line's event is not in this build's current shape.</summary>
     EarlierShape,
 
+    /// <summary>
+    /// The line's event holds what this build's type of it does not, a member it does not know or a value it
+    /// writes otherwise, as a later build's shape would, so storing it would change it.
+    /// </summary>
+    LaterShape,
+
     /// <summary>The line passed every check and the store refused to append it.</summary>
     StoreRefused,
 

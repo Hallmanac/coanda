@@ -292,6 +292,21 @@ public sealed class LedgerImportTests
     }
 
     [Fact]
+    public async Task A_line_holding_a_member_this_build_does_not_know_stops_its_origin()
+    {
+        await using Peers peers = await Peers.StartAsync();
+        PeerChain peer = peers.Vouched();
+        Fill(peer, 1);
+        string current = peer.Stored(Created(out Guid parcel)).Data;
+        peer.Add(new StoredEvent("parcel_created", "{\"addedLater\":1," + current[1..]), parcel);
+        await peers.PushAsync(peers.Root, peer);
+
+        LedgerImportReport report = await peers.Node.Import.ImportAsync(Alpha, None);
+
+        AssertStopped(report, peer, ImportFaultKind.LaterShape, at: 2, stored: 1);
+    }
+
+    [Fact]
     public async Task A_line_the_store_refuses_stops_its_origin_with_the_stores_reason()
     {
         await using Peers peers = await Peers.StartAsync();
