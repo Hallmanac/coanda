@@ -1,3 +1,4 @@
+using System.Text;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events;
@@ -36,6 +37,17 @@ public static class ImportedEvents
         IReadOnlyList<LedgerLine> lines = await session.Query<LedgerLine>().Where(l => ids.Contains(l.Id)).ToListAsync(cancellationToken);
         return lines.ToDictionary(l => l.Id);
     }
+
+    /// <summary>
+    /// The id the origin's store gave the event this node's store holds as <paramref name="eventId"/>, as its line
+    /// <paramref name="line"/> says: the same on every node that holds the event, where the id this node's store
+    /// gave an imported event is this node's alone. An event with no line, or a line that does not parse, keeps
+    /// <paramref name="eventId"/>, which for an event this node recorded is the origin's id.
+    /// </summary>
+    public static Guid OriginalIdOf(Guid eventId, LedgerLine? line) =>
+        line is not null && SignedLine.Parse(Encoding.UTF8.GetBytes(line.Line), out _) is { } signed
+            ? signed.Content.EventId
+            : eventId;
 
     /// <summary>
     /// The node id this store exports its own lines under, read from the store rather than the node's identity so a

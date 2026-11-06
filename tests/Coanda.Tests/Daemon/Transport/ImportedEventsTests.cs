@@ -1,3 +1,4 @@
+using System.Text;
 using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.FlowRuns;
@@ -11,6 +12,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Signing;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
@@ -186,6 +188,77 @@ public sealed class ImportedEventsTests
         using var client = new DaemonClient(temp.Home);
         Assert.Equal(SoftwareFlows.Build.Name, (await FlowRunDriver.BoundAsync(client, Project, held)).FlowName);
         await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task On_a_parcel_this_node_holds_a_peers_bound_entry_its_own_stopped_flow_run_answered_starts_nothing_again()
+    {
+        using var temp = new TemporaryHome();
+        NodeIdentity identity = await NodeIdentity.EnsureAsync(temp.Home, None);
+        Guid peer = Ids.New();
+        Guid held = Guid.Empty;
+        Guid answered = Guid.Empty;
+        await SeedAsync(temp, async (store, parcels, flowRuns) =>
+        {
+            Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Held here, entered and answered by a peer", null, None);
+            await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, cancellationToken: None);
+            held = parcel.Id;
+
+            // This node's claim, on the first line of its chain, pushed and followed by a fetch that succeeded.
+            await parcels.ClaimAsync(Principal.LocalOwner, Project, parcel.Id, identity.NodeId, None);
+            await using (IDocumentSession node = store.LightweightSession(Tenants.Node))
+            {
+                node.Store(new LedgerOrigin { NodeId = identity.NodeId });
+                await node.SaveChangesAsync(None);
+            }
+
+            await RecordLinesAsync(store, identity.NodeId, parcel.Id);
+            long through = (await EventsOfAsync(store, parcel.Id)).Count;
+            await LedgerProgress.AdvanceAsync(store, Project, LedgerProgress.PushedId, through, None);
+            await LedgerProgress.AdvanceAsync(store, Project, LedgerProgress.FetchedId, through, None);
+
+            // The peer's move into the bound stage, imported under an id of this node's store, while the peer's
+            // own line names the id the peer gave it, which the peer's binding start was named for.
+            await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
+            IEvent moved = (await EventsOfAsync(store, parcel.Id))[^1];
+            Guid peersId = Ids.New();
+            var content = new LineContent(
+                Ids.New(), peer, 1, null, LineTag.ProjectWide, parcel.Id, peersId, moved.Timestamp, new StoredEvent("parcel_moved", "{}"));
+            byte[] line = SignedLine.Sign(content, Ed25519Key.Generate());
+            await using (IDocumentSession session = store.LightweightSession(Project))
+            {
+                session.Store(new LedgerLine { Id = moved.Id, Origin = peer, Sequence = 1, Hash = SignedLine.HashOf(line), Line = Encoding.UTF8.GetString(line) });
+                await session.SaveChangesAsync(None);
+            }
+
+            // The peer's flow run for that entry, stopped and released once the peer saw this node's claim win.
+            Principal binding = new($"binding:task/build/build:entry:{peersId}", Role.Agent);
+            answered = (await flowRuns.StartAsync(binding, Project, parcel.Id, SoftwareFlows.Build.Name, None)).Id;
+            await flowRuns.StopAsync(Principal.LocalOwner, Project, answered, "Lost the claim", None);
+            await RecordStreamAsync(store, peer, 2, answered);
+            await RecordStreamAsync(store, peer, 100, parcel.Id, after: moved.Version);
+        });
+
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        using var client = new DaemonClient(temp.Home);
+
+        // The loop handles entries in order, so once a later entry has its flow run, the peer's entry was read.
+        ParcelView later = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Moved after the import");
+        await FlowRunDriver.BoundAsync(client, Project, later.Id);
+        Assert.Equal([answered], [.. (await FlowRunDriver.OfParcelAsync(client, Project, held)).Select(f => f.Id)]);
+        await daemon.StopAsync(None);
+    }
+
+    /// <summary>Gives each event of <paramref name="stream"/> past version <paramref name="after"/> the record the import keeps for a line of <paramref name="origin"/>, numbered from <paramref name="sequence"/>.</summary>
+    private static async Task RecordStreamAsync(IDocumentStore store, Guid origin, long sequence, Guid stream, long after = 0)
+    {
+        await using IDocumentSession session = store.LightweightSession(Project);
+        foreach (IEvent entry in (await session.Events.FetchStreamAsync(stream, token: None)).Where(e => e.Version > after))
+        {
+            session.Store(new LedgerLine { Id = entry.Id, Origin = origin, Sequence = sequence++, Hash = $"sha256:{Convert.ToHexStringLower(Guid.NewGuid().ToByteArray())}{new string('0', 32)}" });
+        }
+
+        await session.SaveChangesAsync(None);
     }
 
     [Fact]
