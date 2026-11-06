@@ -10,6 +10,7 @@ using Coanda.Daemon.Projects;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.Repositories;
+using Coanda.Sdk.Commands;
 using Coanda.Tests.Daemon;
 using Coanda.Tests.Daemon.Commands;
 using Coanda.Tests.Daemon.FlowRuns;
@@ -46,16 +47,17 @@ public sealed class RepoFieldTests : IAsyncLifetime
         Parcel task = await node.TaskAsync("Fill my repos");
         Assert.Null(task.ValueOf(SoftwareSettings.ReposField));
 
-        Done(await WorktreeAsync(task.Id));
+        (SystemStepAnswer answer, IReadOnlyList<CommandLine> ran) = await WorktreeAsync(task.Id);
+        Done(answer);
 
         Parcel filled = await ShowAsync(Project, task.Id);
         Assert.Equal([RegisteredProjects.Repo], filled.ValueOf(SoftwareSettings.ReposField)?.Items);
-        Assert.Contains(runner.Commands, c => c.IsGit("worktree", "add") && c.GitDirectory() == node.Home.ProjectClonePath(Project));
+        Assert.Contains(ran, c => c.IsGit("worktree", "add") && c.GitDirectory() == node.Home.ProjectClonePath(Project));
         ParcelFieldSet set = Assert.Single(await FieldSetsAsync(Project, task.Id));
         Assert.Contains(SoftwareSteps.Module, set.SetBy, StringComparison.Ordinal);
 
         // A second step on the task finds the field filled and writes nothing.
-        Done(await WorktreeAsync(task.Id));
+        Done((await WorktreeAsync(task.Id)).Answer);
         Assert.Single(await FieldSetsAsync(Project, task.Id));
     }
 
@@ -66,14 +68,15 @@ public sealed class RepoFieldTests : IAsyncLifetime
         Parcel task = await node.TaskAsync("Work in two", Multi);
         await node.Parcels.SetFieldAsync(Principal.LocalOwner, Multi, task.Id, SoftwareSettings.ReposField, FieldValue.OfItems("two"), None);
 
-        Done(await WorktreeAsync(task.Id, Multi));
+        (SystemStepAnswer answer, IReadOnlyList<CommandLine> ran) = await WorktreeAsync(task.Id, Multi);
+        Done(answer);
 
         Assert.Equal(["two"], (await ShowAsync(Multi, task.Id)).ValueOf(SoftwareSettings.ReposField)?.Items);
         Assert.Single(await FieldSetsAsync(Multi, task.Id));
         // every command runs against the core's clone of repo two, and fetches that repo's primary branch
-        Assert.NotEmpty(runner.Commands);
-        Assert.All(runner.Commands, c => Assert.Equal(node.Home.ProjectClonePath(Multi, "two"), c.GitDirectory()));
-        Assert.Contains("fetch --no-tags --quiet origin +refs/heads/trunk:refs/remotes/origin/trunk", runner.GitCalls);
+        Assert.NotEmpty(ran);
+        Assert.All(ran, c => Assert.Equal(node.Home.ProjectClonePath(Multi, "two"), c.GitDirectory()));
+        Assert.Contains("fetch --no-tags --quiet origin +refs/heads/trunk:refs/remotes/origin/trunk", ran.Select(c => string.Join(' ', c.GitArguments())));
     }
 
     [Fact]
@@ -84,10 +87,11 @@ public sealed class RepoFieldTests : IAsyncLifetime
         Assert.Equal(SoftwareTypes.UnownedTask.Hash, task.TypeHash);
         Assert.DoesNotContain(SoftwareTypes.UnownedTask.Fields, f => f.Name == SoftwareSettings.ReposField);
 
-        Done(await WorktreeAsync(task.Id));
+        (SystemStepAnswer answer, IReadOnlyList<CommandLine> ran) = await WorktreeAsync(task.Id);
+        Done(answer);
 
         Assert.Empty(await FieldSetsAsync(Project, task.Id));
-        Assert.Contains(runner.Commands, c => c.IsGit("worktree", "add") && c.GitDirectory() == node.Home.ProjectClonePath(Project));
+        Assert.Contains(ran, c => c.IsGit("worktree", "add") && c.GitDirectory() == node.Home.ProjectClonePath(Project));
     }
 
     [Fact]
@@ -96,7 +100,8 @@ public sealed class RepoFieldTests : IAsyncLifetime
         await RegisterMultiAsync();
         Parcel task = await node.TaskAsync("Which repo?", Multi);
 
-        SystemStepAnswer.Paused paused = Paused(await WorktreeAsync(task.Id, Multi));
+        (SystemStepAnswer answer, IReadOnlyList<CommandLine> ran) = await WorktreeAsync(task.Id, Multi);
+        SystemStepAnswer.Paused paused = Paused(answer);
 
         Assert.Equal(
             $"Step 'worktree' has no repo to act on: project 'multi' has 2 repos ('one', 'two'), and the task's 'repos' field names none.",
@@ -105,7 +110,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
             $"Set the task's 'repos' field to the one repo it works in, which is one of 'one', 'two' (coa parcel set {Ids.Short(task.Id)} repos --item <repo> --project multi), then resume the flow run to perform step 'worktree' again.",
             paused.Lever);
         Assert.Empty(await FieldSetsAsync(Multi, task.Id));
-        Assert.Empty(runner.Commands);
+        Assert.Empty(ran);
     }
 
     [Theory]
@@ -139,13 +144,14 @@ public sealed class RepoFieldTests : IAsyncLifetime
         runner.ForgetCommands();
         Parcel task = await node.TaskAsync("No branch", "bare");
 
-        SystemStepAnswer.Paused paused = Paused(await WorktreeAsync(task.Id, "bare"));
+        (SystemStepAnswer answer, IReadOnlyList<CommandLine> ran) = await WorktreeAsync(task.Id, "bare");
+        SystemStepAnswer.Paused paused = Paused(answer);
 
         Assert.Equal("Step 'worktree' has no primary branch for repo 'repo': the software module's setting 'primary-branch' names none for it in project 'bare'.", paused.Reason);
         Assert.Equal(
             """Give the software module's setting 'primary-branch' a value in project 'bare' (coa project module set bare software primary-branch '{"repo":"<branch>"}'), then resume the flow run to perform step 'worktree' again.""",
             paused.Lever);
-        Assert.Empty(runner.Commands);
+        Assert.Empty(ran);
     }
 
     [Fact]
@@ -204,12 +210,19 @@ public sealed class RepoFieldTests : IAsyncLifetime
         await Publishing.FlowAsync(node.Daemon, Multi, SoftwareNode.Steps);
     }
 
-    private async Task<SystemStepAnswer> WorktreeAsync(Guid parcelId, string project = Project)
+    /// <summary>
+    /// Dispatches the worktree step on a held flow run and stops the flow run, returning the step's answer and
+    /// the commands run by the time the dispatch returned. The snapshot is taken before the stop, because the
+    /// software module handles the stop in the background through its feed and lists the worktrees of every
+    /// clone the project has, which would otherwise reach the runner's commands at no fixed point.
+    /// </summary>
+    private async Task<(SystemStepAnswer Answer, IReadOnlyList<CommandLine> Ran)> WorktreeAsync(Guid parcelId, string project = Project)
     {
         (Guid flowRunId, Guid dispatchId) = await node.HeldAsync(parcelId, "worktree", project);
         SystemStepAnswer answer = await node.DispatchAsync(SoftwareSteps.Worktree, parcelId, flowRunId, dispatchId, project);
+        IReadOnlyList<CommandLine> ran = runner.Commands;
         await node.StopAsync(flowRunId, project);
-        return answer;
+        return (answer, ran);
     }
 
     private async Task<Parcel> ShowAsync(string project, Guid parcelId) =>
