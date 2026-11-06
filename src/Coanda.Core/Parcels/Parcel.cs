@@ -36,9 +36,22 @@ public sealed class Parcel
     public string? Resolution { get; private set; }
     [JsonInclude]
     public string? CloseReason { get; private set; }
-    /// <summary>The flow run that is running or paused on this parcel, or null when it has none. A parcel has at most one.</summary>
+    /// <summary>
+    /// The flow run that is running or paused on this parcel, as this node folds it, or null when it has none. A
+    /// parcel has at most one: the first flow run attached while none was live, which only its own release clears.
+    /// So the winning node keeps its own live flow run whatever order the losing node's attach and release arrive
+    /// in. Nodes do not always agree on it, though: a node that held another flow run live when the winner's attach
+    /// arrived ignored that attach, so once its own flow run is released it folds none while the winner's still runs.
+    /// </summary>
     [JsonInclude]
     public Guid? LiveFlowRunId { get; private set; }
+
+    /// <summary>The nodes that recorded a claim on this parcel, in the order this node stored them, none repeated.</summary>
+    [JsonInclude]
+    public IReadOnlyList<Guid> Claimants { get; private set; } = [];
+
+    /// <summary>Whether any node's claim on this parcel is stored; a parcel with none is unclaimed.</summary>
+    public bool IsClaimed => Claimants.Count > 0;
 
     /// <summary>
     /// The value of each field that has been set, by field name. A field that was never set has no
@@ -93,15 +106,31 @@ public sealed class Parcel
         UpdatedAt = closed.ClosedAt;
     }
 
+    /// <summary>An attach while another flow run is live is another node's, which lost the parcel; it leaves the live one in place.</summary>
     public void Apply(ParcelFlowRunAttached attached)
     {
-        LiveFlowRunId = attached.FlowRunId;
+        LiveFlowRunId ??= attached.FlowRunId;
         UpdatedAt = attached.AttachedAt;
     }
 
+    /// <summary>A release clears the live flow run only when it names it.</summary>
     public void Apply(ParcelFlowRunReleased released)
     {
-        LiveFlowRunId = null;
+        if (LiveFlowRunId == released.FlowRunId)
+        {
+            LiveFlowRunId = null;
+        }
+
         UpdatedAt = released.ReleasedAt;
+    }
+
+    public void Apply(ParcelClaimed claimed)
+    {
+        if (!Claimants.Contains(claimed.NodeId))
+        {
+            Claimants = [.. Claimants, claimed.NodeId];
+        }
+
+        UpdatedAt = claimed.ClaimedAt;
     }
 }

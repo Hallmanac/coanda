@@ -5,6 +5,7 @@ public static class CommandRegistry
     private static readonly IReadOnlySet<Role> Everyone = new HashSet<Role> { Role.Owner, Role.Member, Role.Agent };
     private static readonly IReadOnlySet<Role> OwnerOnly = new HashSet<Role> { Role.Owner };
     private static readonly IReadOnlySet<Role> People = new HashSet<Role> { Role.Owner, Role.Member };
+    private static readonly IReadOnlySet<Role> AgentOnly = new HashSet<Role> { Role.Agent };
 
     // The Module role is open only where an entry names it here; the services narrow it further, to the
     // projects its module is switched on for, to its own prefixed event kinds, to a dispatch it holds or a
@@ -29,6 +30,7 @@ public static class CommandRegistry
         new("parcel.move", EntryKind.Command, "Move a parcel to a stage its type allows.", Everyone),
         new("parcel.set-field", EntryKind.Command, "Record a value in one of a parcel's fields, replacing the value it held.", EveryoneAndModules),
         new("parcel.close", EntryKind.Command, "Close a parcel with a resolution and a reason.", People),
+        new("parcel.claim", EntryKind.Command, "Claim a parcel for this node, so that only the node holding it starts flow runs on it.", People),
         new("type.list", EntryKind.Query, "List the installed parcel types.", EveryoneAndModules),
         new("flow.list", EntryKind.Query, "List the flows that govern a project.", EveryoneAndModules),
         new("agent.list", EntryKind.Query, "List the agents that resolution returns for a project.", EveryoneAndModules),
@@ -48,6 +50,7 @@ public static class CommandRegistry
         new("flow-run.resume", EntryKind.Command, "Resume a paused flow run.", People),
         new("flow-run.end", EntryKind.Command, "End a flow run with its flow's outcome.", Everyone),
         new("flow-run.stop", EntryKind.Command, "Stop a live flow run before its end.", People),
+        new("flow-run.yield", EntryKind.Command, "Stop a live flow run this node started on a parcel another node's claim wins; the daemon's own.", AgentOnly),
         new("event.record", EntryKind.Command, "Record an external event in a project: a kind and named string fields.", PeopleAndModules),
         new("subscription.add", EntryKind.Command, "Subscribe, in a project, to external events that create a parcel and start a flow.", People),
         new("subscription.list", EntryKind.Query, "List the subscriptions of a project.", EveryoneAndModules),
