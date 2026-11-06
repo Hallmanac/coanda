@@ -278,7 +278,7 @@ public sealed class LedgerImport(
         }
 
         Guid[] ordered = [.. origins.Keys.Order()];
-        Dictionary<Guid, (int Stored, ImportFault? Fault)> results = ordered.ToDictionary(o => o, _ => (0, (ImportFault?)null));
+        Dictionary<Guid, (int Stored, ImportFault? Fault, bool Unfinished)> results = ordered.ToDictionary(o => o, _ => (0, (ImportFault?)null, false));
         bool trusted = true;
         if (ordered.Length > 0)
         {
@@ -294,7 +294,7 @@ public sealed class LedgerImport(
 
                 foreach (Guid origin in ordered)
                 {
-                    results[origin] = (0, new ImportFault(null, ImportFaultKind.NoTrustedRoot, reason));
+                    results[origin] = (0, new ImportFault(null, ImportFaultKind.NoTrustedRoot, reason), false);
                 }
             }
             else
@@ -310,8 +310,8 @@ public sealed class LedgerImport(
                     stored = false;
                     foreach (Guid origin in pending.ToArray())
                     {
-                        (int count, ImportFault? fault) = await ImportOriginAsync(project, root, origin, origins[origin], cancellationToken);
-                        results[origin] = (results[origin].Stored + count, fault);
+                        (int count, ImportFault? fault, bool unfinished) = await ImportOriginAsync(project, root, origin, origins[origin], cancellationToken);
+                        results[origin] = (results[origin].Stored + count, fault, unfinished);
                         stored |= count > 0;
                     }
 
@@ -322,8 +322,9 @@ public sealed class LedgerImport(
 
         // A claim needs a fetch from every clone after its push, and what that fetch brought imported, so a peer's
         // earlier claim is read before this node counts its own as held. A round that could trust no peer's line
-        // read none of their claims and does not count; a peer's line that stops its origin does not undo it.
-        if (failures.Count == 0 && project.Repos.Count > 0 && trusted)
+        // read none of their claims and does not count, and neither does one that left a ref unread or a good line
+        // unstored, since a claim behind either went unread; a peer's line that stops its origin does not undo it.
+        if (failures.Count == 0 && project.Repos.Count > 0 && trusted && !results.Values.Any(r => r.Unfinished))
         {
             await LedgerProgress.AdvanceAsync(store, project.Name, LedgerProgress.FetchedId, pushed, cancellationToken);
         }
@@ -331,7 +332,7 @@ public sealed class LedgerImport(
         List<OriginImport> imported = [];
         foreach (Guid origin in ordered)
         {
-            (int count, ImportFault? fault) = results[origin];
+            (int count, ImportFault? fault, _) = results[origin];
             long? held = (await HeldAsync(project.Name, origin, cancellationToken))?.Sequence;
             imported.Add(new OriginImport(origin, count, held, fault));
             if (fault is { Kind: not ImportFaultKind.NoTrustedRoot })
@@ -357,14 +358,17 @@ public sealed class LedgerImport(
 
     /// <summary>
     /// Imports one origin from each ref of it the project's clones hold. A ref that ends before the sequence
-    /// held is reported only when no other ref of the origin was read without a fault.
+    /// held is reported only when no other ref of the origin was read without a fault. It is unfinished when a
+    /// ref read this time could not be read, or the store refused a line that passed every check: the lines
+    /// behind either were not imported, though nothing is wrong with them.
     /// </summary>
-    private async Task<(int Stored, ImportFault? Fault)> ImportOriginAsync(Project project, string root, Guid origin, List<Source> sources, CancellationToken cancellationToken)
+    private async Task<(int Stored, ImportFault? Fault, bool Unfinished)> ImportOriginAsync(Project project, string root, Guid origin, List<Source> sources, CancellationToken cancellationToken)
     {
         int stored = 0;
         ImportFault? fault = null;
         ImportFault? rewind = null;
         bool clean = false;
+        bool unfinished = false;
         foreach (Source source in sources)
         {
             if (readThrough.TryGetValue((source.ClonePath, origin), out string? read) && read == source.Commit)
@@ -375,6 +379,7 @@ public sealed class LedgerImport(
 
             (int count, ImportFault? found) = await ImportRefAsync(project, root, origin, source, cancellationToken);
             stored += count;
+            unfinished |= found is { Kind: ImportFaultKind.Unreadable or ImportFaultKind.StoreRefused };
             switch (found)
             {
                 case null:
@@ -393,8 +398,8 @@ public sealed class LedgerImport(
         }
 
         return clean
-            ? (stored, fault)
-            : (stored, fault ?? rewind);
+            ? (stored, fault, unfinished)
+            : (stored, fault ?? rewind, unfinished);
     }
 
     /// <summary>Reads one ref of <paramref name="origin"/> from the position held and stores each line that passes every check, up to the first that does not.</summary>
