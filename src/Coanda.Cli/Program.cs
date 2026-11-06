@@ -55,6 +55,17 @@ app.Configure(config =>
             .WithExample("record", "rebuild", "~/.coanda/exports/record-20261105T120000000Z.json");
     });
 
+    config.AddBranch("node", node =>
+    {
+        node.SetDescription("This node: its id and key, and its vouches for the other nodes of a project.");
+        node.AddCommand<NodeShowCommand>("show").WithDescription("Show this node's id, its public key, and the key's fingerprint.").WithExample("node", "show");
+        node.AddCommand<NodeVouchCommand>("vouch").WithDescription("Vouch in a project for a node id and its exact key, then publish the project.")
+            .WithExample("node", "vouch", "0192a3b4-0000-7000-8000-000000000000", "<public-key>", "--project", "coanda");
+    });
+
+    config.AddCommand<JoinCommand>("join").WithDescription("Join a project from its remote and the fingerprint of its owner's root key, and import it.")
+        .WithExample("join", "git@github.com:you/coanda.git", "--root", "sha256:<64 hex digits>");
+
     config.AddBranch("project", project =>
     {
         project.SetDescription("A project is a name and the repos its work acts on, each a git remote; a module's settings for it are set with coa project module.");
