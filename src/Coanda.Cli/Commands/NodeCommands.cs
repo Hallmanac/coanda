@@ -106,16 +106,22 @@ public sealed class JoinCommand : AsyncCommand<JoinSettings>
             Console.Out.WriteLine(line);
         }
 
-        return 0;
+        // A join the import cut short before the owner's registration is not a join, whether or not a vouch has arrived.
+        return joined.AlreadyHeld || joined.Registered
+            ? 0
+            : 1;
     }
 
     public static IReadOnlyList<string> Describe(JoinResult joined)
     {
         List<string> lines =
         [
-            joined.AlreadyHeld
-                ? $"This node already holds project {joined.Project} under the same id; the join changed nothing."
-                : $"Joined project {joined.Project}.",
+            joined switch
+            {
+                { AlreadyHeld: true } => $"This node already holds project {joined.Project} under the same id; the join changed nothing.",
+                { Registered: true } => $"Joined project {joined.Project}.",
+                _ => $"The join of project {joined.Project} is not finished: the import has not yet stored the owner's registration of it. Run the same coa join again to pick up from where it stopped.",
+            },
             $"Node id:     {joined.NodeId:D}",
             $"Public key:  {joined.PublicKey}",
         ];

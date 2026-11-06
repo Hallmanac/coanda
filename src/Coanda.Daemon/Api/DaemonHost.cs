@@ -228,6 +228,9 @@ public sealed class DaemonHost
                 new Uri($"http://127.0.0.1:{boundPort}"),
                 await app.Services.GetRequiredService<ModuleTokens>().ReissueAsync(SoftwareSteps.Module, cancellationToken));
 
+            // A node that registered projects before its owner id was recorded records the id it has acted as.
+            await app.Services.GetRequiredService<ProjectService>().RecordOwnerAsync(cancellationToken);
+
             // A project registered before modules were has the default modules switched on, before any
             // of its live flow runs reaches a module's step and before a module's start reads it.
             await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);

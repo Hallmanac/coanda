@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Coanda.Core;
 using Coanda.Core.Identity.Events;
 using Coanda.Core.Parcels;
@@ -8,6 +9,7 @@ using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Identity;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
 using Fisher;
@@ -179,6 +181,30 @@ public sealed class JoinTests
     }
 
     [Fact]
+    public async Task A_join_whose_root_record_claims_a_sequence_before_its_place_in_the_chain_is_refused()
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+
+        // The root record moves to the end of the chain claiming sequence 1, the registration's, so a prefix cut by
+        // the sequences the lines claim would hold the registration alone and never verify the root record's signature.
+        (string segment, string content) = (await owner.FilesAsync(owner.RemotePath(Alpha))).Single();
+        List<string> lines = [.. content.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
+        int rootLine = lines.FindIndex(l => l.Contains("owner_root_recorded", StringComparison.Ordinal));
+        Assert.NotEqual(-1, rootLine);
+        string forged = Regex.Replace(lines[rootLine], "\"sequence\":\\d+", "\"sequence\":1");
+        lines.RemoveAt(rootLine);
+        lines.Add(forged);
+        await WriteRefAsync(owner.RemotePath(Alpha), owner.RefName, new Dictionary<string, string> { [segment] = string.Join('\n', lines) + "\n" });
+
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None));
+
+        Assert.Contains($"the chain of node {owner.Identity.NodeId} does not verify, signed by the root key, through its root record", refused.Message, StringComparison.Ordinal);
+        await NothingLeftAsync(joining);
+    }
+
+    [Fact]
     public async Task A_join_of_a_remote_whose_lines_root_two_projects_at_the_key_is_refused()
     {
         await using LedgerNode owner = await LedgerNode.StartAsync(Alpha, "beta");
@@ -213,6 +239,96 @@ public sealed class JoinTests
         Assert.Empty(again.Origins);
         Assert.Equal(events, (await joining.EventsAsync(Alpha)).Count);
         Assert.Empty(Directory.EnumerateDirectories(joining.Home.Path, ".join-*"));
+    }
+
+    [Fact]
+    public async Task A_join_cancelled_once_its_clone_is_placed_is_finished_by_the_same_join_run_again()
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+
+        // The person presses Ctrl-C as the import's fetch, the join's second, starts.
+        using var cancelled = new CancellationTokenSource();
+        int fetches = 0;
+        joining.ImportGit.Refuses = arguments =>
+        {
+            if (arguments.StartsWith("fetch", StringComparison.Ordinal) && ++fetches == 2)
+            {
+                cancelled.Cancel();
+                return true;
+            }
+
+            return false;
+        };
+        await Assert.ThrowsAnyAsync<Exception>(() => joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, cancelled.Token));
+        Assert.True(Directory.Exists(joining.ClonePath(Alpha, RegisteredProjects.Repo)));
+        Assert.Null(await ProjectService.FindAsync(joining.Store, Alpha, None));
+
+        joining.ImportGit.Refuses = null;
+        JoinResult joined = await joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None);
+
+        Assert.Equal((false, true, true), (joined.AlreadyHeld, joined.Registered, joined.Trusted));
+        Assert.Null(Assert.Single(joined.Origins).Fault);
+        Assert.Equal((await owner.ProjectAsync(Alpha)).Id, (await joining.ProjectAsync(Alpha)).Id);
+        Assert.Equal(await TitlesAsync(owner), await TitlesAsync(joining));
+        Assert.Equal(Owner.Id, NodeOwnerRecord.Read(joining.Home));
+        Assert.Empty(Directory.EnumerateDirectories(joining.Home.Path, ".join-*"));
+    }
+
+    [Fact]
+    public async Task A_join_whose_import_stops_before_the_registration_says_it_is_not_finished_and_the_same_join_finishes_it()
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+
+        // The join's own reads succeed; the import's, after the second fetch, cannot read the owner's ref.
+        int fetches = 0;
+        joining.ImportGit.Refuses = arguments =>
+        {
+            fetches += arguments.StartsWith("fetch", StringComparison.Ordinal) ? 1 : 0;
+            return fetches >= 2 && arguments.StartsWith("ls-tree", StringComparison.Ordinal);
+        };
+        JoinResult stopped = await joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None);
+        Assert.Equal((false, false), (stopped.AlreadyHeld, stopped.Registered));
+        Assert.Null(await ProjectService.FindAsync(joining.Store, Alpha, None));
+
+        joining.ImportGit.Refuses = null;
+        JoinResult joined = await joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None);
+
+        Assert.Equal((false, true, true), (joined.AlreadyHeld, joined.Registered, joined.Trusted));
+        Assert.Equal(await TitlesAsync(owner), await TitlesAsync(joining));
+    }
+
+    [Fact]
+    public async Task A_join_onto_a_clone_no_earlier_join_of_the_project_left_is_refused_and_leaves_it_as_it_is()
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+
+        // A bare clone of the right remote, but with no root key record a join writes before it places its clone.
+        string clone = joining.ClonePath(Alpha, RegisteredProjects.Repo);
+        Directory.CreateDirectory(clone);
+        await LedgerNode.GitAsync(clone, "init", "--bare", "--quiet");
+        await LedgerNode.GitAsync(clone, "remote", "add", "origin", owner.RemotePath(Alpha));
+
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None));
+
+        Assert.Contains($"something is already at {clone}", refused.Message, StringComparison.Ordinal);
+        Assert.True(Directory.Exists(clone));
+        Assert.Null(await RootOfAsync(joining));
+        Assert.Null(NodeOwnerRecord.Read(joining.Home));
+        Assert.Empty(await joining.EventsAsync(Alpha));
+        Assert.Empty(Directory.EnumerateDirectories(joining.Home.Path, ".join-*"));
+
+        // With the root key record, a clone whose origin is another remote is no join's either.
+        await joining.TrustRootAsync(Alpha, owner.Identity.Key.PublicKey);
+        await LedgerNode.GitAsync(clone, "remote", "set-url", "origin", Path.Combine(owner.Home.Path, "elsewhere.git"));
+        refused = await Assert.ThrowsAsync<DomainException>(() => joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None));
+        Assert.Contains($"something is already at {clone}", refused.Message, StringComparison.Ordinal);
+        Assert.Null(NodeOwnerRecord.Read(joining.Home));
     }
 
     [Fact]

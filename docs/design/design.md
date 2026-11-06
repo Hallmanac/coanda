@@ -373,9 +373,9 @@ truncated, the one printable form `coa node show` prints and `coa join` reads. T
 remote's ledger refs into a scratch clone under the node home, and takes the root key from the owner
 root record whose key has that fingerprint: one signed by the key it names, from the node it names, whose
 origin's chain, signed by that key, verifies through both that record and the project's registration.
-It hands that key to the trust function as the project's root. It then moves the scratch clone to
-`projects/<project>/repos/<repo>/` with the given remote as its origin, writes the root key record with
-that key, and imports the project at once, which stores the owner's registration line rather than
+It hands that key to the trust function as the project's root. It then writes the root key record with
+that key, moves the scratch clone to `projects/<project>/repos/<repo>/` with the given remote as its
+origin, and imports the project at once, which stores the owner's registration line rather than
 recording a registration here, so the joined node holds one registration, the owner's, under the owner's
 project id and name, and its export never writes one. It prints the project's name, this node's id and
 public key, the import's result for each origin, and whether this node's own key is yet trusted in the
@@ -386,8 +386,14 @@ event, when no root record on the remote has a key with the fingerprint, when th
 not verify through it and the registration, when the remote's lines root more than one project at that
 key, when the remote is not exactly the remote of one of the registration's repos, when a project of the
 same name in any letter case is registered here under another id, when this node records an owner id
-other than the registration's, and when the fetch fails. A join of a project this node holds under the
-same id changes nothing and says so. The daemon's start-time switch-on of the default modules records
+other than the registration's, when something other than an unfinished join's clone is at the clone's
+path, and when the fetch fails. A join that passed every check and then stopped before the import stored
+the owner's registration (cancelled, the daemon stopped, or an owner's line that does not import) leaves
+its root key record, its clone, and perhaps its owner id record, and says it is not finished when it
+returns at all. The same join run again verifies the remote afresh and picks up from there: a clone at
+the path, whose origin is the given remote, in a project not registered here whose root key record names
+the verified key, is one only a join leaves, since a join writes that record before it places the clone. A
+join of a project this node holds under the same id changes nothing and says so. The daemon's start-time switch-on of the default modules records
 nothing in a project whose registration was imported: its modules are the owner's, and arrive on the
 owner's lines.
 
@@ -396,7 +402,9 @@ The owner id. Each node keeps one owner id, in a node-local record in the node h
 call's principal header against it; a node with no record uses the operating system account's name. A
 node that registers a project with no record records the id that registered it, and a node that joins
 records the registered-by id of the owner's registration it imported, so the joined node's commands and
-its records carry the owner's id, not the account name of the machine it runs on. A join is refused when
+its records carry the owner's id, not the account name of the machine it runs on. A node that registered
+projects before the record existed has acted as the account's name all along, so its daemon's start
+records that name when it finds a project this node registered and no record. A join is refused when
 the node already records another id.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked

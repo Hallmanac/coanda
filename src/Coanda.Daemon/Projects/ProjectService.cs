@@ -129,6 +129,26 @@ public sealed class ProjectService(
     }
 
     /// <summary>
+    /// Runs <paramref name="work"/> holding the gate this service's registrations hold, so a join (<c>NodeJoiner</c>)
+    /// and a registration never interleave: neither can pass its name and owner checks while the other is between
+    /// its checks and its save, which would store two registrations of one name or pin the owner id under a join
+    /// that already checked it.
+    /// </summary>
+    public async Task<T> RegisteringAsync<T>(Func<Task<T>> work, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        await writes.WaitAsync(cancellationToken);
+        try
+        {
+            return await work();
+        }
+        finally
+        {
+            writes.Release();
+        }
+    }
+
+    /// <summary>
     /// The settings streams a registration starts, one per module named, each with the events that give
     /// its settings their values, decided against the switch-on <paramref name="project"/> already carries.
     /// </summary>
@@ -285,6 +305,38 @@ public sealed class ProjectService(
         finally
         {
             writes.Release();
+        }
+    }
+
+    /// <summary>
+    /// Records the id this node acts as as its owner id when the home holds no owner id record but the store holds
+    /// a project this node registered itself, as a node that registered projects before the record existed does.
+    /// Such a node has acted as that id all along, so its later records and the ones before agree, and a join
+    /// cannot then quietly take another id as the owner's (<see cref="NodeOwner.RefusalOf"/>). A project whose
+    /// registration was imported from another node's line does not count. The daemon runs it at start.
+    /// </summary>
+    public async Task RecordOwnerAsync(CancellationToken cancellationToken)
+    {
+        if (owner is not { Recorded: false })
+        {
+            return;
+        }
+
+        IReadOnlyList<Project> projects;
+        await using (IQuerySession query = store.QuerySession(Tenants.Node))
+        {
+            projects = await query.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
+        }
+
+        foreach (Project project in projects)
+        {
+            await using IQuerySession session = store.QuerySession(project.Name);
+            IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(project.Id, token: cancellationToken);
+            if (events.Any(e => e.Data is ProjectRegistered) && !await ImportedAsync(store, session, events, cancellationToken))
+            {
+                owner.Record(owner.Id);
+                return;
+            }
         }
     }
 
