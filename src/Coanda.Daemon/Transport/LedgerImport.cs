@@ -85,6 +85,13 @@ public sealed class LedgerImport(
     /// </summary>
     private readonly Dictionary<(string Clone, Guid Origin), string> readThrough = [];
 
+    /// <summary>
+    /// The projects whose missing root key record this run of the daemon has already logged, so a node no join
+    /// has given a root logs it once per project rather than once per origin every round. Only the round
+    /// holding <see cref="turn"/> reads or changes it.
+    /// </summary>
+    private readonly HashSet<string> rootless = new(StringComparer.Ordinal);
+
     private Task running = Task.CompletedTask;
 
     /// <summary>Fetches and imports every project once, then again every <paramref name="interval"/>, on the daemon's own worker.</summary>
@@ -246,6 +253,11 @@ public sealed class LedgerImport(
             if (root is null)
             {
                 string reason = $"Project '{project.Name}' has no root key record on this node, so no line from another origin can be trusted and none is imported.";
+                if (rootless.Add(project.Name))
+                {
+                    logger.LogWarning("{Reason} It is not logged again while the daemon runs, until the project has a root key record.", reason);
+                }
+
                 foreach (Guid origin in ordered)
                 {
                     results[origin] = (0, new ImportFault(null, ImportFaultKind.NoTrustedRoot, reason));
@@ -253,6 +265,8 @@ public sealed class LedgerImport(
             }
             else
             {
+                rootless.Remove(project.Name);
+
                 // A vouch stored from one origin can admit another that stopped earlier in the round, so the
                 // stopped ones are read again while any origin stores a line.
                 IEnumerable<Guid> pending = ordered;
@@ -278,7 +292,7 @@ public sealed class LedgerImport(
             (int count, ImportFault? fault) = results[origin];
             long? held = (await HeldAsync(project.Name, origin, cancellationToken))?.Sequence;
             imported.Add(new OriginImport(origin, count, held, fault));
-            if (fault is not null)
+            if (fault is { Kind: not ImportFaultKind.NoTrustedRoot })
             {
                 string stoppedAt = fault.Sequence is { } at
                     ? $"line {at}"

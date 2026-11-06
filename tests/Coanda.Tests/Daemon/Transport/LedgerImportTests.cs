@@ -379,7 +379,13 @@ public sealed class LedgerImportTests
         Assert.All(report.Origins, o => Assert.Equal((0, (long?)null, ImportFaultKind.NoTrustedRoot), (o.Stored, o.Held, o.Fault?.Kind)));
         Assert.Contains("no root key record", report.Origins[0].Fault?.Reason, StringComparison.Ordinal);
         Assert.Empty(await node.RecordsAsync(Alpha));
-        Assert.Contains(node.Logs.Entries, e => e.Message.Contains("no root key record", StringComparison.Ordinal));
+
+        // A second round says the same in its report and logs nothing more: the one warning stands for every origin and round.
+        LedgerImportReport again = await node.Import.ImportAsync(Alpha, None);
+
+        Assert.All(again.Origins, o => Assert.Equal(ImportFaultKind.NoTrustedRoot, o.Fault?.Kind));
+        Assert.Single(node.Logs.Entries, e => e.Message.Contains("no root key record", StringComparison.Ordinal));
+        Assert.DoesNotContain(node.Logs.Entries, e => e.Message.Contains("stopped at", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -458,12 +464,6 @@ public sealed class LedgerImportTests
         AssertStopped(report, peer, ImportFaultKind.EarlierShape, at: 2, stored: 1);
     }
 
-    [Fact]
-    public async Task A_flow_naming_a_software_step_unprefixed_and_an_agent_step_spawned_with_null_members_are_current_and_stored()
-    {
-        await using Peers peers = await Peers.StartAsync();
-        PeerChain peer = peers.Vouched();
-        Guid definition = Ids.New();
     [Theory]
     [InlineData("1.5")]
     [InlineData("4294967296")]
@@ -488,6 +488,12 @@ public sealed class LedgerImportTests
         Assert.Equal(new OriginImport(sound.Origin, 1, 1, null), Of(report, sound));
     }
 
+    [Fact]
+    public async Task A_flow_naming_a_software_step_unprefixed_and_an_agent_step_spawned_with_null_members_are_current_and_stored()
+    {
+        await using Peers peers = await Peers.StartAsync();
+        PeerChain peer = peers.Vouched();
+        Guid definition = Ids.New();
         Guid flowRun = Ids.New();
         peer.Add(Drafted(definition, null, """{"name":"build","steps":[{"name":"worktree","systemStep":"worktree"}]}"""), definition);
         peer.Add(new FlowRunStarted(flowRun, Ids.New(), "build", 1, "sha256:flow", "peer", "implement", StepKind.AgentStep, "implementer", At), flowRun);
