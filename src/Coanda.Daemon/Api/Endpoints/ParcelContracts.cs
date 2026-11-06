@@ -10,6 +10,8 @@ public sealed record ParcelMoveRequest(string Project, Guid ParcelId, string To)
 
 public sealed record ParcelCloseRequest(string Project, Guid ParcelId, string Resolution, string Reason);
 
+public sealed record ParcelClaimRequest(string Project, Guid ParcelId);
+
 /// <summary>
 /// A value for one of a parcel's fields: exactly one of its text, its items, and its reference, the one
 /// the field's kind names. <see cref="Dispatch"/> names the dispatch the value is set under, by its flow

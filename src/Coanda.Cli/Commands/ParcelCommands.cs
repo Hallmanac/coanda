@@ -3,6 +3,7 @@ using Coanda.Core;
 using Coanda.Core.Parcels;
 using Coanda.Daemon;
 using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Parcels;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -203,6 +204,41 @@ public sealed class ParcelCloseCommand : AsyncCommand<ParcelCloseSettings>
             "/parcels/close", new ParcelCloseRequest(project, found.Id, settings.Resolution, settings.Reason), cancellationToken);
         AnsiConsole.MarkupLineInterpolated($"Closed {Ids.Short(parcel.Id)} as {parcel.Resolution}.");
         return 0;
+    }
+}
+
+/// <summary>
+/// Claims a parcel for this node, publishes this node's ledger and fetches its peers', and says where that
+/// leaves the claim: 0 when this node holds the parcel, 1 when another node's claim wins or this node's is
+/// not yet held. Run again, it records nothing new and publishes and fetches again.
+/// </summary>
+public sealed class ParcelClaimCommand : AsyncCommand<ParcelIdSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, ParcelIdSettings settings, CancellationToken cancellationToken)
+    {
+        using var client = new DaemonClient(NodeHome.Resolve());
+        string project = settings.ResolveProject();
+        ParcelView found = await ParcelLookup.FindAsync(client, project, settings.Id, cancellationToken);
+        ParcelClaimResult claimed = await client.PostAsync<ParcelClaimResult>("/parcels/claim", new ParcelClaimRequest(project, found.Id), cancellationToken);
+        AnsiConsole.WriteLine(Describe(claimed));
+        return claimed.Result == ParcelClaimResult.Held
+            ? 0
+            : 1;
+    }
+
+    /// <summary>The claim's result as one line.</summary>
+    public static string Describe(ParcelClaimResult claimed)
+    {
+        string parcel = Ids.Short(claimed.ParcelId);
+        string recorded = claimed.Recorded
+            ? $"Recorded this node's claim on parcel {parcel}"
+            : $"This node had already claimed parcel {parcel}";
+        return claimed.Result switch
+        {
+            ParcelClaimResult.Held => $"{recorded}; this node holds it.",
+            ParcelClaimResult.Lost => $"Parcel {parcel} is lost to node {claimed.Winner}, whose claim wins it; this node does not hold it.",
+            _ => $"{recorded}; it is not yet held: {claimed.Reason}",
+        };
     }
 }
 

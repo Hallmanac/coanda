@@ -8,6 +8,7 @@ using Coanda.Core;
 using Coanda.Core.Identity;
 using Coanda.Core.Identity.Events;
 using Coanda.Core.Projects;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Sdk.Commands;
@@ -61,7 +62,8 @@ public sealed class LedgerImport(
     NodeIdentity identity,
     ICommandRunner runner,
     TimeProvider clock,
-    ILogger<LedgerImport> logger) : IHostedService, IDisposable
+    ILogger<LedgerImport> logger,
+    LostClaims? lostClaims = null) : IHostedService, IDisposable
 {
     /// <summary>
     /// How often the daemon fetches and imports when <c>coa daemon run</c> starts it: a line a peer pushes is
@@ -182,7 +184,9 @@ public sealed class LedgerImport(
         await turn.WaitAsync(cancellationToken);
         try
         {
-            return await ImportProjectAsync(project, cancellationToken);
+            LedgerImportReport report = await ImportProjectAsync(project, cancellationToken);
+            await YieldLostAsync(project, cancellationToken);
+            return report;
         }
         catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
         {
@@ -195,8 +199,36 @@ public sealed class LedgerImport(
         }
     }
 
+    /// <summary>
+    /// Stops the flow runs this node started on parcels another node's claim now wins, which a claim this round
+    /// stored, or this node's own claim reaching a line, can make so; a failure is logged and the next round tries again.
+    /// </summary>
+    private async Task YieldLostAsync(Project project, CancellationToken cancellationToken)
+    {
+        if (lostClaims is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await lostClaims.YieldAsync(project.Name, cancellationToken);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(failure, "The flow runs on parcels another node's claim wins in project {Project} were not stopped; the next round tries again.", project.Name);
+        }
+    }
+
     private async Task<LedgerImportReport> ImportProjectAsync(Project project, CancellationToken cancellationToken)
     {
+        // A fetch that succeeds from here on began after every push recorded by now.
+        long pushed;
+        await using (IQuerySession session = store.QuerySession(project.Name))
+        {
+            pushed = await LedgerProgress.ThroughAsync(session, LedgerProgress.PushedId, cancellationToken);
+        }
+
         List<string> failures = [];
         Dictionary<Guid, List<Source>> origins = [];
         foreach (ProjectRepo repo in project.Repos)
@@ -247,11 +279,13 @@ public sealed class LedgerImport(
 
         Guid[] ordered = [.. origins.Keys.Order()];
         Dictionary<Guid, (int Stored, ImportFault? Fault)> results = ordered.ToDictionary(o => o, _ => (0, (ImportFault?)null));
+        bool trusted = true;
         if (ordered.Length > 0)
         {
             string? root = await RootAsync(project.Name, cancellationToken);
             if (root is null)
             {
+                trusted = false;
                 string reason = $"Project '{project.Name}' has no root key record on this node, so no line from another origin can be trusted and none is imported.";
                 if (rootless.Add(project.Name))
                 {
@@ -284,6 +318,14 @@ public sealed class LedgerImport(
                     pending = ordered.Where(o => results[o].Fault is not null);
                 }
             }
+        }
+
+        // A claim needs a fetch from every clone after its push, and what that fetch brought imported, so a peer's
+        // earlier claim is read before this node counts its own as held. A round that could trust no peer's line
+        // read none of their claims and does not count; a peer's line that stops its origin does not undo it.
+        if (failures.Count == 0 && project.Repos.Count > 0 && trusted)
+        {
+            await LedgerProgress.AdvanceAsync(store, project.Name, LedgerProgress.FetchedId, pushed, cancellationToken);
         }
 
         List<OriginImport> imported = [];

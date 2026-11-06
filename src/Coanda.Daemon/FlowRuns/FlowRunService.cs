@@ -12,8 +12,10 @@ using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Modules;
+using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.SystemSteps;
+using Coanda.Daemon.Transport;
 using Fisher;
 using JasperFx;
 using JasperFx.Events;
@@ -46,6 +48,11 @@ namespace Coanda.Daemon.FlowRuns;
 /// (<see cref="Principal.Session"/>) records only on the flow run it is bound to, in that flow run's project,
 /// while that flow run, as the write fetched it, still expects its launch, and starts no flow run; every
 /// other principal, the runner's and the trigger loop's among them, passes that check untouched.
+/// Once events replicate, two more rules hold whoever asks, both read through the store: a start or a follow
+/// on a claimed parcel is refused unless this node holds it (<see cref="ClaimDecider.RequireMayStart"/>), and
+/// every write to a flow run another node started is refused naming that node, since its origin advances it
+/// (<see cref="ImportedEvents"/>). The daemon's own stop of a flow run this node started on a parcel another
+/// node's claim won is <see cref="YieldAsync"/>.
 /// </remarks>
 public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFlowRunAdvancer? advancer = null, GateSet? gates = null)
 {
@@ -69,6 +76,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         await using IDocumentSession session = store.LightweightSession(tenant);
         var parcelStream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parcelId, tenant);
+        ClaimDecider.RequireMayStart(parcel.Id, await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken));
         (FlowRunStarted decided, ParcelFlowRunAttached attached) =
             FlowRunDecider.Start(flow, published.VersionNumber, parcel, principal.Id, clock.GetUtcNow());
         FlowRunStarted started = EarlierRecords.Current(decided);
@@ -98,6 +106,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         FlowRun parent = await session.LoadAsync<FlowRun>(parentFlowRunId, cancellationToken) ?? throw FlowRunNotFound(parentFlowRunId, tenant);
         var parcelStream = await session.Events.FetchForWriting<Parcel>(parent.ParcelId, cancellationToken);
         Parcel parcel = parcelStream.Aggregate ?? throw ParcelNotFound(parent.ParcelId, tenant);
+        ClaimDecider.RequireMayStart(parcel.Id, await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken));
         (FlowRunStarted decided, ParcelFlowRunAttached attached) =
             FlowRunDecider.Follow(flow, published.VersionNumber, parcel, parent, principal.Id, clock.GetUtcNow());
         FlowRunStarted started = EarlierRecords.Current(decided);
@@ -296,6 +305,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 var flowRunStream = await session.Events.FetchForWriting<FlowRun>(flowRunId, token);
                 FlowRun flowRun = flowRunStream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
                 RequireBoundLaunch(principal, flowRun);
+                await RequireStartedHereAsync(session, flowRun, token);
                 Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
                 DateTimeOffset now = clock.GetUtcNow();
                 (FlowRunEnded ended, ParcelFlowRunReleased released) = FlowRunDecider.End(flow, flowRun, outcome, principal.Id, now);
@@ -332,9 +342,35 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     /// of it, so the module feed holds its delivery until then. It needs no flow, so a flow run whose flow
     /// is no longer held can still be stopped.
     /// </summary>
-    public async Task<FlowRun> StopAsync(Principal principal, string project, Guid flowRunId, string reason, CancellationToken cancellationToken)
+    public Task<FlowRun> StopAsync(Principal principal, string project, Guid flowRunId, string reason, CancellationToken cancellationToken) =>
+        StoppingAsync("flow-run.stop", principal, project, flowRunId, (_, _, _) => Task.FromResult(reason), cancellationToken);
+
+    /// <summary>
+    /// The daemon's stop of a live flow run this node started on a parcel another node's claim wins, as a stop
+    /// is, with a reason naming the winning node. It is refused while no other node's claim wins the parcel.
+    /// </summary>
+    public Task<FlowRun> YieldAsync(Principal principal, string project, Guid flowRunId, CancellationToken cancellationToken) =>
+        StoppingAsync(
+            "flow-run.yield", principal, project, flowRunId,
+            async (session, flowRun, token) =>
+            {
+                Parcel parcel = await session.LoadAsync<Parcel>(flowRun.ParcelId, token) ?? throw ParcelNotFound(flowRun.ParcelId, session.TenantId);
+                return await ParcelClaims.StandingAsync(store, session, parcel, token) is ClaimStanding.Lost lost
+                    ? $"Node {lost.Winner}'s claim on parcel {Ids.Short(parcel.Id)} wins, its ledger line having the lowest hash, so this node stops the flow run it started there."
+                    : throw new DomainException(
+                        $"Flow run {Ids.Short(flowRun.Id)} is stopped for a lost claim only when another node's claim wins parcel {Ids.Short(parcel.Id)}, and none does.");
+            },
+            cancellationToken);
+
+    private async Task<FlowRun> StoppingAsync(
+        string entry,
+        Principal principal,
+        string project,
+        Guid flowRunId,
+        Func<IDocumentSession, FlowRun, CancellationToken, Task<string>> reasonFor,
+        CancellationToken cancellationToken)
     {
-        CommandRegistry.Require("flow-run.stop", principal);
+        CommandRegistry.Require(entry, principal);
         string tenant = Tenants.RequireProject(project);
         RequireBoundFlowRun(principal, tenant, flowRunId);
 
@@ -346,6 +382,8 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 var flowRunStream = await session.Events.FetchForWriting<FlowRun>(flowRunId, token);
                 FlowRun flowRun = flowRunStream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
                 RequireBoundLaunch(principal, flowRun);
+                await RequireStartedHereAsync(session, flowRun, token);
+                string reason = await reasonFor(session, flowRun, token);
                 (FlowRunStopped recorded, ParcelFlowRunReleased released) = FlowRunDecider.Stop(flowRun, reason, principal.Id, clock.GetUtcNow());
                 flowRunStream.AppendOne(recorded);
                 await ReleaseAsync(session, flowRun, released, token);
@@ -444,6 +482,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 var stream = await session.Events.FetchForWriting<FlowRun>(flowRunId, token);
                 FlowRun flowRun = stream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
                 RequireBoundLaunch(principal, flowRun);
+                await RequireStartedHereAsync(session, flowRun, token);
                 Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
                 TEvent recorded = EarlierRecords.Current(decide(flow, flowRun));
                 stream.AppendOne(recorded);
@@ -491,6 +530,19 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         if (principal.Session is { } bound && !flowRun.ExpectsLaunch(bound.LaunchId))
         {
             throw new DomainException($"{BoundRule(bound)}; that launch has ended, so it records nothing more.");
+        }
+    }
+
+    /// <summary>
+    /// A node writes only to the flow runs it started: one whose start another node recorded is that node's to
+    /// advance, resume, pause, stop, or end, whoever asks here.
+    /// </summary>
+    private async Task RequireStartedHereAsync(IQuerySession session, FlowRun flowRun, CancellationToken cancellationToken)
+    {
+        if (await ImportedEvents.StartedElsewhereAsync(store, session, flowRun.Id, cancellationToken) is Guid origin)
+        {
+            throw new DomainException(
+                $"Flow run {Ids.Short(flowRun.Id)} was started by node {origin}; a node writes only to the flow runs it started, so this one is that node's to resume, pause, stop, end, or record on.");
         }
     }
 
