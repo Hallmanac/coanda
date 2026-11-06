@@ -167,7 +167,11 @@ The ledger export is on there too: within 15 seconds of a project's first event,
 `refs/coanda/nodes/<node-id>` in the project's clones and pushes it to each repo's remote, and a push
 that fails is logged as a warning every round. Register a scratch repository in that home rather than
 one whose pull requests other people watch, or add `"ledgerExport": false` to that `node.json` to keep
-the ledger ref off the remote.
+the ledger ref off the remote. The ledger import is on there as well: at start and every 15 seconds
+after, the daemon fetches the other nodes' ledger refs from each repo's remote, one fetch per clone
+every round, and a fetch that fails is logged as a warning every round. Turning the export off leaves
+the import on, so working offline, or against a remote you hold no credentials for, also takes
+`"ledgerImport": false` in that `node.json`.
 
 If you ran any build from before the stage and step names, its record does not carry over, and the
 daemon refuses to start on it, naming the file. Move the home aside (for example
