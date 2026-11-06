@@ -247,7 +247,10 @@ upgrades would change, a registration carrying any member of the registration fr
 fork base of a name and a store version. A flow whose content names a software step unprefixed is
 current, since content and its hash are never changed, and so is an `agent_step_spawned` with a null
 agent hash, model, or launch id, since those members are nullable for records written before they
-existed and have no value to upgrade to. The first line that fails a check, or that the store refuses,
+existed and have no value to upgrade to. A line whose data this build's type of it would not write back
+member for member, such as one holding a member a later build added, is refused too, since storing it
+would drop what this build does not know and leave the stored event different from its signed line. The
+first line that fails a check, or that the store refuses,
 stops its own origin at the line before it for that round, with the fault and the line's sequence
 reported; the project's other origins and the other projects go on, and the next round tries that origin
 again from the position held.
