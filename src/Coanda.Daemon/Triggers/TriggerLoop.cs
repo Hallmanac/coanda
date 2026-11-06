@@ -13,6 +13,7 @@ using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Transport;
 using Fisher;
 using JasperFx.Events;
 using JasperFx.Events.Documents;
@@ -58,6 +59,7 @@ public sealed class TriggerLoop(
     FlowService flows,
     TriggerService triggers,
     IFlowRunAdvancer advancer,
+    NodeIdentity identity,
     TimeProvider clock,
     ILogger<TriggerLoop> logger) : IHostedService, IDisposable
 {
@@ -171,7 +173,12 @@ public sealed class TriggerLoop(
         return true;
     }
 
-    /// <summary>The events in every project with a sequence in (<paramref name="from"/>, <paramref name="to"/>], in global sequence order. A project is a tenant, and a read is a tenant's.</summary>
+    /// <summary>
+    /// The events in every project with a sequence in (<paramref name="from"/>, <paramref name="to"/>], in global
+    /// sequence order, but those the import appended from another node's lines (<see cref="ImportedEvents"/>):
+    /// a peer's parcel move or flow run end is its own work, and starting a flow run on it here would run that
+    /// work twice. A project is a tenant, and a read is a tenant's.
+    /// </summary>
     private async Task<IReadOnlyList<IEvent>> ReadAsync(long from, long to, CancellationToken cancellationToken)
     {
         List<IEvent> page = [];
@@ -179,7 +186,8 @@ public sealed class TriggerLoop(
         {
             await using IQuerySession session = store.QuerySession(project);
             IReadOnlyList<IEvent> events = await session.Events.QueryEventsAsync(e => e.Sequence > from && e.Sequence <= to, cancellationToken);
-            page.AddRange(events);
+            IReadOnlySet<Guid> imported = await ImportedEvents.AmongAsync(session, identity.NodeId, [.. events.Select(e => e.Id)], cancellationToken);
+            page.AddRange(events.Where(e => !imported.Contains(e.Id)));
         }
 
         return [.. page.OrderBy(e => e.Sequence)];

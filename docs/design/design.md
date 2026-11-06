@@ -280,7 +280,13 @@ line, never signs an imported event as this node's. Lines already held are never
 arriving through two repos is stored once, and each project's import runs under one turn, so the loop and
 a command that must see its peers before it answers (which asks the import for one project at once and is
 told, for each origin, how many lines were stored, the sequence now held, and the fault that stopped it)
-never import the same lines twice. The daemon imports every 15 seconds.
+never import the same lines twice. The daemon imports every 15 seconds, unless the node configuration
+turns the import off.
+
+An imported event records its origin's work, not this node's. The trigger loop starts nothing on an event
+the import appended (a peer's parcel entering a bound stage, or a peer's flow run ending), and the advance
+at the daemon's start leaves alone a live flow run whose start was imported, so a peer's flow run is never
+run twice. An event is imported when its per-line record names an origin other than this node.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The

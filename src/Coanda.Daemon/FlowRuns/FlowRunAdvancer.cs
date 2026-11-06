@@ -13,8 +13,10 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
+using Coanda.Daemon.Transport;
 using Coanda.Sdk;
 using Fisher;
+using JasperFx.Events;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -75,6 +77,8 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// <summary>The principal that reads the node's live flow runs when the daemon starts.</summary>
     public static readonly Principal ScanPrincipal = new("coanda-runner", Role.Agent);
 
+    private readonly IDocumentStore store;
+    private readonly NodeIdentity identity;
     private readonly FlowRunService flowRuns;
     private readonly ProjectService projects;
     private readonly ParcelService parcels;
@@ -117,8 +121,11 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         FlowRunAdvancerOptions options,
         GateSet gates,
         FlowRunWorkers flowRunWorkers,
+        NodeIdentity identity,
         ILogger<FlowRunAdvancer> logger)
     {
+        this.store = store;
+        this.identity = identity;
         // A flow run's end closes its parcel when its flow says so, running the gates the daemon runs.
         flowRuns = new FlowRunService(store, clock, advancer: null, gates);
         this.projects = projects;
@@ -205,17 +212,59 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// First it stops every session the executor lists that no running flow run is waiting on, so no
     /// agent a daemon stop left behind runs on with nobody to collect it. A flow run waits on a session
     /// when its current agent step visit launched since it was last resumed, has no answer, and names
-    /// that session; its own advance reattaches it.
+    /// that session; its own advance reattaches it. A live flow run the import appended from another node's
+    /// lines is that node's to advance, and is left alone (<see cref="ImportedEvents"/>).
     /// </summary>
     public async Task AdvanceLiveAsync(CancellationToken cancellationToken)
     {
         await SweepSessionTokensAsync(cancellationToken);
-        IReadOnlyList<(string Project, Guid FlowRunId)> live = await flowRuns.ListLiveAsync(ScanPrincipal, cancellationToken);
+        IReadOnlyList<(string Project, Guid FlowRunId)> live = await StartedHereAsync(
+            await flowRuns.ListLiveAsync(ScanPrincipal, cancellationToken),
+            cancellationToken);
         await StopUnclaimedSessionsAsync(live, cancellationToken);
         foreach ((string project, Guid flowRunId) in live)
         {
             _ = RequestAdvance(project, flowRunId);
         }
+    }
+
+    /// <summary>The flow runs among <paramref name="live"/> whose start this node recorded, not one the import appended from a peer's lines.</summary>
+    private async Task<IReadOnlyList<(string Project, Guid FlowRunId)>> StartedHereAsync(IReadOnlyList<(string Project, Guid FlowRunId)> live, CancellationToken cancellationToken)
+    {
+        List<(string Project, Guid FlowRunId)> here = [];
+        foreach (IGrouping<string, (string Project, Guid FlowRunId)> project in live.GroupBy(l => l.Project, StringComparer.Ordinal))
+        {
+            await using IQuerySession session = store.QuerySession(project.Key);
+            Dictionary<Guid, (string Project, Guid FlowRunId)> starts = [];
+            foreach ((string Project, Guid FlowRunId) flowRun in project)
+            {
+                IReadOnlyList<IEvent> started = await session.Events.FetchStreamAsync(flowRun.FlowRunId, version: 1, token: cancellationToken);
+                if (started.Count == 0)
+                {
+                    here.Add(flowRun);
+                    continue;
+                }
+
+                starts[started[0].Id] = flowRun;
+            }
+
+            IReadOnlySet<Guid> imported = await ImportedEvents.AmongAsync(session, identity.NodeId, starts.Keys, cancellationToken);
+            foreach ((Guid start, (string Project, Guid FlowRunId) flowRun) in starts)
+            {
+                if (imported.Contains(start))
+                {
+                    logger.LogInformation(
+                        "Flow run {FlowRun} in project {Project} was started by another node and imported from its ledger, so this node does not advance it.",
+                        Ids.Short(flowRun.FlowRunId), flowRun.Project);
+                }
+                else
+                {
+                    here.Add(flowRun);
+                }
+            }
+        }
+
+        return here;
     }
 
     /// <summary>
