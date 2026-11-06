@@ -34,6 +34,7 @@ internal sealed class ModuleNode : IAsyncDisposable
     private static readonly Flow Dispatching = RunningSystemStep.FlowNamed();
 
     private readonly TemporaryHome temp;
+    private bool daemonClosed;
 
     private ModuleNode(TemporaryHome temp, RunningDaemon daemon, RunningSystemStep step)
     {
@@ -139,10 +140,22 @@ internal sealed class ModuleNode : IAsyncDisposable
 
     public static string NotOpen(string entry) => $"'{entry}' is not open to the Module role.";
 
-    public async ValueTask DisposeAsync()
+    /// <summary>Stops and disposes the node's daemon, keeping its home; the node's disposal then removes the home.</summary>
+    public async ValueTask CloseDaemonAsync()
     {
+        if (daemonClosed)
+        {
+            return;
+        }
+
+        daemonClosed = true;
         await Daemon.StopAsync(None);
         await Daemon.DisposeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await CloseDaemonAsync();
         temp.Dispose();
     }
 }

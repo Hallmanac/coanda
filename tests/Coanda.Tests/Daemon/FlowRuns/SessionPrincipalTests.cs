@@ -325,13 +325,12 @@ public sealed class SessionPrincipalTests
         Assert.Equal(flowRun.Id, storedAtSpawn?.FlowRunId);
         Assert.Equal(launch, storedAtSpawn?.LaunchId);
 
-        // Read once the daemon has stopped, so no write holds a lock on the files; a daemon stop keeps
-        // the binding. The hash is on disk, which shows these are the files the store writes; the
-        // plain token is not.
+        // Read once the daemon has stopped and let go of the store; a daemon stop keeps the binding. The
+        // hash is on disk, which shows these are the files the store writes; the plain token is not.
         await daemon.StopAsync(None);
         byte[] plain = Encoding.UTF8.GetBytes(access.Token);
         byte[] hash = Encoding.UTF8.GetBytes(HashOf(access.Token));
-        byte[][] files = [.. new[] { temp.Home.DatabasePath }.Concat(temp.Home.DatabaseCompanionPaths).Where(File.Exists).Select(ReadShared)];
+        byte[][] files = [.. (await StoreFiles.ReadOnceClosedAsync(temp.Home, daemon.DisposeAsync)).Select(file => file.Content)];
         Assert.True(files.Any(bytes => bytes.AsSpan().IndexOf(hash) >= 0), "the binding is stored by the token's hash");
         foreach (byte[] bytes in files)
         {
@@ -525,14 +524,6 @@ public sealed class SessionPrincipalTests
     }
 
     private static string HashOf(string token) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
-
-    private static byte[] ReadShared(string path)
-    {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var copy = new MemoryStream();
-        file.CopyTo(copy);
-        return copy.ToArray();
-    }
 
     private static ScriptedExecutor BuildScript(params ScriptEntry[] entries) =>
         new(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["build"] = entries });
