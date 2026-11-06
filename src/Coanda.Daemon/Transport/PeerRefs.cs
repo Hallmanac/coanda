@@ -111,7 +111,9 @@ internal sealed partial class PeerRefs(Git git, Guid nodeId)
                 while (start < bytes.Length)
                 {
                     int end = Array.IndexOf(bytes, (byte)'\n', start);
-                    int stop = end < 0 ? bytes.Length : end;
+                    int stop = end < 0
+                        ? bytes.Length
+                        : end;
                     lines.Add(new RefLine(bytes[start..stop], segment));
                     start = stop + 1;
                 }

@@ -445,7 +445,10 @@ public sealed class LedgerImportTests
             _ => throw new ArgumentOutOfRangeException(nameof(shape)),
         };
         Assert.NotEqual(drafted, earlier.Data);
-        peer.Add(earlier, shape.StartsWith("registration", StringComparison.Ordinal) ? peers.ProjectId : definition);
+        Guid stream = shape.StartsWith("registration", StringComparison.Ordinal)
+            ? peers.ProjectId
+            : definition;
+        peer.Add(earlier, stream);
         Fill(peer, 1);
         await peers.PushAsync(peers.Root, peer);
 
@@ -558,7 +561,9 @@ public sealed class LedgerImportTests
 
     /// <summary>A document as the store writes it, which is how a service reads it.</summary>
     private static string Read(LedgerNode node, object? document) =>
-        document is null ? "(none)" : node.Store.Options.Serializer.ToJson(document);
+        document is null
+            ? "(none)"
+            : node.Store.Options.Serializer.ToJson(document);
 
     private static ParcelCreated Created(out Guid parcel, string title = "Parcel")
     {
@@ -584,7 +589,10 @@ public sealed class LedgerImportTests
     {
         OriginImport origin = Of(report, chain);
         Assert.Equal((kind, (long?)at), (origin.Fault?.Kind, origin.Fault?.Sequence));
-        Assert.Equal((stored, held ?? (at > 1 ? at - 1 : null)), (origin.Stored, origin.Held));
+        long? before = at > 1
+            ? at - 1
+            : null;
+        Assert.Equal((stored, held ?? before), (origin.Stored, origin.Held));
     }
 
     /// <summary>

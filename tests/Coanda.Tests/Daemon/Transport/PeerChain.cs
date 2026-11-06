@@ -55,7 +55,9 @@ internal sealed class PeerChain(IDocumentStore store, Guid projectId, Guid origi
     /// </summary>
     public byte[] Add(StoredEvent stored, Guid? stream = null, Ed25519Key? signer = null, Guid? lineOrigin = null, Guid? lineProject = null)
     {
-        string? previous = lines.Count == 0 ? null : SignedLine.HashOf(lines[^1]);
+        string? previous = lines.Count == 0
+            ? null
+            : SignedLine.HashOf(lines[^1]);
         var content = new LineContent(
             lineProject ?? projectId, lineOrigin ?? origin, lines.Count + 1, previous, LineTag.ProjectWide, stream ?? Ids.New(), Ids.New(), Recorded, stored);
         byte[] line = SignedLine.Sign(content, signer ?? key);
