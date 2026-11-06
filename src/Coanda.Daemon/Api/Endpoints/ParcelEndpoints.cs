@@ -71,6 +71,13 @@ public static class ParcelEndpoints
             })
             .Produces<ParcelView>();
 
+        group.MapPost("/claim", async (HttpContext context, ParcelClaimant claimant, ParcelClaimRequest request, CancellationToken cancellationToken) =>
+            {
+                Principal principal = RequestPrincipal.PrincipalOf(context);
+                return Results.Ok(await claimant.ClaimAsync(principal, request.Project, request.ParcelId, cancellationToken));
+            })
+            .Produces<ParcelClaimResult>();
+
         group.MapPost("/set-field", async (HttpContext context, ParcelService parcels, ParcelSetFieldRequest request, CancellationToken cancellationToken) =>
             {
                 Principal principal = RequestPrincipal.PrincipalOf(context);

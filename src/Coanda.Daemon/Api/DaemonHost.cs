@@ -172,6 +172,8 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
         builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunAdvancer>());
         builder.Services.AddSingleton<FlowRunService>();
+        builder.Services.AddSingleton<LostClaims>();
+        builder.Services.AddSingleton<ParcelClaimant>();
         builder.Services.AddSingleton<TriggerService>();
         builder.Services.AddSingleton<TriggerLoop>();
 
@@ -264,6 +266,12 @@ public sealed class DaemonHost
             // address is advertised also keeps anything recorded through the API from landing below it.
             ModuleFeed feed = app.Services.GetRequiredService<ModuleFeed>();
             await feed.FixPositionsAsync(cancellationToken);
+
+            // A flow run on a parcel another node's claim already wins is stopped before anything is
+            // advanced, whether or not the import loop runs: the claim may have been stored by a daemon that
+            // stopped before its own import could stop the flow run. The stop lands past the feed positions
+            // fixed above, so the module is given it and removes the flow run's worktree.
+            await app.Services.GetRequiredService<LostClaims>().YieldAllAsync(cancellationToken);
 
             // Every live flow run that is not paused carries on from its current step.
             await app.Services.GetRequiredService<FlowRunAdvancer>().AdvanceLiveAsync(cancellationToken);

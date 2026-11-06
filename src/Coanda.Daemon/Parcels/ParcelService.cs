@@ -129,6 +129,32 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         return parcel;
     }
 
+    /// <summary>
+    /// Records a claim on the parcel naming <paramref name="nodeId"/>, this node, unless this node has already
+    /// claimed it, which records nothing and gives false. A closed parcel, and one where this node has seen
+    /// another node's claim and made none of its own, are refused (<see cref="ClaimDecider.Claim"/>).
+    /// </summary>
+    public async Task<(Parcel Parcel, bool Recorded)> ClaimAsync(Principal principal, string project, Guid parcelId, Guid nodeId, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("parcel.claim", principal);
+        string tenant = Tenants.RequireProject(project);
+
+        await using IDocumentSession session = store.LightweightSession(tenant);
+        var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
+        Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
+        IReadOnlyList<StoredClaim> stored = await ParcelClaims.StoredAsync(store, session, parcel, cancellationToken);
+        if (ClaimDecider.Claim(parcel, stored, nodeId, principal.Id, clock.GetUtcNow()) is not { } claimed)
+        {
+            return (parcel, false);
+        }
+
+        stream.AppendOne(claimed);
+        await SaveGuardedAsync(session, parcelId, cancellationToken);
+
+        parcel.Apply(claimed);
+        return (parcel, true);
+    }
+
     public async Task<IReadOnlyList<Parcel>> ListAsync(Principal principal, string project, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.list", principal);

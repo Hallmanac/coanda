@@ -36,6 +36,11 @@ namespace Coanda.Daemon.Triggers;
 /// A follow is not a stage entry: when several flows follow the same end, a parcel holds one live
 /// flow run at a time, so its followers start one after another, each on the release of the flow run
 /// before it.
+/// Once events replicate, the loop reads every event, imported ones too, and starts a flow run only where
+/// the parcel's claims let this node (<see cref="ClaimDecider.Triggers"/>), read as they stand when the loop
+/// handles the start: on a parcel this node holds, whichever node recorded the event; on an unclaimed parcel,
+/// only from an event this node recorded; on a parcel claimed and not held here, never. An external event
+/// another node recorded creates no parcel and starts nothing.
 /// </summary>
 /// <remarks>
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
@@ -156,11 +161,11 @@ public sealed class TriggerLoop(
         }
 
         long to = Math.Min(position + PageSize, head);
-        foreach (IEvent entry in await ReadAsync(position, to, cancellationToken))
+        foreach ((IEvent entry, bool own) in await ReadAsync(position, to, cancellationToken))
         {
             if (entry.Data is ParcelCreated or ParcelMoved or ParcelFlowRunReleased or FlowRunEnded or ExternalEventRecorded)
             {
-                await HandleAsync(entry, cancellationToken);
+                await HandleAsync(entry, own, cancellationToken);
                 await SavePositionAsync(entry.Sequence, cancellationToken);
             }
 
@@ -175,22 +180,21 @@ public sealed class TriggerLoop(
 
     /// <summary>
     /// The events in every project with a sequence in (<paramref name="from"/>, <paramref name="to"/>], in global
-    /// sequence order, but those the import appended from another node's lines (<see cref="ImportedEvents"/>):
-    /// a peer's parcel move or flow run end is its own work, and starting a flow run on it here would run that
-    /// work twice. A project is a tenant, and a read is a tenant's.
+    /// sequence order, each with whether this node recorded it rather than the import appending it from another
+    /// node's lines (<see cref="ImportedEvents"/>). A project is a tenant, and a read is a tenant's.
     /// </summary>
-    private async Task<IReadOnlyList<IEvent>> ReadAsync(long from, long to, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<(IEvent Entry, bool Own)>> ReadAsync(long from, long to, CancellationToken cancellationToken)
     {
-        List<IEvent> page = [];
+        List<(IEvent Entry, bool Own)> page = [];
         foreach (string project in await ProjectsAsync(cancellationToken))
         {
             await using IQuerySession session = store.QuerySession(project);
             IReadOnlyList<IEvent> events = await session.Events.QueryEventsAsync(e => e.Sequence > from && e.Sequence <= to, cancellationToken);
             IReadOnlySet<Guid> imported = await ImportedEvents.AmongAsync(session, identity.NodeId, [.. events.Select(e => e.Id)], cancellationToken);
-            page.AddRange(events.Where(e => !imported.Contains(e.Id)));
+            page.AddRange(events.Select(e => (e, !imported.Contains(e.Id))));
         }
 
-        return [.. page.OrderBy(e => e.Sequence)];
+        return [.. page.OrderBy(e => e.Entry.Sequence)];
     }
 
     /// <summary>Every project with a parcel or an external event: the only projects whose record the loop reads.</summary>
@@ -213,7 +217,7 @@ public sealed class TriggerLoop(
     /// Handles one entry. A refusal is logged with its rule; any other failure is logged too, and the
     /// entry is passed over rather than read again forever, so one bad entry never stops the loop.
     /// </summary>
-    private async Task HandleAsync(IEvent entry, CancellationToken cancellationToken)
+    private async Task HandleAsync(IEvent entry, bool own, CancellationToken cancellationToken)
     {
         try
         {
@@ -221,20 +225,25 @@ public sealed class TriggerLoop(
             {
                 case ParcelCreated created:
                     // A parcel being created has had no flow run yet, so nothing was live at this entry.
-                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.Stage, entry.Id, null, cancellationToken);
+                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.Stage, entry.Id, null, own, cancellationToken);
                     break;
                 case ParcelMoved moved:
-                    await MovedAsync(entry.TenantId, moved, entry, cancellationToken);
+                    await MovedAsync(entry.TenantId, moved, entry, own, cancellationToken);
                     break;
                 case ParcelFlowRunReleased released:
                     // A release starts the follows waiting on it and never a stage entry.
-                    await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, cancellationToken);
+                    await StartDeferredFollowsAsync(entry.TenantId, released.ParcelId, own, cancellationToken);
                     break;
                 case FlowRunEnded ended:
-                    await EndedAsync(entry.TenantId, ended, cancellationToken);
+                    await EndedAsync(entry.TenantId, ended, own, cancellationToken);
+                    break;
+                case ExternalEventRecorded external when own:
+                    await ExternalAsync(external, cancellationToken);
                     break;
                 case ExternalEventRecorded external:
-                    await ExternalAsync(external, cancellationToken);
+                    logger.LogInformation(
+                        "External event {Event} of kind '{Kind}' in project {Project} was recorded by another node, so it creates no parcel and starts nothing here.",
+                        Ids.Short(external.EventId), external.Kind, external.Project);
                     break;
             }
         }
@@ -257,12 +266,12 @@ public sealed class TriggerLoop(
     /// folded from its stream up to the move's version, so a flow run live then refuses the entry
     /// even if it has ended by the time the loop reads the move.
     /// </summary>
-    private async Task MovedAsync(string project, ParcelMoved moved, IEvent entry, CancellationToken cancellationToken)
+    private async Task MovedAsync(string project, ParcelMoved moved, IEvent entry, bool own, CancellationToken cancellationToken)
     {
         Parcel before = await parcels.ShowAtAsync(LoopPrincipal, project, moved.ParcelId, entry.Version - 1, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(moved.ParcelId)} in project '{project}'.");
 
-        await EnteredAsync(project, before.Id, before.TypeName, moved.ToStage, entry.Id, before.LiveFlowRunId, cancellationToken);
+        await EnteredAsync(project, before.Id, before.TypeName, moved.ToStage, entry.Id, before.LiveFlowRunId, own, cancellationToken);
     }
 
     /// <summary>
@@ -271,7 +280,8 @@ public sealed class TriggerLoop(
     /// refused with a rule naming that flow run; a start the flow run service refuses throws its rule.
     /// Either refusal reaches the loop's warning log, and nothing is kept to start it later.
     /// </summary>
-    private async Task EnteredAsync(string project, Guid parcelId, string typeName, string stage, Guid entryId, Guid? liveAtEntry, CancellationToken cancellationToken)
+    private async Task EnteredAsync(
+        string project, Guid parcelId, string typeName, string stage, Guid entryId, Guid? liveAtEntry, bool own, CancellationToken cancellationToken)
     {
         ParcelType? type = await parcels.ResolveTypeAsync(LoopPrincipal, project, typeName, cancellationToken);
         if (type is null)
@@ -281,7 +291,7 @@ public sealed class TriggerLoop(
 
         TriggerEvent entered = TriggerEvent.ParcelEntered(type.Name, stage);
         FlowBinding? binding = type.FlowBindings.FirstOrDefault(b => Trigger.ForBinding(type, b).Matches(entered));
-        if (binding is null)
+        if (binding is null || !await TriggersAsync(project, parcelId, own, $"its entry into '{stage}'", cancellationToken))
         {
             return;
         }
@@ -302,6 +312,40 @@ public sealed class TriggerLoop(
         await StartAsync(principal, project, parcelId, binding.Flow, $"binding {type.Name}/{binding.Stage}", cancellationToken);
     }
 
+    /// <summary>
+    /// Whether the parcel's claims, as they stand now, let this node start a flow run for an event it recorded when
+    /// <paramref name="own"/> (<see cref="ClaimDecider.Triggers"/>); when they do not, says so in the log, naming
+    /// <paramref name="cause"/>, the event the start would have answered.
+    /// </summary>
+    private async Task<bool> TriggersAsync(string project, Guid parcelId, bool own, string cause, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        Parcel? parcel = await session.LoadAsync<Parcel>(parcelId, cancellationToken);
+        if (parcel is null)
+        {
+            // The start that follows says there is no such parcel.
+            return true;
+        }
+
+        ClaimStanding standing = await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken);
+        if (ClaimDecider.Triggers(standing, own))
+        {
+            return true;
+        }
+
+        string why = standing switch
+        {
+            ClaimStanding.Unclaimed => "the parcel is unclaimed and another node recorded the event",
+            ClaimStanding.Lost lost => $"node {lost.Winner}'s claim wins the parcel",
+            ClaimStanding.NotYetHeld pending => $"this node's claim on it is not yet held: {pending.Reason}",
+            _ => "this node does not hold the parcel",
+        };
+        logger.LogInformation(
+            "Parcel {Parcel} in project {Project} starts nothing here for {Cause}, since {Why}.",
+            Ids.Short(parcelId), project, cause, why);
+        return false;
+    }
+
     private async Task<bool> HasLiveFlowRunAsync(string project, Guid parcelId, CancellationToken cancellationToken)
     {
         Parcel? parcel = await parcels.ShowAsync(LoopPrincipal, project, parcelId, cancellationToken);
@@ -317,12 +361,17 @@ public sealed class TriggerLoop(
     /// parcel, and no follow starts on a closed parcel. Each refusal is logged and the other
     /// followers still start.
     /// </summary>
-    private async Task EndedAsync(string project, FlowRunEnded ended, CancellationToken cancellationToken)
+    private async Task EndedAsync(string project, FlowRunEnded ended, bool own, CancellationToken cancellationToken)
     {
         FlowRun parent = await flowRuns.ShowAsync(LoopPrincipal, project, ended.FlowRunId, cancellationToken)
             ?? throw new DomainException($"No flow run {Ids.Short(ended.FlowRunId)} in project '{project}'.");
         Parcel parcel = await parcels.ShowAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(parent.ParcelId)} in project '{project}'.");
+        if (!await TriggersAsync(project, parcel.Id, own, $"the end of flow run {Ids.Short(parent.Id)}", cancellationToken))
+        {
+            return;
+        }
+
         TriggerEvent candidate = TriggerEvent.FlowRunEnded(parent.FlowName, ended.Outcome, parcel.TypeName);
 
         IReadOnlyList<Definition> published = await flows.ListAsync(LoopPrincipal, project, cancellationToken);
@@ -420,7 +469,7 @@ public sealed class TriggerLoop(
     /// again, which the first one started makes the next do. A follow leaves the list once it has
     /// started, was already started, or was refused.
     /// </summary>
-    private async Task StartDeferredFollowsAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    private async Task StartDeferredFollowsAsync(string project, Guid parcelId, bool own, CancellationToken cancellationToken)
     {
         DeferredFollows? deferred;
         await using (IQuerySession session = store.QuerySession(project))
@@ -428,7 +477,7 @@ public sealed class TriggerLoop(
             deferred = await session.LoadAsync<DeferredFollows>(parcelId, cancellationToken);
         }
 
-        if (deferred is null)
+        if (deferred is null || !await TriggersAsync(project, parcelId, own, "a release of its live flow run", cancellationToken))
         {
             return;
         }

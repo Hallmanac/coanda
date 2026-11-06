@@ -5,6 +5,8 @@ using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon;
+using Coanda.Daemon.FlowRuns;
+using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Transport;
 using Coanda.Sdk.Commands;
@@ -33,13 +35,19 @@ internal sealed class LedgerNode : IAsyncDisposable
 
     private readonly TemporaryHome temp;
 
+    private bool storeClosed;
+
     private LedgerNode(TemporaryHome temp, IDocumentStore store, NodeIdentity identity)
     {
         this.temp = temp;
         Store = store;
         Identity = identity;
         Export = ExportAs(identity);
-        Import = new LedgerImport(store, temp.Home, identity, ImportGit, TimeProvider.System, new Logger<LedgerImport>(new LoggerFactory([Logs])));
+        var loggers = new LoggerFactory([Logs]);
+        LostClaims = new LostClaims(store, new FlowRunService(store, TimeProvider.System), new Logger<LostClaims>(loggers));
+        Import = new LedgerImport(store, temp.Home, identity, ImportGit, TimeProvider.System, new Logger<LedgerImport>(loggers), LostClaims);
+        ImportWithoutYield = new LedgerImport(store, temp.Home, identity, ImportGit, TimeProvider.System, new Logger<LedgerImport>(loggers));
+        Claimant = new ParcelClaimant(store, new ParcelService(store, TimeProvider.System), Export, Import, identity);
     }
 
     public NodeHome Home => temp.Home;
@@ -51,6 +59,15 @@ internal sealed class LedgerNode : IAsyncDisposable
     public LedgerExport Export { get; }
 
     public LedgerImport Import { get; }
+
+    /// <summary>An import that stops none of this node's flow runs on a lost parcel, standing in for a daemon that stopped between storing a winning claim and its stop.</summary>
+    public LedgerImport ImportWithoutYield { get; }
+
+    /// <summary>The stop of this node's flow runs on parcels another node's claim wins, which <see cref="Import"/> asks after each round.</summary>
+    public LostClaims LostClaims { get; }
+
+    /// <summary>The claim command's side of this node, publishing through <see cref="Export"/> and fetching through <see cref="Import"/>.</summary>
+    public ParcelClaimant Claimant { get; }
 
     public RecordingLogger Logs { get; } = new();
 
@@ -237,13 +254,24 @@ internal sealed class LedgerNode : IAsyncDisposable
     public async Task<IReadOnlyList<SignedLine>> ParsedAsync(string gitDirectory) =>
         [.. (await LinesAsync(gitDirectory)).Select(line => SignedLine.Parse(line, out string? fault) ?? throw new InvalidOperationException($"A line does not parse: {fault}"))];
 
+    /// <summary>Closes this node's store, so a daemon can be started on its home; nothing else of the node is used after.</summary>
+    public async Task CloseStoreAsync()
+    {
+        if (!storeClosed)
+        {
+            storeClosed = true;
+            await Store.DisposeAsync();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await Export.StopAsync(None);
         Export.Dispose();
         await Import.StopAsync(None);
         Import.Dispose();
-        await Store.DisposeAsync();
+        ImportWithoutYield.Dispose();
+        await CloseStoreAsync();
         Writable(new DirectoryInfo(Home.Path));
         temp.Dispose();
     }

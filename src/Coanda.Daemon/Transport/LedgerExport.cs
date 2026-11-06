@@ -276,9 +276,16 @@ public sealed class LedgerExport(
                     return segments;
                 }
 
+                bool pushedEvery = project.Repos.Count > 0;
                 foreach (ProjectRepo repo in project.Repos)
                 {
-                    await WriteAndPushAsync(project, repo, last.Hash, SegmentsFromAsync, failures, cancellationToken);
+                    pushedEvery &= await WriteAndPushAsync(project, repo, last.Hash, SegmentsFromAsync, failures, cancellationToken);
+                }
+
+                // What a claim needs before its node holds the parcel: a push carrying its line to every clone.
+                if (pushedEvery)
+                {
+                    await LedgerProgress.AdvanceAsync(store, project.Name, LedgerProgress.PushedId, last.Sequence, cancellationToken);
                 }
             }
         }
@@ -291,7 +298,8 @@ public sealed class LedgerExport(
         return new LedgerPublication(project.Name, written, failures);
     }
 
-    private async Task WriteAndPushAsync(
+    /// <summary>Writes and pushes the project's chain in one clone; true when the remote holds it after.</summary>
+    private async Task<bool> WriteAndPushAsync(
         Project project,
         ProjectRepo repo,
         string lastHash,
@@ -305,18 +313,20 @@ public sealed class LedgerExport(
             string missing = $"Repo '{repo.Name}' of project '{project.Name}' has no clone {(clone is null ? "under the node home, since the project's name is not a plain directory name" : $"at {clone}; the next start makes it")}, so its ledger is not written there.";
             logger.LogWarning("{Reason}", missing);
             failures.Add(missing);
-            return;
+            return false;
         }
 
         try
         {
             await refs.WriteAndPushAsync(clone, lastHash, segmentsFrom, cancellationToken);
+            return true;
         }
         catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
         {
             string reason = $"The ledger of project '{project.Name}' was not written to or pushed from repo '{repo.Name}': {failure.Message}";
             logger.LogWarning("{Reason} The next round tries again.", reason);
             failures.Add(reason);
+            return false;
         }
     }
 

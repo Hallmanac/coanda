@@ -87,6 +87,7 @@ app.Configure(config =>
             .WithExample("parcel", "set", "0192a3b4", "objective", "--text", "\"Teach the daemon fields\"")
             .WithExample("parcel", "set", "0192a3b4", "criteria", "--item", "\"It builds\"", "--item", "\"It tests\"")
             .WithExample("parcel", "set", "0192a3b4", "pull-request", "--ref", "42", "--url", "https://github.com/o/r/pull/42");
+        parcel.AddCommand<ParcelClaimCommand>("claim").WithDescription("Claim a parcel for this node, publish its ledger, and fetch its peers'.").WithExample("parcel", "claim", "0192a3b4");
         parcel.AddCommand<ParcelCloseCommand>("close").WithDescription("Close a parcel with a resolution and a reason.").WithExample("parcel", "close", "0192a3b4", "-r", "completed", "--reason", "\"Merged\"");
     });
 
