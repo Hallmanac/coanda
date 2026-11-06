@@ -4,6 +4,7 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Transport;
 using Coanda.Sdk.Contract;
 using Fisher;
 using JasperFx.Events;
@@ -45,12 +46,18 @@ namespace Coanda.Daemon.Modules;
 /// skipped with a log line, and one the module fails, or that does not meet the module API's feed
 /// delivery schema, is logged and passed over; neither stops that module's feed or another's.
 /// </para>
+/// <para>
+/// A flow run's ended or stopped event that another node recorded, which the import appended from its lines
+/// (<see cref="ImportedEvents"/>), is not delivered: what that flow run left behind is on its own node, and a
+/// module here acting on it would tidy away what belongs to the flow runs of this node.
+/// </para>
 /// </remarks>
 public sealed class ModuleFeed(
     IDocumentStore store,
     HostedModules modules,
     FlowRunWorkers workers,
     ModuleSettingsService settings,
+    NodeIdentity identity,
     TimeProvider clock,
     ILogger<ModuleFeed> logger) : IHostedService, IDisposable
 {
@@ -202,7 +209,8 @@ public sealed class ModuleFeed(
 
     /// <summary>
     /// The events with a sequence in (<paramref name="from"/>, <paramref name="to"/>] in every project
-    /// <paramref name="module"/> is switched on for, in global sequence order. A project is a tenant, and a read is a tenant's.
+    /// <paramref name="module"/> is switched on for, in global sequence order, but another node's flow run ends
+    /// and stops. A project is a tenant, and a read is a tenant's.
     /// </summary>
     private async Task<IReadOnlyList<IEvent>> ReadAsync(string module, long from, long to, CancellationToken cancellationToken)
     {
@@ -216,7 +224,10 @@ public sealed class ModuleFeed(
         foreach (Project project in projects.Where(p => p.IsSwitchedOn(module)))
         {
             await using IQuerySession session = store.QuerySession(project.Name);
-            page.AddRange(await session.Events.QueryEventsAsync(e => e.Sequence > from && e.Sequence <= to, cancellationToken));
+            IReadOnlyList<IEvent> events = await session.Events.QueryEventsAsync(e => e.Sequence > from && e.Sequence <= to, cancellationToken);
+            IReadOnlySet<Guid> imported = await ImportedEvents.AmongAsync(
+                session, identity.NodeId, [.. events.Where(e => e.Data is FlowRunEnded or FlowRunStopped).Select(e => e.Id)], cancellationToken);
+            page.AddRange(events.Where(e => !imported.Contains(e.Id)));
         }
 
         return [.. page.OrderBy(e => e.Sequence)];
