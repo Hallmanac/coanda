@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -413,33 +414,73 @@ public sealed class LedgerImport(
     /// own lines, and the fault of the first line left out, if any. A run's own records are what admit the
     /// root's chain, whose lines before its root record are signed by the key that record names; the trust
     /// function counts a record only when its signer may sign for its origin, so no run admits itself but by a
-    /// root record of the trusted key or by records that key's trust reaches. Each line left out is a line not
-    /// stored, so its record is weighed no more.
+    /// root record of the trusted key or by records that key's trust reaches. A record can withdraw trust as
+    /// well as grant it (a conflicting vouch, a revocation, a member's removal), so a run is never judged by
+    /// the records of lines after it: an identity event in a line that is not stored never counts.
     /// </summary>
+    /// <remarks>
+    /// A run's own records change only at a line that carries one, so the runs holding the first
+    /// <c>k</c> of the candidates' records share one verdict. From the most records down, the first <c>k</c>
+    /// whose verdict admits every line through the <c>k</c>-th record's line gives the longest run: it reaches
+    /// as far as that verdict admits lines before the next record's line, and every longer run holds more
+    /// records, which a larger <c>k</c> has already refused.
+    /// </remarks>
     private static (List<Pending> Admitted, ImportFault? Fault) Admit(string root, Guid origin, IReadOnlyList<IdentityRecord> held, List<Pending> candidates)
     {
-        List<Pending> admitted = candidates;
-        ImportFault? fault = null;
-        while (true)
+        int[] recordLines = [.. Enumerable.Range(0, candidates.Count).Where(i => candidates[i].Record is not null)];
+        (int Line, SigningAnswer Answer)? refusedWithMore = null;
+        for (int k = recordLines.Length; k >= 0; k--)
         {
-            IdentityVerdict verdict = IdentityTrust.Evaluate(root, [.. held, .. admitted.Select(p => p.Record).OfType<IdentityRecord>()]);
-            var answers = new Dictionary<string, SigningAnswer>(StringComparer.Ordinal);
-            SigningAnswer AnswerFor(string signer) =>
-                answers.TryGetValue(signer, out SigningAnswer? known) ? known : answers[signer] = verdict.MaySign(signer, origin);
+            Func<string, SigningAnswer> answerFor = AnswersOf(
+                IdentityTrust.Evaluate(root, [.. held, .. recordLines.Take(k).Select(i => candidates[i].Record).OfType<IdentityRecord>()]),
+                origin);
 
-            int refusedAt = admitted.FindIndex(p => !AnswerFor(p.Line.Signer).MaySign);
-            if (refusedAt < 0)
+            // A run holding exactly these k records holds every line through the k-th record's line, and stops before the next's.
+            int through = k == 0
+                ? 0
+                : recordLines[k - 1] + 1;
+            int next = k == recordLines.Length
+                ? candidates.Count
+                : recordLines[k];
+            int refused = candidates.FindIndex(0, through, p => !answerFor(p.Line.Signer).MaySign);
+            if (refused >= 0)
             {
-                return (admitted, fault);
+                refusedWithMore = (refused, answerFor(candidates[refused].Line.Signer));
+                continue;
             }
 
-            SignedLine line = admitted[refusedAt].Line;
-            fault = new ImportFault(
-                line.Content.Sequence,
-                ImportFaultKind.UntrustedSigner,
-                $"Line {line.Content.Sequence} is signed by {line.Signer}, which may not sign for origin {origin}: {Describe(AnswerFor(line.Signer).Refusal)}.");
-            admitted = admitted.GetRange(0, refusedAt);
+            int end = through;
+            while (end < next && answerFor(candidates[end].Line.Signer).MaySign)
+            {
+                end++;
+            }
+
+            if (end == candidates.Count)
+            {
+                return (candidates, null);
+            }
+
+            SignedLine left = candidates[end].Line;
+            (int Line, SigningAnswer Answer) cause = end < next || refusedWithMore is not { } withMore
+                ? (end, answerFor(left.Signer))
+                : withMore;
+            SignedLine refusedLine = candidates[cause.Line].Line;
+            string reason = cause.Line == end
+                ? $"Line {left.Content.Sequence} is signed by {left.Signer}, which may not sign for origin {origin}: {Describe(cause.Answer.Refusal)}."
+                : $"Line {left.Content.Sequence}'s identity event would leave line {refusedLine.Content.Sequence}, signed by {refusedLine.Signer}, unable to sign for origin {origin}: {Describe(cause.Answer.Refusal)}.";
+            return (candidates.GetRange(0, end), new ImportFault(left.Content.Sequence, ImportFaultKind.UntrustedSigner, reason));
         }
+
+        throw new UnreachableException("A run of no records is always judged, and admits at least the empty run.");
+    }
+
+    /// <summary>Whether each signer may sign for <paramref name="origin"/> by <paramref name="verdict"/>, asked once per signer.</summary>
+    private static Func<string, SigningAnswer> AnswersOf(IdentityVerdict verdict, Guid origin)
+    {
+        var answers = new Dictionary<string, SigningAnswer>(StringComparer.Ordinal);
+        return signer => answers.TryGetValue(signer, out SigningAnswer? known)
+            ? known
+            : answers[signer] = verdict.MaySign(signer, origin);
     }
 
     /// <summary>

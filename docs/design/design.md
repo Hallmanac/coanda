@@ -258,8 +258,10 @@ trust function's records are the identity events of every line this node holds a
 origins' lines stored before or in the same round, and this node's own lines once its export has written
 them, pushed or not. An origin's verified lines are admitted together with the identity records of the
 admitted lines themselves, which is how the root's chain, whose lines before its root record are signed by
-the key that record names, is admitted; a run is cut back at its first line its records do not admit, and
-saves end only where the lines through them are admitted by what is stored, so no line is stored on a
+the key that record names, is admitted. A record can withdraw trust as well as grant it, so a run is never
+judged by the records of lines after it, which may not be stored: the run admitted is the longest whose
+every line its own records and the stored ones admit, and an identity event in a line that is not stored
+never counts. Saves end only where the lines through them are admitted by what is stored, so no line is stored on a
 record that is not. Because a vouch in one origin's lines can admit another origin, a round reads the
 origins that stopped again while any origin stores a line, so the order the refs are read in does not
 decide what is stored. Trust is weighed as a line is stored: an event already stored stays stored when its

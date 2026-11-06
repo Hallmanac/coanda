@@ -274,6 +274,24 @@ public sealed class LedgerImportTests
     }
 
     [Fact]
+    public async Task An_identity_event_in_a_line_not_stored_withdraws_no_trust_from_the_lines_before_it()
+    {
+        await using Peers peers = await Peers.StartAsync();
+        PeerChain peer = peers.Vouched();
+        Fill(peer, 1);
+        // A vouch pairing another node id with the origin's own key leaves the key signing for neither.
+        peer.Add(new NodeVouched(Ids.New(), peer.Key.PublicKey, At));
+        Fill(peer, 1);
+        await peers.PushAsync(peers.Root, peer);
+
+        LedgerImportReport report = await peers.Node.Import.ImportAsync(Alpha, None);
+
+        AssertStopped(report, peer, ImportFaultKind.UntrustedSigner, at: 2, stored: 1);
+        Assert.Contains("Line 2 is signed by", Of(report, peer).Fault?.Reason, StringComparison.Ordinal);
+        Assert.Equal([1L], (await peers.Node.RecordsAsync(Alpha)).Where(r => r.Origin == peer.Origin).Select(r => r.Sequence));
+    }
+
+    [Fact]
     public async Task A_line_the_store_refuses_stops_its_origin_with_the_stores_reason()
     {
         await using Peers peers = await Peers.StartAsync();
