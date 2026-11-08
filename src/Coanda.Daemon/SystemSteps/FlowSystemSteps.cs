@@ -18,7 +18,7 @@ namespace Coanda.Daemon.SystemSteps;
 /// every other step is a module's, named <c>&lt;module&gt;/&lt;step&gt;</c>, and is dispatched through
 /// that module's host adapter when the module is switched on for the flow run's project and describes
 /// the step. A flow run that started under an earlier flow version naming one of the five software steps
-/// unprefixed dispatches that step to the software module (<see cref="EarlierRecords.CurrentStepName"/>). A step no
+/// unprefixed dispatches that step to the software module (<see cref="UnprefixedSoftwareSteps.CurrentName"/>). A step no
 /// switched-on module provides pauses naming it, a done result its step's result schema refuses pauses
 /// as a step that threw does, and a missing or ill-kinded argument of a core step pauses.
 /// </summary>
@@ -107,7 +107,7 @@ public sealed class FlowSystemSteps
             return [];
         }
 
-        string canonical = EarlierRecords.CurrentStepName(name);
+        string canonical = UnprefixedSoftwareSteps.CurrentName(name);
         return ModuleNames.PrefixOf(canonical) is { } module
             ? modules.ArgumentComplaintsOf(module, canonical, arguments)
             : [];
@@ -190,7 +190,7 @@ public sealed class FlowSystemSteps
             return;
         }
 
-        string step = EarlierRecords.CurrentStepName(name);
+        string step = UnprefixedSoftwareSteps.CurrentName(name);
         if (ModuleNames.PrefixOf(step) is { } module && modules.Provides(module, step) && modules.AdapterOf(module) is { } adapter)
         {
             await adapter.StopAsync(new StopRequest(dispatchId), cancellationToken);
@@ -205,7 +205,7 @@ public sealed class FlowSystemSteps
     private async Task<(ModuleHostAdapter? Adapter, string? Unprovided)> ResolveAsync(
         string project, string step, string name, CancellationToken cancellationToken)
     {
-        string canonical = EarlierRecords.CurrentStepName(name);
+        string canonical = UnprefixedSoftwareSteps.CurrentName(name);
         string unprovided = $"Step '{step}' names the system step '{name}', which no module switched on for project '{project}' provides";
         if (ModuleNames.PrefixOf(canonical) is not { } module)
         {
@@ -231,11 +231,11 @@ public sealed class FlowSystemSteps
     /// <summary>
     /// A module's done result as the flow run records it, once it meets its step's result schema, or the
     /// pause a step that threw gets when it does not. An earlier flow version's open-pr step may route on
-    /// a verdict open-pr no longer answers (<see cref="EarlierRecords.OpenPrResult"/>).
+    /// a verdict open-pr no longer answers (<see cref="UnprefixedSoftwareSteps.OpenPrResult"/>).
     /// </summary>
     private SystemStepAnswer Done(FlowStep step, string name, StepResult result)
     {
-        string canonical = EarlierRecords.CurrentStepName(name);
+        string canonical = UnprefixedSoftwareSteps.CurrentName(name);
         string module = ModuleNames.PrefixOf(canonical) ?? string.Empty;
         JsonElement document = JsonSerializer.SerializeToElement(result, ModuleJson.Options);
         IReadOnlyList<string> refusals = modules.RefusalsOf(module, canonical, document);
@@ -246,7 +246,7 @@ public sealed class FlowSystemSteps
                 FlowRunLevers.PerformAgain(step.Name));
         }
 
-        StepResult recorded = EarlierRecords.OpenPrResult(step, result);
+        StepResult recorded = UnprefixedSoftwareSteps.OpenPrResult(step, result);
         return ReferenceEquals(recorded, result)
             ? new SystemStepAnswer.Done(document)
             : new SystemStepAnswer.Done(JsonSerializer.SerializeToElement(recorded, ModuleJson.Options));

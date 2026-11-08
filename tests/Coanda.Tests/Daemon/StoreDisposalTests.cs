@@ -36,7 +36,7 @@ public sealed class StoreDisposalTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         using FinalizerHold hold = FinalizerHold.Begin();
         await using (RunningDaemon daemon = await Daemons.StartAsync(home, None))
         {
@@ -53,7 +53,7 @@ public sealed class StoreDisposalTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         using FinalizerHold hold = FinalizerHold.Begin();
         await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
         {

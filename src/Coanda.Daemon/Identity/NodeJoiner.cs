@@ -266,10 +266,10 @@ public sealed class NodeJoiner(
                 $"The join was refused: the chain of node {origin} does not verify, signed by the root key, through its root record (line {rootLine.Content.Sequence}) and the project's registration (line {registrationLine.Content.Sequence}): {why}.");
         }
 
-        if (!registration.ReposRecorded.Any(r => string.Equals(r.Remote, remote, StringComparison.Ordinal)))
+        if (!(registration.Repos ?? []).Any(r => string.Equals(r.Remote, remote, StringComparison.Ordinal)))
         {
             throw new DomainException(
-                $"The join was refused: {remote} is not exactly the remote of any repo of project '{registration.Name}', whose repos are {string.Join(", ", registration.ReposRecorded.Select(r => $"{r.Name} ({r.Remote})"))}; join with the remote exactly as its registration records it, which the owner's coa project show prints.");
+                $"The join was refused: {remote} is not exactly the remote of any repo of project '{registration.Name}', whose repos are {string.Join(", ", (registration.Repos ?? []).Select(r => $"{r.Name} ({r.Remote})"))}; join with the remote exactly as its registration records it, which the owner's coa project show prints.");
         }
 
         return (Project.Create(registration), rootRecord.Key);

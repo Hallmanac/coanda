@@ -142,10 +142,10 @@ public sealed class DefinitionStoreTests
                 Principal.LocalOwner, scope, project, QaTask, build, CancellationToken.None));
         Assert.StartsWith("The fork base 'build' of module 'software'", exception2.Message, StringComparison.Ordinal);
 
-        // The earlier shape, a name and a store-given version number, is never drafted.
+        // A fork base lacking a module, a module version, or a content hash is never drafted.
         DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
-                Principal.LocalOwner, scope, project, QaTask, ForkBase.Earlier("task", 1), CancellationToken.None));
-        Assert.Contains("records no version number a store gave it", exception3.Message, StringComparison.Ordinal);
+                Principal.LocalOwner, scope, project, QaTask, new ForkBase("task", null, null, null), CancellationToken.None));
+        Assert.Contains("'task' has an invalid one", exception3.Message, StringComparison.Ordinal);
     }
 
     [Fact]

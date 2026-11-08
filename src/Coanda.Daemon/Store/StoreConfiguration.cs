@@ -46,8 +46,6 @@ public static class StoreConfiguration
         {
             snapshot.Register(options);
         }
-
-        EarlierRecords.Configure(options);
     }
 
     /// <summary>The connection string every connection the store opens over <paramref name="databasePath"/> is opened with.</summary>

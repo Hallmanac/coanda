@@ -113,6 +113,5 @@ public sealed class ForkBaseResolutionTests
         await using IQuerySession alpha = reopened.QuerySession("alpha");
         Definition? read = await alpha.LoadAsync<Definition>(fork.Id, None);
         Assert.Equal(new ForkBase("task", "software", "0.1.0", SoftwareTypes.Task.Hash), read?.ForkBase);
-        Assert.Null(read?.ForkBase?.Version);
     }
 }

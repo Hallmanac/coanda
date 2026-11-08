@@ -79,7 +79,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         ClaimDecider.RequireMayStart(parcel.Id, await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken));
         (FlowRunStarted decided, ParcelFlowRunAttached attached) =
             FlowRunDecider.Start(flow, published.VersionNumber, parcel, principal.Id, clock.GetUtcNow());
-        FlowRunStarted started = EarlierRecords.Current(decided);
+        FlowRunStarted started = UnprefixedSoftwareSteps.Current(decided);
         parcelStream.AppendOne(attached);
         session.Events.StartStream<FlowRun>(started.FlowRunId, started);
         await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
@@ -109,7 +109,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         ClaimDecider.RequireMayStart(parcel.Id, await ParcelClaims.StandingAsync(store, session, parcel, cancellationToken));
         (FlowRunStarted decided, ParcelFlowRunAttached attached) =
             FlowRunDecider.Follow(flow, published.VersionNumber, parcel, parent, principal.Id, clock.GetUtcNow());
-        FlowRunStarted started = EarlierRecords.Current(decided);
+        FlowRunStarted started = UnprefixedSoftwareSteps.Current(decided);
         parcelStream.AppendOne(attached);
         session.Events.StartStream<FlowRun>(started.FlowRunId, started);
         await SaveGuardedAsync(session, ParcelChanged(parcel.Id), cancellationToken);
@@ -187,13 +187,13 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     /// <summary>
     /// Records the result <paramref name="systemStep"/> returned for the step <paramref name="step"/>; one of
     /// the five steps an earlier flow version names unprefixed is recorded by its prefixed name
-    /// (<see cref="EarlierRecords.CurrentStepName"/>), as the visit reads it.
+    /// (<see cref="UnprefixedSoftwareSteps.CurrentName"/>), as the visit reads it.
     /// </summary>
     public Task<FlowRun> RecordResultAsync(
         Principal principal, string project, Guid flowRunId, string step, string systemStep, JsonElement result, CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.result", principal, project, flowRunId,
-            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, EarlierRecords.CurrentStepName(systemStep), result, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Complete(flow, flowRun, step, UnprefixedSoftwareSteps.CurrentName(systemStep), result, clock.GetUtcNow()),
             (flowRun, completed) => flowRun.Apply(completed),
             cancellationToken);
 
@@ -484,7 +484,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
                 RequireBoundLaunch(principal, flowRun);
                 await RequireStartedHereAsync(session, flowRun, token);
                 Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
-                TEvent recorded = EarlierRecords.Current(decide(flow, flowRun));
+                TEvent recorded = UnprefixedSoftwareSteps.Current(decide(flow, flowRun));
                 stream.AppendOne(recorded);
                 await session.SaveChangesAsync(token);
 

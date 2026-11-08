@@ -1,13 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core;
-using Coanda.Core.Definitions;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
 using Fisher;
-using JasperFx.Events.Documents;
 using Microsoft.Data.Sqlite;
 
 namespace Coanda.Daemon.Store;
@@ -15,14 +13,13 @@ namespace Coanda.Daemon.Store;
 /// <summary>
 /// Writes a full export of a node's record (<see cref="RecordExportFile"/>) to an owner-only file under
 /// its home, holding the home's lock throughout, so it never runs beside a daemon, even one still
-/// starting. Before it reads the record it opens the store as a start would, applying this build's
-/// schema, and carries an earlier project record into the software module's settings
-/// (<see cref="EarlierProjectRecords"/>), since the export writes the registration without them. Every
-/// event is written in its current shape (<see cref="EarlierRecords.Exported"/>), and every document
-/// other than an inline snapshot as it is stored, a deferred follow in its current shape and each loop
-/// position, each held-back entry's event sequence, and each ledger line's store sequence, renumbered to the export's sequences: a position names
-/// the same event it named, or, when that event is left out, the last exported event before it. Nothing is pushed, and nothing is written
-/// to any clone or remote.
+/// starting. It refuses a record holding an event in a shape an earlier build wrote
+/// (<see cref="EarlierShapes"/>), as a start does, so every event it writes is as the record holds it,
+/// in its current shape. Before it reads the record it opens the store as a start would, applying this
+/// build's schema. Every document other than an inline snapshot is written as it is stored, but each loop
+/// position, each held-back entry's event sequence, and each ledger line's store sequence, which are
+/// renumbered to the export's sequences: a position names the same event it named. Nothing is pushed,
+/// and nothing is written to any clone or remote.
 /// </summary>
 public static class RecordExport
 {
@@ -32,8 +29,6 @@ public static class RecordExport
 
     /// <summary>The ledger's line records, whose <c>storeSequence</c> is where the next ledger export reads from.</summary>
     private static readonly string LedgerLinesTable = StoreConfiguration.DocumentTableOf(typeof(LedgerLine));
-
-    private static readonly string DeferredFollowsTable = StoreConfiguration.DocumentTableOf(typeof(DeferredFollows));
 
     /// <summary>The trigger loop's held-back entries, whose <c>sequences</c> each name one event exactly rather than a position.</summary>
     private static readonly string HeldBackEntriesTable = StoreConfiguration.DocumentTableOf(typeof(HeldBackEntries));
@@ -51,7 +46,7 @@ public static class RecordExport
     /// <summary>
     /// Writes the export and returns where it is and what it holds. It refuses, writing no export, when the
     /// home's lock is held or the record cannot be exported; a refusal after the store is opened leaves
-    /// whatever the open and the carry wrote, as a start of this build would have.
+    /// whatever the open wrote, as a start of this build would have.
     /// </summary>
     public static async Task<RecordExportResult> WriteAsync(NodeHome home, TimeProvider clock, CancellationToken cancellationToken)
     {
@@ -65,6 +60,7 @@ public static class RecordExport
         }
 
         PreRenameStore.ThrowIfFound(home);
+        EarlierShapes.ThrowIfFound(home);
         RecordExportFile export = await ExportAsync(home, clock, cancellationToken);
         string path = await SaveAsync(home, export, clock, cancellationToken);
         return new RecordExportResult(path, export.Events.Count, export.LastEvent);
@@ -72,23 +68,12 @@ public static class RecordExport
 
     private static async Task<RecordExportFile> ExportAsync(NodeHome home, TimeProvider clock, CancellationToken cancellationToken)
     {
-        IReadOnlyList<Definition> nodeDefinitions;
         await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
         {
             await store.ApplyAllConfiguredChangesToDatabaseAsync(cancellationToken);
-            await new EarlierProjectRecords(store, home, clock).CarryAsync(cancellationToken);
-            await using IQuerySession session = store.QuerySession(Tenants.Node);
-            nodeDefinitions = await session.Query<Definition>().ToListAsync(cancellationToken);
         }
 
         SqliteConnection.ClearAllPools();
-        ForkBase? CurrentBase(DefinitionKind kind, string name, int version)
-        {
-            ForkBase earlier = ForkBase.Earlier(name, version);
-            return nodeDefinitions.FirstOrDefault(d => d.Kind == kind && earlier.IsBaseOf(d)) is { } resolved
-                ? ForkBase.Of(resolved)
-                : null;
-        }
 
         using SqliteConnection connection = Connect(home.DatabasePath, SqliteOpenMode.ReadOnly);
         using SqliteTransaction reading = connection.BeginTransaction(deferred: true);
@@ -98,35 +83,17 @@ public static class RecordExport
 
         List<ExportedEvent> events = [];
         List<(long Record, long Export)> kept = [];
-        Dictionary<(string Tenant, string Stream), long> omitted = [];
         ExportedEventReference? last = null;
         foreach (StoredEventRow row in ReadEvents(connection))
         {
             last = new ExportedEventReference(row.Id, row.Sequence);
-            (string, string) stream = (row.Tenant, row.StreamId);
-            if (EarlierRecords.Exported(new StoredEvent(row.Type, row.Data), CurrentBase) is not { } exported)
-            {
-                omitted[stream] = omitted.GetValueOrDefault(stream) + 1;
-                continue;
-            }
-
             long sequence = events.Count + 1;
             events.Add(new ExportedEvent(
-                sequence, row.Id, row.Tenant, row.StreamId, row.Version - omitted.GetValueOrDefault(stream), exported.Type, row.DotnetType, row.Timestamp, row.Archived, exported.Data));
+                sequence, row.Id, row.Tenant, row.StreamId, row.Version, row.Type, row.DotnetType, row.Timestamp, row.Archived, row.Data));
             kept.Add((row.Sequence, sequence));
         }
 
-        List<ExportedStream> streams = [];
-        foreach (ExportedStream stream in ReadStreams(connection))
-        {
-            long left = omitted.GetValueOrDefault((stream.Tenant, stream.Id));
-            if (left > 0 && left >= stream.Version)
-            {
-                continue;
-            }
-
-            streams.Add(stream with { Version = stream.Version - left });
-        }
+        List<ExportedStream> streams = ReadStreams(connection);
 
         long PositionOf(long recorded)
         {
@@ -151,18 +118,13 @@ public static class RecordExport
 
     /// <summary>
     /// A document's JSON as the export writes it: a loop position, and the store sequence a ledger line
-    /// records, in the export's sequences; a deferred follow in its current shape; and any other as it is
-    /// stored. A ledger line's own <c>sequence</c> is its origin's chain sequence and is never renumbered. Each
-    /// sequence a held-back entries document holds names one event, not a position, so it is renumbered to that
-    /// event's export sequence exactly, and dropped when the export leaves that event out.
+    /// records, in the export's sequences; and any other as it is stored. A ledger line's own
+    /// <c>sequence</c> is its origin's chain sequence and is never renumbered. Each sequence a held-back
+    /// entries document holds names one event, not a position, so it is renumbered to that event's export
+    /// sequence exactly.
     /// </summary>
     private static string CurrentDocument(string table, string data, Func<long, long> positionOf, IReadOnlyDictionary<long, long> exportedAt)
     {
-        if (table == DeferredFollowsTable)
-        {
-            return EarlierRecords.CurrentDeferredFollows(data);
-        }
-
         if (table == HeldBackEntriesTable)
         {
             return CurrentHeldBack(data, exportedAt);

@@ -173,8 +173,9 @@ public sealed class DaemonClient : IDisposable
 
     /// <summary>
     /// What happens before a detached start: the home is created or narrowed to owner-only access,
-    /// then checked for a record from an older build and for a node configuration the daemon would
-    /// refuse. The check opens the database, so the narrowing comes first.
+    /// then checked for a record from an older build or one holding a shape an earlier build wrote,
+    /// and for a node configuration the daemon would refuse. The check opens the database, so the
+    /// narrowing comes first.
     /// </summary>
     internal void PrepareToStart()
     {
@@ -182,6 +183,7 @@ public sealed class DaemonClient : IDisposable
 
         // Said here as well as by the daemon, which reports these only to its log.
         PreRenameStore.ThrowIfFound(Home);
+        EarlierShapes.ThrowIfFound(Home);
         _ = NodeConfiguration.Load(Home);
     }
 

@@ -50,7 +50,6 @@ public sealed class DefinitionDeciderTests
         Assert.Equal(ForkedTask.Hash, definition.ContentHash);
         Assert.Equal(ParcelType.CanonicalJson(ForkedTask), definition.Content);
         Assert.Equal(new ForkBase("task", "software", "0.1.0", SoftwareTypes.UnownedTask.Hash), definition.ForkBase);
-        Assert.Null(definition.ForkBase?.Version);
         Assert.Equal(DefinitionStatus.Draft, definition.Status);
     }
 
@@ -84,20 +83,20 @@ public sealed class DefinitionDeciderTests
     }
 
     [Fact]
-    public void A_draft_whose_fork_base_records_a_store_given_version_number_or_lacks_a_value_is_refused()
+    public void A_draft_whose_fork_base_lacks_a_value_is_refused()
     {
         Definition taskBase = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
         ForkBase[] invalid =
         [
-            ForkBase.Earlier("task", 1),
-            ForkBase.Of(taskBase) with { Version = 1 },
+            new ForkBase("task", null, null, null),
+            ForkBase.Of(taskBase) with { Name = " " },
             ForkBase.Of(taskBase) with { Module = null },
             ForkBase.Of(taskBase) with { ModuleVersion = " " },
             ForkBase.Of(taskBase) with { ContentHash = "" },
         ];
 
         Assert.All(invalid, forkBase => Assert.StartsWith(
-            "A fork base names the module-scope definition a customization came from by its name, module, module version, and content hash, and records no version number a store gave it; 'task' has an invalid one.",
+            "A fork base names the module-scope definition a customization came from by its name, module, module version, and content hash; 'task' has an invalid one.",
             Assert.Throws<DomainException>(() => DraftFork(forkBase, [taskBase])).Message,
             StringComparison.Ordinal));
     }
@@ -117,7 +116,7 @@ public sealed class DefinitionDeciderTests
     [Fact]
     public void A_fork_base_names_the_definition_with_its_content_hash_among_two_of_one_name_module_and_module_version()
     {
-        // As an upgraded store holds today: the task type before and after the repos field, both at 0.1.0.
+        // As a store that imported both holds them: the task type before and after the repos field, both at 0.1.0.
         Definition before = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.UnownedTask));
         Definition after = ModuleVersions.Of(ModuleDefinition.FromParcelType(SoftwareTypes.Task), version: 2);
         ParcelType fork = SoftwareTypes.UnownedTask with { Stages = [.. SoftwareTypes.UnownedTask.Stages, "qa"] };
