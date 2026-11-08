@@ -24,10 +24,9 @@ its measurement events. No file in a project home is edited by hand.
 
 ## 2. Repository and stack
 
-Local: `/Users/brianhallmanac/code/coanda`. GitHub: `Hallmanac/coanda`, private through the first
-version, public at the first release (the ledger refs go public with it, as hall9k's do). License:
-Apache 2.0 with NOTICE, in the first commit with a one-paragraph README. Created only on Brian's go
-at a terminal.
+GitHub: `Hallmanac/coanda`, public since 2026-11-06 (the ledger refs are public with it, as
+hall9k's are). License: Apache 2.0 with NOTICE, in the first commit with a one-paragraph README.
+Created only on Brian's go at a terminal.
 
 Stack: C# on .NET 10, one self-contained executable per platform that is both daemon and CLI
 (`coa`). Projects: `Coanda.Core` (meta-model, definitions, interpreter, registry), `Coanda.Daemon`
