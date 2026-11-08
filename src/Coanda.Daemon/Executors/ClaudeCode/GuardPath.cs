@@ -30,11 +30,8 @@ public static partial class GuardPath
     /// </summary>
     public static string Resolve(string path, string baseDirectory)
     {
-        string rooted = path.Length == 0
-            ? baseDirectory
-            : Path.Combine(baseDirectory, path);
         int links = 0;
-        return Real(rooted, ref links);
+        return Real(path, baseDirectory, ref links);
     }
 
     /// <summary>
@@ -74,11 +71,16 @@ public static partial class GuardPath
         return path.StartsWith(prefix, Comparison);
     }
 
-    private static string Real(string path, ref int links)
+    /// <summary>
+    /// <paramref name="path"/> resolved against <paramref name="baseDirectory"/>. On Windows a path
+    /// rooted with no drive, such as <c>\Users\me</c>, is on the base directory's drive, never on the
+    /// drive of this process's current directory, so where the guard runs never changes what a call reaches.
+    /// </summary>
+    private static string Real(string path, string baseDirectory, ref int links)
     {
         string full = OperatingSystem.IsWindows()
-            ? Path.GetFullPath(path)
-            : path;
+            ? Path.GetFullPath(path, Path.GetFullPath(baseDirectory))
+            : Path.Combine(baseDirectory, path);
         string root = Path.GetPathRoot(full) is { Length: > 0 } found
             ? found
             : throw new ArgumentException($"The path '{path}' is not rooted.", nameof(path));
@@ -114,7 +116,7 @@ public static partial class GuardPath
                     throw new IOException($"The path '{path}' follows more than {MostLinks} symbolic links.");
                 }
 
-                current = Real(Path.Combine(current, target), ref links);
+                current = Real(target, current, ref links);
             }
             else
             {
