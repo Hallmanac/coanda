@@ -197,8 +197,8 @@ public static class DefinitionDecider
     /// <summary>
     /// The module-scope definition <paramref name="forkBase"/> names among <paramref name="moduleVersions"/>,
     /// or null when there is no fork base. A fork base names its base by name, module, module version,
-    /// and content hash, and is refused when it records a store-given version number instead, or when no
-    /// module-scope definition of the draft's kind matches all four. On the drafting node the module
+    /// and content hash, and is refused when it lacks any of the four, or when no module-scope definition
+    /// of the draft's kind matches all four. On the drafting node the module
     /// version is by construction the one that node holds the content under, so all four are matched
     /// here, although resolution elsewhere matches only the name, module, and content hash.
     /// </summary>
@@ -212,11 +212,10 @@ public static class DefinitionDecider
         if (string.IsNullOrWhiteSpace(forkBase.Name)
             || string.IsNullOrWhiteSpace(forkBase.Module)
             || string.IsNullOrWhiteSpace(forkBase.ModuleVersion)
-            || string.IsNullOrWhiteSpace(forkBase.ContentHash)
-            || forkBase.Version is not null)
+            || string.IsNullOrWhiteSpace(forkBase.ContentHash))
         {
             throw new DomainException(
-                $"A fork base names the module-scope definition a customization came from by its name, module, module version, and content hash, and records no version number a store gave it; '{name.Trim()}' has an invalid one.");
+                $"A fork base names the module-scope definition a customization came from by its name, module, module version, and content hash; '{name.Trim()}' has an invalid one.");
         }
 
         string moduleVersion = forkBase.ModuleVersion;

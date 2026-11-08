@@ -11,7 +11,6 @@ using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.FlowRuns;
-using Coanda.Daemon.Parcels;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.Repositories;
@@ -32,8 +31,7 @@ namespace Coanda.Tests.Modules.Software;
 /// and work paths are where the module looks, the branch, owner, and note names come out the same, and
 /// a flow run that started under a flow version naming the software steps without the prefix runs them
 /// on the module, reads the heads they recorded, and writes the pull request field. Such a flow version
-/// keeps its content and hash, while every step its flow runs record from this build on, and every
-/// visit an earlier build recorded, reads by the step's prefixed name.
+/// keeps its content and hash, while every step its flow runs record reads by the step's prefixed name.
 /// </summary>
 public sealed class UnprefixedStepTests
 {
@@ -100,59 +98,6 @@ public sealed class UnprefixedStepTests
         Assert.Equal(OpenPrStep.OpenedVerdict, ended.Steps.Single(s => s.Step == "open-pr").Result?.GetProperty("verdict").GetString());
         ParcelView shown = await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None);
         Assert.Equal(new FieldReference(FakeGitHub.Number.ToString(), FakeGitHub.Url), shown.Fields.Single(f => f.Name == TaskFields.PullRequest).Value?.Reference);
-
-        await daemon.StopAsync(None);
-    }
-
-    [Fact]
-    public async Task A_step_entered_and_dispatched_before_the_change_is_dispatched_again_under_its_id_on_the_module_after_it()
-    {
-        using var temp = new TemporaryHome();
-        Guid flowRunId;
-        Guid dispatchId;
-        int seeded;
-        string database = temp.Home.EnsureExists().EnsureDatabase().DatabasePath;
-        await using (IDocumentStore store = await SeededStore.OpenAsync(database, SoftwareDefinitions.All))
-        {
-            // What main leaves when its daemon stops while the worktree step of a build flow run is dispatched,
-            // appended as main appended it rather than through this build's flow run service.
-            await RegisteredProjects.AddAsync(store, Project, None);
-            await PreviousFlows.PublishAsync(store, Project, PreviousFlows.Build);
-            var parcels = new ParcelService(store, TimeProvider.System);
-            Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Interrupted", null, None);
-            await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, pullRequest: false, cancellationToken: None);
-            await parcels.MoveAsync(Principal.LocalOwner, Project, parcel.Id, "build", None);
-            (flowRunId, dispatchId) = await EarlierFlowRuns.DispatchedAsync(store, Project, parcel.Id, None);
-            seeded = EarlierFlowRuns.Rows(database, flowRunId).Count;
-            Assert.Equal(["worktree", "worktree"], EarlierFlowRuns.Rows(database, flowRunId).Select(EarlierFlowRuns.SystemStepOf));
-
-            // Read from the stored document and by replaying the stream, the visit names the step prefixed.
-            await using IQuerySession session = store.QuerySession(Project);
-            FlowRun stored = await session.LoadAsync<FlowRun>(flowRunId, None) ?? throw new InvalidOperationException("The flow run has no document.");
-            FlowRun replayed = await session.Events.AggregateStreamAsync<FlowRun>(flowRunId, token: None) ?? throw new InvalidOperationException("The flow run has no events.");
-            Assert.Equal((SoftwareSteps.Worktree, dispatchId), (stored.Current?.Performer, stored.Current?.DispatchId));
-            Assert.Equal((SoftwareSteps.Worktree, dispatchId), (replayed.Current?.Performer, replayed.Current?.DispatchId));
-        }
-
-        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
-        using var client = new DaemonClient(temp.Home);
-
-        FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
-
-        FlowRunStepView worktree = ended.Steps.First(s => s.Step == "worktree");
-        Assert.Equal(SoftwareSteps.Worktree, worktree.Performer);
-        Assert.Equal(Results.DoneVerdict, worktree.Result?.GetProperty("verdict").GetString());
-        FlowRun recorded = await new FlowRunService(Store(daemon), TimeProvider.System).ShowAsync(Principal.LocalOwner, Project, flowRunId, None)
-            ?? throw new InvalidOperationException("The flow run is gone.");
-        Assert.Equal(dispatchId, recorded.Steps.First(s => s.Step == "worktree").DispatchId);
-
-        // The seed's rows are as main wrote them, and every row the daemon appended names a system step by its current name.
-        IReadOnlyList<StoredRow> rows = EarlierFlowRuns.Rows(database, flowRunId);
-        Assert.Equal(["worktree", "worktree"], rows.Take(seeded).Select(EarlierFlowRuns.SystemStepOf));
-        IReadOnlyList<string?> appended = [.. rows.Skip(seeded).Select(EarlierFlowRuns.SystemStepOf).OfType<string>()];
-        Assert.Contains(SoftwareSteps.Worktree, appended);
-        Assert.DoesNotContain(appended, step => SoftwareSteps.Unprefixed.Contains(step));
-        Assert.Equal(SoftwareSteps.Worktree, EarlierFlowRuns.SystemStepOf(rows.Skip(seeded).First(r => r.Type == "system_step_completed")));
 
         await daemon.StopAsync(None);
     }

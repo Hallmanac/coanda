@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Coanda.Core;
 using Coanda.Core.Definitions;
@@ -10,7 +11,6 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
-using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
@@ -431,10 +431,13 @@ public sealed class LedgerImportTests
 
     [Theory]
     [InlineData("unknown-type")]
-    [InlineData("upgraded")]
+    [InlineData("shipped-scope")]
     [InlineData("registration-with-repos")]
     [InlineData("registration-without-repos")]
     [InlineData("earlier-fork-base")]
+    [InlineData("unprefixed-step-kind-number")]
+    [InlineData("unprefixed-step-kind-name")]
+    [InlineData("unprefixed-dispatch")]
     public async Task A_line_in_an_earlier_shape_stops_its_origin(string shape)
     {
         await using Peers peers = await Peers.StartAsync();
@@ -445,10 +448,13 @@ public sealed class LedgerImportTests
         StoredEvent earlier = shape switch
         {
             "unknown-type" => new StoredEvent("project_required_checks_set", """{"checks":["build"]}"""),
-            "upgraded" => new StoredEvent("definition_drafted", drafted.Replace("\"scope\":\"Project\"", "\"scope\":\"Shipped\"", StringComparison.Ordinal)),
+            "shipped-scope" => new StoredEvent("definition_drafted", drafted.Replace("\"scope\":\"Project\"", "\"scope\":\"Shipped\"", StringComparison.Ordinal)),
             "registration-with-repos" => new StoredEvent("project_registered", $$"""{"projectId":"{{peers.ProjectId}}","name":"alpha","repos":[{"name":"repo","remote":"r"}],"registeredBy":"owner","registeredAt":"2026-11-05T12:00:00+00:00","primaryBranch":"main"}"""),
             "registration-without-repos" => new StoredEvent("project_registered", $$"""{"projectId":"{{peers.ProjectId}}","name":"alpha","registeredBy":"owner","registeredAt":"2026-11-05T12:00:00+00:00","remote":"r"}"""),
-            "earlier-fork-base" => peer.Stored(Drafted(definition, ForkBase.Earlier("build", 1))),
+            "earlier-fork-base" => new StoredEvent("definition_drafted", With(drafted, "forkBase", new JsonObject { ["name"] = "build", ["version"] = 1 })),
+            "unprefixed-step-kind-number" => With(peer.Stored(new StepStarted(Ids.New(), "worktree", StepKind.SystemStep, "worktree", At)), "kind", (int)StepKind.SystemStep),
+            "unprefixed-step-kind-name" => With(peer.Stored(new StepStarted(Ids.New(), "worktree", StepKind.SystemStep, "worktree", At)), "kind", nameof(StepKind.SystemStep)),
+            "unprefixed-dispatch" => peer.Stored(new SystemStepDispatched(Ids.New(), "gates", "gates", Ids.New(), At)),
             _ => throw new ArgumentOutOfRangeException(nameof(shape)),
         };
         Assert.NotEqual(drafted, earlier.Data);
@@ -600,6 +606,16 @@ public sealed class LedgerImportTests
     {
         parcel = Ids.New();
         return new ParcelCreated(parcel, Alpha, "task", "sha256:type", "inbox", title, "peer", At);
+    }
+
+    /// <summary><paramref name="stored"/> with its member <paramref name="member"/> set to <paramref name="value"/>.</summary>
+    private static StoredEvent With(StoredEvent stored, string member, JsonNode value) => stored with { Data = With(stored.Data, member, value) };
+
+    private static string With(string data, string member, JsonNode value)
+    {
+        JsonObject json = JsonNode.Parse(data)?.AsObject() ?? throw new InvalidOperationException("An event with no data.");
+        json[member] = value;
+        return json.ToJsonString();
     }
 
     private static DefinitionDrafted Drafted(Guid definition, ForkBase? forkBase, string content = """{"name":"build"}""") =>

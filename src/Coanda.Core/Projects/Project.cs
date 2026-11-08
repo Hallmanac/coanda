@@ -44,7 +44,7 @@ public sealed class Project
     {
         Id = registered.ProjectId;
         Name = registered.Name;
-        Repos = [.. registered.ReposRecorded];
+        Repos = [.. registered.Repos ?? []];
         RegisteredBy = registered.RegisteredBy;
         RegisteredAt = registered.RegisteredAt;
     }

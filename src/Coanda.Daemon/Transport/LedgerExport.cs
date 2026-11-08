@@ -1,11 +1,8 @@
 using Coanda.Core;
-using Coanda.Core.Definitions;
-using Coanda.Core.Definitions.Events;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
-using Coanda.Core.Projects.Events;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Projects;
@@ -29,12 +26,9 @@ namespace Coanda.Daemon.Transport;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A line carries the event in this build's current shape, read through the store's upgrades: a
-/// registration from before repos is written with its repo and none of the fields this build no longer
-/// reads, and an event this build has no type for is not read at all, so it is never written. A fork base
-/// in the earlier shape is resolved on this node to the module-scope definition of its kind it names, and
-/// a project whose fork base cannot be resolved stops exporting before that line, every later round, until
-/// it can.
+/// A line carries the event as the store holds it, which is this build's current shape: the daemon
+/// refuses a home holding an earlier one (<see cref="EarlierShapes"/>). An event this build has no type
+/// for is not read at all, so it is never written.
 /// </para>
 /// <para>
 /// A line's tag is read when it is written and signed with it, so it is kept with the line and never read
@@ -261,7 +255,7 @@ public sealed class LedgerExport(
         int written = 0;
         try
         {
-            (written, LedgerLine? last) = await AppendAsync(project, failures, cancellationToken);
+            (written, LedgerLine? last) = await AppendAsync(project, cancellationToken);
             if (last is not null)
             {
                 Dictionary<long, LedgerSegments> loaded = [];
@@ -343,11 +337,10 @@ public sealed class LedgerExport(
 
     /// <summary>
     /// Records the next lines of this node's chain in the project, page by page, each page in one save,
-    /// and gives how many. A line that cannot be written stops the project's export before it, with its
-    /// reason added to <paramref name="failures"/>; the lines before it are kept. It also gives this node's
-    /// last line in the project, written now or before, or null when it has none.
+    /// and gives how many. It also gives this node's last line in the project, written now or before,
+    /// or null when it has none.
     /// </summary>
-    private async Task<(int Written, LedgerLine? Last)> AppendAsync(Project project, List<string> failures, CancellationToken cancellationToken)
+    private async Task<(int Written, LedgerLine? Last)> AppendAsync(Project project, CancellationToken cancellationToken)
     {
         string tenant = project.Name;
         Guid origin = identity.NodeId;
@@ -367,8 +360,6 @@ public sealed class LedgerExport(
             long reached = from;
             IReadOnlyList<IEvent> page = await query.Events.QueryEventsAsync(e => e.Sequence > reached && e.Sequence <= to, cancellationToken);
             List<LedgerLine> recorded = [];
-            string? stopped = null;
-            long through = to;
             foreach (IEvent entry in page.OrderBy(e => e.Sequence))
             {
                 // An event on a line already, this node's or another origin's, is never written again.
@@ -378,16 +369,8 @@ public sealed class LedgerExport(
                 }
 
                 long sequence = (last?.Sequence ?? 0) + 1;
-                object? data = await CurrentAsync(entry, cancellationToken);
-                if (data is null)
-                {
-                    stopped = await UnresolvedAsync(project, sequence, (DefinitionDrafted)entry.Data, cancellationToken);
-                    through = entry.Sequence - 1;
-                    break;
-                }
-
                 LineTag tag = await tags.OfAsync(entry, cancellationToken);
-                last = Line(project, entry, sequence, last, tag, new StoredEvent(entry.EventTypeName, store.Options.Serializer.ToJson(data)));
+                last = Line(project, entry, sequence, last, tag, new StoredEvent(entry.EventTypeName, store.Options.Serializer.ToJson(entry.Data)));
                 recorded.Add(last);
             }
 
@@ -400,14 +383,7 @@ public sealed class LedgerExport(
                 written += recorded.Count;
             }
 
-            read[tenant] = through;
-            if (stopped is not null)
-            {
-                logger.LogError("{Reason}", stopped);
-                failures.Add(stopped);
-                break;
-            }
-
+            read[tenant] = to;
             from = to;
         }
 
@@ -435,52 +411,6 @@ public sealed class LedgerExport(
             Line = System.Text.Encoding.UTF8.GetString(bytes),
             StoreSequence = entry.Sequence,
         };
-    }
-
-    /// <summary>
-    /// The event's data in this build's current shape, or null when it is a draft whose earlier-shape fork
-    /// base no module-scope definition on this node matches. The store's read has already upgraded what
-    /// <see cref="EarlierRecords"/> lists; a registration from before repos is given its repo and loses its
-    /// remote, and an earlier-shape fork base is named by the base's name, module, module version, and
-    /// content hash, leaving the draft's content and content hash as they are.
-    /// </summary>
-    private async Task<object?> CurrentAsync(IEvent entry, CancellationToken cancellationToken) =>
-        entry.Data switch
-        {
-            ProjectRegistered { Remote: not null } registered => registered with { Repos = registered.ReposRecorded, Remote = null },
-            DefinitionDrafted { ForkBase.IsEarlierShape: true } drafted =>
-                await BaseOfAsync(drafted, cancellationToken) is { } resolved
-                    ? drafted with { ForkBase = ForkBase.Of(resolved) }
-                    : null,
-            _ => entry.Data,
-        };
-
-    /// <summary>The module-scope definition of the draft's kind on this node that its fork base names, or null when none does.</summary>
-    private async Task<Definition?> BaseOfAsync(DefinitionDrafted drafted, CancellationToken cancellationToken)
-    {
-        if (drafted.ForkBase is not { } forkBase)
-        {
-            return null;
-        }
-
-        await using IQuerySession session = store.QuerySession(Tenants.Node);
-        IReadOnlyList<Definition> held = await session.Query<Definition>().ToListAsync(cancellationToken);
-        return held.FirstOrDefault(d => d.Kind == drafted.Kind && d.Status != DefinitionStatus.Draft && forkBase.IsBaseOf(d));
-    }
-
-    private async Task<string> UnresolvedAsync(Project project, long sequence, DefinitionDrafted drafted, CancellationToken cancellationToken)
-    {
-        await using IQuerySession session = store.QuerySession(Tenants.Node);
-        IReadOnlyList<Definition> held = await session.Query<Definition>().ToListAsync(cancellationToken);
-        string[] versions = [.. held
-            .Where(d => d.Kind == drafted.Kind && d.Scope == DefinitionScope.Module && d.Status != DefinitionStatus.Draft && DefinitionResolution.SameName(d.Name, drafted.Name))
-            .OrderBy(d => d.VersionNumber)
-            .Select(d => d.VersionNumber.ToString(System.Globalization.CultureInfo.InvariantCulture))];
-        string kind = drafted.Kind.ToString();
-        string holds = versions.Length == 0
-            ? $"this node holds no module-scope {kind} '{drafted.Name}'"
-            : $"this node holds module-scope {kind} '{drafted.Name}' only at {(versions.Length == 1 ? "version" : "versions")} {string.Join(", ", versions)}";
-        return $"Project '{project.Name}' stopped exporting before its line {sequence}: {kind} '{drafted.Name}' version {drafted.Version} was forked from {drafted.ForkBase?.Describe()}, a fork base in the earlier shape, and {holds}, so the base cannot be named by its module and content hash.";
     }
 
     /// <summary>

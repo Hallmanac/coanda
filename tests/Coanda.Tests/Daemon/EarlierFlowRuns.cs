@@ -14,8 +14,9 @@ namespace Coanda.Tests.Daemon;
 
 /// <summary>
 /// Flow runs as a build from before the software module's carve-out recorded them, written straight into
-/// the store rather than through this build's flow run service, which records only current shapes; and
-/// the events table's rows as they are stored, for a test to see what a read upgraded and a write left.
+/// the store rather than through this build's flow run service, which records only current shapes, for a
+/// test that this build refuses a home holding one; and the events table's rows as they are stored, for a
+/// test to see what a write left.
 /// </summary>
 public static class EarlierFlowRuns
 {

@@ -59,7 +59,7 @@ public sealed class ProjectService(
 
     /// <summary>
     /// The principal that switches the default modules on for a project registered before modules
-    /// were, and carries an earlier build's settings into a module's: the daemon itself, in the Owner role.
+    /// were: the daemon itself, in the Owner role.
     /// </summary>
     public static readonly Principal UpgradePrincipal = new("coanda-upgrade", Role.Owner);
 

@@ -746,7 +746,7 @@ public sealed class LedgerImport(
         string? why;
         try
         {
-            why = EarlierRecords.EarlierShapeOf(stored);
+            why = EarlierShapes.Of(stored);
         }
         catch (Exception unjudged)
         {

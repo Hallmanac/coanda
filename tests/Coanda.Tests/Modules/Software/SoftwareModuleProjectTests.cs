@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Xml.Linq;
 using Coanda.Core.Flows;
 using Coanda.Daemon.Api;
-using Coanda.Daemon.Store;
+using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Sdk.Hosting;
 using Coanda.Tests.Daemon.Modules;
@@ -88,23 +88,23 @@ public sealed class SoftwareModuleProjectTests
     public void Five_names_main_shipped_unprefixed_are_read_as_the_modules_and_no_other()
     {
         Assert.Equal(SoftwareSteps.All, SoftwareSteps.Unprefixed.Select(SoftwareSteps.Canonical));
-        Assert.Equal(SoftwareSteps.Unprefixed, EarlierRecords.UnprefixedSteps);
-        Assert.Equal(SoftwareSteps.Module, EarlierRecords.SoftwareModule);
-        Assert.All(SoftwareSteps.Unprefixed, name => Assert.Equal(SoftwareSteps.Canonical(name), EarlierRecords.CurrentStepName(name)));
+        Assert.Equal(SoftwareSteps.Unprefixed, UnprefixedSoftwareSteps.Names);
+        Assert.Equal(SoftwareSteps.Module, UnprefixedSoftwareSteps.Module);
+        Assert.All(SoftwareSteps.Unprefixed, name => Assert.Equal(SoftwareSteps.Canonical(name), UnprefixedSoftwareSteps.CurrentName(name)));
         Assert.All(SoftwareSteps.All, name => Assert.Equal(name, SoftwareSteps.Canonical(name)));
         Assert.Equal("deploy", SoftwareSteps.Canonical("deploy"));
         Assert.Equal("cms/publish", SoftwareSteps.Canonical("cms/publish"));
     }
 
     [Fact]
-    public void Neither_the_core_nor_the_daemon_reads_an_earlier_record_on_the_software_modules_behalf_outside_the_daemons_store_layer()
+    public void Neither_the_core_nor_the_daemon_reads_the_five_unprefixed_names_on_the_software_modules_behalf_outside_one_daemon_type()
     {
-        // The five unprefixed names and the shipped-scope default live only in the daemon's EarlierRecords.
+        // The daemon reads flow content naming the five steps unprefixed only through UnprefixedSoftwareSteps.
         foreach (Assembly assembly in new[] { typeof(Flow).Assembly, typeof(DaemonHost).Assembly })
         {
-            Assert.DoesNotContain(assembly.GetTypes(), type => type.Name is "UnprefixedSteps" or "EarlierShippedRecords");
+            Assert.DoesNotContain(assembly.GetTypes(), type => type.Name is "UnprefixedSteps" or "EarlierShippedRecords" or "EarlierRecords" or "EarlierProjectRecords");
         }
 
-        Assert.Equal("Coanda.Daemon.Store", typeof(EarlierRecords).Namespace);
+        Assert.Equal("Coanda.Daemon.SystemSteps", typeof(UnprefixedSoftwareSteps).Namespace);
     }
 }

@@ -93,6 +93,7 @@ public sealed class DaemonHost
 
         // Before the store is configured, which would add this build's tables to an old record.
         PreRenameStore.ThrowIfFound(home);
+        EarlierShapes.ThrowIfFound(home);
         string token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
 
@@ -124,7 +125,6 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<RepoClones>();
         builder.Services.AddSingleton<ProjectService>();
-        builder.Services.AddSingleton<EarlierProjectRecords>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
         builder.Services.AddSingleton<IAgentExecutor>(options.Executor ?? new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>()));
@@ -234,11 +234,6 @@ public sealed class DaemonHost
             // A project registered before modules were has the default modules switched on, before any
             // of its live flow runs reaches a module's step and before a module's start reads it.
             await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);
-
-            // A project an earlier build registered reads its remote as its first repo, and what that
-            // build kept in the project's record of the software module's (the primary branch, the build
-            // and test commands, the required checks) becomes the module's settings, before any step reads them.
-            await app.Services.GetRequiredService<EarlierProjectRecords>().CarryAsync(cancellationToken);
 
             // Each clone an earlier build kept under clones/ moves to the per-repo layout with its
             // worktrees, and every repo of every project gets its clone, once each project has its repos

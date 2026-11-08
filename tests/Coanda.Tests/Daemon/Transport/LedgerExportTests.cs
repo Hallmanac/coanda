@@ -1,17 +1,20 @@
 using System.Text;
 using Coanda.Core;
 using Coanda.Core.Definitions;
-using Coanda.Core.Definitions.Events;
-using Coanda.Core.Flows;
+using Coanda.Core.FlowRuns;
+using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Parcels;
+using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
+using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
+using Coanda.Modules.Software;
 using Coanda.Sdk.Commands;
 using Coanda.Sdk.Repositories;
 using Coanda.Tests.Core;
@@ -107,10 +110,10 @@ public sealed class LedgerExportTests
         Assert.Contains(first, l => l.Content.StreamId == idea.Id);
 
         // A retag is a set of the tag field, carrying the repos the field held before and holds now; the
-        // flow run's events, here seeded as a build from before the carve-out recorded them, carry the parcel's.
+        // flow run's events carry the parcel's.
         await SetReposAsync(node, tagged, "web");
         await Parcels(node).SetFieldAsync(Principal.LocalOwner, Alpha, tagged.Id, "objective", FieldValue.OfText("Ship it"), None);
-        (Guid flowRunId, _) = await EarlierFlowRuns.DispatchedAsync(node.Store, Alpha, tagged.Id, None);
+        Guid flowRunId = await DispatchedAsync(node, tagged.Id);
         await node.Export.PublishAsync(Alpha, None);
 
         IReadOnlyList<SignedLine> all = await node.ParsedAsync(node.RemotePath(Alpha));
@@ -128,6 +131,23 @@ public sealed class LedgerExportTests
         Assert.All(
             added.Where(l => l.Content.StreamId == flowRunId),
             l => Assert.Equal("software/worktree", EarlierFlowRuns.SystemStepOf(new StoredRow(0, "", 0, l.Content.Event.Type, l.Content.Event.Data, Alpha, 0))));
+    }
+
+    /// <summary>Records, on the parcel, a flow run of the earlier build flow started and dispatched at its worktree step, and gives its id.</summary>
+    private static async Task<Guid> DispatchedAsync(LedgerNode node, Guid parcelId)
+    {
+        Definition published = await new DefinitionResolver(node.Store).ResolveAsync(Alpha, DefinitionKind.Flow, PreviousFlows.Build.Name, None)
+            ?? throw new InvalidOperationException("The earlier build flow is not published.");
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        Guid flowRunId = Ids.New();
+        await using IDocumentSession session = node.Store.LightweightSession(Alpha);
+        session.Events.Append(parcelId, new ParcelFlowRunAttached(parcelId, flowRunId, now));
+        session.Events.StartStream<FlowRun>(
+            flowRunId,
+            new FlowRunStarted(flowRunId, parcelId, published.Name, published.VersionNumber, published.ContentHash, Principal.LocalOwner.Id, "worktree", StepKind.SystemStep, SoftwareSteps.Worktree, now),
+            new SystemStepDispatched(flowRunId, "worktree", SoftwareSteps.Worktree, Ids.New(), now));
+        await session.SaveChangesAsync(None);
+        return flowRunId;
     }
 
     [Fact]
@@ -380,37 +400,6 @@ public sealed class LedgerExportTests
         Assert.Equal(before, (await node.RefAsync(clone), await node.RefAsync(node.RemotePath(Alpha)), (await node.RecordsAsync(Alpha)).Count));
         Assert.Equal("", await LedgerNode.GitAsync(clone, "for-each-ref", $"refs/coanda/nodes/{replaced.NodeId:D}"));
         Assert.Contains(node.Logs.Entries, e => e.Level == LogLevel.Error && e.Message.Contains(refused, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task A_fork_base_no_module_definition_here_matches_stops_that_projects_export_before_its_line_and_others_still_export()
-    {
-        await using LedgerNode node = await LedgerNode.StartAsync(Alpha, Beta);
-        Guid draftId = Ids.New();
-        await using (IDocumentSession session = node.Store.LightweightSession(Alpha))
-        {
-            Flow fork = SoftwareFlows.Build with { Budget = 40m };
-            session.Events.StartStream<Definition>(draftId, new DefinitionDrafted(
-                draftId, DefinitionKind.Flow, "build", DefinitionScope.Project, Alpha, 1, Flow.CanonicalJson(fork), fork.Hash,
-                ForkBase.Earlier("build", 99), Principal.LocalOwner.Id, DateTimeOffset.UtcNow));
-            await session.SaveChangesAsync(None);
-        }
-
-        IReadOnlyList<LedgerPublication> round = await node.Export.ExportAsync(None);
-
-        int before = (await node.EventsAsync(Alpha)).Count - 1;
-        LedgerPublication alpha = Assert.Single(round, p => p.Project == Alpha);
-        string stopped = Assert.Single(alpha.Failures);
-        Assert.Equal(
-            $"Project 'alpha' stopped exporting before its line {before + 1}: Flow 'build' version 1 was forked from 'build' version 99, a fork base in the earlier shape, and this node holds module-scope Flow 'build' only at version 1, so the base cannot be named by its module and content hash.",
-            stopped);
-        Assert.Contains(node.Logs.Entries, e => e.Level == LogLevel.Error && e.Message == stopped);
-        Assert.Equal(before, (await node.ParsedAsync(node.RemotePath(Alpha))).Count);
-        Guid draftEvent = (await node.EventsAsync(Alpha)).Single(e => e.StreamId == draftId).Id;
-        Assert.DoesNotContain(await node.RecordsAsync(Alpha), r => r.Id == draftEvent);
-        LedgerPublication beta = Assert.Single(round, p => p.Project == Beta);
-        Assert.True(beta.Published, string.Join("; ", beta.Failures));
-        Assert.Equal((await node.EventsAsync(Beta)).Count, (await node.ParsedAsync(node.RemotePath(Beta))).Count);
     }
 
     [Fact]

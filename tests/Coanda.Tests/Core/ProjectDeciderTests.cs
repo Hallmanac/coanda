@@ -15,7 +15,6 @@ public sealed class ProjectDeciderTests
 
         Assert.Equal("coanda", registered.Name);
         Assert.Equal([new ProjectRepo("coanda", "git@github.com:you/Coanda.git ")], registered.Repos);
-        Assert.Null(registered.Remote);
         Assert.Equal("brian", registered.RegisteredBy);
         Assert.Equal(Now, registered.RegisteredAt);
 
@@ -55,18 +54,6 @@ public sealed class ProjectDeciderTests
     {
         DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register("coanda", remote, null, "brian", Now));
         Assert.Equal("Project 'coanda' needs the remote of a repo; none was given.", exception.Message);
-    }
-
-    [Fact]
-    public void A_registration_an_earlier_build_recorded_reads_as_one_repo_at_its_remote_and_drops_the_software_settings()
-    {
-        const string Recorded = """{"projectId":"01a1a29e-778a-7730-9f07-304d9ac0ffeb","name":"old","remote":"https://github.com/example/Old-Repo.git","primaryBranch":"main","registeredBy":"brian","registeredAt":"2026-11-03T12:00:00+00:00","buildCommand":"make"}""";
-
-        ProjectRegistered registered = System.Text.Json.JsonSerializer.Deserialize<ProjectRegistered>(Recorded, System.Text.Json.JsonSerializerOptions.Web)
-            ?? throw new InvalidOperationException("The recorded event did not read back.");
-
-        Assert.Null(registered.Repos);
-        Assert.Equal([new ProjectRepo("old-repo", "https://github.com/example/Old-Repo.git")], Project.Create(registered).Repos);
     }
 
     [Fact]

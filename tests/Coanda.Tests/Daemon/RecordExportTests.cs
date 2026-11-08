@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core;
-using Coanda.Core.Flows;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Modules;
@@ -30,12 +29,11 @@ public sealed class RecordExportTests
 
     private static async Task<RecordExportFile> ReadAsync(string path) => await RecordExportFile.ReadAsync(path, None);
 
-    [Theory]
-    [MemberData(nameof(RecordHomes.All), MemberType = typeof(RecordHomes))]
-    public async Task A_home_reads_the_same_after_an_export_and_a_rebuild_as_after_a_start_and_keeps_every_events_id_stream_tenant_and_time(string which)
+    [Fact]
+    public async Task A_home_reads_the_same_after_an_export_and_a_rebuild_as_after_a_start_and_keeps_every_event_as_it_was_stored()
     {
         using var started = new TemporaryHome();
-        await RecordHomes.WriteAsync(started.Home, which);
+        RecordHomes.Restore(started.Home, RecordHomes.RebuiltByEe75e50);
         IReadOnlyList<string> expected;
         await using (RunningDaemon daemon = await Daemons.StartAsync(started.Home, None))
         {
@@ -45,15 +43,13 @@ public sealed class RecordExportTests
 
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        await RecordHomes.WriteAsync(home, which);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
         await RebuildAsync(home, export.Path);
 
-        // Only the checks event is left out, and every other keeps its id, stream, tenant, and time, in order.
-        Assert.Equal(
-            held.Where(e => e.Type != "project_required_checks_set").Select(e => (e.Id, e.Stream, e.Tenant, e.Timestamp)),
-            RecordHomes.Events(home.DatabasePath).Select(e => (e.Id, e.Stream, e.Tenant, e.Timestamp)));
+        // Every event is kept as it was stored, with its id, stream, tenant, and time, in order.
+        Assert.Equal(held, RecordHomes.Events(home.DatabasePath));
 
         IReadOnlyList<string> actual;
         await using (RunningDaemon daemon = await Daemons.StartAsync(home, None))
@@ -66,106 +62,11 @@ public sealed class RecordExportTests
     }
 
     [Fact]
-    public async Task An_earlier_project_record_reaches_the_rebuilt_record_from_a_home_this_build_never_started()
-    {
-        using var temp = new TemporaryHome();
-        RecordHomes.Restore(temp.Home, RecordHomes.WrittenBy1fed907);
-        RecordExportResult export = await ExportAsync(temp.Home);
-        await RebuildAsync(temp.Home, export.Path);
-
-        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
-        string alpha = Assert.Single(await RecordHomes.ReadAsync(daemon), r => r.StartsWith("settings ", StringComparison.Ordinal) && r.Contains("\"Project\":\"alpha\"", StringComparison.Ordinal));
-        Assert.Contains("trunk", alpha, StringComparison.Ordinal);
-        Assert.Contains("make build", alpha, StringComparison.Ordinal);
-        Assert.Contains("make test", alpha, StringComparison.Ordinal);
-        Assert.Contains("lint", alpha, StringComparison.Ordinal);
-        await daemon.StopAsync(None);
-    }
-
-    [Theory]
-    [MemberData(nameof(RecordHomes.All), MemberType = typeof(RecordHomes))]
-    public async Task The_rebuilt_record_holds_no_earlier_shape_but_the_two_that_stay_current(string which)
-    {
-        using var temp = new TemporaryHome();
-        NodeHome home = temp.Home;
-        await RecordHomes.WriteAsync(home, which);
-        RecordExportResult export = await ExportAsync(home);
-        Dictionary<string, (string? Content, string? Hash)> heldContent = RecordHomes.Events(home.DatabasePath)
-            .Where(e => e.Type == "definition_drafted")
-            .ToDictionary(e => e.Id, e => Content(e.Data), StringComparer.Ordinal);
-        await RebuildAsync(home, export.Path);
-
-        IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> rows = RecordHomes.Events(home.DatabasePath);
-        Assert.DoesNotContain(rows, r => r.Type == "project_required_checks_set");
-        foreach ((string id, _, _, _, string type, string data) in rows)
-        {
-            JsonObject json = JsonNode.Parse(data)?.AsObject() ?? throw new InvalidOperationException("An event with no data.");
-            switch (type)
-            {
-                case "definition_drafted":
-                    Assert.NotEqual("Shipped", json["scope"]?.GetValue<string>());
-                    Assert.True(json["scope"]?.GetValue<string>() != "Module" || json["module"] is not null, $"{id} is in module scope with no module");
-                    if (json["forkBase"] is JsonObject forkBase)
-                    {
-                        Assert.Null(forkBase["version"]);
-                        Assert.NotNull(forkBase["contentHash"]);
-                        Assert.NotNull(forkBase["module"]);
-                    }
-
-                    // Content, unprefixed step names included, and its hash are as stored.
-                    Assert.Equal(heldContent[id], Content(data));
-                    break;
-                case "project_registered":
-                    Assert.NotNull(json["repos"]);
-                    Assert.All(["remote", "primaryBranch", "buildCommand", "testCommand"], member => Assert.False(json.ContainsKey(member), $"{id} still records {member}"));
-                    break;
-            }
-
-            string? step = EarlierFlowRuns.SystemStepOf(new StoredRow(0, string.Empty, 0, type, data, string.Empty, 0));
-            Assert.True(step is null || step.Contains('/') || !EarlierRecords.UnprefixedSteps.Contains(step), $"{type} {id} names {step} unprefixed");
-        }
-
-        // The documents regenerated from the events hold no earlier shape either.
-        Assert.All(RecordHomes.Documents(home.DatabasePath, "fi_doc_definition"), d => Assert.DoesNotContain("\"Shipped\"", d.Data, StringComparison.Ordinal));
-        Assert.All(RecordHomes.Documents(home.DatabasePath, "fi_doc_project"), d => Assert.DoesNotContain("primaryBranch", d.Data, StringComparison.Ordinal));
-        foreach ((_, _, string data) in RecordHomes.Documents(home.DatabasePath, "fi_doc_flowrun"))
-        {
-            IEnumerable<string?> performers = (JsonNode.Parse(data)?["steps"]?.AsArray() ?? []).Select(v => v?["performer"]?.GetValue<string>());
-            Assert.All(performers, p => Assert.DoesNotContain(p, EarlierRecords.UnprefixedSteps));
-        }
-
-        if (which == RecordHomes.Extended)
-        {
-            // The flow from before the build flow ended at the open pull request still routes the unprefixed open-pr on done alone.
-            (_, _, _, _, _, string gated) = Assert.Single(rows, r => r.Type == "definition_drafted" && JsonNode.Parse(r.Data)?["name"]?.GetValue<string>() == RecordHomes.GatedBuild.Name);
-            string content = JsonNode.Parse(gated)?["content"]?.GetValue<string>() ?? "{}";
-            FlowStep openPr = Assert.Single(Flow.FromJson(content).Steps, s => s.Name == "open-pr");
-            JsonNode? stored = (JsonNode.Parse(content)?["Steps"]?.AsArray() ?? []).Single(s => s?["Name"]?.GetValue<string>() == "open-pr");
-            Assert.Equal("open-pr", stored?["SystemStep"]?.GetValue<string>());
-            Assert.Equal(RecordHomes.GatedBuild.Hash, JsonNode.Parse(gated)?["contentHash"]?.GetValue<string>());
-            Assert.Equal(["done"], openPr.Transitions.Select(t => t.Value.GetString()));
-
-            JsonObject follows = JsonNode.Parse(Assert.Single(RecordHomes.Documents(home.DatabasePath, "fi_doc_deferredfollows")).Data)?.AsObject() ?? throw new InvalidOperationException("No deferred follows.");
-            Assert.False(Assert.Single(follows["pending"]?.AsArray() ?? []) ?["closes"]?.GetValue<bool>() ?? true);
-        }
-    }
-
-    [Fact]
-    public void The_function_writes_an_agent_step_spawned_with_null_members_with_those_members_null()
-    {
-        var spawned = new StoredEvent(
-            "agent_step_spawned",
-            """{"flowRunId":"01a1aa2b-396f-76c0-b4f7-561db6135f30","step":"build","agent":"build","agentHash":null,"model":null,"spawnedAt":"2026-11-03T06:00:19.192743+00:00","launchId":null}""");
-
-        Assert.Equal(spawned, EarlierRecords.Exported(spawned, (_, _, _) => throw new InvalidOperationException("Nothing to resolve.")));
-    }
-
-    [Fact]
     public async Task The_export_is_owner_only_names_the_last_event_and_holds_every_tenant_and_every_document_but_the_inline_snapshots()
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        await RecordHomes.WriteAsync(home, RecordHomes.Extended);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         await using (RunningDaemon daemon = await Daemons.StartAsync(home, None))
         {
             await daemon.StopAsync(None);
@@ -195,7 +96,7 @@ public sealed class RecordExportTests
 
         Assert.Equal(last, export.LastEvent);
         Assert.Equal([Tenants.Node, "alpha"], export.Events.Select(e => e.Tenant).Distinct().Order(StringComparer.Ordinal));
-        Assert.Equal(RecordHomes.Events(home.DatabasePath).Count(e => e.Type != "project_required_checks_set"), export.Events.Count);
+        Assert.Equal(RecordHomes.Events(home.DatabasePath).Count, export.Events.Count);
     }
 
     [Fact]
@@ -203,42 +104,18 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
         await RebuildAsync(home, export.Path);
         IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> rebuilt = RecordHomes.Events(home.DatabasePath);
 
-        // The trigger position named the 31st event, which is kept; the 27th, the checks event, is left out, so it is the 30th now.
+        // The trigger position names the event it named before the rebuild.
         long position = TriggerPositionOf(home);
-        Assert.Equal(30, position);
-        Assert.Equal(held[30].Id, rebuilt[(int)position - 1].Id);
+        Assert.InRange(position, 1, held.Count);
+        Assert.Equal(held[(int)position - 1].Id, rebuilt[(int)position - 1].Id);
         int created = rebuilt.ToList().FindIndex(e => e.Type == "parcel_created") + 1;
         Assert.True(created > position, $"parcel_created is at {created}, at or before the trigger position {position}");
-    }
-
-    [Fact]
-    public async Task A_loop_position_at_an_event_left_out_names_the_last_exported_event_before_it()
-    {
-        using var temp = new TemporaryHome();
-        NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
-        using (SqliteConnection connection = RecordHomes.Open(home.DatabasePath))
-        using (SqliteCommand atChecks = connection.CreateCommand())
-        {
-            atChecks.CommandText = "UPDATE fi_doc_triggerposition SET data = json_set(data, '$.sequence', 27)";
-            Assert.Equal(1, atChecks.ExecuteNonQuery());
-        }
-
-        RecordExportResult export = await ExportAsync(home);
-        IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
-        Assert.Equal("project_required_checks_set", held[26].Type);
-        await RebuildAsync(home, export.Path);
-
-        long position = TriggerPositionOf(home);
-        Assert.Equal(26, position);
-        Assert.Equal(held[25].Id, RecordHomes.Events(home.DatabasePath)[(int)position - 1].Id);
-        Assert.Equal(held[27].Id, RecordHomes.Events(home.DatabasePath)[(int)position].Id);
     }
 
     [Fact]
@@ -246,7 +123,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
         Guid lined = Guid.Parse(held[30].Id);
         await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
@@ -261,12 +138,12 @@ public sealed class RecordExportTests
         RecordExportResult export = await ExportAsync(home);
         await RebuildAsync(home, export.Path);
 
-        // The 31st event is kept and the 27th, the checks event, is left out, so the line's event is the 30th now.
+        // The line's event is still the 31st.
         JsonNode line = JsonNode.Parse(Assert.Single(RecordHomes.Documents(home.DatabasePath, StoreConfiguration.DocumentTableOf(typeof(LedgerLine)))).Data)
             ?? throw new InvalidOperationException("The line record does not parse.");
-        Assert.Equal(30, line["storeSequence"]?.GetValue<long>());
+        Assert.Equal(31, line["storeSequence"]?.GetValue<long>());
         Assert.Equal(7, line["sequence"]?.GetValue<long>());
-        Assert.Equal(held[30].Id, RecordHomes.Events(home.DatabasePath)[29].Id);
+        Assert.Equal(held[30].Id, RecordHomes.Events(home.DatabasePath)[30].Id);
     }
 
     [Fact]
@@ -274,7 +151,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> held = RecordHomes.Events(home.DatabasePath);
         Guid parcel = Guid.Parse("01a1ad07-0000-7000-8000-000000000002");
         await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
@@ -282,23 +159,20 @@ public sealed class RecordExportTests
             await store.ApplyAllConfiguredChangesToDatabaseAsync(None);
             await using IDocumentSession session = store.LightweightSession(held[30].Tenant);
 
-            // The 26th event is before the checks event, the 31st after it, and the 27th is the checks event, which the export leaves out.
             session.Store(new HeldBackEntries { Id = parcel, Sequences = [31, 26, 27] });
             await session.SaveChangesAsync(None);
         }
 
         SqliteConnection.ClearAllPools();
-        Assert.Equal("project_required_checks_set", held[26].Type);
         RecordExportResult export = await ExportAsync(home);
         await RebuildAsync(home, export.Path);
 
         JsonNode document = JsonNode.Parse(Assert.Single(RecordHomes.Documents(home.DatabasePath, StoreConfiguration.DocumentTableOf(typeof(HeldBackEntries)))).Data)
             ?? throw new InvalidOperationException("The held-back entries do not parse.");
         long[] sequences = [.. (document["sequences"]?.AsArray() ?? []).Select(s => s?.GetValue<long>() ?? -1)];
-        Assert.Equal([30, 26], sequences);
+        Assert.Equal([31, 26, 27], sequences);
         IReadOnlyList<(string Id, string Stream, string Tenant, string Timestamp, string Type, string Data)> rebuilt = RecordHomes.Events(home.DatabasePath);
-        Assert.Equal(held[30].Id, rebuilt[29].Id);
-        Assert.Equal(held[25].Id, rebuilt[25].Id);
+        Assert.All(sequences, sequence => Assert.Equal(held[(int)sequence - 1].Id, rebuilt[(int)sequence - 1].Id));
     }
 
     private static long TriggerPositionOf(NodeHome home) =>
@@ -309,7 +183,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        await RecordHomes.WriteAsync(home, RecordHomes.Extended);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         RecordRebuildResult rebuilt = await RebuildAsync(home, export.Path);
         string replaced = Path.Combine(rebuilt.MovedAside, Path.GetFileName(home.DatabasePath));
@@ -322,10 +196,10 @@ public sealed class RecordExportTests
         }
 
         var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-        DeferredFollows earlier = JsonSerializer.Deserialize<DeferredFollows>(Assert.Single(RecordHomes.Documents(replaced, "fi_doc_deferredfollows")).Data, web) ?? throw new InvalidOperationException();
+        DeferredFollows replacedFollows = JsonSerializer.Deserialize<DeferredFollows>(Assert.Single(RecordHomes.Documents(replaced, "fi_doc_deferredfollows")).Data, web) ?? throw new InvalidOperationException();
         DeferredFollows current = JsonSerializer.Deserialize<DeferredFollows>(Assert.Single(RecordHomes.Documents(home.DatabasePath, "fi_doc_deferredfollows")).Data, web) ?? throw new InvalidOperationException();
-        Assert.Equal(earlier.Id, current.Id);
-        Assert.Equal(earlier.Pending, current.Pending);
+        Assert.Equal(replacedFollows.Id, current.Id);
+        Assert.Equal(replacedFollows.Pending, current.Pending);
     }
 
     [Fact]
@@ -333,7 +207,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        await RecordHomes.WriteAsync(home, RecordHomes.Extended);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         File.WriteAllText(Path.Combine(home.Path, "node.json"), "{}");
         IReadOnlyDictionary<string, string> before = RecordHomes.Files(home.Path);
@@ -360,31 +234,11 @@ public sealed class RecordExportTests
     }
 
     [Fact]
-    public async Task An_export_whose_fork_base_resolves_to_nothing_stops_names_the_definition_and_leaves_no_file()
-    {
-        using var temp = new TemporaryHome();
-        NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
-        using (SqliteConnection connection = RecordHomes.Open(home.DatabasePath))
-        using (SqliteCommand unresolved = connection.CreateCommand())
-        {
-            unresolved.CommandText = "UPDATE fi_events SET data = json_set(data, '$.forkBase.version', 9) WHERE seq_id = 28";
-            Assert.Equal(1, unresolved.ExecuteNonQuery());
-        }
-
-        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => ExportAsync(home));
-        Assert.Contains("'build'", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("project 'alpha'", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("version 9", refused.Message, StringComparison.Ordinal);
-        Assert.False(Directory.Exists(home.ExportsPath) && Directory.EnumerateFileSystemEntries(home.ExportsPath).Any());
-    }
-
-    [Fact]
     public async Task Neither_runs_while_a_daemon_runs_on_the_home_and_neither_changes_anything()
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
 
         await using RunningDaemon daemon = await Daemons.StartAsync(home, None);
@@ -397,7 +251,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
 
         var module = new HeldHealthModule();
@@ -435,7 +289,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         string unreadable = Path.Combine(home.ExportsPath, "unreadable.json");
         File.WriteAllText(unreadable, "{ not json");
@@ -458,7 +312,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        RecordHomes.Restore(home, RecordHomes.WrittenByE86428f);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         await using (RunningDaemon daemon = await Daemons.StartAsync(home, None))
         {
@@ -477,7 +331,7 @@ public sealed class RecordExportTests
     {
         using var temp = new TemporaryHome();
         NodeHome home = temp.Home;
-        await RecordHomes.WriteAsync(home, RecordHomes.Extended);
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
         RecordExportResult export = await ExportAsync(home);
         JsonObject broken = JsonNode.Parse(File.ReadAllText(export.Path))?.AsObject() ?? throw new InvalidOperationException();
         JsonObject table = broken["documents"]?.AsArray().OfType<JsonObject>().First(t => t["table"]?.GetValue<string>() == "fi_doc_deferredfollows") ?? throw new InvalidOperationException();
@@ -513,12 +367,6 @@ public sealed class RecordExportTests
     {
         HashSet<string> daemons = [.. ((IEnumerable<string>)[home.DatabasePath, .. home.DatabaseCompanionPaths, home.LogPath, home.DaemonOutputPath]).Select(p => Path.GetRelativePath(home.Path, p))];
         return RecordHomes.Files(home.Path, daemons);
-    }
-
-    private static (string? Content, string? Hash) Content(string data)
-    {
-        JsonNode? json = JsonNode.Parse(data);
-        return (json?["content"]?.GetValue<string>(), json?["contentHash"]?.GetValue<string>());
     }
 
     /// <summary>A stand-in module whose health answers only once the test lets it, so the daemon's start is held part way.</summary>
