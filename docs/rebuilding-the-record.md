@@ -1,10 +1,15 @@
 # Rebuilding a node's record from an export
 
 A node's record is the SQLite database `coanda.db` in its node home (`~/.coanda`, or the directory
-`COANDA_HOME` names). Builds before phase 3's gate wrote some events in shapes this build no longer
-writes, and still reads them through one upgrade table in the store. The steps on this page rebuild
-a live node's record so that it holds current shapes only, which a later build requires: that build
-deletes the upgrade table and refuses a home that still holds an earlier shape.
+`COANDA_HOME` names). Builds before phase 3's gate wrote some events in shapes later builds no longer
+write. The current build reads none of them: its daemon, its detached start, and its `coa record
+export` refuse a home that still holds one, and the refusal points here.
+
+The steps on this page rebuild such a record so that it holds current shapes only. Run them with the
+build at commit `ee75e50cea5bacb69c9326da51e88836573d9e9d` on main, the last build that still reads
+every earlier shape; it holds both commands below. Once the record is rebuilt, go back to the current
+build. The current build's own `coa record export` and `coa record rebuild` work the same way on a
+home that already holds current shapes, writing every event as the record holds it.
 
 Two commands do the work:
 
@@ -27,7 +32,7 @@ last event is not the one the export names, which means the record has moved sin
 written. A rebuild that fails part way leaves the home as it found it.
 
 The export carries the record's events in order, and each keeps its id, its stream, its project, and
-the time the store recorded it. Three kinds of event change shape on the way:
+the time the store recorded it. In the build at `ee75e50`, three kinds of event change shape on the way:
 
 - A definition recorded in the scope builds before module scope called `Shipped` is written in
   module scope, as the software module's at version 0.1.0. A fork base recorded as a name and a
@@ -53,8 +58,10 @@ had not yet reached a line.
 
 ## Before you start
 
-Install the build that ships `coa record`, and check that `coa --version` reports it. Do everything
-below as the user who owns the node home. On Windows, run the commands in PowerShell.
+Build `coa` from commit `ee75e50cea5bacb69c9326da51e88836573d9e9d` on main and use that `coa` for every
+command until the rebuilt home has been checked (for example `git checkout ee75e50` in a clone, then
+`dotnet build` and `./src/Coanda.Cli/bin/Debug/net10.0/coa`). Do everything below as the user who owns
+the node home. On Windows, run the commands in PowerShell.
 
 While the daemon still runs, write down what the node reads, so you can compare the rebuilt record
 with it later. For each project:
@@ -159,6 +166,9 @@ makes the comparison quick (for example `coa project list > before-projects.txt`
 
 3. Once you are satisfied, delete the export and the moved-aside directory, or keep them in the node
    home, where only you can read them. Never commit or push the export.
+
+4. Stop the daemon with `coa daemon stop`, go back to the current build's `coa`, and start the daemon
+   with `coa daemon start`. It starts on the rebuilt home without refusing it.
 
 ## Put the old record back
 

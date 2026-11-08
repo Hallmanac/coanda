@@ -101,6 +101,16 @@ and arbitration streams. hall9k uses none of the Marten features Fisher lacks (n
 queries, no Newtonsoft, no child-collection LINQ, no bus); the 32 raw Postgres JSON path strings
 are rewritten.
 
+The store reads only current shapes, and upgrades no event or document as it reads it. A home holding
+an event in a shape a build before phase 3's gate wrote (a definition in the scope once stored as
+`Shipped`, a flow run event naming a software step without the `software/` prefix, a registration from
+before repos, the event that set the merge's checks, or a fork base with no content hash) is refused by
+the daemon's start, the CLI's detached start, and the record export, before the store is configured,
+as a home written before the rename is. The refusal names the commit on main whose build still reads
+those shapes and the page (`docs/rebuilding-the-record.md`) that gives the steps to rebuild the record
+with it. A flow whose content names a software step without the prefix is current, and the daemon
+dispatches, records, and routes its steps under their `software/` names.
+
 Rejected: a hand-rolled SQLite event log (loses projections and replay); per-project files (needs
 a second node database and merges across files); Postgres (a server to run for one user).
 
@@ -209,12 +219,7 @@ of one, or one that does not parse, is refused at start rather than given a seco
 
 The export (`Coanda.Daemon/Transport/LedgerExport.cs`). In each project tenant, never the node
 tenant, every event this node has not yet put on a line becomes the next line of its chain, in store
-order, with its data in this build's current shape: what the store's upgrades read (section 5's earlier
-shapes), a registration from before repos given its repo and none of the fields this build no longer
-reads, an event this build has no type for left unwritten, and a fork base in the earlier shape named by
-the name, module, module version, and content hash of the module-scope definition of its kind it
-resolves to on this node; a project whose fork base resolves to none stops exporting before that line
-and says why, and other projects still export. Each line is recorded in the store as it is written,
+order, with its data as the store holds it, which is this build's current shape (section 5). Each line is recorded in the store as it is written,
 with its origin, sequence, previous hash, tag, signature, hash, and segment, in a record an importer
 writes too for another origin's lines; an event the store records on any origin's line is never written
 again. The files are one per UTC month of the recorded time (or the month of the line before, when a
@@ -242,13 +247,14 @@ read. A line is stored only when it passes three checks: the chain verifies up t
 held (so a changed line, a gap, a rewind behind the held sequence, and a different line at the held
 sequence each fail), naming the ref's node as its origin and this node's registration of the project as
 its project; its signer key may sign for its origin by the trust function; and its event is in this
-build's current shape. An earlier shape is refused, since the store would upgrade it as it read it and
-nothing could tell it apart afterwards: a type this build has no event type for, an event the store's
-upgrades would change, a registration carrying any member of the registration from before repos, and a
-fork base of a name and a store version. A flow whose content names a software step unprefixed is
-current, since content and its hash are never changed, and so is an `agent_step_spawned` with a null
-agent hash, model, or launch id, since those members are nullable for records written before they
-existed and have no value to upgrade to. A line whose data this build's type of it would not write back
+build's current shape. An earlier shape is refused, by the check that refuses a home holding one (section
+5), since once stored it would read as something it is not: a type this build has no event type for, a
+definition in the scope once stored as `Shipped`, a flow run event naming a software step without the
+prefix, a registration carrying any member of the registration from before repos, the event that set the
+merge's checks, and a fork base of a name and a store version. A flow whose content names a software step
+unprefixed is current, since content and its hash are never changed, and so is an `agent_step_spawned`
+with a null agent hash, model, or launch id, since those members are nullable for records written before
+they existed. A line whose data this build's type of it would not write back
 member for member, such as one holding a member a later build added, is refused too, since storing it
 would drop what this build does not know and leave the stored event different from its signed line. The
 first line that fails a check, or that the store refuses,

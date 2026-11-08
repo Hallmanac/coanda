@@ -173,6 +173,10 @@ every round, and a fetch that fails is logged as a warning every round. Turning 
 the import on, so working offline, or against a remote you hold no credentials for, also takes
 `"ledgerImport": false` in that `node.json`.
 
+If you ran a build from before phase 3's gate, its record may hold shapes this build no longer reads,
+and the daemon refuses to start on it, naming the commit whose build rebuilds it; the steps are in
+[Rebuilding the record](rebuilding-the-record.md).
+
 If you ran any build from before the stage and step names, its record does not carry over, and the
 daemon refuses to start on it, naming the file. Move the home aside (for example
 `mv ~/.coanda ~/.coanda.pre-stage`) and run the commands above again; a fresh home is created on
