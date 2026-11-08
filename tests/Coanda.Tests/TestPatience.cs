@@ -4,17 +4,18 @@ namespace Coanda.Tests;
 public static class TestPatience
 {
     /// <summary>
-    /// The bound every test-side wait on daemon and flow-run work takes, so a wait whose condition
-    /// never holds still fails, only later.
+    /// The bound for the test-side waits on daemon and flow-run work that used to wait a fixed 15
+    /// seconds, so a wait whose condition never holds still fails, only later. Waits that had some
+    /// other bound, such as 30 seconds, keep it, even though it is now shorter than this one.
     /// </summary>
     /// <remarks>
     /// It is far longer than the work takes on an idle machine because xUnit runs test classes in
     /// parallel by default, with one thread per logical CPU. The tests that wait with this bound each
     /// start a daemon host, and some also start child processes, so on a busy or many-core machine the
     /// concurrent tests contend for the processors and the work they wait on can take many times longer
-    /// than it does alone. A 15-second bound ran out under that contention on a 28-CPU machine while
-    /// the work itself was still finishing. A passing test never waits this long, so the bound only
-    /// lengthens a failing run.
+    /// than it does alone. Tests that pass when run alone have run out their 15-second bound
+    /// in full-suite runs. A passing test never waits this long, so the bound only lengthens a
+    /// failing run.
     /// </remarks>
     public static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 }
