@@ -503,7 +503,7 @@ public sealed class ToolGuardTests : IDisposable
 
     [Fact]
     public void An_escaped_redirection_before_an_ampersand_still_ends_the_command() =>
-        RefusedInConfig(Guard(Call("Bash", new { command = "echo \\>& cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+        RefusedInConfig(Guard(Call("Bash", new { command = "echo x\\>& cd && cat .claude/settings.json" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
 
     [Fact]
     public void A_bare_cd_followed_by_a_comment_goes_to_the_home_directory() =>
@@ -637,6 +637,23 @@ public sealed class ToolGuardTests : IDisposable
         string shellPath = "/" + drive + home.DaemonInfoPath[2..].Replace('\\', '/');
 
         RefusedInNodeHome(Guard(Call("Bash", new { command = $"cat {shellPath}" })));
+    }
+
+    [Fact]
+    public void On_windows_a_path_rooted_with_no_drive_is_resolved_on_the_drive_of_its_base_directory()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // A letter no drive answers to differs from the process's current drive and has no device to probe.
+        HashSet<char> taken = [.. DriveInfo.GetDrives().Select(drive => char.ToUpperInvariant(drive.Name[0]))];
+        char letter = Enumerable.Range('D', 'Z' - 'D' + 1).Select(c => (char)c).Last(c => !taken.Contains(c));
+        string baseDirectory = $@"{letter}:\work";
+
+        Assert.Equal($@"{letter}:\", GuardPath.Resolve(@"\", baseDirectory));
+        Assert.Equal($@"{letter}:\Users\x", GuardPath.Resolve(@"\Users\x", baseDirectory));
     }
 
     [Fact]
