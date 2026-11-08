@@ -25,7 +25,7 @@ public sealed class WorktreeFlowRunTests
 {
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
 
     [Fact]
     public async Task Failing_gates_send_the_flow_run_to_its_fix_step_and_passing_gates_send_it_on_to_review()

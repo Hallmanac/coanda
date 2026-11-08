@@ -171,7 +171,7 @@ public sealed class ModuleFeedTests
         await using (Node first = await Node.StartAsync(new() { [Watcher] = interrupted }, temp))
         {
             parcelId = (await first.ParcelAsync(On)).Id;
-            await handled.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await handled.Task.WaitAsync(TestPatience.Bound);
             await first.Daemon.StopAsync(None);
         }
 
@@ -208,7 +208,7 @@ public sealed class ModuleFeedTests
                 parcels.Add((await first.ParcelAsync(On, $"Parcel {i}")).Id);
             }
 
-            await holding.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await holding.Task.WaitAsync(TestPatience.Bound);
             await first.Daemon.StopAsync(None);
         }
 

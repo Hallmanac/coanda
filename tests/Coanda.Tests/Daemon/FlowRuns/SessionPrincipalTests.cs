@@ -32,7 +32,7 @@ public sealed class SessionPrincipalTests
     private const string Single = "one-agent-step";
     private const string NoValidToken = "The call carried no valid daemon token.";
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
 
     [Fact]
     public async Task A_launch_gets_a_token_that_resolves_to_its_flow_run_and_launch_and_a_session_pausing_its_own_flow_run_ends_it()

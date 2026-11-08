@@ -21,7 +21,7 @@ public sealed class AgentStepEndTests
 {
     private const string Project = "alpha";
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
 
     /// <summary>What the test double reports for an attempt in progress when its session is stopped.</summary>
     private static readonly Measurement InProgress = new(400, 0.1m, 2, TimeSpan.FromSeconds(12));

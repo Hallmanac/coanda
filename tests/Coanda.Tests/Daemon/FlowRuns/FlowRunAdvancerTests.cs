@@ -242,11 +242,11 @@ public sealed class FlowRunAdvancerTests
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Only once");
 
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
-        await executor.Spawned.WaitAsync(TimeSpan.FromSeconds(15));
+        await executor.Spawned.WaitAsync(TestPatience.Bound);
         Task joined = advancer.RequestAdvance(Project, started.Id);
         Task again = advancer.RequestAdvance(Project, started.Id);
         executor.Open();
-        await Task.WhenAll(joined, again).WaitAsync(TimeSpan.FromSeconds(15));
+        await Task.WhenAll(joined, again).WaitAsync(TestPatience.Bound);
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended");
         Assert.Equal(1, executor.Inner.Spawns.Count(s => s.Agent == "build"));
@@ -609,7 +609,7 @@ public sealed class FlowRunAdvancerTests
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Named session");
 
         FlowRunView started = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
-        await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
+        await executor.Collecting.WaitAsync(TestPatience.Bound);
         FlowRun? held = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None);
 
         SessionHandle issued = Assert.Single(executor.Inner.Spawns).Handle;
@@ -686,7 +686,7 @@ public sealed class FlowRunAdvancerTests
             using var client = new DaemonClient(temp.Home);
             ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Interrupted");
             flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
-            await stalled.Spawned.WaitAsync(TimeSpan.FromSeconds(15));
+            await stalled.Spawned.WaitAsync(TestPatience.Bound);
             await first.StopAsync(None);
         }
 
@@ -808,7 +808,7 @@ public sealed class FlowRunAdvancerTests
 
         // Collecting, not Spawned: the stop is meant to find the agent step held in its collect, past
         // the spawn and the session record that follows it.
-        await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
+        await executor.Collecting.WaitAsync(TestPatience.Bound);
         await FlowRunDriver.StopAsync(client, Project, doomed.Id, "Not needed any more.");
         executor.Open();
         await FlowRunDriver.UntilAsync(() => executor.Inner.Stops.Count == 1, "the stopped flow run's session is ended");

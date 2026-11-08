@@ -571,7 +571,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         string stalled = Path.Combine(fake.Control, "stalled.pid");
 
         SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, new string('x', 4_000_000), WorkDirectory, Caps, AnswerSchemas.Build, null, null, None)
-            .AsTask().WaitAsync(TimeSpan.FromSeconds(15));
+            .AsTask().WaitAsync(TestPatience.Bound);
         await Until(() => File.Exists(stalled) && File.ReadAllText(stalled).Length > 0);
         int pid = int.Parse(File.ReadAllText(stalled), System.Globalization.CultureInfo.InvariantCulture);
 
