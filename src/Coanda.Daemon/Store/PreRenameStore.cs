@@ -44,7 +44,8 @@ public static class PreRenameStore
     /// <summary>
     /// Throws when the home's record was written before the stage and step names, or before the
     /// daemon recorded definitions. A home with no record yet, an empty record, or one this build
-    /// wrote, passes. The record is opened read-only, so a refused home is left exactly as it was.
+    /// wrote, passes. The record is opened read-only and without creating a companion file, so a
+    /// refused home's record is left exactly as it was.
     /// </summary>
     public static void ThrowIfFound(NodeHome home)
     {
@@ -66,14 +67,7 @@ public static class PreRenameStore
 
     private static bool Holds(string databasePath, string query)
     {
-        var builder = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = false,
-        };
-        using var connection = new SqliteConnection(builder.ConnectionString);
-        connection.Open();
+        using SqliteConnection connection = RecordExport.ConnectUnchanged(databasePath);
 
         using SqliteCommand events = connection.CreateCommand();
         events.CommandText = "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fi_events')";
