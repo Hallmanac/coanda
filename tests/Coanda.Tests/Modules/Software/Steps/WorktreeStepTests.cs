@@ -363,11 +363,11 @@ public sealed class WorktreeStepTests : IAsyncLifetime
         Assert.False(takeover.IsCompleted, "the takeover waits for the stopped flow run's worker");
         Assert.DoesNotContain(runner.GitCalls.Skip(before), c => c.StartsWith("worktree remove", StringComparison.Ordinal) || c.StartsWith("worktree add", StringComparison.Ordinal));
         // the clone's turn is not held while the takeover waits
-        await node.DeliverEndAsync(Ids.New()).WaitAsync(TimeSpan.FromSeconds(15));
+        await node.DeliverEndAsync(Ids.New()).WaitAsync(TestPatience.Bound);
 
         node.Workers.Returned(holder);
         working.SetResult();
-        Done(await takeover.WaitAsync(TimeSpan.FromSeconds(15)));
+        Done(await takeover.WaitAsync(TestPatience.Bound));
         IEnumerable<string> actual = runner.GitCalls.Skip(before);
         Assert.Contains($"worktree remove --force --force {held}", actual);
         Assert.Contains($"worktree add --quiet {node.Home.FlowRunWorkPath(Project, taker)} {branch}", actual);

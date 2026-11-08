@@ -6,7 +6,7 @@ namespace Coanda.Tests.Daemon.FlowRuns;
 /// <summary>Drives flow runs through the running daemon's endpoints, the way <c>coa</c> does.</summary>
 public static class FlowRunDriver
 {
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
 
     /// <summary>
     /// Adds a task, sets the objective and criteria its move out of refine requires and, when

@@ -463,7 +463,7 @@ public sealed class FlowRunRestartTests
         var heldAgain = new GatedExecutor(stalled.Inner);
         await using (RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = heldAgain }, None))
         {
-            await heldAgain.Holding.WaitAsync(TimeSpan.FromSeconds(15));
+            await heldAgain.Holding.WaitAsync(TestPatience.Bound);
             await second.StopAsync(None);
         }
 
@@ -529,7 +529,7 @@ public sealed class FlowRunRestartTests
         stopping.FailStops = false;
         stopping.CollectsGiveUp = false;
         await FlowRunDriver.ResumeAsync(client, Project, flowRunId, "Again.");
-        decimal relaunchCost = await costAtRelaunch.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        decimal relaunchCost = await costAtRelaunch.Task.WaitAsync(TestPatience.Bound);
 
         // the stop's report is recorded before the new launch
         Assert.Equal(paused.Cost + left.CostUsd, relaunchCost);
@@ -540,7 +540,7 @@ public sealed class FlowRunRestartTests
             Assert.Equivalent(new { Step = "build", Agent = "build", SessionId = issued.Id, Usage = left }, Assert.Single(events.Select(e => e.Data).OfType<AgentStepUsageRecorded>()));
         }
 
-        await stopping.Holding.WaitAsync(TimeSpan.FromSeconds(15));
+        await stopping.Holding.WaitAsync(TestPatience.Bound);
         await daemon.StopAsync(None);
     }
 
@@ -626,7 +626,7 @@ public sealed class FlowRunRestartTests
             FlowRunService flowRuns = first.Services.GetRequiredService<FlowRunService>();
             ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, title);
             flowRunId = (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id;
-            await stalled.Holding.WaitAsync(TimeSpan.FromSeconds(15));
+            await stalled.Holding.WaitAsync(TestPatience.Bound);
             await FlowRunDriver.UntilAsync(
                 async () =>
                 {

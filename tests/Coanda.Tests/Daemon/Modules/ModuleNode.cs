@@ -30,7 +30,7 @@ internal sealed class ModuleNode : IAsyncDisposable
     public const string Other = "other";
 
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
     private static readonly Flow Dispatching = RunningSystemStep.FlowNamed();
 
     private readonly TemporaryHome temp;

@@ -40,7 +40,7 @@ public sealed class FlowRunWorkersTests
 
         workers.Returned(flowRunId);
         worker.SetResult();
-        await returned.WaitAsync(TimeSpan.FromSeconds(15));
+        await returned.WaitAsync(TestPatience.Bound);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class FlowRunWorkersTests
         Assert.False(returned.IsCompleted, "the second stop is still being saved");
 
         second.Dispose();
-        await returned.WaitAsync(TimeSpan.FromSeconds(15));
+        await returned.WaitAsync(TestPatience.Bound);
         Assert.True(workers.ReturnedAsync(flowRunId, None).IsCompleted);
     }
 }

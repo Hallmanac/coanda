@@ -9,7 +9,7 @@ namespace Coanda.Tests.Modules.Software.Repositories;
 /// </summary>
 public sealed class FlowRunEndsTests
 {
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
 
     [Fact]
     public async Task A_note_releases_a_wait_already_held_and_answers_a_later_one_at_once()

@@ -361,7 +361,7 @@ public sealed class MergeFlowRunTests
         await FlowRunDriver.UntilAsync(harness.Client, Project, build.Id, "ended");
 
         // QA holds its review open: the build's end started QA alone, and nothing has asked GitHub to merge.
-        await executor.Holding.WaitAsync(TimeSpan.FromSeconds(15));
+        await executor.Holding.WaitAsync(TestPatience.Bound);
         FlowRunView qa = await FlowRunDriver.FollowerAsync(harness.Client, Project, parcel.Id, build.Id, Qa.Name);
         Assert.Equal(["build", "qa"], (await FlowRunDriver.OfParcelAsync(harness.Client, Project, parcel.Id)).Select(f => f.FlowName));
         Assert.DoesNotContain(github.Requests, r => r.IsMerge || r.IsPullRequestRead);
@@ -411,7 +411,7 @@ public sealed class MergeFlowRunTests
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(harness.Client, Project, "QA stopped");
         FlowRunView build = await FlowRunDriver.BoundAsync(harness.Client, Project, parcel.Id);
         await FlowRunDriver.UntilAsync(harness.Client, Project, build.Id, "ended");
-        await executor.Holding.WaitAsync(TimeSpan.FromSeconds(15));
+        await executor.Holding.WaitAsync(TestPatience.Bound);
         FlowRunView qa = await FlowRunDriver.FollowerAsync(harness.Client, Project, parcel.Id, build.Id, Qa.Name);
 
         await FlowRunDriver.StopAsync(harness.Client, Project, qa.Id, "QA is not wanted on this one");

@@ -53,7 +53,7 @@ public sealed class FlowRunControlApiTests
 
         // Collecting, not Spawned: the pause is meant to find the agent step held in its collect, past
         // the spawn and the session record that follows it.
-        await executor.Collecting.WaitAsync(TimeSpan.FromSeconds(15));
+        await executor.Collecting.WaitAsync(TestPatience.Bound);
 
         await RefusedAsync(http, daemon, $"/flow-runs/{started.Id}/pause", new FlowRunPauseRequest(Project, " "), "A pause records why the flow run stopped; give a reason.");
         await RefusedAsync(http, daemon, $"/flow-runs/{started.Id}/stop", new FlowRunStopRequest(Project, ""), "Stopping a flow run records why; give a reason.");

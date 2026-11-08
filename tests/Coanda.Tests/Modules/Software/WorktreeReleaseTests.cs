@@ -20,7 +20,7 @@ public sealed class WorktreeReleaseTests : IAsyncLifetime
 {
     private const string Project = SoftwareNode.Project;
     private const string Uncloned = "gamma";
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan Patience = TestPatience.Bound;
 
     private readonly ScriptedCommandRunner runner = new();
     private readonly RecordingLogger log = new();
