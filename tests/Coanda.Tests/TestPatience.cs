@@ -10,8 +10,8 @@ public static class TestPatience
     /// </summary>
     /// <remarks>
     /// It is far longer than the work takes on an idle machine because xUnit runs test classes in
-    /// parallel by default, with one thread per logical CPU. The tests that wait with this bound each
-    /// start a daemon host, and some also start child processes, so on a busy or many-core machine the
+    /// parallel, at most four at once (the cap set in xunit.runner.json). The tests that wait with this
+    /// bound each start a daemon host, and some also start child processes, so on a busy machine the
     /// concurrent tests contend for the processors and the work they wait on can take many times longer
     /// than it does alone. Tests that pass when run alone have run out their 15-second bound
     /// in full-suite runs. A passing test never waits this long, so the bound only lengthens a
