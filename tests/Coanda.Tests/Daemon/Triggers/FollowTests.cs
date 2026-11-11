@@ -1,12 +1,17 @@
 using Coanda.Cli;
 using Coanda.Cli.Commands;
 using Coanda.Core.Flows;
+using Coanda.Core.Parcels.Events;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
+using Coanda.Daemon.Store;
 using Coanda.Daemon.Triggers;
 using Coanda.Modules.Software;
 using Coanda.Tests.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.SystemSteps;
+using Fisher;
+using JasperFx.Events;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon.Triggers;
 
@@ -31,6 +36,16 @@ public sealed class FollowTests
     private static readonly Flow HeldAfterBuild = RunningSystemStep.FlowNamed(AfterBuild.Name) with
     {
         Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 },
+    };
+
+    /// <summary>
+    /// A closing flow that replaces the shipped merge by name and follows the held follower's outcome
+    /// alone, a link deeper in the chain than the build's own followers.
+    /// </summary>
+    private static readonly Flow ClosingAfterHeld = Ending("merge", new FlowFollow { Outcome = "dispatched", Flow = HeldAfterBuild.Name, DepthCap = 2 }) with
+    {
+        Outcome = "merged",
+        Closes = "completed",
     };
 
     private static Flow Ending(string name, FlowFollow follow) => new()
@@ -238,6 +253,91 @@ public sealed class FollowTests
         Assert.True(waited.UpdatedAt <= merge.StartedAt, $"'{AlsoAfterBuild.Name}' ended at {waited.UpdatedAt}, after the merge started at {merge.StartedAt}.");
         Assert.Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"], followers.OrderBy(f => f.StartedAt).Select(f => f.FlowName));
         Assert.All(followers, f => Assert.Equal("ended", f.Status));
+        Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_closing_follower_of_a_later_end_waits_behind_a_follow_of_an_earlier_end_even_once_the_parcel_is_free()
+    {
+        using var temp = new TemporaryHome();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondWaits = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = new RunningSystemStep
+        {
+            Answer = async (_, token) =>
+            {
+                await release.Task.WaitAsync(token);
+                return RunningSystemStep.Done();
+            },
+        };
+
+        // The hook runs on the loop, so it only says the second follower of the build's end waits.
+        Task SignalSecondWaits(FollowDecision decision, CancellationToken token)
+        {
+            if (decision.Flow == AlsoAfterBuild.Name && decision.Waits)
+            {
+                secondWaits.TrySetResult();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        DaemonOptions options = new()
+        {
+            Executor = Scripts.CleanBuildExecutor(),
+            SystemSteps = [held],
+            FollowDecided = SignalSecondWaits,
+        };
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        await Publishing.FlowAsync(daemon, Project, HeldAfterBuild);
+        await Publishing.FlowAsync(daemon, Project, AlsoAfterBuild);
+        await Publishing.FlowAsync(daemon, Project, ClosingAfterHeld);
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Build, then close after the held follower");
+
+        FlowRunView build = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended");
+        FlowRunView first = await FlowRunDriver.FollowerAsync(client, Project, parcel.Id, build.Id, HeldAfterBuild.Name);
+        await secondWaits.Task.WaitAsync(TestPatience.Bound);
+
+        // The held follower ends only once the loop has handled the build's own release, which the
+        // held one makes find the parcel live. Ended any sooner, that release would start the second
+        // follower itself, and the closing flow would have to wait behind it whatever the loop's rule.
+        IDocumentStore store = daemon.Services.GetRequiredService<IDocumentStore>();
+        long buildReleased;
+        await using (IQuerySession session = store.QuerySession(Project))
+        {
+            IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcel.Id, token: None);
+            buildReleased = events.Single(e => e.Data is ParcelFlowRunReleased released && released.FlowRunId == build.Id).Sequence;
+        }
+
+        await FlowRunDriver.UntilAsync(
+            async () =>
+            {
+                await using IQuerySession session = store.QuerySession(Tenants.Node);
+                TriggerPosition? position = await session.LoadAsync<TriggerPosition>(TriggerPosition.LoopId, None);
+                return position?.Sequence >= buildReleased;
+            },
+            $"the trigger loop handles the release of flow run {build.Id}");
+        release.TrySetResult();
+
+        FlowRunView closing = await FlowRunDriver.FollowerAsync(client, Project, parcel.Id, first.Id, ClosingAfterHeld.Name);
+        closing = await FlowRunDriver.UntilAsync(client, Project, closing.Id, "ended");
+
+        List<FlowRunView> flowRuns = await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id);
+        Assert.Equal("ended", Assert.Single(flowRuns, f => f.FlowName == HeldAfterBuild.Name).Status);
+        Assert.Equal("ended", Assert.Single(flowRuns, f => f.FlowName == ClosingAfterHeld.Name).Status);
+        FlowRunView? waited = flowRuns.SingleOrDefault(f => f.FlowName == AlsoAfterBuild.Name);
+        Assert.NotNull(waited);
+        Assert.Equal("ended", waited.Status);
+        Assert.Equal(build.Id, waited.ParentFlowRunId);
+        Assert.True(waited.StartedAt <= closing.StartedAt, $"'{AlsoAfterBuild.Name}' started at {waited.StartedAt}, after the closing flow run started at {closing.StartedAt}.");
+        // An ended flow run was last updated by its end.
+        Assert.True(waited.UpdatedAt <= closing.StartedAt, $"'{AlsoAfterBuild.Name}' ended at {waited.UpdatedAt}, after the closing flow run started at {closing.StartedAt}.");
+        Assert.Equal(2, closing.Depth);
         Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
 
         await daemon.StopAsync(None);
