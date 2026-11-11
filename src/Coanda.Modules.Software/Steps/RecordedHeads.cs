@@ -14,19 +14,21 @@ namespace Coanda.Modules.Software.Steps;
 public static class RecordedHeads
 {
     /// <summary>
-    /// The head recorded as pushed last among the flow runs of the dispatch's own chain, or null when
-    /// none of them recorded a push or the latest carries no head. The merge's head guard and the
-    /// rebase read this one; both use it only to guard, as the head a pull request must hold and the
-    /// lease a push expects, so a head this node did not push ends in a pause, never an overwrite.
+    /// The head recorded as pushed last among the flow runs of the dispatch's own chain, with when its
+    /// result was recorded, or null when none of them recorded a push or the latest carries no head. The
+    /// merge's head guard and the rebase read this one; both use the head only to guard, as the head a
+    /// pull request must hold and the lease a push expects, so a head this node did not push ends in a
+    /// pause, never an overwrite. The merge also reads when it was recorded, which is the recording
+    /// node's clock, to judge how long a head with nothing reported on it has had for CI to report.
     /// </summary>
-    public static async Task<string?> OfChainAsync(StepContext context, CancellationToken cancellationToken)
+    public static async Task<RecordedHead?> OfChainAsync(StepContext context, CancellationToken cancellationToken)
     {
         CoreFlowRun flowRun = await context.FlowRunAsync(cancellationToken);
         IReadOnlyList<CoreFlowRun> onParcel = await context.Core.FlowRunsAsync(context.Request.Project, flowRun.ParcelId, cancellationToken);
         return Latest(onParcel.Where(f => f.RootFlowRunId == flowRun.RootFlowRunId));
     }
 
-    private static string? Latest(IEnumerable<CoreFlowRun> flowRuns)
+    private static RecordedHead? Latest(IEnumerable<CoreFlowRun> flowRuns)
     {
         CoreFlowRunStep? latest = flowRuns
             .SelectMany(f => f.Steps)
@@ -37,7 +39,11 @@ public static class RecordedHeads
             && result.TryGetProperty("head", out JsonElement head)
             && head.ValueKind == JsonValueKind.String
             && head.GetString() is { Length: > 0 } sha
-                ? sha
+            && latest.RecordedAt is { } recordedAt
+                ? new RecordedHead(sha, recordedAt)
                 : null;
     }
 }
+
+/// <summary>A head recorded as pushed, and when the result that recorded it was recorded.</summary>
+public sealed record RecordedHead(string Head, DateTimeOffset RecordedAt);

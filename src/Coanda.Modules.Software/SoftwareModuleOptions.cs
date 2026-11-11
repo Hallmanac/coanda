@@ -47,4 +47,10 @@ public sealed record SoftwareModuleOptions
     /// ended and the step answers failed.
     /// </summary>
     public required TimeSpan GatesCommandLimit { get; init; }
+
+    /// <summary>
+    /// The clock the gated-merge step reads to judge how long ago a head with nothing reported on it was
+    /// recorded, the system clock unless the host gives another.
+    /// </summary>
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
 }

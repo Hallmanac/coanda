@@ -102,14 +102,30 @@ When the build flow run ends, the merge flow follows it on the same task with no
 It inspects the pull request and merges it through GitHub's API, never through auto-merge, and only
 when the pull request is open against the primary branch, its head is the commit last pushed for
 the task (by the build, or by a later rebase lap, after which it is the rebased commit), that head
-is not behind the primary branch, GitHub reports it mergeable, and every check the software
-module's `required-checks` setting names has succeeded with no other check failed or still running. The merge then closes the
-task as completed. While checks are still running it waits a minute and looks again, for
-twenty-three minutes in all, less a minute for each rebase it made, and then pauses. A resume after
-that pause looks once more and pauses again if a check is still running, so resume it once the
-checks have finished. A project names no checks until you set them, and a merge pauses
-until it does, because without names it cannot tell whether every check has reported yet. Name the
-checks by the names GitHub shows for them; for coanda's own repository those are its two CI legs:
+is not behind the primary branch, GitHub reports it mergeable, and no check reported on that head
+has failed or is still running. The merge then closes the task as completed. While checks are still
+running it waits a minute and looks again, for twenty-three minutes in all, less a minute for each
+rebase it made, and then pauses. A resume after that pause looks once more and pauses again if a
+check is still running, so resume it once the checks have finished.
+
+A project starts with the software module's `required-checks` setting unset, and the merge then
+waits on every check GitHub reports on the head, whether a check run or a commit status. Right
+after a push nothing may be reported yet, so a head with no check run and no commit status on it is
+held for five minutes after the open-pr or rebase step recorded it, in case CI is still coming, and
+merged once those five minutes have passed with nothing reported. That is how a repository with no
+CI at all still merges. The rule cannot tell CI that has not started from no CI: a head whose CI
+first reports more than five minutes after it was recorded is merged without that CI's result. The
+five minutes are measured from the time the recording node's clock gave the result, so if that
+node's clock runs behind the clock of the node inspecting the merge, the wait is shorter by the
+difference, and if it runs ahead, the wait is longer, at worst until the merge pauses at the end of
+its twenty-three minutes.
+
+Once any check is reported, the merge does not wait for a check that has not been reported by the
+time every reported one has finished, such as a check GitHub creates only after another one finishes
+(a job that depends on another, or a workflow another one triggers) or a check from a slower
+integration. Naming checks in `required-checks` is how a project makes the merge wait for those: a
+named check holds the merge until it has succeeded, reported or not. Name the checks by the names
+GitHub shows for them; for coanda's own repository those are its two CI legs:
 
 ```bash
 coa project module set coanda software required-checks '["build-test (ubuntu-latest)", "build-test (windows-latest)"]'

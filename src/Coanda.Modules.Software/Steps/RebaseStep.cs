@@ -40,7 +40,7 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
             return pause;
         }
 
-        if (await RecordedHeads.OfChainAsync(context, cancellationToken) is not { } head)
+        if (await RecordedHeads.OfChainAsync(context, cancellationToken) is not { Head: { } head })
         {
             return await context.PerformAgainAsync(
                 "rebased nothing: no open-pr or rebase result with a head is recorded in the flow run's chain, so there is no pushed commit to rebase from.",

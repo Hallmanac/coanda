@@ -29,6 +29,8 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     private const string Project = SoftwareNode.Project;
     private const string Head = ScriptedCommandRunner.PrimaryHead;
     private const string Other = "aaaabbbbccccddddeeeeffff0000111122223333";
+    /// <summary>A project registered with the primary branch alone, so its required-checks setting is unset.</summary>
+    private const string Unnamed = "unchecked";
     private static readonly CancellationToken None = CancellationToken.None;
     /// <summary>A flow of open-pr, rebase, worktree, and gated-merge steps, so a flow run of it can hold a result of each and then sit in gated-merge.</summary>
     private static readonly Flow Recorder = new()
@@ -313,23 +315,95 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_project_that_names_no_check_pauses_rather_than_merging()
+    public async Task With_no_check_named_every_reported_check_passed_and_a_mergeable_pull_request_merges_at_the_recorded_head()
     {
-        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.BranchOnly, None);
-        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "unchecked", "task", "Merge me", null, None);
-        await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
-        Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync();
+        RunsAre(FakeGitHub.CheckRun(1, "build", "completed", "success"), FakeGitHub.CheckRun(2, "docs", "completed", "skipped"));
+        StatusesAre(FakeGitHub.Status(3, "ci/legacy", "success"));
 
-        SystemStepAnswer outcome = await DispatchAsync(parcel.Id, flowRun, "unchecked");
+        Merged(await DispatchAsync(parcel, flowRun, Unnamed));
 
-        SystemStepAnswer.Paused paused = Paused(outcome);
-        Assert.Equal(
-            "Step 'gated-merge' merged nothing: the software module's setting 'required-checks' names no check for a merge to wait for in project 'unchecked', so the step cannot tell whether every expected check has reported.",
-            paused.Reason);
-        Assert.Equal(
-            "Give the software module's setting 'required-checks' a value in project 'unchecked' (coa project module set unchecked software required-checks '[\"<check>\"]'), then resume the flow run to perform step 'gated-merge' again.",
-            paused.Lever);
+        Assert.Equal(Head, (string?)JsonNode.Parse(MergeRequest().Body ?? "{}")?["sha"]);
+    }
+
+    [Fact]
+    public async Task With_no_check_named_a_check_run_still_in_progress_answers_pending_naming_it_and_merges_nothing()
+    {
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync();
+        RunsAre(FakeGitHub.CheckRun(1, "build", "completed", "success"), FakeGitHub.CheckRun(2, "test", "in_progress", null));
+
+        string reason = Pending(await DispatchAsync(parcel, flowRun, Unnamed));
+
+        Assert.Contains("the check 'test' is in_progress", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("'build'", reason, StringComparison.Ordinal);
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
+    }
+
+    [Theory]
+    [InlineData("failure", null)]
+    [InlineData(null, "error")]
+    public async Task With_no_check_named_a_failed_check_pauses_naming_it_and_merges_nothing(string? conclusion, string? state)
+    {
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync();
+        RunsAre(conclusion is null ? [] : [FakeGitHub.CheckRun(1, "build", "completed", conclusion)]);
+        StatusesAre(state is null ? [] : [FakeGitHub.Status(2, "ci/legacy", state)]);
+
+        string reason = PausedToPerformAgain(await DispatchAsync(parcel, flowRun, Unnamed));
+
+        Assert.Contains(
+            conclusion is null
+                ? $"the check 'ci/legacy' reported the status '{state}'"
+                : $"the check 'build' completed with the conclusion '{conclusion}'",
+            reason,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(github.Requests, r => r.IsMerge);
+    }
+
+    [Fact]
+    public async Task With_no_check_named_a_head_with_nothing_reported_within_the_settle_bound_answers_pending_and_merges_nothing()
+    {
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync(recordedAgo: GatedMergeStep.SettleBound - TimeSpan.FromMinutes(1));
+        RunsAre();
+
+        string reason = Pending(await DispatchAsync(parcel, flowRun, Unnamed));
+
+        Assert.Contains($"nothing has been reported on {Head}", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(github.Requests, r => r.IsMerge);
+    }
+
+    [Fact]
+    public async Task With_no_check_named_a_head_with_nothing_reported_past_the_settle_bound_merges()
+    {
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync(recordedAgo: GatedMergeStep.SettleBound + TimeSpan.FromSeconds(1));
+        RunsAre();
+
+        Merged(await DispatchAsync(parcel, flowRun, Unnamed));
+
+        Assert.Equal(Head, (string?)JsonNode.Parse(MergeRequest().Body ?? "{}")?["sha"]);
+    }
+
+    [Fact]
+    public async Task With_no_check_named_a_head_with_only_a_pending_status_is_held_by_the_status_not_the_settle_bound()
+    {
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync(recordedAgo: GatedMergeStep.SettleBound + TimeSpan.FromMinutes(1));
+        RunsAre();
+        StatusesAre(FakeGitHub.Status(1, "ci/legacy", "pending"));
+
+        string reason = Pending(await DispatchAsync(parcel, flowRun, Unnamed));
+
+        Assert.Contains("the check 'ci/legacy' is pending", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("nothing has been reported", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task With_no_check_named_a_behind_head_answers_behind_before_any_check_is_read()
+    {
+        (Guid parcel, Guid flowRun) = await ArrangeUnnamedAsync();
+        github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
+
+        Behind(await DispatchAsync(parcel, flowRun, Unnamed));
+
+        Assert.DoesNotContain(github.Requests, r => r.IsMerge || r.IsCheckRuns || r.IsStatuses || r.IsRepositoryRead);
     }
 
     [Fact]
@@ -430,22 +504,6 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
         // the primary branch is compared again after the checks and methods are read
         Assert.Equal(2, github.Requests.Where(r => r.IsCompare).Count());
         Assert.DoesNotContain(github.Requests, r => r.IsMerge);
-    }
-
-    [Fact]
-    public async Task A_project_that_names_no_check_pauses_before_a_behind_head_is_answered_behind()
-    {
-        await projects.AddAsync(Principal.LocalOwner, "unchecked", RegisteredProjects.Remote, RegisteredProjects.BranchOnly, None);
-        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, "unchecked", "task", "Merge me", null, None);
-        await parcels.SetFieldAsync(Principal.LocalOwner, "unchecked", parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
-        Guid flowRun = await RecordedFlowRunAsync("unchecked", parcel.Id, Head);
-        github.On(r => r.IsCompare, _ => FakeGitHub.Json(HttpStatusCode.OK, new JsonObject { ["ahead_by"] = 1, ["behind_by"] = 3 }));
-
-        SystemStepAnswer outcome = await DispatchAsync(parcel.Id, flowRun, "unchecked");
-
-        Assert.Contains("names no check", Paused(outcome).Reason, StringComparison.Ordinal);
-        Assert.Contains("coa project module set unchecked software required-checks", Paused(outcome).Lever, StringComparison.Ordinal);
-        Assert.DoesNotContain(github.Requests, r => r.IsCompare);
     }
 
     [Theory]
@@ -585,6 +643,19 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
         Assert.Contains("Not Found", actual, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Registers <see cref="Unnamed"/>, whose required-checks setting is unset, with a task naming pull
+    /// request 17 and a flow run whose open-pr result recorded <see cref="Head"/>
+    /// <paramref name="recordedAgo"/> before now (no time at all when none is given).
+    /// </summary>
+    private async Task<(Guid Parcel, Guid FlowRun)> ArrangeUnnamedAsync(TimeSpan recordedAgo = default)
+    {
+        await projects.AddAsync(Principal.LocalOwner, Unnamed, RegisteredProjects.Remote, RegisteredProjects.BranchOnly, None);
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Unnamed, "task", "Merge me", null, None);
+        await parcels.SetFieldAsync(Principal.LocalOwner, Unnamed, parcel.Id, TaskFields.PullRequest, FieldValue.OfReference("17", FakeGitHub.Url), None);
+        return (parcel.Id, await RecordedFlowRunAsync(Unnamed, parcel.Id, Head, new FlowRunService(node.Store, new Earlier(recordedAgo))));
+    }
+
     private async Task<(Guid Parcel, Guid FlowRun)> ArrangeAsync(string head = Head)
     {
         Guid parcel = await TaskAsync();
@@ -603,16 +674,17 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
     }
 
     /// <summary>Starts a flow run of the recorder flow on the parcel and records an open-pr result whose head is <paramref name="head"/>.</summary>
-    private async Task<Guid> RecordedFlowRunAsync(string project, Guid parcel, string head)
+    private async Task<Guid> RecordedFlowRunAsync(string project, Guid parcel, string head, FlowRunService? recording = null)
     {
+        recording ??= flowRuns;
         if (project != Project)
         {
             await Publishing.FlowAsync(node.Daemon, project, Recorder);
         }
 
-        FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, project, parcel, Recorder.Name, None);
+        FlowRun started = await recording.StartAsync(Principal.LocalOwner, project, parcel, Recorder.Name, None);
         JsonElement result = JsonSerializer.SerializeToElement(new { verdict = "opened", systemStep = SoftwareSteps.OpenPr, number = 17, url = FakeGitHub.Url, head });
-        await flowRuns.RecordResultAsync(Principal.LocalOwner, project, started.Id, "open-pr", SoftwareSteps.OpenPr, result, None);
+        await recording.RecordResultAsync(Principal.LocalOwner, project, started.Id, "open-pr", SoftwareSteps.OpenPr, result, None);
         return started.Id;
     }
 
@@ -666,5 +738,11 @@ public sealed class GatedMergeStepTests : IAsyncLifetime
         Assert.StartsWith("Step 'gated-merge' ", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("gated-merge"), paused.Lever);
         return paused.Reason;
+    }
+
+    /// <summary>The system clock moved back by <paramref name="by"/>, so what a service records with it is recorded that long ago.</summary>
+    private sealed class Earlier(TimeSpan by) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => System.GetUtcNow() - by;
     }
 }

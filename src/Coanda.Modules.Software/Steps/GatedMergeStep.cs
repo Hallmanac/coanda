@@ -16,9 +16,9 @@ namespace Coanda.Modules.Software.Steps;
 /// the task works in (<see cref="StepTargets.TargetAsync"/>)
 /// whose head is the recorded head (the <c>head</c> of the latest open-pr or rebase result in the
 /// chain, <see cref="RecordedHeads.OfChainAsync"/>), which is behind the primary branch by no
-/// commits, which GitHub reports mergeable, and on which every check the module's required-checks
-/// setting names has
-/// succeeded and no other reported check has failed or is still running. The merge request carries
+/// commits, which GitHub reports mergeable, and on which no reported check has failed or is still
+/// running and every check the module's required-checks setting names, when it names any, has succeeded.
+/// The merge request carries
 /// that head as the expected head and names the method the repository allows, preferring merge,
 /// then squash, then rebase. The primary branch is compared with the head both before mergeability
 /// and the checks are read and right before the merge; a head behind it at either comparison
@@ -29,9 +29,31 @@ namespace Coanda.Modules.Software.Steps;
 /// <c>reason</c> while a check or GitHub's mergeability is still to come, and pauses on everything
 /// waiting or a rebase will not change. Nothing here enables GitHub's auto-merge, and nothing reads
 /// the node's clone.
+/// <para>
+/// With required-checks unset, the merge waits on every check reported on the head. Right after a
+/// push nothing may be reported yet, because CI has not created its check runs or posted a status,
+/// so a head with no check run and no commit status is held by a settle rule: it answers pending
+/// until <see cref="SettleBound"/> has passed since the <c>RecordedAt</c> of the open-pr or rebase
+/// result that recorded it, and then merges with nothing reported. The rule reads no check suites, so
+/// CI that reports only commit statuses is held for the same bound. It cannot tell CI that has not
+/// started from no CI at all: a head whose CI first reports after the bound is merged without that
+/// CI's result. The bound is read against the clock of the node that recorded the head, so a
+/// recording clock that runs behind this node's shortens the wait by the difference, and one that
+/// runs ahead lengthens it, at worst until the merge flow pauses at the end of its budget. Once any
+/// check is reported, a check not yet reported when every reported one has finished is not waited
+/// for (a job that depends on another, a workflow another one triggers, a slower integration);
+/// naming checks in required-checks is how a project waits for those.
+/// </para>
 /// </summary>
-public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github) : ISoftwareStep
+public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github, TimeProvider clock) : ISoftwareStep
 {
+    /// <summary>
+    /// How long after its head was recorded a merge with required-checks unset waits for anything to be
+    /// reported on a head with nothing reported. Four of these, one for the head open-pr recorded and
+    /// one after each of the merge flow's three rebase laps, fit in its 23 minutes of waiting.
+    /// </summary>
+    public static readonly TimeSpan SettleBound = TimeSpan.FromMinutes(5);
+
     /// <summary>The verdict the step answers once the pull request is merged.</summary>
     public const string MergedVerdict = "merged";
 
@@ -135,21 +157,13 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
                 : PerformAgain(step, $"found {named} merged, but GitHub reports no commit for the merge.");
         }
 
-        if (await RecordedHeads.OfChainAsync(context, cancellationToken) is not { } head)
+        if (await RecordedHeads.OfChainAsync(context, cancellationToken) is not { } recorded)
         {
             return PerformAgain(
                 step, $"merged nothing: no open-pr or rebase result with a head is recorded in the flow run's chain, so there is no pushed commit to hold {named} to.");
         }
 
-        if (required is not { Count: > 0 })
-        {
-            return await StepTargets.MissingSettingAsync(
-                context,
-                SoftwareSettings.RequiredChecks,
-                $"merged nothing: the software module's setting '{SoftwareSettings.RequiredChecks}' names no check for a merge to wait for in project '{target.Project}', so the step cannot tell whether every expected check has reported.",
-                "'[\"<check>\"]'",
-                cancellationToken);
-        }
+        string head = recorded.Head;
 
         if (!pullRequest.IsOpen)
         {
@@ -180,13 +194,18 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
 
         IReadOnlyList<GitHubCheckRun> runs = await client.CheckRunsAsync(repository, head, token, cancellationToken);
         IReadOnlyList<GitHubCommitStatus> statuses = await client.StatusesAsync(repository, head, token, cancellationToken);
-        Checks checks = Inspect(required, runs, statuses);
+        Checks checks = Inspect(required ?? [], runs, statuses);
         if (checks.Failed is { } failed)
         {
             return PerformAgain(step, $"merged nothing: {failed} on {head}.");
         }
 
         List<string> waiting = [.. checks.Pending];
+        if (required is not { Count: > 0 } && runs.Count == 0 && statuses.Count == 0 && Unsettled(recorded) is { } settles)
+        {
+            waiting.Add($"nothing has been reported on {head}, no check run and no commit status, and CI may still be coming until {settles:u}, {SettleBound.TotalMinutes:0} minutes after the head was recorded");
+        }
+
         if (pullRequest.Mergeable is null)
         {
             waiting.Add($"GitHub has not yet computed whether {named} is mergeable");
@@ -232,6 +251,18 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
                     ("behind", behind))
                 : null;
         }
+    }
+
+    /// <summary>
+    /// When the settle rule stops holding a head with nothing reported on it, or null once it has: the
+    /// head's <c>RecordedAt</c> plus <see cref="SettleBound"/>, against this node's clock.
+    /// </summary>
+    private DateTimeOffset? Unsettled(RecordedHead recorded)
+    {
+        DateTimeOffset settles = recorded.RecordedAt + SettleBound;
+        return clock.GetUtcNow() < settles
+            ? settles
+            : null;
     }
 
     /// <summary>The checks the module's setting names for a merge to wait for, or null when it names none.</summary>
