@@ -4,12 +4,14 @@ using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
+using Coanda.Core.Types;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.Steps;
 using Coanda.Tests.Daemon.Commands;
+using Coanda.Tests.Daemon.FlowRuns;
 using Coanda.Tests.Modules.Software;
 using Coanda.Tests.Modules.Software.GitHub;
 using Fisher;
@@ -27,6 +29,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
 {
     private const string Project = SoftwareNode.Project;
     private static readonly Principal FlowRunPrincipal = new("flow-run:under-test", Role.Agent);
+    private static readonly ParcelType UnboundTask = SoftwareTypes.UnownedTask with { Name = "unbound-task", FlowBindings = [] };
 
     private readonly RecordingClock clock = new();
     private readonly ScriptedCommandRunner runner = new();
@@ -78,7 +81,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public async Task Move_parcel_moves_the_parcel_as_the_flow_runs_principal_and_answers_done()
     {
-        Parcel parcel = await TaskAtAsync("build");
+        Parcel parcel = await UnboundTaskAtBuildAsync();
 
         SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("review"))), parcel.Id);
 
@@ -93,7 +96,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public async Task Move_parcel_answers_done_without_a_move_when_the_parcel_is_already_there()
     {
-        Parcel parcel = await TaskAtAsync("build");
+        Parcel parcel = await UnboundTaskAtBuildAsync();
 
         SystemStepAnswer outcome = await DispatchAsync(Step(CoreSystemSteps.MoveParcel, ("stage", FlowValue.Of("build"))), parcel.Id);
 
@@ -230,9 +233,23 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
         Assert.Empty(clock.Waits);
     }
 
-    private async Task<Parcel> TaskAtAsync(string stage)
+    private async Task<Parcel> TaskAtAsync(string stage) => await BriefedAtAsync("task", stage);
+
+    /// <summary>
+    /// A briefed parcel in the build stage of a project type with the task type's stages and no flow
+    /// binding. The task type binds its build stage to the build flow, so a task moved there is a
+    /// trigger the daemon's own trigger loop answers by starting that flow on it, which then holds the
+    /// parcel and refuses any other flow run's move of it; a parcel of this type is left to the test.
+    /// </summary>
+    private async Task<Parcel> UnboundTaskAtBuildAsync()
     {
-        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Act on me", null, CancellationToken.None);
+        await Publishing.TypeAsync(node.Daemon, Project, UnboundTask);
+        return await BriefedAtAsync(UnboundTask.Name, "build");
+    }
+
+    private async Task<Parcel> BriefedAtAsync(string typeName, string stage)
+    {
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, typeName, "Act on me", null, CancellationToken.None);
         await parcels.BriefAsync(Principal.LocalOwner, Project, parcel.Id, cancellationToken: CancellationToken.None);
         return stage == parcel.Stage
             ? parcel
