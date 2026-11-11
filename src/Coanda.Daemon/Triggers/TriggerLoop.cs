@@ -524,8 +524,9 @@ public sealed class TriggerLoop(
     /// later follower of it that has not already started waits behind it, even if the parcel is free
     /// again by the time the loop reaches it: a closing follower started ahead of a waiting one would
     /// close the parcel, and the waiting one's start would then be refused, and a later follower
-    /// started ahead of an earlier one would break the name order. Each refusal is logged and the
-    /// other followers still start.
+    /// started ahead of an earlier one would break the name order. A closing follower also waits
+    /// whenever follows of an earlier end are already waiting on the parcel, behind every one of them
+    /// that does not close. Each refusal is logged and the other followers still start.
     /// </summary>
     private async Task EndedAsync(string project, FlowRunEnded ended, bool own, long sequence, CancellationToken cancellationToken)
     {
@@ -554,7 +555,14 @@ public sealed class TriggerLoop(
             bool waits = false;
             try
             {
-                waits = waiting.Count > 0
+                // A closing follower also waits behind every follow already waiting on the parcel,
+                // whichever end that follow came from, even if the parcel is free. Among the followers,
+                // only a closing one's end closes the parcel, and a follow's start is refused on a closed
+                // parcel, so a closing one started now would leave every waiting follow to be refused.
+                // A follower that does not close is not held by follows of an earlier end.
+                bool held = waiting.Count > 0
+                    || (follower.Closes is not null && await HasDeferredFollowsAsync(project, parent.ParcelId, cancellationToken));
+                waits = held
                     ? !await FollowedAsync(project, parent, follower.Name, cancellationToken)
                     : await FollowAsync(project, parent, follower.Name, cancellationToken);
                 if (waits)
@@ -617,6 +625,14 @@ public sealed class TriggerLoop(
             Ids.Short(parent.Id), Ids.Short(flowRun.Id), flowName, flowRun.Depth, Ids.Short(parent.ParcelId), project);
         _ = advancer.RequestAdvance(project, flowRun.Id);
         return false;
+    }
+
+    /// <summary>Whether any follow waits on the parcel for a release.</summary>
+    private async Task<bool> HasDeferredFollowsAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        DeferredFollows? deferred = await session.LoadAsync<DeferredFollows>(parcelId, cancellationToken);
+        return deferred?.Pending.Count > 0;
     }
 
     /// <summary>Whether <paramref name="parent"/> already has a follower of <paramref name="flowName"/> on its parcel.</summary>
