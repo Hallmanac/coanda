@@ -86,7 +86,9 @@ The shipped merge flow declares `closes` as completed, and so does any flow a pr
 publishes with `closes` set, a flow that replaces the shipped merge included. When several
 flows follow the same end, they start one at a time in name order, except that the ones that
 declare `closes` start after every one that does not, so a closing follower never shuts the parcel
-on a follower still waiting to start.
+on a follower still waiting to start. A closing follower also waits behind every follow already
+waiting on the parcel, whichever end that follow came from, while a follower that does not close is
+not held back by follows of an earlier end.
 `coa flow-run pause <id> --reason <why>` pauses a running flow run without freeing the parcel, and a resume
 then performs the step it was paused at again.
 

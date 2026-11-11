@@ -496,7 +496,10 @@ matching needs judgment, the flow starts with an agent step that may answer "not
 
 Flows compose: a flow declares a typed outcome (PR opened, report produced, parcels
 derived), and the next flow follows it, so a flow run ending with that outcome starts a flow run of the
-next flow on the same parcel, with a depth cap and a budget the chain shares.
+next flow on the same parcel, with a depth cap and a budget the chain shares. The followers of one end
+start one at a time, those whose flow closes the parcel last, and a closing follower also waits
+behind every follow already waiting on the parcel, whichever end that follow came from, while a
+follower that does not close is not held back by follows of an earlier end.
 
 The interpreter is a pure function: given the flow, the position, and the answer just
 returned, it returns the next move (go to, pause, end). Every flow run records the content hash of its
