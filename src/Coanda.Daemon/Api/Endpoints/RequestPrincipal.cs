@@ -25,6 +25,10 @@ public static class RequestPrincipal
     private static Principal OwnerOf(HttpContext context)
     {
         NodeOwner owner = context.RequestServices.GetRequiredService<NodeOwner>();
+
+        // The CLI sends the id as its UTF-8 bytes, and Kestrel decodes request header values as UTF-8 by
+        // default, refusing a value that is not valid UTF-8 with a 400 before any middleware runs, so the
+        // value read here is already the id, character for character.
         string named = context.Request.Headers.TryGetValue(DaemonHost.PrincipalHeader, out var header)
             ? header.ToString()
             : string.Empty;

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Net.Http.Json;
+using System.Text;
 using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
@@ -23,7 +24,17 @@ public sealed class DaemonClient : IDisposable
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
 
     // One client for the process, so a long-running command never exhausts sockets by making one per call.
-    private static readonly HttpClient Http = new();
+    private static readonly HttpClient Http = new(new SocketsHttpHandler { RequestHeaderEncodingSelector = HeaderEncoding });
+
+    /// <summary>
+    /// The encoding a request header's value is sent in: UTF-8 for the principal header, so an id outside ASCII
+    /// goes as its UTF-8 bytes, which Kestrel decodes by default, and an id of printable ASCII goes byte for byte
+    /// as it always has. Every other header keeps the handler's default, which sends ASCII only.
+    /// </summary>
+    internal static Encoding? HeaderEncoding(string name, HttpRequestMessage? request) =>
+        string.Equals(name, DaemonHost.PrincipalHeader, StringComparison.OrdinalIgnoreCase)
+            ? Encoding.UTF8
+            : null;
 
     private readonly string? sessionToken;
 
@@ -332,6 +343,7 @@ public sealed class DaemonClient : IDisposable
     {
         var request = new HttpRequestMessage(method, $"{info.BaseAddress}{path}");
         request.Headers.Add(DaemonHost.TokenHeader, sessionToken ?? info.Token);
+        // The id is sent as its UTF-8 bytes (HeaderEncoding), unescaped, so ASCII ids are unchanged on the wire.
         request.Headers.Add(DaemonHost.PrincipalHeader, PrincipalId);
         return request;
     }
