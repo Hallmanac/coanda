@@ -102,6 +102,13 @@ public sealed class TriggerLoop(
     public static Principal PrincipalFor(Guid parentFlowRunId) => new($"follow:{parentFlowRunId}", Role.Agent);
 
     /// <summary>
+    /// Awaited after each follower of an end is started, set waiting, skipped, or refused, before the
+    /// loop decides the next one. Null, as it is in a running daemon, awaits nothing; a test supplies it
+    /// through <see cref="Api.DaemonOptions"/> to act between one follower's decision and the next.
+    /// </summary>
+    internal Func<FollowDecision, CancellationToken, Task>? FollowDecided { get; set; }
+
+    /// <summary>
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
     /// record as its position. The daemon calls this before it writes its address file.
     /// </summary>
@@ -513,8 +520,12 @@ public sealed class TriggerLoop(
     /// matches it and which accepts the type. The first starts now; the parcel then holds a live
     /// flow run, so each of the others waits for a release, in name order, except that a follower whose
     /// flow declares <c>closes</c> starts after every follower that does not: its end closes the
-    /// parcel, and no follow starts on a closed parcel. Each refusal is logged and the other
-    /// followers still start.
+    /// parcel, and no follow starts on a closed parcel. Once one follower of the end waits, every
+    /// later follower of it that has not already started waits behind it, even if the parcel is free
+    /// again by the time the loop reaches it: a closing follower started ahead of a waiting one would
+    /// close the parcel, and the waiting one's start would then be refused, and a later follower
+    /// started ahead of an earlier one would break the name order. Each refusal is logged and the
+    /// other followers still start.
     /// </summary>
     private async Task EndedAsync(string project, FlowRunEnded ended, bool own, long sequence, CancellationToken cancellationToken)
     {
@@ -540,9 +551,13 @@ public sealed class TriggerLoop(
         List<PendingFollow> waiting = [];
         foreach (Flow follower in followers)
         {
+            bool waits = false;
             try
             {
-                if (await FollowAsync(project, parent, follower.Name, cancellationToken))
+                waits = waiting.Count > 0
+                    ? !await FollowedAsync(project, parent, follower.Name, cancellationToken)
+                    : await FollowAsync(project, parent, follower.Name, cancellationToken);
+                if (waits)
                 {
                     waiting.Add(new PendingFollow(parent.Id, follower.Name, follower.Closes is not null));
                 }
@@ -550,6 +565,11 @@ public sealed class TriggerLoop(
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
             {
                 LogFollowRefused(follower.Name, parent.Id, refused);
+            }
+
+            if (FollowDecided is { } decided)
+            {
+                await decided(new FollowDecision(project, parent.Id, follower.Name, waits), cancellationToken);
             }
         }
 
@@ -566,8 +586,7 @@ public sealed class TriggerLoop(
     /// </summary>
     private async Task<bool> FollowAsync(string project, FlowRun parent, string flowName, CancellationToken cancellationToken)
     {
-        IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken);
-        if (existing.Any(f => f.ParentFlowRunId == parent.Id && DefinitionResolution.SameName(f.FlowName, flowName)))
+        if (await FollowedAsync(project, parent, flowName, cancellationToken))
         {
             return false;
         }
@@ -598,6 +617,13 @@ public sealed class TriggerLoop(
             Ids.Short(parent.Id), Ids.Short(flowRun.Id), flowName, flowRun.Depth, Ids.Short(parent.ParcelId), project);
         _ = advancer.RequestAdvance(project, flowRun.Id);
         return false;
+    }
+
+    /// <summary>Whether <paramref name="parent"/> already has a follower of <paramref name="flowName"/> on its parcel.</summary>
+    private async Task<bool> FollowedAsync(string project, FlowRun parent, string flowName, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parent.ParcelId, cancellationToken);
+        return existing.Any(f => f.ParentFlowRunId == parent.Id && DefinitionResolution.SameName(f.FlowName, flowName));
     }
 
     /// <summary>

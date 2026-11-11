@@ -3,6 +3,7 @@ using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.SystemSteps;
+using Coanda.Daemon.Triggers;
 using Coanda.Modules.Software;
 using Coanda.Modules.Software.GitHub;
 using Coanda.Sdk.Hosting;
@@ -119,4 +120,10 @@ public sealed record DaemonOptions
     /// ended and the step answers failed, so a command that never exits sends the work to its fix lap.
     /// </summary>
     public TimeSpan GatesCommandLimit { get; init; } = DefaultGatesCommandLimit;
+
+    /// <summary>
+    /// What the trigger loop awaits after each follower of a flow run's end is decided and before the
+    /// next one; null, as <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it.
+    /// </summary>
+    internal Func<FollowDecision, CancellationToken, Task>? FollowDecided { get; init; }
 }

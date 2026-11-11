@@ -178,7 +178,12 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<NodeVoucher>();
         builder.Services.AddSingleton<NodeJoiner>();
         builder.Services.AddSingleton<TriggerService>();
-        builder.Services.AddSingleton<TriggerLoop>();
+        builder.Services.AddSingleton(services =>
+        {
+            TriggerLoop loop = ActivatorUtilities.CreateInstance<TriggerLoop>(services);
+            loop.FollowDecided = options.FollowDecided;
+            return loop;
+        });
 
         // Registered after the runner, so it stops first: a start it makes while stopping is advanced on the next start.
         builder.Services.AddHostedService(services => services.GetRequiredService<TriggerLoop>());
