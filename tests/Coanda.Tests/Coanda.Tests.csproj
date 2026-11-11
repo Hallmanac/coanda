@@ -16,6 +16,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The runner file caps xUnit at 4 test classes at once on every machine, in place of its default
+      of one per logical CPU. About a third of the suite starts a daemon host, and on a 28-CPU node
+      that many classes at once ran out flow-run waits; limiting that node's test process to four
+      logical CPUs made the suite pass, and CI's hosted runners have about four, so 4 keeps the bound
+      that worked there without slowing CI. It is copied in every configuration because a gates step
+      with no build or test command registered runs a Debug build.
+    -->
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Coanda.Core\Coanda.Core.csproj" />
     <ProjectReference Include="..\..\src\Coanda.Daemon\Coanda.Daemon.csproj" />
     <ProjectReference Include="..\..\src\Coanda.Cli\Coanda.Cli.csproj" />
