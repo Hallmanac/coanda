@@ -6,6 +6,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Triggers;
 using Coanda.Modules.Software;
 using Coanda.Tests.Daemon.FlowRuns;
+using Coanda.Tests.Daemon.SystemSteps;
 
 namespace Coanda.Tests.Daemon.Triggers;
 
@@ -25,6 +26,12 @@ public sealed class FollowTests
 
     /// <summary>A flow that follows an outcome no flow declares.</summary>
     private static readonly Flow AfterNothing = Ending("after-nothing", new FlowFollow { Outcome = "nobody-produces-this", DepthCap = 1 });
+
+    /// <summary>A follower of the build flow's outcome whose one step is <see cref="RunningSystemStep"/>, which a test holds open.</summary>
+    private static readonly Flow HeldAfterBuild = RunningSystemStep.FlowNamed(AfterBuild.Name) with
+    {
+        Follow = new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 },
+    };
 
     private static Flow Ending(string name, FlowFollow follow) => new()
     {
@@ -165,6 +172,72 @@ public sealed class FollowTests
         // does not close it starts first and none is refused on a closed parcel.
         Assert.Equal([AfterBuild.Name, NotifyAfterBuild.Name, "merge"], followers.Select(f => f.FlowName));
         Assert.Equal(["followed", "followed", "merged"], followers.Select(f => f.Outcome));
+        Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_follower_that_waits_keeps_every_later_follower_of_the_same_end_waiting_behind_it_even_once_the_parcel_is_free()
+    {
+        using var temp = new TemporaryHome();
+        using var stopping = new CancellationTokenSource(TestPatience.Bound);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = new RunningSystemStep
+        {
+            Answer = async (_, token) =>
+            {
+                await release.Task.WaitAsync(token);
+                return RunningSystemStep.Done();
+            },
+        };
+        using var client = new DaemonClient(temp.Home);
+        Guid parcelId = Guid.Empty;
+        int freed = 0;
+
+        // Once the second follower waits behind the held one, the held one ends and frees the parcel
+        // before the loop decides on the closing merge.
+        async Task FreeAfterSecondWaits(FollowDecision decision, CancellationToken token)
+        {
+            if (decision.Flow != AlsoAfterBuild.Name || !decision.Waits || Interlocked.Exchange(ref freed, 1) == 1)
+            {
+                return;
+            }
+
+            release.TrySetResult();
+            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(token, stopping.Token);
+            while ((await client.GetAsync<ParcelView>($"/parcels/{parcelId}?project={Project}", bounded.Token)).LiveFlowRunId is not null)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(20), bounded.Token);
+            }
+        }
+
+        DaemonOptions options = new()
+        {
+            Executor = Scripts.CleanBuildExecutor(),
+            SystemSteps = [held],
+            FollowDecided = FreeAfterSecondWaits,
+        };
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, options, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        await Publishing.FlowAsync(daemon, Project, HeldAfterBuild);
+        await Publishing.FlowAsync(daemon, Project, AlsoAfterBuild);
+        ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Build, then follow with one held");
+        parcelId = parcel.Id;
+
+        FlowRunView build = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        await FlowRunDriver.UntilAsync(client, Project, build.Id, "ended");
+        FlowRunView merge = await FlowRunDriver.MergedAsync(client, Project, parcel.Id, build.Id);
+
+        List<FlowRunView> followers = [.. (await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id)).Where(f => f.ParentFlowRunId == build.Id)];
+        FlowRunView? waited = followers.SingleOrDefault(f => f.FlowName == AlsoAfterBuild.Name);
+        Assert.NotNull(waited);
+        Assert.Equal("ended", waited.Status);
+        Assert.Equal("followed", waited.Outcome);
+        // An ended flow run was last updated by its end.
+        Assert.True(waited.UpdatedAt <= merge.StartedAt, $"'{AlsoAfterBuild.Name}' ended at {waited.UpdatedAt}, after the merge started at {merge.StartedAt}.");
+        Assert.Equal([AfterBuild.Name, AlsoAfterBuild.Name, "merge"], followers.OrderBy(f => f.StartedAt).Select(f => f.FlowName));
+        Assert.All(followers, f => Assert.Equal("ended", f.Status));
         Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcel.Id}?project={Project}", None)).Stage);
 
         await daemon.StopAsync(None);
