@@ -23,8 +23,12 @@ public static class SoftwareDescribe
     /// The module's settings for each project it is switched on for. The replicated settings name each
     /// repo's primary branch, as an object from a repo's name to its branch; the build and test commands,
     /// which default to <see cref="SoftwareSettings.DefaultBuild"/> and <see cref="SoftwareSettings.DefaultTest"/>;
-    /// and the checks a merge waits for. None is required, so a project missing one is still configured, and
-    /// the step that needs it pauses naming it instead. A branch, a command, and a check must each hold
+    /// and the checks a merge waits for. None is required, so a project missing one is still configured. A
+    /// step that needs a primary branch for its repo pauses naming the setting when it has none; the
+    /// build and test commands fall back to their defaults; and a merge with no checks named waits on every
+    /// check reported on the head instead, under the settle rule <see cref="GatedMergeStep"/> states for a
+    /// head with none reported, so naming checks is how a project makes it wait for a check that has not
+    /// been reported by the time every reported one has finished. A branch, a command, and a check must each hold
     /// something other than white space. The credential profile setting names the profile a project's steps
     /// read their GitHub token through; it is required, and a project that selects none acts as the account
     /// the node's GitHub CLI is signed in to, which counts as its value.

@@ -15,7 +15,15 @@ public static class SoftwareSettings
     /// <summary>The command line the gates step runs once the build passes.</summary>
     public const string Test = "test";
 
-    /// <summary>The checks a merge of a pull request waits for, by check run name or commit status context.</summary>
+    /// <summary>
+    /// The checks a merge of a pull request waits for, by check run name or commit status context, each
+    /// until it has succeeded, whether or not it has been reported yet. Unset, the merge waits on every
+    /// check reported on the head, and holds a head with none reported for
+    /// <see cref="Steps.GatedMergeStep.SettleBound"/> after it was recorded before merging it. Naming
+    /// checks is how a project makes the merge wait for a check that has not been reported by the time
+    /// every reported check has finished, such as one created only after another finishes or one from a
+    /// slower integration.
+    /// </summary>
     public const string RequiredChecks = "required-checks";
 
     /// <summary>The build command a project that sets none runs.</summary>

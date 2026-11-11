@@ -59,7 +59,7 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
             new WorktreeStep(clones, ends),
             new GatesStep(options.CommandRunner, options.GatesCommandLimit),
             new OpenPrStep(clones, tokens, GitHub),
-            new GatedMergeStep(tokens, GitHub),
+            new GatedMergeStep(tokens, GitHub, options.Clock),
             new RebaseStep(clones),
         })
         {

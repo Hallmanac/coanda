@@ -867,6 +867,15 @@ holds named profiles per module; the secret material lives in the module's owner
 the profile names and each project's selection live in the core. Every dispatch, watch request, and
 feed delivery carries the project, so the module resolves the project's profile.
 
+The software module's required checks have no default, and unset is a meaningful state rather than
+a missing one: the merge then waits on every check run and commit status reported on the head, and
+a head with nothing reported is held for a settle bound of five minutes from the `RecordedAt` of
+the open-pr or rebase result that recorded it, then merged. A head whose CI first reports after the
+bound is merged without that result, and the bound is read against the recording node's clock, so
+clock skew between nodes shortens or lengthens it by the difference. Naming checks is how a project
+makes the merge wait for a check that has not been reported by the time every reported check has
+finished, such as one created only after another finishes or one from a slower integration.
+
 A setting may declare a default, and a credential profile's default may be the node's default
 identity: the software module's GitHub profile defaults to the gh CLI's default account. A module
 switched on for a project is unconfigured on this node when, and only when, a required setting has
