@@ -777,8 +777,11 @@ under a Module role (decision c4d0586a: every call carries a principal). The sam
 resolves three kinds of token: the daemon token (owner), a session token bound to one agent step's
 launch, and a module token bound to one installed module. A call holding only the daemon token acts
 as the node's owner, whose principal id is the node's owner id (section 6) and is what the CLI sends in
-its principal header; a node with no owner id record names its owner by the operating system account
-the daemon runs as. When the runtime names no account
+its principal header. The header carries the id as its UTF-8 bytes, unescaped, so an id outside ASCII
+reaches the daemon whole and an id of printable ASCII is sent byte for byte as it always was; the
+daemon decodes the value as UTF-8 and refuses one that is not valid UTF-8 with a 400 before any
+service runs. A node with no owner id record names its owner by the operating system account the
+daemon runs as. When the runtime names no account
 (a process running as a user it cannot look up), the owner's id is `owner` and the daemon still
 starts; the CLI there sends a blank header, which acts as the owner. Such a call that sends no
 principal header, or a blank one, acts as the owner too; one whose header names any other id is
