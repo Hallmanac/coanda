@@ -20,7 +20,7 @@ using Fisher;
 namespace Coanda.Tests.Daemon;
 
 /// <summary>
-/// The phase 1 gate of the prototype plan (section 3): a flow run of the shipped build flow runs end
+/// The phase 1 gate of the first version plan (section 3): a flow run of the shipped build flow runs end
 /// to end on canned answers with every cap enforced and refused at load without them. Every test
 /// runs on a throwaway node home with a <see cref="ScriptedExecutor"/>, and none touches a network or a repository.
 /// </summary>
