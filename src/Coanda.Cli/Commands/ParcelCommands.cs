@@ -145,7 +145,7 @@ public sealed class ParcelSetSettings : ParcelIdSettings
     public string? Text { get; init; }
 
     [CommandOption("--item <ITEM>")]
-    [Description("One item of a list field's value; repeat it for each item, in order.")]
+    [Description("One item of a list field's value; repeat it for each item, in order. The items given replace the field's whole list, so give every item the list should hold.")]
     public string[]? Items { get; init; }
 
     [CommandOption("--ref <ID>")]
