@@ -109,9 +109,12 @@ the daemon's start, the CLI's detached start, and the record export, before the 
 as a home written before the rename is. The refusal names the commit on main whose build still reads
 those shapes and the page (`docs/rebuilding-the-record.md`) that gives the steps to rebuild the record
 with it. A flow whose content names a software step without the prefix is current, and the daemon
-dispatches, records, and routes its steps under their `software/` names. Agent content stored before
-an agent carried its answer schema as content, which names one of the schemas `build`, `review`,
-`fix`, or `discovery` and holds no schema content, is current too: it reads and keeps the content
+dispatches, records, and routes its steps under their `software/` names. For a flow written before
+the build flow ended at the open pull request, whose open-pr step is named without the `software/`
+prefix and routes on `done` and not on `opened`, the daemon records `done` where the software module
+answers `opened`; this mapping is permanent, since such a flow version keeps its content and its
+content hash. Agent content stored before an agent carried its answer schema as content, which
+names one of the schemas `build`, `review`, `fix`, or `discovery` and holds no schema content, is current too: it reads and keeps the content
 hash it was stored under, and the daemon validates its answers against the document the release
 shipped under that name, from a frozen map of those four that serves such content and nothing else.
 
