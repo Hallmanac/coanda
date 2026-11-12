@@ -196,7 +196,7 @@ public sealed class SpawnInputsTests
         }
 
         public async ValueTask<SessionHandle> SpawnAsync(
-            AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, string answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, CancellationToken cancellationToken)
+            AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, AnswerSchema answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, CancellationToken cancellationToken)
         {
             string task = Path.Combine(workingDirectory, ".coanda", "task.md");
             string prompt = Path.Combine(workingDirectory, ".coanda", "prompt.md");

@@ -15,7 +15,7 @@ public sealed class ContextAssemblerTests
     private static Parcel TaskParcel() => Parcel.Create(new ParcelCreated(
         ParcelId, "coanda", "task", "0123456789abcdef", "build", "Teach the daemon to reach agents", "brian", DateTimeOffset.UnixEpoch));
 
-    private static readonly FlowStep Step = new() { Name = "review-adversarial", Agent = "persona-probe", AnswerSchema = AnswerSchemas.Review };
+    private static readonly FlowStep Step = new() { Name = "review-adversarial", Agent = "persona-probe", AnswerSchema = NameOnlyAnswerSchemas.Review };
 
     [Fact]
     public void The_body_labels_the_parcel_and_the_step_in_order_and_holds_nothing_else()
@@ -249,7 +249,7 @@ public sealed class ContextAssemblerTests
             [agent.Name] = [new ScriptEntry("""{"verdict":"clean","findings":[]}""", "/t/1.jsonl", new Measurement(1, 0.01m, 1, TimeSpan.FromSeconds(1)))],
         });
         var request = new AgentStepRequest(
-            agent, ContextAssembler.Assemble(TaskParcel(), Step, []), "/work/tree", new SpawnCaps(1m, TimeSpan.FromMinutes(5)), AnswerSchemas.Review);
+            agent, ContextAssembler.Assemble(TaskParcel(), Step, []), "/work/tree", new SpawnCaps(1m, TimeSpan.FromMinutes(5)), NameOnlyAnswerSchemas.Review);
 
         await AgentStep.RunAsync(executor, request, CancellationToken.None);
 

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 
@@ -26,6 +27,42 @@ public sealed class SoftwareAgentsTests
         Assert.Equal("discovery", SoftwareAgents.Discovery.AnswerSchema);
     }
 
+    [Theory]
+    [InlineData("build", NameOnlyAnswerSchemas.Build)]
+    [InlineData("reviewer-adversarial", NameOnlyAnswerSchemas.Review)]
+    [InlineData("reviewer-conformance", NameOnlyAnswerSchemas.Review)]
+    [InlineData("fix", NameOnlyAnswerSchemas.Fix)]
+    [InlineData("discovery", NameOnlyAnswerSchemas.Discovery)]
+    public void Each_agent_holds_as_its_schema_content_the_document_the_release_shipped_under_its_schema_name(string agent, string schema)
+    {
+        AgentDefinition shipped = SoftwareAgents.All.Single(a => a.Name == agent);
+        AnswerSchema named = NameOnlyAnswerSchemas.Find(schema) ?? throw new InvalidOperationException($"No schema '{schema}'.");
+        using JsonDocument document = JsonDocument.Parse(named.Document);
+
+        JsonElement content = shipped.AnswerSchemaContent ?? throw new InvalidOperationException($"Agent '{agent}' holds no schema content.");
+        Assert.Equal(schema, shipped.AnswerSchema);
+        Assert.True(JsonElement.DeepEquals(document.RootElement, content), $"{agent}: {content}");
+        Assert.Equal(named.Verdicts, shipped.ResolveAnswerSchema().Verdicts);
+    }
+
+    /// <summary>
+    /// The hash of each shipped agent before it carried its schema content, as the store fixtures and
+    /// every node's earlier module versions hold it, and after.
+    /// </summary>
+    [Theory]
+    [InlineData("build", "37dd84328f49ca25", "039f9385559d36aa")]
+    [InlineData("reviewer-adversarial", "4ff7ac20b180df0d", "a05d63d65709b916")]
+    [InlineData("reviewer-conformance", "9f867144783e855c", "be473f662ee5093e")]
+    [InlineData("fix", "4ca4afe60ac4e100", "6052573ca3d9be35")]
+    [InlineData("discovery", "e99e12f13d399792", "a22ef13e3dcd2ab0")]
+    public void Each_agent_hashes_as_before_without_its_schema_content_and_anew_with_it(string agent, string before, string after)
+    {
+        AgentDefinition shipped = SoftwareAgents.All.Single(a => a.Name == agent);
+
+        Assert.Equal(before, (shipped with { AnswerSchemaContent = null }).Hash);
+        Assert.Equal(after, shipped.Hash);
+    }
+
     [Fact]
     public void Only_build_and_fix_hold_the_edit_tool()
     {
@@ -43,7 +80,7 @@ public sealed class SoftwareAgentsTests
     {
         foreach (AgentDefinition agent in SoftwareAgents.All)
         {
-            foreach (string verdict in AnswerSchemas.Require(agent.AnswerSchema).Verdicts)
+            foreach (string verdict in agent.ResolveAnswerSchema().Verdicts)
             {
                 // {agent.Name} must name the verdict {verdict}
                 Assert.Contains($"\"{verdict}\"", agent.Persona.Output, StringComparison.Ordinal);

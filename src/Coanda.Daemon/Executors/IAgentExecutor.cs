@@ -10,15 +10,17 @@ namespace Coanda.Daemon.Executors;
 public interface IAgentExecutor
 {
     /// <summary>
-    /// Starts a session for the agent and returns its handle. When <paramref name="access"/> is
-    /// given, every process of the session, a resume's included, runs with its variables set.
+    /// Starts a session for the agent and returns its handle. <paramref name="answerSchema"/> is the
+    /// agent's own (<see cref="AgentDefinition.ResolveAnswerSchema"/>), the one its reply must end in.
+    /// When <paramref name="access"/> is given, every process of the session, a resume's included,
+    /// runs with its variables set.
     /// </summary>
     ValueTask<SessionHandle> SpawnAsync(
         AgentDefinition agent,
         string context,
         string workingDirectory,
         SpawnCaps caps,
-        string answerSchema,
+        AnswerSchema answerSchema,
         CredentialProfile? credentialProfile,
         SessionAccess? access,
         CancellationToken cancellationToken);

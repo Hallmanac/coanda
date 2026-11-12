@@ -20,5 +20,25 @@
   ],
   "Skills": [],
   "McpServers": [],
-  "AnswerSchema": "fix"
+  "AnswerSchema": "fix",
+  "AnswerSchemaContent": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "The answer of a fix step",
+    "type": "object",
+    "required": [
+      "verdict"
+    ],
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "done",
+          "blocked"
+        ]
+      },
+      "summary": {
+        "type": "string"
+      }
+    }
+  }
 }

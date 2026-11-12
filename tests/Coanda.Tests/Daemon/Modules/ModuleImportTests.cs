@@ -29,7 +29,8 @@ public sealed class ModuleImportTests
     /// <summary>
     /// Each definition the software module brings, with the content hash its C# definition had on main at
     /// e86428f, but for the task type, which has since gained the repos field the module owns and marked
-    /// it as the type's tag field.
+    /// it as the type's tag field, and the five agents, which have since come to carry their answer
+    /// schema as content (the hashes they had before are pinned in <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>).
     /// </summary>
     public static TheoryData<DefinitionKind, string, string> HashesOnMain() => new()
     {
@@ -39,11 +40,11 @@ public sealed class ModuleImportTests
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
         { DefinitionKind.Flow, "discovery", "c8b01e99a6cc7916" },
         { DefinitionKind.Flow, "review-on-assignment", "fabaabb2eb82ff10" },
-        { DefinitionKind.Agent, "build", "37dd84328f49ca25" },
-        { DefinitionKind.Agent, "reviewer-adversarial", "4ff7ac20b180df0d" },
-        { DefinitionKind.Agent, "reviewer-conformance", "9f867144783e855c" },
-        { DefinitionKind.Agent, "fix", "4ca4afe60ac4e100" },
-        { DefinitionKind.Agent, "discovery", "e99e12f13d399792" },
+        { DefinitionKind.Agent, "build", "039f9385559d36aa" },
+        { DefinitionKind.Agent, "reviewer-adversarial", "a05d63d65709b916" },
+        { DefinitionKind.Agent, "reviewer-conformance", "be473f662ee5093e" },
+        { DefinitionKind.Agent, "fix", "6052573ca3d9be35" },
+        { DefinitionKind.Agent, "discovery", "a22ef13e3dcd2ab0" },
     };
 
     private static async Task StartAndStopAsync(NodeHome home, DaemonOptions? options = null)

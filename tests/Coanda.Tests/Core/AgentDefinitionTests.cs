@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Agents;
 
@@ -13,8 +14,15 @@ public sealed class AgentDefinitionTests
         Tools = ["read", "search", "edit"],
         Skills = ["alpha-skill", "beta-skill"],
         McpServers = ["docs", "tracker"],
-        AnswerSchema = "build",
+        AnswerSchema = "essay",
+        AnswerSchemaContent = Content("""{"type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["drafted","abandoned"]}}}"""),
     };
+
+    private static JsonElement Content(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 
     private static void Refused(AgentDefinition agent, string message)
     {
@@ -86,8 +94,13 @@ public sealed class AgentDefinitionTests
         Refused(Agent() with { AnswerSchema = name }, "Agent 'scribe' needs the name of an answer schema.");
 
     [Fact]
-    public void An_answer_schema_the_catalog_does_not_hold_is_refused() =>
-        Refused(Agent() with { AnswerSchema = "essay" }, "Agent 'scribe' names the answer schema 'essay', which the shipped catalog does not hold*");
+    public void An_answer_schema_named_outside_the_four_the_release_once_shipped_is_valid_with_its_content()
+    {
+        AgentDefinition agent = Agent();
+
+        agent.Validate();
+        Assert.Equal(new[] { "drafted", "abandoned" }, agent.ResolveAnswerSchema().Verdicts);
+    }
 
     [Fact]
     public void A_tool_the_catalog_does_not_hold_is_refused() =>
@@ -146,6 +159,7 @@ public sealed class AgentDefinitionTests
             agent with { Skills = ["alpha-skill"] },
             agent with { McpServers = ["docs"] },
             agent with { AnswerSchema = "review" },
+            agent with { AnswerSchemaContent = Content("""{"type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["drafted"]}}}""") },
         ];
 
         IEnumerable<string> actual = changed.Select(a => a.Hash);

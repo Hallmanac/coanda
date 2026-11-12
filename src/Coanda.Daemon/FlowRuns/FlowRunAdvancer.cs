@@ -787,10 +787,11 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// Performs an agent step visit a daemon restart found launched, unanswered, and not resumed since:
     /// its agent is not launched again on the spawn it already used. When the executor still holds
     /// the session the visit names, it is reattached, and its answer is collected, validated against
-    /// the step's answer schema, retried once on the same session if it is invalid, and recorded
-    /// with the agent hash and model spec the launch recorded, however the agent was published
-    /// since. A session the restart found already on its retry is not retried again, and its answer
-    /// is recorded with what the whole session spent. Its wall-clock limit runs from the launch, though a
+    /// the answer schema of the agent whose content hash the launch recorded, retried once on the same
+    /// session if it is invalid, and recorded with the agent hash and model spec the launch recorded,
+    /// however the agent was published since; when that hash resolves to no agent definition, the
+    /// session is stopped and the flow run pauses naming the hash. A session the restart found already
+    /// on its retry is not retried again, and its answer is recorded with what the whole session spent. Its wall-clock limit runs from the launch, though a
     /// session that finished while no daemon ran is still collected once the limit is past, and a
     /// person's pause or stop saved before the reattach was watched ends it before its first collect.
     /// Nothing is recorded for the reattach itself. The process that ran across the restart keeps the
@@ -888,7 +889,29 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             }
 
             var launched = new Launched(step.Name, current.Performer, agentHash, model, ceiling: null) { Session = live.Handle, Recorded = true };
-            string schema = step.AnswerSchema ?? string.Empty;
+
+            // The answer is checked against the agent the session was spawned with, however the agent
+            // was published since: the one whose content hash the launch recorded.
+            Definition? spawnedWith = await definitions.ResolveAgentByHashAsync(principal, project, agentHash, cancellationToken);
+            if (spawnedWith is null)
+            {
+                var spend = new AgentStepSpend();
+                if (live.Attempt > 1)
+                {
+                    spend.Add(live.Earlier);
+                }
+
+                spend.Add(await StopSessionAsync(live.Handle));
+                await PauseAgentStepAsync(
+                    principal, project, flowRun.Id, launched,
+                    $"Step '{step.Name}' reattached the session agent '{current.Performer}' was launched in {lostWhen} (session {Ids.Short(live.Handle.Id)}), but the agent hash {agentHash} its launch recorded resolves to no agent definition, so its answer could not be checked against the agent's answer schema and the session was stopped.{CostUnreported(spend, ceiling: null)}",
+                    FlowRunLevers.PerformAgain(step.Name),
+                    spend.Reported,
+                    cancellationToken);
+                return null;
+            }
+
+            AgentDefinition agent = AgentDefinition.FromJson(spawnedWith.Content);
             using var ended = new CancellationTokenSource();
             Watch(flowRun.Id, ended);
 
@@ -907,7 +930,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
                 return await RunAgentStepAsync(
                     principal, project, flowRun.Id, step, launched, agentStepLimit - (clock.GetUtcNow() - spawnedAt),
-                    (spend, bounded) => AgentStep.ReattachAsync(executor, live, schema, spend, cancellationToken, finishedCollect.Token, bounded),
+                    (spend, bounded) => AgentStep.ReattachAsync(executor, live, agent, spend, cancellationToken, finishedCollect.Token, bounded),
                     ended.Token,
                     cancellationToken);
             }
@@ -1599,17 +1622,19 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// Ends an agent step's session once its outcome is in hand, since a resume performs the step
     /// again with a new spawn. Like the agent step's own stop after a failure, it takes a bounded
     /// token of its own rather than the worker's, so a daemon stop does not leave the session open.
+    /// Returns what the stop reports for the attempt in progress, or null when it reports none or fails.
     /// </summary>
-    private async Task StopSessionAsync(SessionHandle session)
+    private async Task<StopReport?> StopSessionAsync(SessionHandle session)
     {
         try
         {
             using var bounded = new CancellationTokenSource(AgentStep.StopGrace);
-            await executor.StopAsync(session, bounded.Token);
+            return await executor.StopAsync(session, bounded.Token);
         }
         catch (Exception failure)
         {
             logger.LogWarning(failure, "Stopping session {Session} for agent '{Agent}' failed.", session.Id, session.Agent);
+            return null;
         }
     }
 

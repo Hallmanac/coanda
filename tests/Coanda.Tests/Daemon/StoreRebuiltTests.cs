@@ -45,7 +45,24 @@ public sealed class StoreRebuiltTests
 
     private static readonly Flow GatedBuild = PreviousFlows.BuildWithGatedMerge with { Name = RecordHomes.GatedBuild };
 
-    private static readonly AgentDefinition OwnerFix = SoftwareAgents.Fix with { Model = SoftwareAgents.Fix.Model with { Effort = "max" } };
+    /// <summary>
+    /// The content hash each shipped agent was stored under at 0.1.0, before agents carried their answer
+    /// schema as content; a start imports the content they carry now as each one's next version.
+    /// </summary>
+    private static readonly Dictionary<string, string> StoredAgentHashes = new(StringComparer.Ordinal)
+    {
+        ["build"] = "37dd84328f49ca25",
+        ["discovery"] = "e99e12f13d399792",
+        ["fix"] = "4ca4afe60ac4e100",
+        ["reviewer-adversarial"] = "4ff7ac20b180df0d",
+        ["reviewer-conformance"] = "9f867144783e855c",
+    };
+
+    /// <summary>
+    /// The hash the owner-scope fork of fix was stored with: fix of 0.1.0, naming its schema and holding
+    /// no content, with the effort max.
+    /// </summary>
+    private const string OwnerFixHash = "173a17648aba437b";
 
     private static readonly Guid BuildFlowRun = Guid.Parse("01a1ad6c-bc0b-727b-a228-9e5042800001");
 
@@ -62,7 +79,7 @@ public sealed class StoreRebuiltTests
     [
         .. SoftwareTypes.All.OrderBy(t => t.Name, StringComparer.Ordinal).Select(t => (DefinitionKind.ParcelType, t.Name, t.Hash)),
         .. SoftwareFlows.All.Select(f => f.Name == "build" ? build : f).Concat(more).OrderBy(f => f.Name, StringComparer.Ordinal).Select(f => (DefinitionKind.Flow, f.Name, f.Hash)),
-        .. SoftwareAgents.All.Select(a => a.Name == "fix" ? OwnerFix : a).OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => (DefinitionKind.Agent, a.Name, a.Hash)),
+        .. SoftwareAgents.All.OrderBy(a => a.Name, StringComparer.Ordinal).Select(a => (DefinitionKind.Agent, a.Name, a.Name == "fix" ? OwnerFixHash : a.Hash)),
     ];
 
     private static async Task<List<(DefinitionKind Kind, string Name, string Hash)>> ResolvedAsync(IDocumentStore store, string project)
@@ -117,16 +134,22 @@ public sealed class StoreRebuiltTests
         Assert.Equal(Expected(AlphaBuild, GatedBuild), await ResolvedAsync(store, Alpha));
         Assert.Equal(Expected(SoftwareFlows.Build), await ResolvedAsync(store, "beta"));
 
-        // The fixture's fifteen definitions, and the task type a start imports as its next version, since it
-        // has gained the repos field since main wrote the home.
+        // The fixture's fifteen definitions, the task type a start imports as its next version, since it
+        // has gained the repos field since main wrote the home, and the five agents it imports as their
+        // next versions, since they have come to carry their answer schema content.
         List<Definition> held = await HeldAsync(store);
-        Assert.Equal(16, held.Count);
+        Assert.Equal(21, held.Count);
         Definition task = held.Where(d => d.Kind == DefinitionKind.ParcelType && d.Name == "task").MaxBy(d => d.VersionNumber)
             ?? throw new InvalidOperationException("No task type.");
         Assert.Equal((DefinitionScope.Module, SoftwareTypes.Task.Hash, DefinitionStatus.Published), (task.Scope, task.ContentHash, task.Status));
+        List<Definition> agents = [.. held.Where(d => d.Kind == DefinitionKind.Agent && d.Scope == DefinitionScope.Module)];
+        Assert.All(SoftwareAgents.All, shipped => Assert.Equal(
+            [(1, StoredAgentHashes[shipped.Name], DefinitionStatus.Published), (2, shipped.Hash, DefinitionStatus.Published)],
+            agents.Where(d => d.Name == shipped.Name).OrderBy(d => d.VersionNumber).Select(d => (d.VersionNumber, d.ContentHash, d.Status))));
+        Definition[] started = [task, .. agents.Where(d => d.VersionNumber == 2)];
 
         // What main recorded in shipped scope the rebuild wrote as the software module's, at version 0.1.0, with the content and hash it was stored with.
-        List<Definition> recorded = [.. held.Where(d => d.Id != task.Id && d.Scope == DefinitionScope.Module)];
+        List<Definition> recorded = [.. held.Where(d => !started.Contains(d) && d.Scope == DefinitionScope.Module)];
         Assert.Equal(12, recorded.Count);
         Assert.All(recorded, d => Assert.Equal(("software", "0.1.0"), (d.Module, d.ModuleVersion)));
         Assert.All(held.Where(d => d.Scope != DefinitionScope.Module), d => Assert.Equal((null, null), (d.Module, d.ModuleVersion)));
@@ -153,10 +176,16 @@ public sealed class StoreRebuiltTests
         Assert.Equal((DefinitionScope.Module, 2, SoftwareFlows.Build.Hash, "software", "0.1.0"), (buildBase.Scope, buildBase.VersionNumber, buildBase.ContentHash, buildBase.Module, buildBase.ModuleVersion));
 
         Assert.Equal(
-            (DefinitionScope.Owner, 1, new ForkBase("fix", "software", "0.1.0", SoftwareAgents.Fix.Hash), OwnerFix.Hash),
+            (DefinitionScope.Owner, 1, new ForkBase("fix", "software", "0.1.0", StoredAgentHashes["fix"]), OwnerFixHash),
             (ownerFix.Scope, ownerFix.VersionNumber, ownerFix.ForkBase, ownerFix.ContentHash));
         Definition fixBase = await resolver.ForkedFromAsync(ownerFix, None) ?? throw new InvalidOperationException("The fork's base resolves to nothing.");
-        Assert.Equal((DefinitionScope.Module, 1, SoftwareAgents.Fix.Hash, "software", "0.1.0"), (fixBase.Scope, fixBase.VersionNumber, fixBase.ContentHash, fixBase.Module, fixBase.ModuleVersion));
+        Assert.Equal((DefinitionScope.Module, 1, StoredAgentHashes["fix"], "software", "0.1.0"), (fixBase.Scope, fixBase.VersionNumber, fixBase.ContentHash, fixBase.Module, fixBase.ModuleVersion));
+
+        // The fork reads, and resolves its answer schema by the name it holds, as when it was stored.
+        AgentDefinition fork = AgentDefinition.FromJson(ownerFix.Content);
+        Assert.Equal(OwnerFixHash, fork.Hash);
+        Assert.Null(fork.AnswerSchemaContent);
+        Assert.Same(NameOnlyAnswerSchemas.Find(NameOnlyAnswerSchemas.Fix), fork.ResolveAnswerSchema());
         await daemon.StopAsync(None);
     }
 
