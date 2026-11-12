@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using Coanda.Sdk.Repositories;
 
 namespace Coanda.Sdk.Commands;
 
@@ -12,10 +13,26 @@ namespace Coanda.Sdk.Commands;
 /// started that is still its descendant, and so does the command running past its
 /// <see cref="CommandLine.Limit"/>, which answers <see cref="CommandResult.TimedOut"/> with what it
 /// wrote until then. Of each of its output, its error output, and both together, only the last
-/// <see cref="KeptCharacters"/> characters are kept. Nothing the command writes is logged.
+/// <see cref="KeptCharacters"/> characters are kept. Nothing the command writes is logged. A command
+/// whose program is <c>git</c> starts the real git executable <see cref="GitExecutable.ForProcess"/>
+/// answers, on Windows the one behind Git for Windows' launcher, and git by name when it answers
+/// none; the command line still names git, so what reads it, a failure message among them, is the same.
 /// </summary>
 public sealed class ProcessCommandRunner : ICommandRunner
 {
+    /// <summary>The program name of a command line that runs git.</summary>
+    private const string GitProgram = "git";
+
+    private readonly Func<string?> gitExecutable;
+
+    public ProcessCommandRunner()
+        : this(GitExecutable.ForProcess.Current)
+    {
+    }
+
+    /// <summary>A runner that starts what <paramref name="gitExecutable"/> answers for a git command line; for tests.</summary>
+    internal ProcessCommandRunner(Func<string?> gitExecutable) => this.gitExecutable = gitExecutable;
+
     /// <summary>How long output already written is read for after the command's process exits.</summary>
     public static readonly TimeSpan DrainGrace = TimeSpan.FromSeconds(1);
 
@@ -31,9 +48,10 @@ public sealed class ProcessCommandRunner : ICommandRunner
     public async Task<CommandResult> RunAsync(CommandLine command, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        string program = ProgramOf(command);
         ProcessStartInfo start = command.VerbatimArguments is { } verbatim
-            ? new ProcessStartInfo(command.Program, verbatim)
-            : new ProcessStartInfo(command.Program, command.Arguments);
+            ? new ProcessStartInfo(program, verbatim)
+            : new ProcessStartInfo(program, command.Arguments);
         start.UseShellExecute = false;
         start.CreateNoWindow = true;
         start.RedirectStandardInput = true;
@@ -100,6 +118,12 @@ public sealed class ProcessCommandRunner : ICommandRunner
             StopReading(process, output, stopReading);
         }
     }
+
+    /// <summary>The executable to start for <paramref name="command"/>: the real git for a git command line when one is known, and its own program otherwise.</summary>
+    private string ProgramOf(CommandLine command) =>
+        command.Program == GitProgram && gitExecutable() is { } real
+            ? real
+            : command.Program;
 
     private static void StopReading(Process process, Output output, CancellationTokenSource stopReading)
     {
