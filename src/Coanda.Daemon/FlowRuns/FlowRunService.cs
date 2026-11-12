@@ -40,8 +40,9 @@ namespace Coanda.Daemon.FlowRuns;
 /// the release, and the close are recorded together or not at all.
 /// A resume hands the flow run to the <see cref="IFlowRunAdvancer"/>, when the service has one, so a
 /// resumed flow run advances with no further command; a pause tells it to end the agent step the flow run is
-/// running, and a stop to end the agent step or system step it is running and remove its worktree, once the
-/// pause or stop is saved. Every write to an existing flow run, its end
+/// running, and a stop to end the agent step or system step it is running, once the pause or stop is saved.
+/// The service removes no worktree: a module that keeps one in the flow run's work path removes it on the
+/// flow run's stopped delivery. Every write to an existing flow run, its end
 /// and its stop among them, reads the flow run again when another write landed between its read and
 /// its save, and decides again from what it read, so it refuses only with the rule that the flow run
 /// as it now stands breaks. Beside the registry check, a principal resolved from a session token
