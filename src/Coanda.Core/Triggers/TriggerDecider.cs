@@ -24,7 +24,7 @@ public static class TriggerDecider
         if (!Flow.IsPlainName(kind) && !ModuleNames.IsPrefixed(kind))
         {
             throw new DomainException(
-                $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores) or a module's name and a plain name joined by a slash (<module>/<name>); '{kind}' is not.");
+                $"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores) or a module's name and a plain name joined by a slash (<module>/<name>), where a module's name is {ModuleNames.Rule}; '{kind}' is not.");
         }
 
         if (ModuleNames.PrefixOf(kind) is { } prefix
