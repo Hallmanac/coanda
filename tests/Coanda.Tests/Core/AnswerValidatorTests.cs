@@ -162,6 +162,42 @@ public sealed class AnswerValidatorTests
         Assert.Contains("refers to 'http://127.0.0.1:9/answer.json', outside itself", Messages(refusal), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Checking_drafted_content_keeps_nothing_compiled_whether_the_rules_accept_it_or_not()
+    {
+        string tag = Ids.New().ToString("N");
+        string refused = """{"title":"TAG-refused","properties":{"verdict":{"type":"string","enum":["done"]}}}""".Replace("TAG", tag, StringComparison.Ordinal);
+        string accepted = """{"title":"TAG-accepted","type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["done"]}}}""".Replace("TAG", tag, StringComparison.Ordinal);
+
+        using (JsonDocument content = JsonDocument.Parse(refused))
+        {
+            Assert.ThrowsAny<Exception>(() => AnswerSchemaRules.Verdicts("drafted", content.RootElement));
+            Assert.False(AnswerValidator.IsKept(content.RootElement.GetRawText()));
+        }
+
+        using (JsonDocument content = JsonDocument.Parse(accepted))
+        {
+            Assert.Equal(["done"], AnswerSchemaRules.Verdicts("drafted", content.RootElement));
+            Assert.False(AnswerValidator.IsKept(content.RootElement.GetRawText()));
+        }
+    }
+
+    [Fact]
+    public void The_compiled_schemas_kept_for_answers_never_exceed_the_limit()
+    {
+        string tag = Ids.New().ToString("N");
+        for (int i = 0; i < AnswerValidator.CacheLimit * 2; i++)
+        {
+            var schema = new AnswerSchema(
+                "bounded",
+                ["done"],
+                """{"title":"TAG","type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["done"]}}}""".Replace("TAG", $"{tag}-{i}", StringComparison.Ordinal));
+
+            Assert.True(AnswerValidator.Validate(schema, """{"verdict":"done"}""").IsValid);
+            Assert.InRange(AnswerValidator.KeptCount, 1, AnswerValidator.CacheLimit);
+        }
+    }
+
     private static AnswerSchema Named(string name) =>
         NameOnlyAnswerSchemas.Find(name) ?? throw new InvalidOperationException($"No name-only schema '{name}'.");
 

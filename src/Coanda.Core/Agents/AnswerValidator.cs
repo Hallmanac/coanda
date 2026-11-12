@@ -15,7 +15,11 @@ namespace Coanda.Core.Agents;
 /// </summary>
 public static class AnswerValidator
 {
+    /// <summary>The most schemas kept compiled at once; past it the cache starts over.</summary>
+    internal const int CacheLimit = 64;
+
     private static readonly ConcurrentDictionary<string, JsonSchema> Compiled = new(StringComparer.Ordinal);
+    private static readonly Lock Keeping = new();
 
     public static AnswerValidation Validate(AnswerSchema schema, string document)
     {
@@ -41,10 +45,41 @@ public static class AnswerValidator
 
     /// <summary>
     /// Reads a JSON Schema document as the validator does, resolving only references within it, and
-    /// keeps what it read for the next time the same text is read. Throws whatever the reader throws
-    /// for a document it refuses, and keeps nothing then.
+    /// keeps nothing of it. A draft or an import checks content through this, so content a caller
+    /// sends and the rules then refuse leaves nothing behind. Throws whatever the reader throws for a
+    /// document it refuses.
     /// </summary>
-    internal static JsonSchema Read(string document) => Compiled.GetOrAdd(document, Compile);
+    internal static void Check(string document) => Compile(document);
+
+    /// <summary>Whether the compiled form of <paramref name="document"/> is kept for the next answer.</summary>
+    internal static bool IsKept(string document) => Compiled.ContainsKey(document);
+
+    /// <summary>The number of compiled schemas kept, never more than <see cref="CacheLimit"/>.</summary>
+    internal static int KeptCount => Compiled.Count;
+
+    // Answers are checked against the schemas of agents that run, so the same few texts recur and
+    // are kept compiled. The cache is bounded all the same: a long-running daemon whose agents are
+    // edited again and again would otherwise keep every version it ever validated an answer with.
+    // Once full it starts over, which costs only a recompile of the schemas still in use. A document
+    // the reader refuses is kept nothing for.
+    private static JsonSchema Read(string document)
+    {
+        if (Compiled.TryGetValue(document, out JsonSchema? kept))
+        {
+            return kept;
+        }
+
+        JsonSchema compiled = Compile(document);
+        lock (Keeping)
+        {
+            if (Compiled.Count >= CacheLimit)
+            {
+                Compiled.Clear();
+            }
+
+            return Compiled.GetOrAdd(document, compiled);
+        }
+    }
 
     private static JsonSchema Compile(string document) =>
         // With no document path the reader resolves no relative or file reference, and the resolver

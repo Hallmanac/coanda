@@ -41,7 +41,7 @@ public static class AnswerSchemaRules
 
         try
         {
-            AnswerValidator.Read(content.GetRawText());
+            AnswerValidator.Check(content.GetRawText());
         }
         catch (Exception refusal) when (refusal is not OutOfMemoryException)
         {
