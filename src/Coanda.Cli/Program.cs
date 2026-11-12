@@ -104,7 +104,7 @@ app.Configure(config =>
 
     config.AddBranch("agent", agent =>
     {
-        agent.SetDescription("Agents are the personas that do the judging; the software module brings five.");
+        agent.SetDescription("Agents are configured AI workers that the daemon spawns in an agent step; the software module brings five.");
         agent.AddCommand<AgentListCommand>("list").WithDescription("List the agents that govern a project.").WithExample("agent", "list");
     });
 
