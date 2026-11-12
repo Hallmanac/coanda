@@ -9,6 +9,11 @@ namespace Coanda.Core.Registry;
 /// </summary>
 public sealed record Principal(string Id, Role Role, SessionBinding? Session = null, string? Module = null)
 {
+    /// <summary>
+    /// The owner principal with the id <c>owner</c>. The daemon uses its id for the node's owner when the
+    /// runtime names no operating system account and the home holds no owner id record
+    /// (<c>NodeOwner.OfAccount</c> in the daemon), as when the process runs as a user the runtime cannot look up.
+    /// </summary>
     public static readonly Principal LocalOwner = new("owner", Role.Owner);
 
     /// <summary>The Agent-role principal of an agent step's session, bound to its flow run and its launch.</summary>
