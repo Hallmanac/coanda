@@ -199,6 +199,59 @@ public sealed class ProcessCommandRunnerTests : IDisposable
         Assert.Contains("coanda-no-such-command-anywhere", result.Combined, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_git_command_line_starts_the_executable_the_resolution_answers()
+    {
+        var resolved = new ProcessCommandRunner(() => FakeClaude.Executable);
+        var git = new CommandLine("git", [Coanda.Testing.FakeClaude.Program.CommandFlag, "exit", "0", "the real git\n", ""], scratch, CommandLine.NoVariables);
+
+        CommandResult result = await resolved.RunAsync(git, CancellationToken.None).WaitAsync(Patience);
+
+        Assert.True(result.ExitCode == 0, result.Combined);
+        Assert.Equal("the real git\n", result.StandardOutput.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task A_git_command_line_starts_git_by_name_when_the_resolution_answers_nothing()
+    {
+        var unresolved = new ProcessCommandRunner(() => null);
+        var git = new CommandLine("git", ["--version"], scratch, CommandLine.NoVariables);
+
+        CommandResult result = await unresolved.RunAsync(git, CancellationToken.None).WaitAsync(Patience);
+
+        Assert.True(result.ExitCode == 0, result.Combined);
+        Assert.StartsWith("git version", result.StandardOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_git_command_line_whose_resolved_executable_cannot_start_is_reported_by_the_name_git()
+    {
+        var resolved = new ProcessCommandRunner(() => Path.Combine(scratch, "no-such-git.exe"));
+        var git = new CommandLine("git", ["--version"], scratch, CommandLine.NoVariables);
+
+        CommandNotStartedException exception = await Assert.ThrowsAsync<CommandNotStartedException>(() => resolved.RunAsync(git, CancellationToken.None));
+
+        Assert.StartsWith("git could not be started", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("git", exception.Command.Program);
+    }
+
+    [Fact]
+    public async Task Another_programs_command_line_is_started_unchanged_whatever_the_resolution_answers()
+    {
+        int asked = 0;
+        var resolved = new ProcessCommandRunner(() =>
+        {
+            asked++;
+            return Path.Combine(scratch, "no-such-git.exe");
+        });
+
+        CommandResult result = await resolved.RunAsync(Fake("exit", "0", "the fake\n", ""), CancellationToken.None).WaitAsync(Patience);
+
+        Assert.True(result.ExitCode == 0, result.Combined);
+        Assert.Equal("the fake\n", result.StandardOutput.ReplaceLineEndings("\n"));
+        Assert.Equal(0, asked);
+    }
+
     private CommandLine Fake(params string[] arguments) =>
         new(FakeClaude.Executable, [Coanda.Testing.FakeClaude.Program.CommandFlag, .. arguments], scratch, CommandLine.NoVariables);
 
