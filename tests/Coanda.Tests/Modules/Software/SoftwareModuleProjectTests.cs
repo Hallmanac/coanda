@@ -87,7 +87,9 @@ public sealed class SoftwareModuleProjectTests
     [Fact]
     public void Five_names_main_shipped_unprefixed_are_read_as_the_modules_and_no_other()
     {
-        Assert.Equal(SoftwareSteps.All, SoftwareSteps.Unprefixed.Select(SoftwareSteps.Canonical));
+        // the review diff step came after the prefix, so no stored flow names it unprefixed
+        Assert.Equal(SoftwareSteps.All.Where(s => s != SoftwareSteps.ReviewDiff), SoftwareSteps.Unprefixed.Select(SoftwareSteps.Canonical));
+        Assert.Equal("review-diff", SoftwareSteps.Canonical("review-diff"));
         Assert.Equal(SoftwareSteps.Unprefixed, UnprefixedSoftwareSteps.Names);
         Assert.Equal(SoftwareSteps.Module, UnprefixedSoftwareSteps.Module);
         Assert.All(SoftwareSteps.Unprefixed, name => Assert.Equal(SoftwareSteps.Canonical(name), UnprefixedSoftwareSteps.CurrentName(name)));

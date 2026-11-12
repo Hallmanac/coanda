@@ -50,7 +50,7 @@ public sealed class SoftwareFlowsTests
         string[] expected =
         [
             "wait-for-human", "wait-for-external-event", "timer", "emit-outcome", "move-parcel", "derive-parcels",
-            "software/worktree", "software/gates", "software/open-pr", "software/gated-merge", "software/rebase",
+            "software/worktree", "software/gates", "software/review-diff", "software/open-pr", "software/gated-merge", "software/rebase",
         ];
         Assert.Equivalent(expected, ShippedSystemSteps.Names, strict: true);
     }

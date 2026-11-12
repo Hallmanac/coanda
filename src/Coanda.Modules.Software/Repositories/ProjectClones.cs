@@ -44,6 +44,23 @@ public abstract record Push
     public sealed record NoClone(string Reason) : Push;
 }
 
+/// <summary>What diffing a flow run's worktree for review came to: the diff between two commits, or no diff, with a reason.</summary>
+public abstract record ReviewDiff
+{
+    private ReviewDiff()
+    {
+    }
+
+    /// <summary>
+    /// <paramref name="Text"/> is the whole diff from <paramref name="Base"/>, the merge base of the
+    /// worktree's head and the primary branch as just fetched, to <paramref name="Head"/>, the worktree's head.
+    /// </summary>
+    public sealed record Produced(string Base, string Head, string Text) : ReviewDiff;
+
+    /// <summary>No diff was produced, for <paramref name="Reason"/>, which quotes git with any URL's user information removed.</summary>
+    public sealed record Unproduced(string Reason) : ReviewDiff;
+}
+
 /// <summary>What rebasing a flow run's branch came to: pushed at a new head, or not pushed, for one of seven reasons.</summary>
 public abstract record Rebase
 {
@@ -420,6 +437,67 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
         await git.RunAsync(Git.Against(clone, "update-ref", tracking, head), cancellationToken);
         await RecordPushedAsync(clone, branch, head, cancellationToken);
         return new Push.Pushed(head);
+    }
+
+    /// <summary>
+    /// The change a flow run's worktree, at <paramref name="workPath"/>, holds for review: the diff from
+    /// the merge base of the worktree's head and the primary branch to that head. The primary branch is
+    /// fetched first into the clone's remote-tracking ref for it, as a checkout cut from the primary
+    /// branch fetches it, because the worktree step fetches only the parcel's branch when one exists
+    /// already, so the ref may be absent or older than the commit the branch was cut from, and a merge
+    /// base against it would carry the primary branch's commits between the two into the diff. Only
+    /// committed work is diffed, and the diff runs with <c>--no-color</c>, <c>--no-ext-diff</c>, and
+    /// <c>--no-textconv</c>, so the node owner's git configuration cannot change what it prints. A
+    /// repo with no usable clone, a git that cannot be started, a fetch that fails, a head or merge base
+    /// git cannot name, and a diff that fails or prints more than the runner keeps each come to
+    /// <see cref="ReviewDiff.Unproduced"/>;
+    /// a cancellation propagates. Every command runs in the clone's one turn at git.
+    /// </summary>
+    public async Task<ReviewDiff> ReviewDiffAsync(RepoTarget project, string workPath, CancellationToken cancellationToken)
+    {
+        string clone = ClonePathOf(project);
+        using Held held = await LockAsync(clone, cancellationToken);
+        try
+        {
+            if (await UnusableAsync(project, cancellationToken) is { } unusable)
+            {
+                return new ReviewDiff.Unproduced(unusable);
+            }
+
+            string primary = await FetchPrimaryAsync(clone, project.PrimaryBranch, cancellationToken);
+            string head = (await git.RunAsync(Git.In(workPath, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"), cancellationToken)).Trim();
+            if (head.Length == 0)
+            {
+                return new ReviewDiff.Unproduced($"git named no commit checked out in the worktree at {workPath}.");
+            }
+
+            CommandLine mergeBase = Git.In(workPath, "merge-base", head, primary);
+            CommandResult based = await git.TryRunAsync(mergeBase, cancellationToken);
+            string from = based.StandardOutput.Trim();
+            if (based is { ExitCode: 1, StandardError.Length: 0 })
+            {
+                return new ReviewDiff.Unproduced(
+                    $"the worktree's head, {head}, and primary branch {project.PrimaryBranch}, at {primary}, share no commit, so there is no merge base to diff from.");
+            }
+
+            if (based is not { Succeeded: true, Truncated: false } || from.Length == 0)
+            {
+                return new ReviewDiff.Unproduced(based.Succeeded
+                    ? $"{mergeBase.Display} named no commit."
+                    : new GitCommandException(mergeBase, based).Message);
+            }
+
+            string text = await git.RunAsync(Git.In(workPath, "diff", "--no-color", "--no-ext-diff", "--no-textconv", from, head), cancellationToken);
+            return new ReviewDiff.Produced(from, head, text);
+        }
+        catch (GitCommandException failed)
+        {
+            return new ReviewDiff.Unproduced(failed.Message);
+        }
+        catch (CommandNotStartedException unstarted)
+        {
+            return new ReviewDiff.Unproduced(OutputText.Redact(unstarted.Message));
+        }
     }
 
     /// <summary>
