@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The software engineering module: the worktree, gates, open-pr, gated-merge, and rebase steps, the
+    The software engineering module: the worktree, gates, review-diff, open-pr, gated-merge, and rebase steps, the
     GitHub client they reach GitHub through, and the clone and worktree code they call. It references
     the module SDK and no other Coanda project, so it reaches the core only through the SDK's client for
     the core's loopback API; a test over this file holds that.

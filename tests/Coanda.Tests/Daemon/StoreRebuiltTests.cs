@@ -41,7 +41,10 @@ public sealed class StoreRebuiltTests
 
     private static readonly CancellationToken None = CancellationToken.None;
 
-    private static readonly Flow AlphaBuild = SoftwareFlows.Build with { Budget = 30m };
+    /// <summary>Main's build flow, as the fixture's version 2 of it holds it, before the review diff step.</summary>
+    private static readonly Flow MainBuild = PreviousFlows.BuildBeforeReviewDiff;
+
+    private static readonly Flow AlphaBuild = MainBuild with { Budget = 30m };
 
     private static readonly Flow GatedBuild = PreviousFlows.BuildWithGatedMerge with { Name = RecordHomes.GatedBuild };
 
@@ -135,10 +138,11 @@ public sealed class StoreRebuiltTests
         Assert.Equal(Expected(SoftwareFlows.Build), await ResolvedAsync(store, "beta"));
 
         // The fixture's fifteen definitions, the task type a start imports as its next version, since it
-        // has gained the repos field since main wrote the home, and the five agents it imports as their
-        // next versions, since they have come to carry their answer schema content.
+        // has gained the repos field since main wrote the home, the five agents it imports as their
+        // next versions, since they have come to carry their answer schema content, and the build flow
+        // it imports as its next version, since it has gained the review diff step.
         List<Definition> held = await HeldAsync(store);
-        Assert.Equal(21, held.Count);
+        Assert.Equal(22, held.Count);
         Definition task = held.Where(d => d.Kind == DefinitionKind.ParcelType && d.Name == "task").MaxBy(d => d.VersionNumber)
             ?? throw new InvalidOperationException("No task type.");
         Assert.Equal((DefinitionScope.Module, SoftwareTypes.Task.Hash, DefinitionStatus.Published), (task.Scope, task.ContentHash, task.Status));
@@ -146,7 +150,10 @@ public sealed class StoreRebuiltTests
         Assert.All(SoftwareAgents.All, shipped => Assert.Equal(
             [(1, StoredAgentHashes[shipped.Name], DefinitionStatus.Published), (2, shipped.Hash, DefinitionStatus.Published)],
             agents.Where(d => d.Name == shipped.Name).OrderBy(d => d.VersionNumber).Select(d => (d.VersionNumber, d.ContentHash, d.Status))));
-        Definition[] started = [task, .. agents.Where(d => d.VersionNumber == 2)];
+        Definition build = held.Where(d => d.Kind == DefinitionKind.Flow && d.Name == "build" && d.Scope == DefinitionScope.Module).MaxBy(d => d.VersionNumber)
+            ?? throw new InvalidOperationException("No build flow.");
+        Assert.Equal((3, SoftwareFlows.Build.Hash, DefinitionStatus.Published), (build.VersionNumber, build.ContentHash, build.Status));
+        Definition[] started = [task, build, .. agents.Where(d => d.VersionNumber == 2)];
 
         // What main recorded in shipped scope the rebuild wrote as the software module's, at version 0.1.0, with the content and hash it was stored with.
         List<Definition> recorded = [.. held.Where(d => !started.Contains(d) && d.Scope == DefinitionScope.Module)];
@@ -155,8 +162,8 @@ public sealed class StoreRebuiltTests
         Assert.All(held.Where(d => d.Scope != DefinitionScope.Module), d => Assert.Equal((null, null), (d.Module, d.ModuleVersion)));
         List<Definition> builds = [.. recorded.Where(d => d.Kind == DefinitionKind.Flow && d.Name == "build").OrderBy(d => d.VersionNumber)];
         Assert.Equal([1, 2], builds.Select(d => d.VersionNumber));
-        Assert.Equal(SoftwareFlows.Build.Hash, builds[1].ContentHash);
-        Assert.Equal(Flow.CanonicalJson(SoftwareFlows.Build), Flow.CanonicalJson(Flow.FromJson(builds[1].Content)));
+        Assert.Equal(MainBuild.Hash, builds[1].ContentHash);
+        Assert.Equal(Flow.CanonicalJson(MainBuild), Flow.CanonicalJson(Flow.FromJson(builds[1].Content)));
         await daemon.StopAsync(None);
     }
 
@@ -170,10 +177,10 @@ public sealed class StoreRebuiltTests
         Definition ownerFix = await resolver.ResolveAsync(Alpha, DefinitionKind.Agent, "fix", None) ?? throw new InvalidOperationException("No fix agent in alpha.");
 
         Assert.Equal(
-            (DefinitionScope.Project, 1, new ForkBase("build", "software", "0.1.0", SoftwareFlows.Build.Hash), AlphaBuild.Hash),
+            (DefinitionScope.Project, 1, new ForkBase("build", "software", "0.1.0", MainBuild.Hash), AlphaBuild.Hash),
             (alphaBuild.Scope, alphaBuild.VersionNumber, alphaBuild.ForkBase, alphaBuild.ContentHash));
         Definition buildBase = await resolver.ForkedFromAsync(alphaBuild, None) ?? throw new InvalidOperationException("The fork's base resolves to nothing.");
-        Assert.Equal((DefinitionScope.Module, 2, SoftwareFlows.Build.Hash, "software", "0.1.0"), (buildBase.Scope, buildBase.VersionNumber, buildBase.ContentHash, buildBase.Module, buildBase.ModuleVersion));
+        Assert.Equal((DefinitionScope.Module, 2, MainBuild.Hash, "software", "0.1.0"), (buildBase.Scope, buildBase.VersionNumber, buildBase.ContentHash, buildBase.Module, buildBase.ModuleVersion));
 
         Assert.Equal(
             (DefinitionScope.Owner, 1, new ForkBase("fix", "software", "0.1.0", StoredAgentHashes["fix"]), OwnerFixHash),

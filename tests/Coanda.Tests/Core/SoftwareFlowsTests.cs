@@ -94,7 +94,7 @@ public sealed class SoftwareFlowsTests
         });
 
         List<string> systemSteps = [.. visited.Select(name => build.Step(name)!.SystemStep ?? build.Step(name)!.Agent!)];
-        Assert.Equal(["software/worktree", "build", "software/gates", "reviewer-adversarial", "reviewer-conformance", "software/open-pr", "move-parcel"], systemSteps);
+        Assert.Equal(["software/worktree", "build", "software/gates", "software/review-diff", "reviewer-adversarial", "reviewer-conformance", "software/open-pr", "move-parcel"], systemSteps);
         // the merge is a flow of its own that follows pr-opened
         Assert.DoesNotContain(build.Steps, s => s.SystemStep == SoftwareSteps.GatedMerge);
         Assert.Equal("worktree", build.First!.Name);
@@ -116,6 +116,20 @@ public sealed class SoftwareFlowsTests
         Assert.Equal("fix", Next(build, "gates", "failed"));
         Assert.Equal("gates", Next(build, "fix", "done"));
         Assert.Equal("conformance-review", Next(build, "adversarial-review", "clean"));
+    }
+
+    [Fact]
+    public void In_the_build_flow_every_path_into_adversarial_review_passes_through_the_review_diff_step_written_after_gates()
+    {
+        Flow build = SoftwareFlows.Build;
+
+        Assert.Equal("review-diff", Next(build, "gates", "done"));
+        Assert.Equal("adversarial-review", Next(build, "review-diff", "done"));
+        Assert.Equal(SoftwareSteps.ReviewDiff, build.Step("review-diff")?.SystemStep);
+        Assert.Equal(
+            ["review-diff"],
+            build.Steps.Where(s => s.Transitions.Any(t => t.Target == "adversarial-review")).Select(s => s.Name));
+        Assert.Equal(["gates"], build.Steps.Where(s => s.Transitions.Any(t => t.Target == "review-diff")).Select(s => s.Name));
     }
 
     [Fact]
@@ -227,6 +241,35 @@ public sealed class SoftwareFlowsTests
     }
 
     [Fact]
+    public void The_build_flows_gates_cap_pause_names_the_review_diff_step_as_its_target()
+    {
+        Flow build = SoftwareFlows.Build;
+        int cap = build.Step("gates")!.Transitions.Single(t => t.Value.GetString() == "done").VisitCap;
+        FlowRunPosition position = Interpreter.Start(build);
+        using JsonDocument done = JsonDocument.Parse("""{"verdict":"done"}""");
+        using JsonDocument failed = JsonDocument.Parse("""{"verdict":"failed"}""");
+        position = Go(position, done, "build");
+        position = Go(position, done, "gates");
+
+        // the gates fail into fix and back until their visits reach the cap
+        for (int visit = 1; visit <= cap; visit++)
+        {
+            position = Go(position, failed, "fix");
+            position = Go(position, done, "gates");
+        }
+
+        Assert.Equal(5, cap);
+        Assert.Equal("Step 'gates' reached the visit cap of 5 on its transition to 'review-diff'.", Assert.IsType<FlowRunMove.Pause>(Interpreter.Decide(build, position, done)).Reason);
+
+        FlowRunPosition Go(FlowRunPosition from, JsonDocument answer, string step)
+        {
+            FlowRunMove move = Interpreter.Decide(build, from, answer);
+            Assert.Equal(new FlowRunMove.GoTo(step), move);
+            return Interpreter.Apply(build, from, (FlowRunMove.GoTo)move);
+        }
+    }
+
+    [Fact]
     public void The_merge_flows_rebase_laps_pause_on_the_worktree_steps_cap_once_spent_before_the_rebase()
     {
         Flow merge = SoftwareFlows.Merge;
@@ -257,7 +300,9 @@ public sealed class SoftwareFlowsTests
     [Fact]
     public void The_build_discovery_and_review_on_assignment_flows_hash_to_literals()
     {
-        Assert.Equal("728a81e81272ed5e", SoftwareFlows.Build.Hash);
+        Assert.Equal("96172170513f94b9", SoftwareFlows.Build.Hash);
+        // the build flow as main shipped it before its review diff step
+        Assert.Equal("728a81e81272ed5e", PreviousFlows.BuildBeforeReviewDiff.Hash);
         Assert.Equal("c8b01e99a6cc7916", SoftwareFlows.Discovery.Hash);
         Assert.Equal("fabaabb2eb82ff10", SoftwareFlows.ReviewOnAssignment.Hash);
     }

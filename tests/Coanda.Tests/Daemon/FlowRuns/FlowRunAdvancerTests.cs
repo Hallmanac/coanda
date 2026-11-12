@@ -26,7 +26,7 @@ public sealed class FlowRunAdvancerTests
 
     private static readonly string[] CleanPath =
     [
-        "worktree", "build", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review",
+        "worktree", "build", "gates", "review-diff", "adversarial-review", "conformance-review", "open-pr", "move-to-review",
     ];
 
     [Fact]
@@ -51,8 +51,9 @@ public sealed class FlowRunAdvancerTests
         Assert.Equal(CleanPath, flowRun.Steps.Select(s => s.Step));
         Assert.All(flowRun.Steps, s => Assert.True(s.RecordedAt != null));
         ExpectAgentStep(flowRun.Steps[1], SoftwareAgents.Build, 1);
-        ExpectAgentStep(flowRun.Steps[3], SoftwareAgents.ReviewerAdversarial, 2);
-        ExpectAgentStep(flowRun.Steps[4], SoftwareAgents.ReviewerConformance, 3);
+        Assert.Equal(SoftwareSteps.ReviewDiff, flowRun.Steps[3].Result.GetValueOrDefault().GetProperty("systemStep").GetString());
+        ExpectAgentStep(flowRun.Steps[4], SoftwareAgents.ReviewerAdversarial, 2);
+        ExpectAgentStep(flowRun.Steps[5], SoftwareAgents.ReviewerConformance, 3);
         Assert.Equal($"coanda/{Ids.Short(parcel.Id)}", flowRun.Steps[0].Result.GetValueOrDefault().GetProperty("branch").GetString());
         JsonElement gates = flowRun.Steps[2].Result.GetValueOrDefault();
         Assert.Equal("done", gates.GetProperty("verdict").GetString());

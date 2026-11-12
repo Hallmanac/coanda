@@ -62,13 +62,30 @@
           "Field": "verdict",
           "Value": "done",
           "VisitCap": 5,
-          "Target": "adversarial-review"
+          "Target": "review-diff"
         },
         {
           "Field": "verdict",
           "Value": "failed",
           "VisitCap": 5,
           "Target": "fix"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "review-diff",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/review-diff",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 5,
+          "Target": "adversarial-review"
         }
       ],
       "Fields": [],

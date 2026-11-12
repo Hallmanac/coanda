@@ -22,8 +22,33 @@ public static class PreviousFlows
     public static IReadOnlySet<string> SystemSteps { get; } =
         new HashSet<string>([.. CoreSystemSteps.All, .. SoftwareSteps.All, .. SoftwareSteps.Unprefixed], StringComparer.Ordinal);
 
-    /// <summary>The build flow as the last build before the prefix shipped it: today's, with the software steps unprefixed.</summary>
-    public static Flow Build => Unprefixed(SoftwareFlows.Build);
+    /// <summary>The build flow as the last build before the prefix shipped it: <see cref="BuildBeforeReviewDiff"/>, with the software steps unprefixed.</summary>
+    public static Flow Build => Unprefixed(BuildBeforeReviewDiff);
+
+    /// <summary>
+    /// The build flow as main shipped it before its review diff step: today's, with that step taken out
+    /// and gates' done transition going straight on to adversarial-review, the step the review diff
+    /// step's own done transition targets.
+    /// </summary>
+    public static Flow BuildBeforeReviewDiff
+    {
+        get
+        {
+            Flow build = SoftwareFlows.Build;
+            FlowStep reviewDiff = build.Step("review-diff") ?? throw new InvalidOperationException("The build flow has no review-diff step.");
+            string onward = reviewDiff.Transitions.Single().Target;
+            return build with
+            {
+                Steps =
+                [
+                    .. build.Steps.Where(s => s.Name != reviewDiff.Name).Select(s => s with
+                    {
+                        Transitions = [.. s.Transitions.Select(t => t.Target == reviewDiff.Name ? t with { Target = onward } : t)],
+                    }),
+                ],
+            };
+        }
+    }
 
     /// <summary>
     /// The build flow before it ended at the open pull request: open-pr answered done into a

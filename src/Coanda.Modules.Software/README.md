@@ -7,6 +7,23 @@ because the module importer reads every file in a kind folder as a definition an
 file there, and the build copies only `module.json` and the JSON under `definitions/` to
 `modules/software/`.
 
+## The build flow's review diff step
+
+`definitions/flows/build.json` runs `review-diff` (`software/review-diff`) between the gates and the
+adversarial review, so every pass into a review, the one back from fix through the gates included,
+starts with `.coanda/review.diff` in the work path holding the change under review. Both reviewers'
+rules tell them to read that file first, rather than produce the diff with a git command of their own
+that the tool guard may refuse. Conformance review follows adversarial review on the same commit, so
+one write per pass serves both. The step fetches the primary branch before it diffs, because the
+worktree step fetches only the parcel's branch once one exists, so the clone's tracking ref for the
+primary branch may be absent or older than the commit the branch was cut from.
+
+A diff the step cannot produce or write still answers done, with a `reason`, and leaves no
+`review.diff` behind. The flow goes on to the reviewers, whose rules make them answer not-clean when
+they can read no non-empty diff; that not-clean goes to fix, which cannot repair it, so the flow pauses
+on the adversarial reviewer's cap of 3, a pause a person sees rather than a clean review of nothing.
+The step's done transition caps at 5, as every build transition other than a review's to fix does.
+
 ## The merge flow's caps
 
 `definitions/flows/merge.json` goes round a lap: the gated merge looks at the pull request, and while

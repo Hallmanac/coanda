@@ -11,7 +11,8 @@ namespace Coanda.Daemon.Executors;
 /// vendor the persona as a file writes at its spawn and again before every resume, since the resumed
 /// process reads it too. Each is written fresh, owner-only, and never read back by the daemon, so a
 /// session that rewrites one changes nothing the next spawn sees, nor, for the persona, its resume.
-/// Nothing else is written into the work directory.
+/// The daemon writes nothing else into the work directory; a module may write its own files there,
+/// as the software module's review diff step writes <c>.coanda/review.diff</c> for the reviewers.
 /// </summary>
 public static class SessionFiles
 {
