@@ -48,7 +48,7 @@ public sealed class WorktreeFlowRunTests
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        Assert.Equal(["worktree", "build", "gates", "fix", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review"], flowRun.Steps.Select(s => s.Step));
+        Assert.Equal(["worktree", "build", "gates", "fix", "gates", "review-diff", "adversarial-review", "conformance-review", "open-pr", "move-to-review"], flowRun.Steps.Select(s => s.Step));
         Assert.Equal("failed", flowRun.Steps[2].Result.GetValueOrDefault().GetProperty("verdict").GetString());
         Assert.Equal("The build command 'dotnet build' exited with code 1. The last 1 lines of its output:\nerror CS0103", flowRun.Steps[2].Result.GetValueOrDefault().GetProperty("reason").GetString());
         Assert.Equal("done", flowRun.Steps[4].Result.GetValueOrDefault().GetProperty("verdict").GetString());

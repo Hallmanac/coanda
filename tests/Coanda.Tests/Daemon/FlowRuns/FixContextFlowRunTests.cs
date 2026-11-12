@@ -55,7 +55,7 @@ public sealed class FixContextFlowRunTests
 
         FlowRunView flowRun = await FlowRunDriver.UntilAsync(client, Project, (await FlowRunDriver.BoundAsync(client, Project, parcel.Id)).Id, "ended");
 
-        Assert.Equal(["worktree", "build", "gates", "adversarial-review", "fix", "gates", "adversarial-review", "fix", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review"], flowRun.Steps.Select(s => s.Step));
+        Assert.Equal(["worktree", "build", "gates", "review-diff", "adversarial-review", "fix", "gates", "review-diff", "adversarial-review", "fix", "gates", "review-diff", "adversarial-review", "conformance-review", "open-pr", "move-to-review"], flowRun.Steps.Select(s => s.Step));
         string[][] fixes = [.. executor.Spawns.Where(s => s.Agent == "fix").Select(s => s.Context.Split('\n'))];
         Assert.Equal(2, fixes.Length);
 

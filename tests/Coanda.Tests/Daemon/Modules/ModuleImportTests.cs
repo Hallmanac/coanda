@@ -29,20 +29,23 @@ public sealed class ModuleImportTests
     /// <summary>
     /// Each definition the software module brings, with the content hash its C# definition had on main at
     /// e86428f, but for the task type, which has since gained the repos field the module owns and marked
-    /// it as the type's tag field, and the five agents, which have since come to carry their answer
-    /// schema as content (the hashes they had before are pinned in <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>).
+    /// it as the type's tag field, the five agents, which have since come to carry their answer
+    /// schema as content, and whose two reviewers have since been told to read the review diff (the
+    /// hashes they had before are pinned in <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>), and the
+    /// build flow, which has since gained its review diff step (the hash it had before is pinned in
+    /// <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>).
     /// </summary>
     public static TheoryData<DefinitionKind, string, string> HashesOnMain() => new()
     {
         { DefinitionKind.ParcelType, "idea", "e6c4447a6bc6586d" },
         { DefinitionKind.ParcelType, "task", "3e16509d2543dbb9" },
-        { DefinitionKind.Flow, "build", "728a81e81272ed5e" },
+        { DefinitionKind.Flow, "build", "96172170513f94b9" },
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
         { DefinitionKind.Flow, "discovery", "c8b01e99a6cc7916" },
         { DefinitionKind.Flow, "review-on-assignment", "fabaabb2eb82ff10" },
         { DefinitionKind.Agent, "build", "039f9385559d36aa" },
-        { DefinitionKind.Agent, "reviewer-adversarial", "a05d63d65709b916" },
-        { DefinitionKind.Agent, "reviewer-conformance", "be473f662ee5093e" },
+        { DefinitionKind.Agent, "reviewer-adversarial", "d68224cd1bd8b199" },
+        { DefinitionKind.Agent, "reviewer-conformance", "a5d8981fce1ea60f" },
         { DefinitionKind.Agent, "fix", "6052573ca3d9be35" },
         { DefinitionKind.Agent, "discovery", "a22ef13e3dcd2ab0" },
     };

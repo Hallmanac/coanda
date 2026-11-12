@@ -49,8 +49,8 @@ code, and `decisions.md` in its worktree carries the binding rules.
   contract types, the interface an in-process module answers the module API's calls through, a
   client for the core's loopback API, the command runner and git wrapper, which the daemon uses
   too, and `RepoLayout`, the one rule placing a repo's clone under the node home.
-- `src/Coanda.Modules.Software`: the software engineering module: the worktree, gates, open-pr,
-  gated-merge, and rebase steps, the GitHub client, and the worktrees they act on, which it cuts from
+- `src/Coanda.Modules.Software`: the software engineering module: the worktree, gates, review-diff,
+  open-pr, gated-merge, and rebase steps, the GitHub client, and the worktrees they act on, which it cuts from
   the core's clones at the work path each dispatch carries; it makes no clone. It removes a flow run's
   worktree, at the work path the core's flow run view shows, when the module feed delivers that flow
   run's end or stop, and sweeps what is left at its start. It references the SDK and no other Coanda project, and the daemon hosts

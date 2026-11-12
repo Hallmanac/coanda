@@ -30,7 +30,7 @@ public sealed class FlowRunRestartTests
 
     private static readonly string[] CleanPath =
     [
-        "worktree", "build", "gates", "adversarial-review", "conformance-review", "open-pr", "move-to-review",
+        "worktree", "build", "gates", "review-diff", "adversarial-review", "conformance-review", "open-pr", "move-to-review",
     ];
 
     [Fact]

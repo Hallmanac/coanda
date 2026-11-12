@@ -476,8 +476,8 @@ agent and an answer schema; the daemon spawns the agent and validates its answer
 is a deterministic effect with no agent, run by the daemon or dispatched by the daemon to the module
 that brings it, one step at a time and never a whole flow (decision 253e33e2). The core's own set is
 domain-free: wait for a human, wait for an external event, timer, emit outcome, move a parcel,
-derive parcels. The software engineering module brings worktree, gates, open PR, gated merge, and
-rebase (section 14.10). Each step has transitions: a table of answer field equals value,
+derive parcels. The software engineering module brings worktree, gates, review diff, open PR, gated
+merge, and rebase (section 14.10). Each step has transitions: a table of answer field equals value,
 visited fewer than N times, go to step, else pause. Caps are mandatory per transition and per flow
 (budget, spawns); the daemon refuses to load a flow without them. hall9k's task run is one
 flow: build, three reviews, fix, two reviews, fix, until clean or capped. Its plan run is a
@@ -1066,7 +1066,8 @@ that is a later reopening.
 ### 14.10 The software engineering module
 
 What moved into it, all under `src/Coanda.Modules.Software/`: the worktree, gates, open-pr,
-gated-merge, and rebase steps and their recorded-heads helper, in `Steps/` (before the move they lived
+gated-merge, and rebase steps and their recorded-heads helper (the review-diff step was added there
+later, never having lived in the daemon), in `Steps/` (before the move they lived
 in `src/Coanda.Daemon/SystemSteps/`, which now holds only the core steps); the step name list, in
 `SoftwareSteps.cs` (before the move, `src/Coanda.Core/Software/SoftwareSystemSteps.cs`); the shipped
 idea and task types with their lifecycles, the build, merge, discovery, and review-on-assignment flows,
