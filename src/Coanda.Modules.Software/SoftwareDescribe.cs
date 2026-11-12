@@ -6,7 +6,7 @@ using Coanda.Sdk.Contract;
 namespace Coanda.Modules.Software;
 
 /// <summary>
-/// The software module's describe answer: its five steps, each with the schema of the arguments a flow
+/// The software module's describe answer: its six steps, each with the schema of the arguments a flow
 /// author writes for it (none, today) and of the result its done answer carries, no external event
 /// kinds, its subscriptions to the ends and stops of flow runs, whose worktrees it removes, and its
 /// settings schema. The settings schema is the one copy of the
@@ -67,6 +67,14 @@ public static class SoftwareDescribe
                     "test": { "type": "string", "minLength": 1 }
                     """),
                 Result(SoftwareSteps.Gates, Results.FailedVerdict, """
+                    "reason": { "type": "string", "minLength": 1 }
+                    """))),
+            new StepDescription(SoftwareSteps.ReviewDiff, NoArguments, OneOf(
+                Result(SoftwareSteps.ReviewDiff, Results.DoneVerdict, """
+                    "base": { "type": "string", "minLength": 1 },
+                    "head": { "type": "string", "minLength": 1 }
+                    """),
+                Result(SoftwareSteps.ReviewDiff, Results.DoneVerdict, """
                     "reason": { "type": "string", "minLength": 1 }
                     """))),
             new StepDescription(SoftwareSteps.OpenPr, NoArguments, Result(SoftwareSteps.OpenPr, OpenPrStep.OpenedVerdict, """

@@ -10,7 +10,7 @@ using NJsonSchema;
 namespace Coanda.Tests.Modules.Software;
 
 /// <summary>
-/// The software module's describe answer: a document the describe schema accepts, listing the five
+/// The software module's describe answer: a document the describe schema accepts, listing the six
 /// steps, each with an argument schema and a result schema, and the module's settings schema, whose
 /// step names are the ones the shipped build and merge flows name and whose argument schemas accept
 /// the arguments those flows give.
@@ -31,12 +31,12 @@ public sealed class SoftwareDescribeTests
     }
 
     [Fact]
-    public void The_answer_lists_the_five_steps_each_with_an_argument_and_a_result_schema_and_the_settings_schema()
+    public void The_answer_lists_the_six_steps_each_with_an_argument_and_a_result_schema_and_the_settings_schema()
     {
         DescribeAnswer answer = SoftwareDescribe.Answer;
 
         Assert.Equal(
-            ["software/worktree", "software/gates", "software/open-pr", "software/gated-merge", "software/rebase"],
+            ["software/worktree", "software/gates", "software/review-diff", "software/open-pr", "software/gated-merge", "software/rebase"],
             answer.Steps.Select(s => s.Name));
         Assert.All(answer.Steps, step =>
         {
@@ -75,6 +75,20 @@ public sealed class SoftwareDescribeTests
         JsonSchema schema = await JsonSchema.FromJsonAsync(SoftwareDescribe.NoArguments.GetRawText(), None);
 
         Assert.NotEmpty(schema.Validate("""{ "stage": "review" }"""));
+    }
+
+    [Theory]
+    [InlineData("""{ "verdict": "done", "systemStep": "software/review-diff", "base": "abc", "head": "def" }""", true)]
+    [InlineData("""{ "verdict": "done", "systemStep": "software/review-diff", "reason": "Wrote no .coanda/review.diff: why." }""", true)]
+    [InlineData("""{ "verdict": "done", "systemStep": "software/review-diff", "base": "abc", "head": "def", "reason": "both" }""", false)]
+    [InlineData("""{ "verdict": "done", "systemStep": "software/review-diff", "base": "abc" }""", false)]
+    [InlineData("""{ "verdict": "failed", "systemStep": "software/review-diff", "reason": "why" }""", false)]
+    public async Task The_review_diff_result_names_the_commits_it_diffed_or_the_reason_it_wrote_none_and_never_both(string result, bool accepted)
+    {
+        StepDescription described = SoftwareDescribe.Answer.Steps.Single(s => s.Name == SoftwareSteps.ReviewDiff);
+        JsonSchema schema = await JsonSchema.FromJsonAsync(described.ResultSchema.GetRawText(), None);
+
+        Assert.Equal(accepted, schema.Validate(result).Count == 0);
     }
 
     /// <summary>What the module the daemon hosts answered to describe when the daemon started.</summary>

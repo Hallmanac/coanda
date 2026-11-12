@@ -122,10 +122,14 @@ public sealed class RepoFieldTests : IAsyncLifetime
         Parcel task = await node.TaskAsync("Misnamed", Multi);
         await node.Parcels.SetFieldAsync(Principal.LocalOwner, Multi, task.Id, SoftwareSettings.ReposField, FieldValue.OfItems(repos), None);
 
-        foreach (string step in new[] { "worktree", "open-pr", "gated-merge", "rebase" })
+        foreach ((string step, string systemStep) in new[]
+        {
+            ("worktree", SoftwareSteps.Worktree), ("review-diff", SoftwareSteps.ReviewDiff), ("open-pr", SoftwareSteps.OpenPr),
+            ("gated-merge", SoftwareSteps.GatedMerge), ("rebase", SoftwareSteps.Rebase),
+        })
         {
             (Guid flowRunId, Guid dispatchId) = await node.HeldAsync(task.Id, step, Multi);
-            SystemStepAnswer.Paused paused = Paused(await node.DispatchAsync(SoftwareSteps.Canonical(step), task.Id, flowRunId, dispatchId, Multi));
+            SystemStepAnswer.Paused paused = Paused(await node.DispatchAsync(systemStep, task.Id, flowRunId, dispatchId, Multi));
             await node.StopAsync(flowRunId, Multi);
 
             Assert.Equal($"Step '{step}' {what}", paused.Reason);

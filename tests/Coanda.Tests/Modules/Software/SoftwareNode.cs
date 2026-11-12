@@ -13,6 +13,7 @@ using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Modules.Software;
+using Coanda.Sdk.Commands;
 using Coanda.Sdk.Contract;
 using Coanda.Tests.Daemon;
 using Coanda.Tests.Daemon.Commands;
@@ -48,7 +49,7 @@ internal sealed class SoftwareNode : IAsyncDisposable
         GitHub = github;
     }
 
-    /// <summary>A flow whose steps are the module's five, each named as the build and merge flows name it, every one ending on any verdict it answers.</summary>
+    /// <summary>A flow whose steps are the module's six, each named as the build and merge flows name it, every one ending on any verdict it answers.</summary>
     public static Flow Steps { get; } = new()
     {
         Name = "steps",
@@ -60,6 +61,7 @@ internal sealed class SoftwareNode : IAsyncDisposable
         [
             Step("worktree", SoftwareSteps.Worktree, "done"),
             Step("gates", SoftwareSteps.Gates, "done", "failed"),
+            Step("review-diff", SoftwareSteps.ReviewDiff, "done"),
             Step("open-pr", SoftwareSteps.OpenPr, "opened"),
             Step("gated-merge", SoftwareSteps.GatedMerge, "merged", "pending", "behind"),
             Step("rebase", SoftwareSteps.Rebase, "done"),
@@ -147,14 +149,15 @@ internal sealed class SoftwareNode : IAsyncDisposable
     /// <summary>
     /// A software module of its own over this node's home, command runner, GitHub, and core, built as the
     /// daemon builds its own, so it holds nothing the daemon's module learned in memory: what a restart
-    /// of the daemon would start with. The caller disposes it.
+    /// of the daemon would start with. It runs its commands on <paramref name="runner"/> when one is
+    /// given, and on <see cref="Runner"/> otherwise. The caller disposes it.
     /// </summary>
-    public SoftwareModule FreshModule() => new(new SoftwareModuleOptions
+    public SoftwareModule FreshModule(ICommandRunner? runner = null) => new(new SoftwareModuleOptions
     {
         HomePath = Home.Path,
         ProfilesPath = Home.ModuleAreaOf(SoftwareSteps.Module),
         CoreApi = Services.GetRequiredService<ModuleCoreAccess>().Options,
-        CommandRunner = Runner,
+        CommandRunner = runner ?? Runner,
         GitHubHandler = GitHub.Handler,
         LoggerFactory = Services.GetRequiredService<ILoggerFactory>(),
         GatesCommandLimit = DaemonOptions.DefaultGatesCommandLimit,
