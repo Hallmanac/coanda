@@ -62,8 +62,8 @@ public sealed class SoftwareAgentsTests
     /// </summary>
     [Theory]
     [InlineData("build", "37dd84328f49ca25", "039f9385559d36aa", "039f9385559d36aa")]
-    [InlineData("reviewer-adversarial", "4ff7ac20b180df0d", "a05d63d65709b916", "d68224cd1bd8b199")]
-    [InlineData("reviewer-conformance", "9f867144783e855c", "be473f662ee5093e", "a5d8981fce1ea60f")]
+    [InlineData("reviewer-adversarial", "4ff7ac20b180df0d", "a05d63d65709b916", "282d8d44b1c51255")]
+    [InlineData("reviewer-conformance", "9f867144783e855c", "be473f662ee5093e", "8a5e994ba08f9e6f")]
     [InlineData("fix", "4ca4afe60ac4e100", "6052573ca3d9be35", "6052573ca3d9be35")]
     [InlineData("discovery", "e99e12f13d399792", "a22ef13e3dcd2ab0", "a22ef13e3dcd2ab0")]
     public void Each_agent_hashes_as_before_without_its_schema_content_and_anew_with_it(string agent, string before, string after, string now)
@@ -87,7 +87,11 @@ public sealed class SoftwareAgentsTests
             // each check names the reviewer, reviewer.Name, as its reason
             Assert.StartsWith(SoftwareAgents.ProjectGuidance, rules, StringComparison.Ordinal);
             Assert.Contains(".coanda/review.diff", rules, StringComparison.Ordinal);
-            Assert.Contains("Only when that file is absent, produce the diff yourself with git", rules, StringComparison.Ordinal);
+            Assert.Contains("read it, in whole, as that change, rather than producing a diff yourself", rules, StringComparison.Ordinal);
+            Assert.DoesNotContain("first", rules, StringComparison.Ordinal);
+            Assert.Contains("where your working directory is a git repository, produce the diff with git", rules, StringComparison.Ordinal);
+            // review-on-assignment runs the adversarial reviewer in a work path that is not a repository
+            Assert.Contains("where it is not, read the change your task names, such as its pull request's diff", rules, StringComparison.Ordinal);
             Assert.Contains("say in your summary that .coanda/review.diff was absent", rules, StringComparison.Ordinal);
             Assert.Contains("answer with the verdict \"not-clean\" and a finding that says the change under review could not be read or was empty", rules, StringComparison.Ordinal);
             Assert.Contains("never answer \"clean\" then", rules, StringComparison.Ordinal);

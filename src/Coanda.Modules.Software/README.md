@@ -12,8 +12,11 @@ file there, and the build copies only `module.json` and the JSON under `definiti
 `definitions/flows/build.json` runs `review-diff` (`software/review-diff`) between the gates and the
 adversarial review, so every pass into a review, the one back from fix through the gates included,
 starts with `.coanda/review.diff` in the work path holding the change under review. Both reviewers'
-rules tell them to read that file first, rather than produce the diff with a git command of their own
-that the tool guard may refuse. Conformance review follows adversarial review on the same commit, so
+rules tell them to read that file as the change, rather than produce the diff with a git command of
+their own that the tool guard may refuse. Only when the file is absent do they find the change
+themselves: with git where the work path is a repository, and otherwise from what the task names,
+such as its pull request. That second case is the review-on-assignment flow, whose one step runs the
+adversarial reviewer in a work path with no worktree and no review diff step before it. Conformance review follows adversarial review on the same commit, so
 one write per pass serves both. The step fetches the primary branch before it diffs, because the
 worktree step fetches only the parcel's branch once one exists, so the clone's tracking ref for the
 primary branch may be absent or older than the commit the branch was cut from.
