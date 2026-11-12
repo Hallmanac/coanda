@@ -46,7 +46,7 @@ public sealed class TriggerDeciderTests
     public void An_external_event_whose_kind_is_not_a_plain_name_is_refused()
     {
         DomainException exception = Assert.Throws<DomainException>(() => Record("pr assigned!"));
-        Assert.Equal("An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores) or a module's name and a plain name joined by a slash (<module>/<name>); 'pr assigned!' is not.", exception.Message);
+        Assert.Equal($"An external event needs a kind that is a plain name (letters, digits, hyphens, and underscores) or a module's name and a plain name joined by a slash (<module>/<name>), where a module's name is {ModuleNames.Rule}; 'pr assigned!' is not.", exception.Message);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class TriggerDeciderTests
     public void An_external_event_whose_kind_is_neither_a_plain_name_nor_one_prefixed_plain_name_is_refused(string kind)
     {
         DomainException exception = Assert.Throws<DomainException>(() => Record(kind));
-        Assert.EndsWith($"(<module>/<name>); '{kind}' is not.", exception.Message, StringComparison.Ordinal);
+        Assert.EndsWith($"(<module>/<name>), where a module's name is {ModuleNames.Rule}; '{kind}' is not.", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
