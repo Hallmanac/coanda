@@ -66,13 +66,22 @@ public sealed class ParcelListCommand : AsyncCommand<ParcelListSettings>
 
         if (table.Rows.Count == 0)
         {
-            AnsiConsole.MarkupLineInterpolated($"No open parcels in {project}.");
+            AnsiConsole.MarkupLine(EmptyLine(project, settings.All));
             return 0;
         }
 
         AnsiConsole.Write(table);
         return 0;
     }
+
+    /// <summary>
+    /// The markup line printed when there is no parcel to list: with <paramref name="all"/>, closed parcels
+    /// are listed too, so the line says the project holds none rather than that none is open.
+    /// </summary>
+    public static string EmptyLine(string project, bool all) =>
+        all
+            ? $"No parcels in {Markup.Escape(project)}."
+            : $"No open parcels in {Markup.Escape(project)}.";
 }
 
 public class ParcelIdSettings : ProjectSettings

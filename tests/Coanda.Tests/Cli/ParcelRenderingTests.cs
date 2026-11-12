@@ -22,6 +22,14 @@ public sealed class ParcelRenderingTests
     }
 
     [Fact]
+    public void List_with_nothing_to_show_says_no_open_parcels_and_with_all_says_no_parcels()
+    {
+        Assert.Equal("No open parcels in coanda.", ParcelListCommand.EmptyLine("coanda", all: false));
+        Assert.Equal("No parcels in coanda.", ParcelListCommand.EmptyLine("coanda", all: true));
+        Assert.Equal("No parcels in [[x]].", ParcelListCommand.EmptyLine("[x]", all: true));
+    }
+
+    [Fact]
     public void Show_prints_every_declared_field_in_order_with_its_value_or_not_set_and_escapes_markup()
     {
         var parcel = new ParcelView(
