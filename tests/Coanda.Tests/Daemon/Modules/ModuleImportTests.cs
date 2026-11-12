@@ -44,8 +44,8 @@ public sealed class ModuleImportTests
         { DefinitionKind.Flow, "discovery", "c8b01e99a6cc7916" },
         { DefinitionKind.Flow, "review-on-assignment", "fabaabb2eb82ff10" },
         { DefinitionKind.Agent, "build", "039f9385559d36aa" },
-        { DefinitionKind.Agent, "reviewer-adversarial", "d68224cd1bd8b199" },
-        { DefinitionKind.Agent, "reviewer-conformance", "a5d8981fce1ea60f" },
+        { DefinitionKind.Agent, "reviewer-adversarial", "282d8d44b1c51255" },
+        { DefinitionKind.Agent, "reviewer-conformance", "8a5e994ba08f9e6f" },
         { DefinitionKind.Agent, "fix", "6052573ca3d9be35" },
         { DefinitionKind.Agent, "discovery", "a22ef13e3dcd2ab0" },
     };
