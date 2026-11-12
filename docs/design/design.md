@@ -696,8 +696,9 @@ process started on demand; service registration is later. Windows through the sa
 seam. One local-time daemon log per node, and beside it one log per module process (section 14.7),
 plus the measurement events, which are what gets queried. The node
 home's token file (daemon.json), its database with the files SQLite keeps beside it, its log,
-the file a detached daemon prints to outside its log (daemon.out), and the node identity with its
-private key (node-identity.json) are readable and writable
+the file a detached daemon prints to outside its log (daemon.out), the node identity with its
+private key (node-identity.json), the owner id record (node-owner.json), and the home lock
+(home.lock) are readable and writable
 by their owner alone from the moment each is created: mode 0600 on macOS and Linux, and on Windows the node home carries an owner-only access list, not inherited from its
 parent, that every file created inside it inherits. A start narrows any of them an earlier run left
 wider before it opens the database.

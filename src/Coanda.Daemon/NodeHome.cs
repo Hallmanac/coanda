@@ -159,7 +159,8 @@ public sealed record NodeHome(string Path)
     /// Creates the home if it is absent and narrows to owner-only access anything an earlier run
     /// left wider: on Windows the directory itself, whose access list every file created in it
     /// inherits, and on every platform the token file, the database and its companion files, the
-    /// log, the detached daemon's output, and the node identity, which it never creates. It also
+    /// log, the detached daemon's output, the node identity, the owner id record, and the home lock,
+    /// none of which it creates (<see cref="OwnerOnlyPaths"/>). It also
     /// creates the module area owner-only and narrows every directory and file under it, the area
     /// included, to owner-only (<see cref="OwnerOnly.NarrowTree"/>).
     /// Called before anything opens the database or writes to any of those files.
