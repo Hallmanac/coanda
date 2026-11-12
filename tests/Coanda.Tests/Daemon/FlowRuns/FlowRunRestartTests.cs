@@ -613,15 +613,22 @@ public sealed class FlowRunRestartTests
     /// <summary>
     /// Starts a daemon on the gated executor, waits until the bound flow run's agent step has recorded its
     /// session and is held in its collect, and stops the daemon, checking that the session was left
-    /// alive and the flow run names it.
+    /// alive and the flow run names it. <paramref name="arrange"/>, when given, runs once the project is
+    /// registered and before its task reaches build.
     /// </summary>
-    internal static async Task<(Guid FlowRunId, SessionHandle Issued)> StopWithSessionLeftAsync(TemporaryHome temp, GatedExecutor stalled, string title)
+    internal static async Task<(Guid FlowRunId, SessionHandle Issued)> StopWithSessionLeftAsync(
+        TemporaryHome temp, GatedExecutor stalled, string title, Func<RunningDaemon, Task>? arrange = null)
     {
         Guid flowRunId;
         Guid sessionId = Guid.Empty;
         await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None))
         {
             await RegisteredProjects.AddAsync(first, Project, None);
+            if (arrange is not null)
+            {
+                await arrange(first);
+            }
+
             using var client = new DaemonClient(temp.Home);
             FlowRunService flowRuns = first.Services.GetRequiredService<FlowRunService>();
             ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, title);
