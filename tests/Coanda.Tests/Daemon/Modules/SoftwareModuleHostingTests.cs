@@ -183,7 +183,7 @@ public sealed class SoftwareModuleHostingTests
 
         FlowRunView paused = await RunAsync(node, flow.Name, "paused");
 
-        Assert.StartsWith("Step 'act' could not perform the system step 'software/open-pr': module 'software' answered a result its step's result schema refuses: ", paused.PauseReason, StringComparison.Ordinal);
+        Assert.StartsWith("Step 'act' dispatched the system step 'software/open-pr', but module 'software' answered a result its step's result schema refuses: ", paused.PauseReason, StringComparison.Ordinal);
         Assert.Contains("NumberTooSmall", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(FlowRunLevers.PerformAgain("act"), paused.Lever);
         Assert.Null(paused.Steps.Single().Result);

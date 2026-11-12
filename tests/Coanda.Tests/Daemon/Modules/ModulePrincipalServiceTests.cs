@@ -129,7 +129,7 @@ public sealed class ModulePrincipalServiceTests
             $"Step 'work' of flow run {Ids.Short(flowRunId)} holds dispatch {Ids.Short(dispatchId)}, not {Ids.Short(stranger)}; an outcome under dispatch {Ids.Short(stranger)} is not recorded.",
             (await RefusedAsync(flowRuns, Module, On, flowRunId, stranger)).Message);
         Assert.Equal(
-            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRunId)} performs the system step '{RunningSystemStep.StepName}', which is not module 'other''s; a module writes only on a dispatch of one of its own steps.",
+            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRunId)} is a dispatch of the system step '{RunningSystemStep.StepName}', which is not module 'other''s; a module writes only on a dispatch of one of its own steps.",
             (await RefusedAsync(flowRuns, Principal.ForModule(ModuleNode.Other), On, flowRunId, dispatchId)).Message);
         Assert.Equal(
             $"Flow run {Ids.Short(stoppedId)} has been stopped; only a running flow run can record a dispatch's outcome.",

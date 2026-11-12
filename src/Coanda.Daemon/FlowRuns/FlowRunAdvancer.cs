@@ -1381,7 +1381,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
                 case { Failure: { } failure }:
                     await PauseAsync(
                         principal, project, flowRun.Id,
-                        $"Step '{step.Name}' could not perform the system step '{step.SystemStep}': {failure.Message}",
+                        $"Step '{step.Name}' could not complete the system step '{step.SystemStep}': {failure.Message}",
                         FlowRunLevers.PerformAgain(step.Name),
                         cancellationToken);
                     return null;
