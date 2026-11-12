@@ -21,7 +21,12 @@ namespace Coanda.Cli;
 /// </summary>
 public sealed class DaemonClient : IDisposable
 {
-    private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
+    /// <summary>
+    /// How long the CLI waits for a daemon it started to answer. The bound is long because a start makes
+    /// every repo's clone and waits for its modules to be healthy before it writes the address file the CLI
+    /// waits on; a daemon that exits before then is reported as soon as it exits, not at this bound.
+    /// </summary>
+    private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(90);
 
     // One client for the process, so a long-running command never exhausts sockets by making one per call.
     private static readonly HttpClient Http = new(new SocketsHttpHandler { RequestHeaderEncodingSelector = HeaderEncoding });
