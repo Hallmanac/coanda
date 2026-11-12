@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
@@ -21,7 +22,7 @@ public sealed class AgentStepTests
         "Step: review",
         "/work/tree",
         new SpawnCaps(3m, TimeSpan.FromMinutes(30)),
-        AnswerSchemas.Review);
+        NameOnlyAnswerSchemas.Review);
 
     private static ScriptedExecutor Executor(params ScriptEntry[] entries) =>
         new(new Dictionary<string, IReadOnlyList<ScriptEntry>> { [Agent] = entries });
@@ -44,7 +45,7 @@ public sealed class AgentStepTests
         ScriptedExecutor executor = Executor(
             new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
             new ScriptEntry(Valid, "/t/2.jsonl", SecondUsage));
-        string failure = AnswerValidator.Validate(AnswerSchemas.Review, Invalid).Failures[0];
+        string failure = AnswerValidator.Validate(Request.Agent.ResolveAnswerSchema(), Invalid).Failures[0];
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
@@ -62,7 +63,7 @@ public sealed class AgentStepTests
         ScriptedExecutor executor = Executor(
             new ScriptEntry(null, "/t/1.jsonl", FirstUsage),
             new ScriptEntry(InvalidAgain, "/t/2.jsonl", SecondUsage));
-        string failure = AnswerValidator.Validate(AnswerSchemas.Review, InvalidAgain).Failures[0];
+        string failure = AnswerValidator.Validate(Request.Agent.ResolveAnswerSchema(), InvalidAgain).Failures[0];
 
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request, CancellationToken.None);
 
@@ -84,8 +85,8 @@ public sealed class AgentStepTests
         ScriptedExecutor executor = Executor(
             new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage),
             new ScriptEntry(InvalidAgain, "/t/2.jsonl", SecondUsage));
-        string firstFailure = AnswerValidator.Validate(AnswerSchemas.Review, Invalid).Failures[0];
-        string secondFailure = AnswerValidator.Validate(AnswerSchemas.Review, InvalidAgain).Failures[0];
+        string firstFailure = AnswerValidator.Validate(Request.Agent.ResolveAnswerSchema(), Invalid).Failures[0];
+        string secondFailure = AnswerValidator.Validate(Request.Agent.ResolveAnswerSchema(), InvalidAgain).Failures[0];
         // the pause must be shown to quote the second attempt
         Assert.NotEqual(secondFailure, firstFailure);
 
@@ -246,10 +247,10 @@ public sealed class AgentStepTests
     {
         ScriptedExecutor executor = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage));
 
-        Func<Task> run = () => AgentStep.RunAsync(executor, Request with { AnswerSchema = AnswerSchemas.Build }, CancellationToken.None);
+        Func<Task> run = () => AgentStep.RunAsync(executor, Request with { AnswerSchema = NameOnlyAnswerSchemas.Build }, CancellationToken.None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(run);
-        Assert.Matches(WildcardPattern.ToRegex($"*'{AnswerSchemas.Build}'*'{Agent}'*'{AnswerSchemas.Review}'*"), exception.Message);
+        Assert.Matches(WildcardPattern.ToRegex($"*'{NameOnlyAnswerSchemas.Build}'*'{Agent}'*'{NameOnlyAnswerSchemas.Review}'*"), exception.Message);
         Assert.Empty(executor.Spawns);
     }
 
@@ -261,7 +262,7 @@ public sealed class AgentStepTests
             new ScriptEntry(Valid, "/t/2.jsonl", SecondUsage));
         SessionHandle held = await SpawnAsync(executor);
 
-        AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), Request.Agent, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
 
         Assert.Equal(new AgentStepOutcome.Answered(held, Valid, "/t/2.jsonl", Summed), outcome);
         // the reattach spawns nothing
@@ -286,10 +287,10 @@ public sealed class AgentStepTests
         Assert.Equal(new ReattachedSession(held, 2, FirstUsage), retrying);
         var spend = new AgentStepSpend();
 
-        AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, retrying, AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None, CancellationToken.None);
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, retrying, Request.Agent, spend, CancellationToken.None, CancellationToken.None, CancellationToken.None);
 
         AgentStepOutcome.Paused paused = Assert.IsType<AgentStepOutcome.Paused>(outcome);
-        Assert.StartsWith($"Agent '{Agent}' gave no valid '{AnswerSchemas.Review}' answer after one retry:", paused.Reason, StringComparison.Ordinal);
+        Assert.StartsWith($"Agent '{Agent}' gave no valid '{NameOnlyAnswerSchemas.Review}' answer after one retry:", paused.Reason, StringComparison.Ordinal);
         Assert.Equal(Summed, paused.Usage);
         Assert.Equal(Summed, spend.Reported);
         // the retry before the restart was the one retry
@@ -307,7 +308,7 @@ public sealed class AgentStepTests
         await limit.CancelAsync();
         var spend = new AgentStepSpend();
 
-        Func<Task> run = () => AgentStep.ReattachAsync(executor, new ReattachedSession(held, 2, FirstUsage), AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None, limit.Token);
+        Func<Task> run = () => AgentStep.ReattachAsync(executor, new ReattachedSession(held, 2, FirstUsage), Request.Agent, spend, CancellationToken.None, CancellationToken.None, limit.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
         Assert.Equal([held], executor.Stops);
@@ -323,7 +324,7 @@ public sealed class AgentStepTests
         using var limit = new CancellationTokenSource();
         await limit.CancelAsync();
 
-        Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, limit.Token);
+        Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), Request.Agent, spend: null, CancellationToken.None, CancellationToken.None, limit.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
         Assert.Equal([held], executor.Stops);
@@ -340,7 +341,7 @@ public sealed class AgentStepTests
         using var limit = new CancellationTokenSource();
         await limit.CancelAsync();
 
-        AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, finished, AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, limit.Token);
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(executor, finished, Request.Agent, spend: null, CancellationToken.None, CancellationToken.None, limit.Token);
 
         Assert.Equal(new AgentStepOutcome.Answered(held, Valid, "/t/1.jsonl", FirstUsage), outcome);
         // the caller stops the session once the outcome is recorded
@@ -358,7 +359,7 @@ public sealed class AgentStepTests
         var spend = new AgentStepSpend();
 
         Func<Task> run = () => AgentStep.ReattachAsync(
-            executor, new ReattachedSession(held, 1, ReattachedSession.Nothing, Finished: true), AnswerSchemas.Review, spend, CancellationToken.None, CancellationToken.None, limit.Token);
+            executor, new ReattachedSession(held, 1, ReattachedSession.Nothing, Finished: true), Request.Agent, spend, CancellationToken.None, CancellationToken.None, limit.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
         // a retry would run past the limit
@@ -377,7 +378,7 @@ public sealed class AgentStepTests
         await ended.CancelAsync();
 
         Func<Task> run = () => AgentStep.ReattachAsync(
-            executor, new ReattachedSession(held, 1, ReattachedSession.Nothing, Finished: true), AnswerSchemas.Review, spend: null, CancellationToken.None, ended.Token, ended.Token);
+            executor, new ReattachedSession(held, 1, ReattachedSession.Nothing, Finished: true), Request.Agent, spend: null, CancellationToken.None, ended.Token, ended.Token);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(run);
         Assert.Equal([held], executor.Stops);
@@ -391,7 +392,7 @@ public sealed class AgentStepTests
         using var stopping = new CancellationTokenSource();
         await stopping.CancelAsync();
 
-        Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, stopping.Token, CancellationToken.None, CancellationToken.None);
+        Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), Request.Agent, spend: null, stopping.Token, CancellationToken.None, CancellationToken.None);
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(run);
         Assert.Contains("no entry 1", exception.Message, StringComparison.Ordinal);
@@ -406,13 +407,74 @@ public sealed class AgentStepTests
         ScriptedExecutor executor = Executor();
         SessionHandle held = await SpawnAsync(executor);
 
-        Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), AnswerSchemas.Review, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
+        Func<Task> run = () => AgentStep.ReattachAsync(executor, ReattachedSession.OnSpawn(held), Request.Agent, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(run);
         Assert.Contains("no entry 1", exception.Message, StringComparison.Ordinal);
         Assert.Equal([held], executor.Stops);
     }
 
+    /// <summary>An agent whose schema allows verdicts none of the four schemas the release once shipped by name allows.</summary>
+    private static readonly AgentDefinition Triage = SoftwareAgents.Discovery with
+    {
+        Name = "triage",
+        AnswerSchema = "triage",
+        AnswerSchemaContent = JsonDocument.Parse(
+            """{"type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["not-for-me","taken"]},"summary":{"type":"string"}}}""").RootElement.Clone(),
+    };
+
+    private static readonly AgentStepRequest TriageRequest = Request with { Agent = Triage, AnswerSchema = "triage" };
+
+    [Fact]
+    public async Task An_answer_with_a_verdict_only_the_agents_own_schema_allows_is_accepted_on_the_first_collect()
+    {
+        const string notForMe = """{"verdict":"not-for-me","summary":"Another team's."}""";
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>> { ["triage"] = [new ScriptEntry(notForMe, "/t/1.jsonl", FirstUsage)] });
+
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, TriageRequest, CancellationToken.None);
+
+        ScriptedSpawn spawn = Assert.Single(executor.Spawns);
+        Assert.Equal("triage", spawn.AnswerSchema);
+        Assert.Equal(new AgentStepOutcome.Answered(spawn.Handle, notForMe, "/t/1.jsonl", FirstUsage), outcome);
+        Assert.Empty(executor.Resumes);
+    }
+
+    [Fact]
+    public async Task An_answer_with_a_verdict_the_agents_own_schema_does_not_allow_is_refused_and_retried()
+    {
+        const string done = """{"verdict":"done"}""";
+        const string taken = """{"verdict":"taken"}""";
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["triage"] = [new ScriptEntry(done, "/t/1.jsonl", FirstUsage), new ScriptEntry(taken, "/t/2.jsonl", SecondUsage)],
+        });
+
+        AgentStepOutcome outcome = await AgentStep.RunAsync(executor, TriageRequest, CancellationToken.None);
+
+        SessionHandle session = Assert.Single(executor.Spawns).Handle;
+        Assert.Equal(new AgentStepOutcome.Answered(session, taken, "/t/2.jsonl", Summed), outcome);
+        ScriptedMessage resume = Assert.Single(executor.Resumes);
+        Assert.Equal(session, resume.Handle);
+        Assert.Contains("did not match the 'triage' answer schema", resume.Message, StringComparison.Ordinal);
+        Assert.Contains("NotInEnumeration at #/verdict", resume.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_reattached_session_is_checked_against_the_schema_content_of_the_agent_it_is_given()
+    {
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["triage"] = [new ScriptEntry("""{"verdict":"done"}""", "/t/1.jsonl", FirstUsage), new ScriptEntry("""{"verdict":"not-for-me"}""", "/t/2.jsonl", SecondUsage)],
+        });
+        SessionHandle held = await executor.SpawnAsync(Triage, "context", "/work/tree", Request.Caps, Triage.ResolveAnswerSchema(), null, null, CancellationToken.None);
+
+        AgentStepOutcome outcome = await AgentStep.ReattachAsync(
+            executor, ReattachedSession.OnSpawn(held), Triage, spend: null, CancellationToken.None, CancellationToken.None, CancellationToken.None);
+
+        Assert.Equal(new AgentStepOutcome.Answered(held, """{"verdict":"not-for-me"}""", "/t/2.jsonl", Summed), outcome);
+        Assert.Contains("NotInEnumeration at #/verdict", Assert.Single(executor.Resumes).Message, StringComparison.Ordinal);
+    }
+
     private static Task<SessionHandle> SpawnAsync(ScriptedExecutor executor) =>
-        executor.SpawnAsync(Request.Agent, Request.Context, Request.WorkingDirectory, Request.Caps, Request.AnswerSchema, null, null, CancellationToken.None).AsTask();
+        executor.SpawnAsync(Request.Agent, Request.Context, Request.WorkingDirectory, Request.Caps, Request.Agent.ResolveAnswerSchema(), null, null, CancellationToken.None).AsTask();
 }

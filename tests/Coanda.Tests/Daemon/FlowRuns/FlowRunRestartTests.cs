@@ -413,7 +413,7 @@ public sealed class FlowRunRestartTests
         var stalled = new GatedExecutor(Scripts.CleanBuildExecutor());
         (Guid flowRunId, SessionHandle issued) = await StopWithSessionLeftAsync(temp, stalled, "Swept");
         SessionHandle orphan = await stalled.Inner.SpawnAsync(
-            SoftwareAgents.Build, "Nobody waits on this.", temp.Home.FlowRunWorkPath(Project, Ids.New()), new SpawnCaps(1m, TimeSpan.FromMinutes(1)), AnswerSchemas.Build, null, null, None);
+            SoftwareAgents.Build, "Nobody waits on this.", temp.Home.FlowRunWorkPath(Project, Ids.New()), new SpawnCaps(1m, TimeSpan.FromMinutes(1)), SoftwareAgents.Build.ResolveAnswerSchema(), null, null, None);
 
         stalled.Open();
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = stalled }, None);

@@ -37,10 +37,10 @@ public sealed class DefinitionDeciderAgentTests
     [Fact]
     public void An_agent_that_fails_validation_is_refused_quoting_the_validation_message()
     {
-        AgentDefinition broken = SoftwareAgents.Fix with { AnswerSchema = "essay" };
+        AgentDefinition broken = SoftwareAgents.Fix with { Tools = ["teleport"] };
 
         DomainException exception = Assert.Throws<DomainException>(() => Draft("fix", AgentDefinition.CanonicalJson(broken), broken.Hash));
-        Assert.StartsWith("Agent 'fix' names the answer schema 'essay'", exception.Message, StringComparison.Ordinal);
+        Assert.StartsWith("Agent 'fix' names the tool 'teleport'", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

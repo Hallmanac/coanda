@@ -19,5 +19,45 @@
   ],
   "Skills": [],
   "McpServers": [],
-  "AnswerSchema": "review"
+  "AnswerSchema": "review",
+  "AnswerSchemaContent": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "The answer of a review step",
+    "type": "object",
+    "required": [
+      "verdict"
+    ],
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "clean",
+          "not-clean"
+        ]
+      },
+      "summary": {
+        "type": "string"
+      },
+      "findings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
 }

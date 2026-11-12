@@ -39,7 +39,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         string context,
         string workingDirectory,
         SpawnCaps caps,
-        string answerSchema,
+        AnswerSchema answerSchema,
         CredentialProfile? credentialProfile,
         SessionAccess? access,
         CancellationToken cancellationToken)
@@ -51,7 +51,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         lock (gate)
         {
             sessions.Add(handle.Id, new Session(handle));
-            spawns.Add(new ScriptedSpawn(handle, agent.Name, context, workingDirectory, caps, answerSchema, credentialProfile, access));
+            spawns.Add(new ScriptedSpawn(handle, agent.Name, context, workingDirectory, caps, answerSchema.Name, credentialProfile, access));
         }
 
         return ValueTask.FromResult(handle);

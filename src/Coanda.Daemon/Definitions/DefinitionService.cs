@@ -149,6 +149,17 @@ public sealed class DefinitionService(
     }
 
     /// <summary>
+    /// The agent definition, in the project, owner, or module scope, whose content hash a launch
+    /// recorded, retired since or not; null when the store holds none with that hash.
+    /// </summary>
+    public async Task<Definition?> ResolveAgentByHashAsync(Principal principal, string project, string contentHash, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("agent.list", principal);
+        string tenant = Tenants.RequireProject(project);
+        return await resolver.ResolveByHashAsync(tenant, DefinitionKind.Agent, contentHash, cancellationToken);
+    }
+
+    /// <summary>
     /// Imports a module's definitions, whatever their kind, as published module-scope definitions
     /// carrying the module's name and version, in one save: when any of them breaks a rule, nothing
     /// is recorded, and the refusal names the file it came from. A definition whose content hash is

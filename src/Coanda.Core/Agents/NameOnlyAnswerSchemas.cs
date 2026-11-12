@@ -4,14 +4,18 @@ using System.Text.Json;
 namespace Coanda.Core.Agents;
 
 /// <summary>
-/// The catalog of answer schemas the release ships: build, review, fix, and discovery. They are
-/// fixed by the release and are not stored as definitions, so customizing one is not possible.
-/// Each requires a string field named <c>verdict</c> with a closed set of values and allows
-/// further optional fields.
+/// The four answer schemas the release shipped by name before an agent carried its own: build,
+/// review, fix, and discovery. This map serves one thing only: agent content stored before an agent
+/// carried its schema content, which names one of these four and holds no content of its own. Such
+/// content is current, since a definition's content and content hash are never changed, and its
+/// answers validate against the same document as when it was stored (<see cref="AgentDefinition.ResolveAnswerSchema"/>).
+/// Nothing decides whether an agent is valid, or which schema an agent carrying its own content
+/// answers in, by looking a name up here. The documents are frozen: changing one changes how stored
+/// agents' answers validate.
 /// </summary>
-public static class AnswerSchemas
+public static class NameOnlyAnswerSchemas
 {
-    public const string VerdictField = "verdict";
+    private const string VerdictField = AnswerSchemaRules.VerdictField;
     public const string Build = "build";
     public const string Review = "review";
     public const string Fix = "fix";
@@ -27,14 +31,8 @@ public static class AnswerSchemas
 
     public static IReadOnlyList<string> Names { get; } = [.. All.Select(s => s.Name)];
 
-    public static bool Holds(string? name) => Find(name) is not null;
-
     public static AnswerSchema? Find(string? name) =>
         All.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
-
-    public static AnswerSchema Require(string? name) =>
-        Find(name) ?? throw new DomainException(
-            $"'{name}' is not a shipped answer schema; the catalog holds {string.Join(", ", Names)}.");
 
     private static AnswerSchema Create(string name, string[] verdicts, bool withFindings)
     {

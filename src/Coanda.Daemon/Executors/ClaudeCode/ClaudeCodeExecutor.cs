@@ -124,7 +124,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         string context,
         string workingDirectory,
         SpawnCaps caps,
-        string answerSchema,
+        AnswerSchema answerSchema,
         CredentialProfile? credentialProfile,
         SessionAccess? access,
         CancellationToken cancellationToken)

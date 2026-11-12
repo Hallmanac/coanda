@@ -398,9 +398,9 @@ public static partial class ClaudeCodeInvocation
     /// read files still has it, the names of the two files that hold the task record and the
     /// context, and the answer schema the reply must end in.
     /// </summary>
-    public static string Prompt(string context, string answerSchema)
+    public static string Prompt(string context, AnswerSchema schema)
     {
-        AnswerSchema schema = AnswerSchemas.Require(answerSchema);
+        ArgumentNullException.ThrowIfNull(schema);
         var prompt = new StringBuilder();
         prompt.Append(context).Append("\n\n");
         prompt.Append($"The task's record is in {SessionFiles.TaskFile} and this context is in {SessionFiles.PromptFile}, both under your working directory.\n\n");

@@ -6,8 +6,8 @@ namespace Coanda.Daemon.Executors;
 
 /// <summary>
 /// Runs one agent step through an executor: spawn once, collect, and validate the answer against the
-/// spawn's answer schema. A missing or invalid answer is retried once by resuming the same
-/// session, never by a second spawn; a second failure pauses with the transcript as the lever. It
+/// answer schema of the agent it spawns (<see cref="AgentDefinition.ResolveAnswerSchema"/>). A missing
+/// or invalid answer is retried once by resuming the same session, never by a second spawn; a second failure pauses with the transcript as the lever. It
 /// records nothing and leaves the session open on either outcome, returning its handle: the runner
 /// records the flow run's events and decides when a session ends. If the agent step fails after the
 /// spawn, it stops the session rather than leave one nobody holds, except when the caller already
@@ -58,14 +58,14 @@ public static class AgentStep
     {
         ArgumentNullException.ThrowIfNull(executor);
         ArgumentNullException.ThrowIfNull(request);
-        RequireSchema(request);
+        AnswerSchema schema = RequireSchema(request);
 
         SessionHandle handle = await executor.SpawnAsync(
             request.Agent,
             request.Context,
             request.WorkingDirectory,
             request.Caps,
-            request.AnswerSchema,
+            schema,
             request.CredentialProfile,
             request.Access,
             cancellationToken);
@@ -79,7 +79,7 @@ public static class AgentStep
                 handedOver = true;
             }
 
-            return await AnswerAsync(executor, handle, request.AnswerSchema, spend, cancellationToken, cancellationToken);
+            return await AnswerAsync(executor, handle, schema, spend, cancellationToken, cancellationToken);
         }
         catch (Exception failure) when (!(handedOver && stopping.IsCancellationRequested))
         {
@@ -90,7 +90,8 @@ public static class AgentStep
 
     /// <summary>
     /// Runs the agent step on a session launched before a daemon restart that the executor still
-    /// holds: collects it, validates its answer against <paramref name="answerSchema"/>, and retries
+    /// holds: collects it, validates its answer against the answer schema of <paramref name="agent"/>,
+    /// the agent whose content hash the launch recorded, and retries
     /// once on the same session after a missing or invalid answer, exactly as for a fresh spawn.
     /// Nothing is spawned. A session already on a later attempt than its spawn's was resumed for the
     /// retry before the restart, so its answer is the retry's: it is not retried again, and the
@@ -107,7 +108,7 @@ public static class AgentStep
     public static async Task<AgentStepOutcome> ReattachAsync(
         IAgentExecutor executor,
         ReattachedSession session,
-        string answerSchema,
+        AgentDefinition agent,
         AgentStepSpend? spend,
         CancellationToken stopping,
         CancellationToken finishedCollect,
@@ -115,6 +116,7 @@ public static class AgentStep
     {
         ArgumentNullException.ThrowIfNull(executor);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(agent);
         bool retrying = session.Attempt > 1;
         if (retrying)
         {
@@ -123,7 +125,7 @@ public static class AgentStep
 
         try
         {
-            AnswerSchemas.Require(answerSchema);
+            AnswerSchema answerSchema = agent.ResolveAnswerSchema();
             CancellationToken collecting = session.Finished ? finishedCollect : cancellationToken;
             collecting.ThrowIfCancellationRequested();
             return retrying
@@ -144,7 +146,7 @@ public static class AgentStep
     private static async Task<AgentStepOutcome> AnswerAsync(
         IAgentExecutor executor,
         SessionHandle handle,
-        string answerSchema,
+        AnswerSchema answerSchema,
         AgentStepSpend? spend,
         CancellationToken firstCollect,
         CancellationToken cancellationToken)
@@ -168,7 +170,7 @@ public static class AgentStep
     private static async Task<AgentStepOutcome> RetriedAsync(
         IAgentExecutor executor,
         SessionHandle handle,
-        string answerSchema,
+        AnswerSchema answerSchema,
         Measurement earlier,
         AgentStepSpend? spend,
         CancellationToken cancellationToken)
@@ -181,23 +183,24 @@ public static class AgentStep
             ? new AgentStepOutcome.Answered(handle, secondAnswer, second.TranscriptPath, usage)
             : new AgentStepOutcome.Paused(
                 handle,
-                $"Agent '{handle.Agent}' gave no valid '{answerSchema}' answer after one retry: {string.Join("; ", secondFailures)}.",
+                $"Agent '{handle.Agent}' gave no valid '{answerSchema.Name}' answer after one retry: {string.Join("; ", secondFailures)}.",
                 second.TranscriptPath,
                 usage);
     }
 
     /// <summary>
-    /// Refuses, before anything is spawned, a schema the catalog does not hold or one that differs
-    /// from the agent's own, since the agent is told to answer in its own schema.
+    /// The agent's own answer schema, refusing before anything is spawned a step whose schema name
+    /// differs from the agent's, since the agent is told to answer in its own schema.
     /// </summary>
-    private static void RequireSchema(AgentStepRequest request)
+    private static AnswerSchema RequireSchema(AgentStepRequest request)
     {
-        AnswerSchemas.Require(request.AnswerSchema);
         if (!string.Equals(request.AnswerSchema, request.Agent.AnswerSchema, StringComparison.Ordinal))
         {
             throw new DomainException(
                 $"The agent step names the answer schema '{request.AnswerSchema}', but agent '{request.Agent.Name}' answers in '{request.Agent.AnswerSchema}'.");
         }
+
+        return request.Agent.ResolveAnswerSchema();
     }
 
     /// <summary>
@@ -226,14 +229,14 @@ public static class AgentStep
     }
 
     /// <summary>The validator's failures for the answer, or the one failure of there being no answer.</summary>
-    private static IReadOnlyList<string> Check(string schema, string? answer) => answer is null
+    private static IReadOnlyList<string> Check(AnswerSchema schema, string? answer) => answer is null
         ? [NoAnswerFound]
         : AnswerValidator.Validate(schema, answer).Failures;
 
-    private static string RetryMessage(string schema, string? answer, IReadOnlyList<string> failures) => answer is null
-        ? $"No answer document was found in your reply. End your reply with exactly one JSON document that matches the '{schema}' answer schema."
-        : $"Your answer did not match the '{schema}' answer schema. The validator reported: {string.Join("; ", failures)}. "
-            + $"End your reply with exactly one JSON document that matches the '{schema}' answer schema.";
+    private static string RetryMessage(AnswerSchema schema, string? answer, IReadOnlyList<string> failures) => answer is null
+        ? $"No answer document was found in your reply. End your reply with exactly one JSON document that matches the '{schema.Name}' answer schema."
+        : $"Your answer did not match the '{schema.Name}' answer schema. The validator reported: {string.Join("; ", failures)}. "
+            + $"End your reply with exactly one JSON document that matches the '{schema.Name}' answer schema.";
 
     internal static Measurement Sum(Measurement first, Measurement second) => new(
         first.Tokens + second.Tokens,

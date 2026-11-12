@@ -19,5 +19,25 @@
   ],
   "Skills": [],
   "McpServers": [],
-  "AnswerSchema": "discovery"
+  "AnswerSchema": "discovery",
+  "AnswerSchemaContent": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "The answer of a discovery step",
+    "type": "object",
+    "required": [
+      "verdict"
+    ],
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "derive",
+          "carry-forward"
+        ]
+      },
+      "summary": {
+        "type": "string"
+      }
+    }
+  }
 }
