@@ -327,7 +327,7 @@ public static class FlowRunDecider
         }
 
         throw new DomainException(
-            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRun.Id)} performs the system step '{current.Performer}', which is not module '{module}''s; a module writes only on a dispatch of one of its own steps.");
+            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRun.Id)} is a dispatch of the system step '{current.Performer}', which is not module '{module}''s; a module writes only on a dispatch of one of its own steps.");
     }
 
     /// <summary>

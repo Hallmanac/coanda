@@ -189,7 +189,7 @@ public sealed class UnprefixedStepTests
             () => node.Parcels.SetFieldAsync(module, Project, other.Id, TaskFields.PullRequest, value, new NamedDispatch(otherRun, otherDispatch), None));
 
         Assert.Equal(value.Reference, written.ValueOf(TaskFields.PullRequest)?.Reference);
-        Assert.Contains("performs the system step 'deploy', which is not module 'software''s", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("is a dispatch of the system step 'deploy', which is not module 'software''s", refused.Message, StringComparison.Ordinal);
     }
 
     private static FlowStep Unprefixed(string step, string verdict, string target) => new()

@@ -242,7 +242,7 @@ public sealed class FlowSystemSteps
         if (refusals.Count > 0)
         {
             return new SystemStepAnswer.Paused(
-                $"Step '{step.Name}' could not perform the system step '{name}': module '{module}' answered a result its step's result schema refuses: {string.Join("; ", refusals)}.",
+                $"Step '{step.Name}' dispatched the system step '{name}', but module '{module}' answered a result its step's result schema refuses: {string.Join("; ", refusals)}.",
                 FlowRunLevers.PerformAgain(step.Name));
         }
 

@@ -202,7 +202,7 @@ public sealed class ModulePrincipalApiTests
         await node.SwitchOnAsync(On, ModuleNode.Module, ModuleNode.Other);
         string other = await node.TokenAsync(ModuleNode.Other);
         Assert.Equal(
-            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRunId)} performs the system step '{RunningSystemStep.StepName}', which is not module 'other''s; a module writes only on a dispatch of one of its own steps.",
+            $"Dispatch {Ids.Short(dispatchId)} of flow run {Ids.Short(flowRunId)} is a dispatch of the system step '{RunningSystemStep.StepName}', which is not module 'other''s; a module writes only on a dispatch of one of its own steps.",
             await node.RefusedAsync(other, HttpMethod.Post, "/parcels/set-field", Objective(parcelId, "Not my step.", held)));
 
         // A dispatch the outcome command would refuse is not held: one on a stopped flow run, and one
