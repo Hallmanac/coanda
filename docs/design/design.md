@@ -109,7 +109,11 @@ the daemon's start, the CLI's detached start, and the record export, before the 
 as a home written before the rename is. The refusal names the commit on main whose build still reads
 those shapes and the page (`docs/rebuilding-the-record.md`) that gives the steps to rebuild the record
 with it. A flow whose content names a software step without the prefix is current, and the daemon
-dispatches, records, and routes its steps under their `software/` names.
+dispatches, records, and routes its steps under their `software/` names. Agent content stored before
+an agent carried its answer schema as content, which names one of the schemas `build`, `review`,
+`fix`, or `discovery` and holds no schema content, is current too: it reads and keeps the content
+hash it was stored under, and the daemon validates its answers against the document the release
+shipped under that name, from a frozen map of those four that serves such content and nothing else.
 
 Rejected: a hand-rolled SQLite event log (loses projections and replay); per-project files (needs
 a second node database and merges across files); Postgres (a server to run for one user).
@@ -584,7 +588,13 @@ silently replaced. A shareable template is an export of a set of definitions; im
 them.
 
 An agent definition holds a persona prompt (role, purpose, output, rules, prohibitions), a model
-spec (vendor, model, effort), a tool set, skills by name, MCP servers, and the answer schema.
+spec (vendor, model, effort), a tool set, skills by name, MCP servers, and the answer schema: its
+name, which a flow's agent step names too, and the schema itself as JSON Schema content. The content
+is checked when the agent is drafted or imported: it is an object the answer validator's reader
+accepts, declares `"type": "object"`, and requires a `verdict` string with an `enum` of distinct
+verdicts. It resolves no reference outside itself, so every `$ref` is a pointer into the same
+content, and nothing about a schema reads a file or the network. A module or a new flow can
+therefore bring an agent whose verdicts the release does not ship.
 Per-parcel context (criteria, journal, notes, code) is assembled by the daemon per step from
 declared sources and never folded into the agent. Skills stay vendor-native repo files referenced
 by name. Credentials are per node, never in the store.
