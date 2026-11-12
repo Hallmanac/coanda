@@ -9,4 +9,8 @@
     <RootNamespace>Coanda.Sdk</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Coanda.Tests" />
+  </ItemGroup>
+
 </Project>
