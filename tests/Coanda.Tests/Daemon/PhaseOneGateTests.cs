@@ -88,10 +88,10 @@ public sealed class PhaseOneGateTests
         }
 
         string context = executor.Spawns.First(spawn => spawn.Agent == "build").Context;
-        Assert.Contains($"Field objective: {TaskFields.ObjectiveValue.Text}", context, StringComparison.Ordinal);
+        Assert.Contains($"Field objective: `{TaskFields.ObjectiveValue.Text}`", context, StringComparison.Ordinal);
         foreach (string criterion in TaskFields.CriteriaValue.Items ?? [])
         {
-            Assert.Contains($"- {criterion}", context, StringComparison.Ordinal);
+            Assert.Contains($"- `{criterion}`", context, StringComparison.Ordinal);
         }
 
         await daemon.StopAsync(None);

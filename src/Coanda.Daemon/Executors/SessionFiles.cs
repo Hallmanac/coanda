@@ -58,17 +58,25 @@ public static class SessionFiles
         writer.Write(content);
     }
 
-    /// <summary>The parcel's id, type, stage, and title, and the value of every field its type declares, or "not set".</summary>
+    /// <summary>
+    /// The parcel's id, type, stage, and title, and the value of every field its type declares, or "not set",
+    /// after <see cref="Fences.Framing"/>, which opens the file. The title is folded onto one line and set in an inline fence on
+    /// both lines that carry it; every field value sits in fenced blocks that keep its line breaks, one
+    /// block for a text, one per item of a list, and one each for a reference's id and URL. The words
+    /// "not set" stay outside every fence, so an unset field and a text reading "not set" differ.
+    /// </summary>
     public static string RenderTask(Parcel parcel, ParcelType type)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(type);
+        string title = Fences.Inline(parcel.Title);
         var text = new StringBuilder();
-        text.Append("# ").Append(parcel.Title).Append("\n\n");
+        text.Append(Fences.Framing).Append("\n\n");
+        text.Append("# ").Append(title).Append("\n\n");
         text.Append("- Parcel: ").Append(parcel.Id).Append('\n');
         text.Append("- Type: ").Append(parcel.TypeName).Append('\n');
         text.Append("- Stage: ").Append(parcel.Stage).Append('\n');
-        text.Append("- Title: ").Append(parcel.Title).Append('\n');
+        text.Append("- Title: ").Append(title).Append('\n');
         foreach (FieldDeclaration field in type.Fields)
         {
             text.Append("\n## ").Append(field.Name).Append("\n\n").Append(Value(parcel.ValueOf(field.Name))).Append('\n');
@@ -79,10 +87,10 @@ public static class SessionFiles
 
     private static string Value(FieldValue? value) => value switch
     {
-        { Text: { } held } => held,
-        { Items: { } items } => string.Join('\n', items.Select(item => $"- {item}")),
-        { Reference: { Url: { } url } reference } => $"{reference.Id} ({url})",
-        { Reference: { } reference } => reference.Id,
+        { Text: { } held } => Fences.Block(held),
+        { Items: { } items } => string.Join("\n\n", items.Select(Fences.Block)),
+        { Reference: { Url: { } url } reference } => $"{Fences.Block(reference.Id)}\n\n{Fences.Block(url)}",
+        { Reference: { } reference } => Fences.Block(reference.Id),
         _ => ContextAssembler.NotSet,
     };
 }

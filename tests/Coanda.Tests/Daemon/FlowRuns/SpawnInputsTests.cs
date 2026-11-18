@@ -79,22 +79,31 @@ public sealed class SpawnInputsTests
             Assert.Equal(spawn.Context, prompt);
             // the session rewrote it, and the next spawn wrote it again from the parcel
             Assert.DoesNotContain(TamperingExecutor.Tampered, task, StringComparison.Ordinal);
-            Assert.Equal($"""
-                # Render the record
+            Assert.Equal(Fences.Framing + $"""
+
+
+                # `Render the record`
 
                 - Parcel: {parcel.Id}
                 - Type: task
                 - Stage: build
-                - Title: Render the record
+                - Title: `Render the record`
 
                 ## objective
 
+                ```
                 {TaskFields.ObjectiveValue.Text}
+                ```
 
                 ## criteria
 
-                - A type declares fields.
-                - A gate reads them.
+                ```
+                A type declares fields.
+                ```
+
+                ```
+                A gate reads them.
+                ```
 
                 ## non-goals
 
@@ -102,11 +111,19 @@ public sealed class SpawnInputsTests
 
                 ## pull-request
 
-                42 (https://github.com/example/coanda/pull/42)
+                ```
+                42
+                ```
+
+                ```
+                https://github.com/example/coanda/pull/42
+                ```
 
                 ## repos
 
-                - repo
+                ```
+                repo
+                ```
 
                 """.ReplaceLineEndings("\n"), task);
         }
