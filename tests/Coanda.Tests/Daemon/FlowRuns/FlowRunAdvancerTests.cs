@@ -70,7 +70,7 @@ public sealed class FlowRunAdvancerTests
         Assert.Equal(new SpawnCaps(SoftwareFlows.Build.Budget, DaemonOptions.DefaultAgentStepLimit), build.Caps);
         Assert.Null(build.CredentialProfile);
         Assert.Equal("build", build.AnswerSchema);
-        Assert.Contains("Title: Run the clean path", build.Context, StringComparison.Ordinal);
+        Assert.Contains("Title: `Run the clean path`", build.Context, StringComparison.Ordinal);
         Assert.Contains("Step: build", build.Context, StringComparison.Ordinal);
         // the runner ends each agent step's session once its answer is in hand
         Assert.Equal(3, executor.Stops.Count);

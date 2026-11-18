@@ -29,7 +29,7 @@ public sealed class FixContextFlowRunTests
         FlowRunStepView recorded = flowRun.Steps.Where(s => s.Step == step).ElementAt(visit - 1);
         string document = recorded.Answer?.GetRawText() ?? recorded.Result?.GetRawText() ?? "missing";
         string at = recorded.RecordedAt?.ToString("O", CultureInfo.InvariantCulture) ?? "missing";
-        return $"Source {step}: visit {visit}, recorded {at}: {document}";
+        return $"Source {step}: visit {visit}, recorded {at}: {Fences.Inline(document)}";
     }
 
     [Fact]
@@ -61,10 +61,10 @@ public sealed class FixContextFlowRunTests
 
         Assert.Equal([SourceLine(flowRun, "gates", 1), SourceLine(flowRun, "adversarial-review", 1), "Source conformance-review: has not run on this flow run yet"], fixes[0][^3..]);
         Assert.Contains("""{"verdict":"done",""", fixes[0][^3], StringComparison.Ordinal);
-        Assert.EndsWith("""{"verdict":"not-clean","findings":[{"title":"The first finding."}]}""", fixes[0][^2], StringComparison.Ordinal);
+        Assert.EndsWith("""`{"verdict":"not-clean","findings":[{"title":"The first finding."}]}`""", fixes[0][^2], StringComparison.Ordinal);
 
         Assert.Equal([SourceLine(flowRun, "gates", 2), SourceLine(flowRun, "adversarial-review", 2), "Source conformance-review: has not run on this flow run yet"], fixes[1][^3..]);
-        Assert.EndsWith("""{"verdict":"not-clean","findings":[{"title":"The second finding."}]}""", fixes[1][^2], StringComparison.Ordinal);
+        Assert.EndsWith("""`{"verdict":"not-clean","findings":[{"title":"The second finding."}]}`""", fixes[1][^2], StringComparison.Ordinal);
         string second = string.Join('\n', fixes[1]);
         Assert.DoesNotContain("visit 1,", second, StringComparison.Ordinal);
         Assert.DoesNotContain("The first finding.", second, StringComparison.Ordinal);

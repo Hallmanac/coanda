@@ -7,6 +7,7 @@ using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.Executors;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,7 +55,7 @@ public sealed class ClaudeCodeFlowRunTests
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         Assert.Equal("built", (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome);
         string actual = File.ReadAllText(Path.Combine(work, ".coanda", "task.md"));
-        Assert.StartsWith("# Try twice", actual, StringComparison.Ordinal);
+        Assert.StartsWith($"{Fences.Framing}\n\n# `Try twice`", actual, StringComparison.Ordinal);
         Assert.Contains($"- Parcel: {parcel.Id}", actual, StringComparison.Ordinal);
         Assert.Equal(ContextOf(fake.Starts[2].Input), File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")));
         // the resume's new spawn writes a transcript of its own
