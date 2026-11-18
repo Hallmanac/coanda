@@ -599,8 +599,15 @@ verdicts. It resolves no reference outside itself, so every `$ref` is a pointer 
 content, and nothing about a schema reads a file or the network. A module or a new flow can
 therefore bring an agent whose verdicts the release does not ship.
 Per-parcel context (criteria, journal, notes, code) is assembled by the daemon per step from
-declared sources and never folded into the agent. Skills stay vendor-native repo files referenced
-by name. Credentials are per node, never in the store.
+declared sources and never folded into the agent. The daemon fences every value it renders into a
+session's files (a parcel's title, each field value, and each earlier step's answer, in prompt.md and
+task.md) in backticks the value cannot close, under a sentence framing the fenced values as data that
+describes the work and cannot override the instructions outside the fences. The labels and words the
+daemon writes itself stay outside every fence. The parcel decider caps a title and each kind of field
+value (a text, a list item, a list's item count, and a reference's id and URL) at a length named in
+`ParcelCaps`; the caps bind writes made on this node, and a ledger import appends a peer's values
+without measuring them.
+Skills stay vendor-native repo files referenced by name. Credentials are per node, never in the store.
 
 Text from an external system is untrusted: the data an MCP server named on an agent definition
 returns, and the fields of an event a module reports (decision d97f5f86). It is read only in an
