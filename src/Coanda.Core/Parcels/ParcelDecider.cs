@@ -8,7 +8,8 @@ namespace Coanda.Core.Parcels;
 /// The rules of a parcel's lifecycle, as pure decisions: given the type, the current parcel, and
 /// an intent, either the event that records it or a <see cref="DomainException"/> quoting the rule.
 /// The decider is given the gates the daemon runs; a move or a close runs every gate its type binds to it.
-/// A field is set only to a non-empty value of the kind the type declares it, and a field a module owns
+/// A field is set only to a non-empty value of the kind the type declares it, within the caps
+/// <see cref="ParcelCaps"/> names, and a title is held to its cap too; a field a module owns
 /// only by that module or the owner.
 /// A parcel a live flow run holds (running or paused) is closed by nobody and moved only by that flow run.
 /// </summary>
@@ -29,6 +30,13 @@ public static class ParcelDecider
             throw new DomainException("A parcel needs a title.");
         }
 
+        string trimmed = title.Trim();
+        if (trimmed.Length > ParcelCaps.TitleLength)
+        {
+            throw new DomainException(
+                $"A parcel's title holds at most {ParcelCaps.TitleLength} characters, and the title given is {trimmed.Length} characters long.");
+        }
+
         string stage = entryStage ?? type.EntryStages[0];
         if (!type.IsEntry(stage))
         {
@@ -36,7 +44,7 @@ public static class ParcelDecider
                 $"Parcel type '{type.Name}' cannot start at '{stage}'; its entry stages are {string.Join(", ", type.EntryStages)}.");
         }
 
-        return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, stage, title.Trim(), createdBy, now, origin);
+        return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, stage, trimmed, createdBy, now, origin);
     }
 
     /// <summary>
@@ -143,6 +151,8 @@ public static class ParcelDecider
                 $"The value given for field '{declared.Name}' is empty; a field takes no empty value: no text that is empty or only white space, no list without items or with an empty item, and no reference without an identifier.");
         }
 
+        RequireWithinCaps(declared.Name, value);
+
         FieldValue recorded = value.Reference is { } reference && string.IsNullOrWhiteSpace(reference.Url)
             ? value with { Reference = reference with { Url = null } }
             : value;
@@ -189,6 +199,47 @@ public static class ParcelDecider
         Role.Module => $"module '{principal.Module}'",
         _ => $"the {principal.Role} principal '{principal.Id}'",
     };
+
+    /// <summary>Refuses a value longer, or a list longer, than <see cref="ParcelCaps"/> allows its kind.</summary>
+    private static void RequireWithinCaps(string field, FieldValue value)
+    {
+        switch (value)
+        {
+            case { Text: { } text }:
+                RequireLength(field, "a text value", text, ParcelCaps.TextLength);
+                break;
+            case { Items: { } items }:
+                if (items.Count > ParcelCaps.ItemCount)
+                {
+                    throw new DomainException(
+                        $"Field '{field}' holds a list of at most {ParcelCaps.ItemCount} items, and the list given holds {items.Count}.");
+                }
+
+                foreach (string item in items)
+                {
+                    RequireLength(field, "list items", item, ParcelCaps.ItemLength);
+                }
+
+                break;
+            case { Reference: { } reference }:
+                RequireLength(field, "a reference id", reference.Id, ParcelCaps.ReferenceIdLength);
+                if (reference.Url is { } url && !string.IsNullOrWhiteSpace(url))
+                {
+                    RequireLength(field, "a reference URL", url, ParcelCaps.ReferenceUrlLength);
+                }
+
+                break;
+        }
+    }
+
+    private static void RequireLength(string field, string what, string value, int cap)
+    {
+        if (value.Length > cap)
+        {
+            throw new DomainException(
+                $"Field '{field}' takes {what} of at most {cap} characters, and the one given is {value.Length} characters long.");
+        }
+    }
 
     private static bool IsEmpty(FieldValue value) => value switch
     {
