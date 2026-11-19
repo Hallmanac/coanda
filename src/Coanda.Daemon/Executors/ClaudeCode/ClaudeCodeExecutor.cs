@@ -149,7 +149,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         cancellationToken.ThrowIfCancellationRequested();
         ClaudeCodeInvocation.Require(agent);
         string prompt = ClaudeCodeInvocation.Prompt(context, answerSchema);
-        IReadOnlyDictionary<string, string> processEnvironment = ClaudeCodeInvocation.Environment(environment, credentialProfile, access, coaDirectory);
+        IReadOnlyDictionary<string, string> processEnvironment = ClaudeCodeInvocation.Environment(environment, credentialProfile, access, coaDirectory, agent.Confined);
         string executable = ClaudeExecutable.Resolve(Executable, processEnvironment);
         if (caps.CostCeilingUsd <= 0m)
         {
@@ -168,9 +168,10 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             ClaudeCodeInvocation.SessionArguments(
                 agent,
                 credentialProfile,
-                ClaudeCodeInvocation.Guard(home, workingDirectory, credentialProfile, environment, profileDirectories),
+                ClaudeCodeInvocation.Guard(home, workingDirectory, credentialProfile, environment, profileDirectories, agent.Confined),
                 coaExecutable),
             credentialProfile,
+            agent.Confined,
             processEnvironment,
             caps.CostCeilingUsd,
             Path.Combine(home.TranscriptDirectoryOf(workingDirectory), $"{handle.Id}.jsonl"));
@@ -499,7 +500,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         {
             if (access is not null)
             {
-                session.Environment = ClaudeCodeInvocation.Environment(environment, session.Profile, access, coaDirectory);
+                session.Environment = ClaudeCodeInvocation.Environment(environment, session.Profile, access, coaDirectory, session.Confined);
             }
 
             return session.Current is { } attempt
@@ -589,7 +590,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             record.Persona,
             record.Arguments,
             record.Profile,
-            ClaudeCodeInvocation.Environment(environment, record.Profile, access: null, coaDirectory),
+            record.Confined,
+            ClaudeCodeInvocation.Environment(environment, record.Profile, access: null, coaDirectory, record.Confined),
             record.CeilingUsd,
             record.TranscriptPath)
         {
@@ -896,6 +898,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         string persona,
         IReadOnlyList<string> arguments,
         CredentialProfile? profile,
+        bool confined,
         IReadOnlyDictionary<string, string> environment,
         decimal ceilingUsd,
         string transcriptPath)
@@ -920,6 +923,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         /// <summary>The credential profile of the spawn, which a later daemon rebuilds the environment from.</summary>
         public CredentialProfile? Profile { get; } = profile;
+
+        /// <summary>Whether the spawn's agent declared itself confined, which a later daemon rebuilds the environment by too.</summary>
+        public bool Confined { get; } = confined;
 
         /// <summary>
         /// The environment the session's next process starts with. A session found from its record
@@ -966,7 +972,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                     attempt.StartedAt,
                     attempt.PreviousTotalCostUsd,
                     attempt.Counted)
-                : null);
+                : null,
+            Confined);
     }
 
     /// <summary>One claude process of a session: where its output begins in the transcript, and whether a collect has taken it.</summary>
@@ -1042,7 +1049,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         }
     }
 
-    /// <summary>A session's record under the node home: everything a later daemon needs to collect, resume, or stop it.</summary>
+    /// <summary>
+    /// A session's record under the node home: everything a later daemon needs to collect, resume, or
+    /// stop it. A record written before <see cref="Confined"/> was kept reads back without it, as an
+    /// unconfined session's, which every session before it was.
+    /// </summary>
     private sealed record SessionRecord(
         Guid Id,
         string Agent,
@@ -1056,7 +1067,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         decimal CollectedCostUsd,
         decimal ReportedTotalCostUsd,
         Measurement? EarlierUsage,
-        AttemptRecord? Attempt);
+        AttemptRecord? Attempt,
+        bool Confined = false);
 
     /// <summary>The record of a session's latest process.</summary>
     private sealed record AttemptRecord(

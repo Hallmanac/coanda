@@ -60,6 +60,9 @@ public static partial class ClaudeCodeInvocation
     /// <summary>The setting whose <c>allow</c> rules pre-approve the session's tools.</summary>
     public const string PermissionsSetting = "permissions";
 
+    /// <summary>The pre-tool-use matcher that matches a call to every tool, which a confined session's guard is registered with.</summary>
+    public const string AllToolsMatcher = "*";
+
     /// <summary>The setting that switches every hook off when true; the settings document sets it to false.</summary>
     public const string DisableAllHooksSetting = "disableAllHooks";
 
@@ -130,11 +133,102 @@ public static partial class ClaudeCodeInvocation
         "CLAUDE_CODE_SIMPLE",
     ];
 
-    /// <summary>The Claude Code tools an agent's catalog names map to, in catalog order, each once.</summary>
+    /// <summary>
+    /// The variables a confined session's environment may carry from the one the daemon inherited;
+    /// every other inherited variable is left out. The spawn still sets the profile's config
+    /// directory and puts the <c>coa</c> directory first on the PATH, and the credential variables
+    /// are removed when the spawn carries a profile, as for any session. Names are matched without
+    /// regard to case on Windows.
+    /// </summary>
+    /// <remarks>
+    /// The proxy and certificate variables are carried because the CLI's own calls to its API go
+    /// through them, and a node that needs them reaches the API no other way; a confined session has
+    /// no shell or web tool, so nothing else in it can use them, and a profile's API key helper runs
+    /// with this environment too. Variables that choose another API provider or endpoint
+    /// (<c>ANTHROPIC_BASE_URL</c>, <c>CLAUDE_CODE_USE_BEDROCK</c>, and the like) are not carried.
+    /// </remarks>
+    public static IReadOnlyList<string> ConfinedEnvironmentVariables { get; } =
+    [
+        // Where the CLI and the hooks' coa are looked up, and on Windows how a bare name becomes a file.
+        PathVariable,
+        "PATHEXT",
+
+        // The home directory, which the CLI reads its default config and login from and the guard expands ~ to.
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+
+        // The user's name, which the CLI's login lookup in the system keychain reads.
+        "USER",
+        "LOGNAME",
+        "USERNAME",
+
+        // The temporary directory the CLI and the .NET runtime write scratch files to.
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+
+        // The locale, so the CLI and coa read and write text as the daemon's user does.
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_MESSAGES",
+
+        // The config directory the CLI uses when the spawn carries no profile, which the guard's rules name.
+        ConfigDirectoryVariable,
+
+        // The CLI's credentials when the spawn carries no profile; removed with a profile, as for any session.
+        .. CredentialVariables,
+
+        // The network settings the CLI's own calls to its API need behind a proxy or a private certificate authority.
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "NO_PROXY",
+        "no_proxy",
+        "NODE_EXTRA_CA_CERTS",
+
+        // Where a framework-dependent .NET apphost, which coa is, finds its runtime.
+        "DOTNET_ROOT",
+        "DOTNET_ROOT_X64",
+        "DOTNET_ROOT_ARM64",
+        "DOTNET_ROOT_X86",
+        "DOTNET_ROOT(x86)",
+
+        // The Windows system variables a process needs to load system libraries and find its own folders.
+        "SystemRoot",
+        "SystemDrive",
+        "windir",
+        "ComSpec",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "ProgramData",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "PROCESSOR_ARCHITECTURE",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+
+        // The Git Bash the CLI requires on Windows before it starts, when it is not found on the PATH.
+        "CLAUDE_CODE_GIT_BASH_PATH",
+    ];
+
+    /// <summary>
+    /// The Claude Code tools an agent's catalog names map to, in catalog order, each once. A confined
+    /// agent gets only those of them in <see cref="ToolGuard.ConfinedTools"/>, whatever its catalog
+    /// holds, so it never gets a shell or a web tool.
+    /// </summary>
     public static IReadOnlyList<string> ToolsOf(AgentDefinition agent)
     {
         ArgumentNullException.ThrowIfNull(agent);
-        return [.. ToolCatalog.Names.Where(agent.HoldsTool).SelectMany(name => Tools[name])];
+        return [.. ToolCatalog.Names
+            .Where(agent.HoldsTool)
+            .SelectMany(name => Tools[name])
+            .Where(tool => !agent.Confined || ToolGuard.ConfinedTools.Contains(tool, StringComparer.Ordinal))];
     }
 
     /// <summary>
@@ -159,7 +253,8 @@ public static partial class ClaudeCodeInvocation
     /// memory off, no attribution on commits or pull requests, a helper profile's API key helper,
     /// permission rules that pre-approve each of <paramref name="tools"/> (none when it is empty),
     /// hooks left on, the <see cref="SettingsEvidence"/> hook registered for every session start, and
-    /// the tool guard registered before every call to the six tools it judges. Both hooks run as
+    /// the tool guard registered before every call to the six tools it judges, or before every call
+    /// to any tool when <paramref name="guard"/> is a confined session's. Both hooks run as
     /// <paramref name="coaExecutable"/> with their arguments and no shell, and block when they cannot run.
     /// </summary>
     public static string Settings(CredentialProfile? profile, ToolGuardRules guard, string coaExecutable, IReadOnlyList<string> tools)
@@ -191,7 +286,9 @@ public static partial class ClaudeCodeInvocation
             }),
             ["PreToolUse"] = new JsonArray(new JsonObject
             {
-                ["matcher"] = string.Join('|', ToolGuard.GuardedTools),
+                ["matcher"] = guard.Confined
+                    ? AllToolsMatcher
+                    : string.Join('|', ToolGuard.GuardedTools),
                 ["hooks"] = new JsonArray(Hook(coaExecutable, guard.Arguments)),
             }),
         };
@@ -254,14 +351,16 @@ public static partial class ClaudeCodeInvocation
     /// directory it runs under (its profile's, or the default one), and every other config directory
     /// it may not reach: the default one, whatever profile the spawn carries, the files the CLI keeps
     /// beside the default one in the home directory (<see cref="DefaultConfigFiles"/>), and each of
-    /// <paramref name="profileDirectories"/>, the config directories of the node's profiles.
+    /// <paramref name="profileDirectories"/>, the config directories of the node's profiles. With
+    /// <paramref name="confined"/>, they are a confined session's rules.
     /// </summary>
     public static ToolGuardRules Guard(
         NodeHome home,
         string workingDirectory,
         CredentialProfile? profile,
         IReadOnlyDictionary<string, string> inherited,
-        IEnumerable<string> profileDirectories)
+        IEnumerable<string> profileDirectories,
+        bool confined = false)
     {
         ArgumentNullException.ThrowIfNull(home);
         ArgumentNullException.ThrowIfNull(profileDirectories);
@@ -275,17 +374,27 @@ public static partial class ClaudeCodeInvocation
             .Concat(profileDirectories.Select(d => Path.GetFullPath(d)))
             .Where(d => !string.Equals(d, session, StringComparison.Ordinal))
             .Distinct(StringComparer.Ordinal)];
-        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others);
+        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others, confined);
     }
 
     /// <summary>
     /// The arguments every process of a session carries, spawn and resume alike, since the CLI keeps
     /// none of them with the session: the persona file, the model and effort, the tools, the
     /// permission mode, no MCP servers, no setting sources, and the settings document, which carries
-    /// the tools' pre-approval, the evidence that it was applied, and the session's tool guard.
+    /// the tools' pre-approval, the evidence that it was applied, and the session's tool guard, which
+    /// is a confined session's exactly when the agent declares itself confined.
     /// </summary>
     public static IReadOnlyList<string> SessionArguments(AgentDefinition agent, CredentialProfile? profile, ToolGuardRules guard, string coaExecutable)
     {
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(guard);
+        if (agent.Confined != guard.Confined)
+        {
+            throw new ArgumentException(
+                $"Agent '{agent.Name}' is {(agent.Confined ? "confined" : "not confined")} and its tool guard's rules are {(guard.Confined ? "confined" : "not confined")}, so no process was started.",
+                nameof(guard));
+        }
+
         IReadOnlyList<string> tools = ToolsOf(agent);
         return
         [
@@ -320,16 +429,21 @@ public static partial class ClaudeCodeInvocation
     /// credential-related is set or removed. An inherited session token, or the home it belongs to, never reaches the session;
     /// the <paramref name="access"/> the spawn carries sets its own token, the node home, and the
     /// project. A <paramref name="coaDirectory"/>, when given, goes first on the PATH, whose name is
-    /// matched without regard to case on Windows.
+    /// matched without regard to case on Windows. A <paramref name="confined"/> session's environment
+    /// starts from only the inherited variables <see cref="ConfinedEnvironmentVariables"/> names, and
+    /// carries no <paramref name="access"/>: it has no shell to run <c>coa</c> in, and both hooks read
+    /// only their arguments.
     /// </summary>
     public static IReadOnlyDictionary<string, string> Environment(
         IReadOnlyDictionary<string, string> inherited,
         CredentialProfile? profile,
         SessionAccess? access = null,
-        string? coaDirectory = null)
+        string? coaDirectory = null,
+        bool confined = false)
     {
         ArgumentNullException.ThrowIfNull(inherited);
         StringComparer names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        HashSet<string>? allowed = confined ? new HashSet<string>(ConfinedEnvironmentVariables, names) : null;
         var removed = new HashSet<string>([.. EnclosingSessionVariables, .. HookSkippingVariables, SessionAccess.TokenVariable, SessionAccess.HomeVariable], names);
         if (profile is not null)
         {
@@ -339,7 +453,7 @@ public static partial class ClaudeCodeInvocation
         var environment = new Dictionary<string, string>(names);
         foreach ((string name, string value) in inherited)
         {
-            if (!removed.Contains(name))
+            if (!removed.Contains(name) && allowed?.Contains(name) != false)
             {
                 environment[name] = value;
             }
@@ -350,7 +464,7 @@ public static partial class ClaudeCodeInvocation
             environment[ConfigDirectoryVariable] = directory;
         }
 
-        foreach ((string name, string value) in access?.Variables ?? new Dictionary<string, string>())
+        foreach ((string name, string value) in (confined ? null : access)?.Variables ?? new Dictionary<string, string>())
         {
             environment[name] = value;
         }

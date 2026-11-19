@@ -6,7 +6,9 @@ namespace Coanda.Testing.FakeClaude;
 
 /// <summary>
 /// A stand-in for the claude CLI that the adapter tests start in its place. Its control directory
-/// comes from <see cref="ControlVariable"/> in the environment it is started with. Every start
+/// comes from <see cref="ControlVariable"/> in the environment it is started with or, when that is
+/// unset, as a confined session's environment leaves it, from the file <see cref="ControlFile"/> in
+/// the directory it starts in. Every start
 /// appends one record to <c>records.jsonl</c> there, holding its arguments, environment, working
 /// directory, standard input, and the persona file as it found it, then plays the entry of
 /// <c>script.json</c> whose position is the number of starts before it (the last entry once they
@@ -19,6 +21,7 @@ namespace Coanda.Testing.FakeClaude;
 public static class Program
 {
     public const string ControlVariable = "FAKE_CLAUDE_DIR";
+    public const string ControlFile = ".fake-claude-control";
     public const string ChildFlag = "--fake-child";
     public const string WritingChildFlag = "--fake-writing-child";
     public const string IgnoreInputVariable = "FAKE_CLAUDE_IGNORE_INPUT";
@@ -47,9 +50,14 @@ public static class Program
         }
 
         string? control = Environment.GetEnvironmentVariable(ControlVariable);
+        if (string.IsNullOrEmpty(control) && File.Exists(ControlFile))
+        {
+            control = File.ReadAllText(ControlFile).Trim();
+        }
+
         if (string.IsNullOrEmpty(control))
         {
-            Console.Error.WriteLine($"{ControlVariable} is not set.");
+            Console.Error.WriteLine($"{ControlVariable} is not set, and there is no {ControlFile} in the working directory.");
             return 3;
         }
 
