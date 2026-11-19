@@ -185,6 +185,48 @@ public sealed class NodeConfigurationTests
     }
 
     [Fact]
+    public void A_node_whose_configuration_gives_no_watched_projects_watches_every_project()
+    {
+        using var temp = new TemporaryHome();
+        Assert.Null(NodeConfiguration.Load(temp.Home).WatchedProjects);
+
+        Write(temp, """{ "executor": "scripted" }""");
+        Assert.Null(NodeConfiguration.Load(temp.Home).WatchedProjects);
+    }
+
+    [Theory]
+    [InlineData("[]", new string[0])]
+    [InlineData("""["alpha"]""", new[] { "alpha" })]
+    [InlineData("""[" Alpha ", "not-joined-yet", "beta"]""", new[] { "Alpha", "not-joined-yet", "beta" })]
+    public void The_watched_projects_are_the_list_the_configuration_gives_each_entry_trimmed(string list, string[] expected)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted", "watchedProjects": {{list}} }""");
+
+        Assert.Equal(expected, NodeConfiguration.Load(temp.Home).WatchedProjects);
+    }
+
+    [Theory]
+    [InlineData("null", "gives \"watchedProjects\" as null; it is a list of project names, and left out the node watches every project.")]
+    [InlineData("\"alpha\"", "gives \"watchedProjects\" as a string; it is a list of project names")]
+    [InlineData("{ \"alpha\": true }", "gives \"watchedProjects\" as an object; it is a list of project names")]
+    [InlineData("[\"alpha\", null]", "gives entry 2 of \"watchedProjects\" as null; each entry is a project's name.")]
+    [InlineData("[3]", "gives entry 1 of \"watchedProjects\" as a number; each entry is a project's name.")]
+    [InlineData("[[\"alpha\"]]", "gives entry 1 of \"watchedProjects\" as a list; each entry is a project's name.")]
+    [InlineData("[\"\"]", "gives entry 1 of \"watchedProjects\" blank; each entry is a project's name.")]
+    [InlineData("[\"alpha\", \"   \"]", "gives entry 2 of \"watchedProjects\" blank; each entry is a project's name.")]
+    [InlineData("[\"alpha\", \"beta\", \" ALPHA \"]", "names the project 'ALPHA' more than once in \"watchedProjects\"; entry 3 repeats it")]
+    public void Watched_projects_that_are_not_a_list_of_distinct_project_names_are_refused_naming_the_file_and_the_entry(string list, string rule)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted", "watchedProjects": {{list}} }""");
+
+        DomainException exception = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+        Assert.StartsWith($"The node configuration {temp.Home.ConfigurationPath} ", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(rule, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_configuration_that_selects_scripted_with_no_profiles_holds_none()
     {
         using var temp = new TemporaryHome();

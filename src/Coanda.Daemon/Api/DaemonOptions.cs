@@ -69,6 +69,15 @@ public sealed record DaemonOptions
     public IReadOnlyList<string>? DefaultModules { get; init; }
 
     /// <summary>
+    /// The names of the projects this node watches: it hands its modules those projects' watches and accepts
+    /// their external events in them, and sends an empty set of watches for any other project and refuses a
+    /// module's event there. The node configuration's <c>watchedProjects</c>, or null when it gives none,
+    /// which watches every project. An entry names a project when, trimmed, it equals the project's name
+    /// without regard to letter case (<see cref="Modules.WatchedProjects"/>).
+    /// </summary>
+    public IReadOnlyList<string>? WatchedProjects { get; init; }
+
+    /// <summary>
     /// Modules the daemon hosts in its own process beside the composed ones, by name, already built, each
     /// called through a host adapter as a composed module is: waited on for health and asked to describe
     /// itself at start, dispatched the steps it describes, and fed the core events it subscribes to. Each

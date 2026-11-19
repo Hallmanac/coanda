@@ -27,7 +27,9 @@ namespace Coanda.Daemon.Modules;
 /// <remarks>
 /// <para>
 /// A module unconfigured on this node for a project is sent an empty set for it, the request that says
-/// "report nothing", and so is a module switched off for a project it was sent a request for. Every
+/// "report nothing", and so is a module switched off for a project it was sent a request for, and every
+/// module for a project this node does not watch (<see cref="WatchedProjects"/>), which changes what a
+/// request carries and never which projects a module is sent requests for. Every
 /// request is checked against the module API's watch request schema before it is sent.
 /// </para>
 /// <para>
@@ -54,6 +56,7 @@ public sealed class ModuleWatches(
     IDocumentStore store,
     HostedModules modules,
     ModuleSettingsService settings,
+    WatchedProjects watched,
     TimeProvider clock,
     ILogger<ModuleWatches> logger) : IHostedService, IDisposable
 {
@@ -360,8 +363,8 @@ public sealed class ModuleWatches(
 
     /// <summary>
     /// The request for the pair as it compiles now: the empty set when the module is switched off for the
-    /// project or unconfigured there, and otherwise what the project's resolved triggers compile to; with the
-    /// settings it needs when it is unconfigured.
+    /// project or unconfigured there, or this node does not watch the project, and otherwise what the
+    /// project's resolved triggers compile to; with the settings it needs when it is unconfigured.
     /// </summary>
     private async Task<(CompiledWatches Compiled, IReadOnlyList<string>? Missing)> CompileAsync(Pair pair, DescribeAnswer describe, CancellationToken cancellationToken)
     {
@@ -370,7 +373,7 @@ public sealed class ModuleWatches(
         Project? project = await ProjectService.FindAsync(store, pair.Project, cancellationToken);
         CompiledWatches compiled;
         IReadOnlyList<string>? missing = null;
-        if (project is null || !project.IsSwitchedOn(pair.Module))
+        if (project is null || !project.IsSwitchedOn(pair.Module) || !watched.Watches(project.Name))
         {
             compiled = none;
         }
