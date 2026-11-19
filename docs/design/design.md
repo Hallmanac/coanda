@@ -1052,12 +1052,16 @@ there, and it skips feed reactions with a log line.
 
 Part of that is built. The feed skips a delivery to a module that is unconfigured for the event's
 project, and logs it. The watch request is built, and the empty set goes to a module that is
-unconfigured for a project, but the daemon sends watch requests only when it starts, so a change
-after the start, such as a trigger published or a module becoming configured, reaches the module at
-the next start. The daemon does not yet hold back a dispatch to such a module. Of the software
-module's steps, only open-pr and gated-merge read the credential profile, and they pause with the
-lever naming that setting when the profile selected for the project yields no GitHub token or is
-one this node no longer holds.
+unconfigured for a project. The daemon sends each module its watch requests when it starts, and
+sends a project's request again, without a restart, whenever what the project's triggers compile to
+for the module changes: a trigger published, retired, or imported, the module switched on or off, a
+project registered, or the module becoming configured or unconfigured. A request identical to the
+one the module last accepted is not sent, and one the module failed to accept is sent again after a
+wait that doubles up to five minutes. A change to the module's profile area on disk records nothing,
+so it reaches the module at its next request for the project. The daemon does not yet hold back a
+dispatch to such a module. Of the software module's steps, only open-pr and gated-merge read the
+credential profile, and they pause with the lever naming that setting when the profile selected for
+the project yields no GitHub token or is one this node no longer holds.
 
 ### 14.7 Supervision
 
