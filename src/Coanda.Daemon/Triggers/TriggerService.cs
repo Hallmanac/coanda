@@ -19,13 +19,19 @@ namespace Coanda.Daemon.Triggers;
 public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
 {
     public async Task<ExternalEvent> RecordEventAsync(
-        Principal principal, string project, string kind, IReadOnlyDictionary<string, string> fields, CancellationToken cancellationToken)
+        Principal principal,
+        string project,
+        string kind,
+        string? externalId,
+        Guid? parcelId,
+        IReadOnlyDictionary<string, string> fields,
+        CancellationToken cancellationToken)
     {
         CommandRegistry.Require("event.record", principal);
         string tenant = Tenants.RequireProject(project);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         ModuleScope.RequireOwnKind(principal, kind);
-        ExternalEventRecorded recorded = TriggerDecider.RecordExternalEvent(tenant, kind, fields, principal, clock.GetUtcNow());
+        ExternalEventRecorded recorded = TriggerDecider.RecordExternalEvent(tenant, kind, externalId, parcelId, fields, principal, clock.GetUtcNow());
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         session.Events.StartStream<ExternalEvent>(recorded.EventId, recorded);

@@ -44,24 +44,24 @@ public sealed class ModulePrincipalServiceTests
         await using ModuleNode node = await ModuleNode.StartAsync();
         TriggerService triggers = node.Services.GetRequiredService<TriggerService>();
 
-        ExternalEvent recorded = await triggers.RecordEventAsync(Module, On, "test/pr-opened", Fields, None);
+        ExternalEvent recorded = await triggers.RecordEventAsync(Module, On, "test/pr-opened", "delivery-1", null, Fields, None);
         Assert.Equal("test/pr-opened", recorded.Kind);
         Assert.Equal("module:test", recorded.RecordedBy);
 
-        DomainException unprefixed = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Module, On, "pr-opened", Fields, None));
-        DomainException another = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Module, On, "other/pr-opened", Fields, None));
-        DomainException elsewhere = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Module, Off, "test/pr-opened", Fields, None));
+        DomainException unprefixed = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Module, On, "pr-opened", "delivery-1", null, Fields, None));
+        DomainException another = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Module, On, "other/pr-opened", "delivery-1", null, Fields, None));
+        DomainException elsewhere = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Module, Off, "test/pr-opened", "delivery-1", null, Fields, None));
         Assert.Equal("Module 'test' records external events of kinds it prefixes with its own name, 'test/<name>'; 'pr-opened' is not one.", unprefixed.Message);
         Assert.Equal("Module 'test' records external events of kinds it prefixes with its own name, 'test/<name>'; 'other/pr-opened' is not one.", another.Message);
         Assert.Equal(ModuleNode.NotSwitchedOn(ModuleNode.Module, Off), elsewhere.Message);
 
         // A person records a plain kind in any project, but a prefixed kind belongs to its module alone, the owner included.
-        DomainException byOwner = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Principal.LocalOwner, On, "test/pr-opened", Fields, None));
+        DomainException byOwner = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Principal.LocalOwner, On, "test/pr-opened", "delivery-1", null, Fields, None));
         DomainException byMember = await Assert.ThrowsAsync<DomainException>(
-            () => triggers.RecordEventAsync(new Principal("teammate", Role.Member), On, "test/pr-opened", Fields, None));
+            () => triggers.RecordEventAsync(new Principal("teammate", Role.Member), On, "test/pr-opened", "delivery-1", null, Fields, None));
         Assert.Equal("Only module 'test' records external events of kinds prefixed 'test/'; 'owner' cannot record 'test/pr-opened'.", byOwner.Message);
         Assert.Equal("Only module 'test' records external events of kinds prefixed 'test/'; 'teammate' cannot record 'test/pr-opened'.", byMember.Message);
-        Assert.Equal("pr-opened", (await triggers.RecordEventAsync(new Principal("teammate", Role.Member), Off, "pr-opened", Fields, None)).Kind);
+        Assert.Equal("pr-opened", (await triggers.RecordEventAsync(new Principal("teammate", Role.Member), Off, "pr-opened", "delivery-1", null, Fields, None)).Kind);
 
         await using IQuerySession on = node.Services.GetRequiredService<IDocumentStore>().QuerySession(On);
         Assert.Equal(["test/pr-opened"], (await on.Query<ExternalEvent>().ToListAsync(None)).Select(e => e.Kind));
