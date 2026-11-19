@@ -42,7 +42,7 @@ public sealed class WorktreeStep(ProjectClones clones, FlowRunEnds ends) : ISoft
             return await context.PerformAgainAsync($"has no repository to make a worktree of: {missing.Message}", cancellationToken);
         }
 
-        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        if ((await StepTargets.TargetAsync(context, project, clones, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
         {
             return pause;
         }

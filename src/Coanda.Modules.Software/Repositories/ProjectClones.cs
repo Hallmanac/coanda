@@ -107,6 +107,23 @@ public abstract record Rebase
     public sealed record NoClone(string Reason) : Rebase;
 }
 
+/// <summary>What reading a repo's default branch from its remote came to: a branch the module acts on, none it accepts, or no answer from the remote.</summary>
+public abstract record DefaultBranch
+{
+    private DefaultBranch()
+    {
+    }
+
+    /// <summary>The remote reports <paramref name="Branch"/> as its default branch, a name <see cref="ProjectClones.Accepts"/> holds acceptable.</summary>
+    public sealed record Named(string Branch) : DefaultBranch;
+
+    /// <summary>The remote answered, and reports no default branch the module acts on, for <paramref name="Reason"/>.</summary>
+    public sealed record Unnamed(string Reason) : DefaultBranch;
+
+    /// <summary>The remote could not be asked, or did not answer, for <paramref name="Reason"/>, which quotes git with any URL's user information removed.</summary>
+    public sealed record Unreached(string Reason) : DefaultBranch;
+}
+
 /// <summary>
 /// A flow run as the worktree step reads it when its worktree may hold the parcel's branch: its status
 /// as the core names it (running, paused, ended, or stopped), and the work path the core gives it, null
@@ -157,6 +174,11 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
 
     /// <summary>The setting, under a branch's section of the clone's configuration, holding the commit this node last pushed for it.</summary>
     public const string PushedSetting = "coandaPushed";
+
+    /// <summary>How <c>git ls-remote --symref</c> begins the line naming the ref a symbolic ref points at.</summary>
+    private const string SymbolicPrefix = "ref: ";
+
+    private const string BranchPrefix = "refs/heads/";
 
     private readonly Git git = new(runner);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new(StringComparer.Ordinal);
@@ -816,22 +838,86 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
             : null;
 
     /// <summary>
+    /// The branch the remote of the repo <paramref name="repo"/> of <paramref name="project"/> reports as
+    /// its default, asked through the core's clone with <c>git ls-remote --symref</c> when the step runs
+    /// and recorded nowhere. Only the line for the remote's own <c>HEAD</c> counts, and only when it is a
+    /// symbolic ref to a branch under <c>refs/heads/</c> whose name <see cref="Accepts"/> holds acceptable.
+    /// A remote whose <c>HEAD</c> names no branch, or names one that is not acceptable, answers
+    /// <see cref="DefaultBranch.Unnamed"/>; a repo with no usable clone, a git that cannot be started, and
+    /// an <c>ls-remote</c> that fails answer <see cref="DefaultBranch.Unreached"/>. It reads no ref and
+    /// writes none, so it takes no turn at the clone. A cancellation propagates.
+    /// </summary>
+    public async Task<DefaultBranch> DefaultBranchAsync(string project, string repo, CancellationToken cancellationToken)
+    {
+        string clone = RepoLayout.ClonePath(homePath, project, repo);
+        if (await UnusableAsync(project, repo, cancellationToken) is { } unusable)
+        {
+            return new DefaultBranch.Unreached(unusable);
+        }
+
+        try
+        {
+            CommandLine listing = Git.Against(clone, "ls-remote", "--symref", Git.Remote, "HEAD");
+            CommandResult listed = await git.TryRunAsync(listing, cancellationToken);
+            if (listed is not { Succeeded: true, Truncated: false })
+            {
+                return new DefaultBranch.Unreached(new GitCommandException(listing, listed).Message);
+            }
+
+            string? target = Lines(listed.StandardOutput)
+                .Select(l => l.Split('\t', 2))
+                .Where(parts => parts is [string symbolic, "HEAD"] && symbolic.StartsWith(SymbolicPrefix, StringComparison.Ordinal))
+                .Select(parts => parts[0][SymbolicPrefix.Length..])
+                .FirstOrDefault();
+            return target switch
+            {
+                null => new DefaultBranch.Unnamed("the repo's remote reports no default branch: its HEAD names no branch"),
+                _ when !target.StartsWith(BranchPrefix, StringComparison.Ordinal) =>
+                    new DefaultBranch.Unnamed("the repo's remote reports a default that is not a branch under refs/heads/"),
+                _ when !await AcceptsAsync(clone, target[BranchPrefix.Length..], cancellationToken) => new DefaultBranch.Unnamed(
+                    "the repo's remote reports a default branch whose name the step does not act on: a name read from the remote must pass git check-ref-format --branch and hold only ASCII letters, digits, '.', '_', '-', and '/'"),
+                _ => new DefaultBranch.Named(target[BranchPrefix.Length..]),
+            };
+        }
+        catch (CommandNotStartedException unstarted)
+        {
+            return new DefaultBranch.Unreached(OutputText.Redact(unstarted.Message));
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="branch"/>, a name read from a remote, is one the module acts on: it holds
+    /// only ASCII letters, digits, <c>.</c>, <c>_</c>, <c>-</c>, and <c>/</c>, since the primary branch is
+    /// quoted in lever text a person copies into a shell, and <c>git check-ref-format --branch</c> accepts
+    /// it, which by itself lets characters such as <c>;</c> and <c>$</c> through.
+    /// </summary>
+    public static bool Accepts(string branch) =>
+        branch.Length > 0 && branch.All(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '.' or '_' or '-' or '/');
+
+    private async Task<bool> AcceptsAsync(string clone, string branch, CancellationToken cancellationToken) =>
+        Accepts(branch)
+        && (await git.TryRunAsync(Git.Against(clone, "check-ref-format", "--branch", branch), cancellationToken)).Succeeded;
+
+    /// <summary>
     /// Why the module cannot use the core's clone of the repo <paramref name="target"/> acts on, or null
     /// when it can. The module makes no clone: one that is missing, or something git does not recognize
     /// as a repository at its path, is the reason, which names the path and what puts a clone there.
     /// </summary>
-    public async Task<string?> UnusableAsync(RepoTarget target, CancellationToken cancellationToken)
+    public Task<string?> UnusableAsync(RepoTarget target, CancellationToken cancellationToken) =>
+        UnusableAsync(target.Project, target.Repo, cancellationToken);
+
+    private async Task<string?> UnusableAsync(string project, string repo, CancellationToken cancellationToken)
     {
-        string clone = ClonePathOf(target);
+        string clone = RepoLayout.ClonePath(homePath, project, repo);
         if (!Directory.Exists(clone) && !File.Exists(clone))
         {
-            return $"the node holds no clone of repo '{target.Repo}' of project '{target.Project}' at {clone}, where the daemon makes it; the next daemon start makes it there.";
+            return $"the node holds no clone of repo '{repo}' of project '{project}' at {clone}, where the daemon makes it; the next daemon start makes it there.";
         }
 
         CommandResult check = await git.TryRunAsync(Git.Against(clone, "rev-parse", "--is-bare-repository"), cancellationToken);
         return check.Succeeded
             ? null
-            : $"{clone} is where the node keeps its clone of repo '{target.Repo}' of project '{target.Project}', and git does not recognize what is there as a repository; move it aside, and the next daemon start makes the clone there.";
+            : $"{clone} is where the node keeps its clone of repo '{repo}' of project '{project}', and git does not recognize what is there as a repository; move it aside, and the next daemon start makes the clone there.";
     }
 
     /// <summary>Makes sure the clone's <c>info/exclude</c> holds <see cref="ExcludeLine"/> exactly once, writing it only when it does not.</summary>
