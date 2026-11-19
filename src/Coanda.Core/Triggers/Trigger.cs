@@ -36,6 +36,23 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
         return new Trigger(TriggerEvent.FlowRunEndedKind, filters);
     }
 
+    /// <summary>
+    /// The trigger a trigger definition matches by: its event kind and its filters, with a <c>flow</c>
+    /// filter on a flow run's end folded as <see cref="ForFollow"/> folds a follow's flow name, since the
+    /// definition stores it as written. Every other filter compares exactly, as written.
+    /// </summary>
+    public static Trigger ForDefinition(TriggerDefinition definition)
+    {
+        var filters = new Dictionary<string, string>(definition.Filters, StringComparer.Ordinal);
+        if (string.Equals(definition.EventKind, TriggerEvent.FlowRunEndedKind, StringComparison.Ordinal)
+            && filters.TryGetValue(TriggerEvent.FlowField, out string? flow))
+        {
+            filters[TriggerEvent.FlowField] = TriggerEvent.FlowKey(flow);
+        }
+
+        return new Trigger(definition.EventKind, filters);
+    }
+
     public bool Matches(TriggerEvent candidate) =>
         string.Equals(candidate.Kind, EventKind, StringComparison.Ordinal)
         && Filters.All(filter =>

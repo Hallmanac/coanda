@@ -5,13 +5,16 @@ using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Projects;
 using Coanda.Core.Registry;
 using Coanda.Core.Triggers;
 using Coanda.Core.Triggers.Events;
 using Coanda.Core.Types;
+using Coanda.Daemon.Definitions;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Parcels;
+using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
 using Fisher;
@@ -27,9 +30,16 @@ namespace Coanda.Daemon.Triggers;
 /// sequence order, for parcel creations, parcel moves, flow run ends, and recorded external events. A
 /// parcel entering a stage its type binds a flow to starts that flow on the parcel; a flow run's end
 /// starts, on its parcel, every published flow whose follow it matches and which accepts the
-/// parcel's type, as the next link of the ended flow run's chain; an external event matching a
-/// subscription in its project creates the subscription's parcel and starts its flow.
-/// A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
+/// parcel's type, as the next link of the ended flow run's chain, and every published trigger on a flow
+/// run's end that it matches creates a parcel derived from the ended flow run's parcel and flow run and starts
+/// the trigger's flow there. An external event matching a published trigger whose target creates a parcel
+/// creates that parcel and starts the target's flow on it; one matching a trigger whose target acts on the
+/// event's parcel starts the target's flow on that parcel. Subscriptions, recorded before triggers were
+/// definitions, stay in force: an external event matching one creates the subscription's parcel and starts
+/// its flow, as the principal that recorded the subscription. A trigger fires when it is published and
+/// resolves for the event's project, nearest scope first by name, and a module-scope trigger only in a project
+/// its module is switched on for; it acts as a Member-role principal naming the trigger and the cause
+/// (<see cref="TriggerKey"/>). A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
 /// a live flow run, as when a flow run's own step moves its parcel into a bound stage, is refused and
 /// starts nothing, then or later; whether the parcel had one is read from the parcel as it stood at
 /// the entry, never as it stands when the loop gets to it, so the outcome does not depend on timing.
@@ -41,8 +51,11 @@ namespace Coanda.Daemon.Triggers;
 /// handles the start: on a parcel this node holds, whichever node recorded the event; on an unclaimed parcel,
 /// only from an event this node recorded; on a parcel another node's claim wins, never. An entry on a parcel
 /// whose own claim is not yet held waits (<see cref="HeldBackEntries"/>), and is handled again, as the claims
-/// stand then, once the claim is held or lost. An external event another node recorded creates no parcel and
-/// starts nothing.
+/// stand then, once the claim is held or lost. Act-on-parcel triggers and triggers on a flow run's end follow the
+/// claims as a follow does: the first on the parcel the event names, the second on the ended flow run's parcel,
+/// whether or not that parcel is closed or holds another live flow run, since the parcel it creates is a new one.
+/// An external event another node recorded creates no parcel, neither a trigger's nor a subscription's, and starts an
+/// act-on-parcel trigger's flow only on a parcel this node holds.
 /// </summary>
 /// <remarks>
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
@@ -53,7 +66,12 @@ namespace Coanda.Daemon.Triggers;
 /// names the entry event by the id its origin gave it, and is skipped when the parcel already has a flow
 /// run started by that principal, so a node that comes to hold a parcel does not start again an entry
 /// another node's flow run already answered, even one stopped since; a subscription's parcel records an origin naming the subscription and the event, and is
-/// neither created again nor given a second flow run; a follow's start acts as a principal whose id
+/// neither created again nor given a second flow run; a trigger's parcel records an origin naming the trigger and
+/// the external event or the ended flow run, and is not created again when the project holds a parcel of that origin
+/// from any node, while one this node created with no flow run, as after a stop between the creation and the start,
+/// is given its flow run then; an act-on-parcel trigger's start acts as a principal naming the trigger and the event,
+/// and is skipped when the parcel already has a flow run that principal started, live or ended, on any node; a
+/// follow's start acts as a principal whose id
 /// names the ended flow run, and is skipped when that flow run already has a follower of the flow. A
 /// replayed entry that was refused is refused again, since the parcel's stage at the entry does not
 /// change. Deferred follows are one document per parcel in the parcel's project, and a follow
@@ -83,6 +101,7 @@ public sealed class TriggerLoop(
     private const int PageSize = 256;
 
     private readonly CancellationTokenSource stopping = new();
+    private readonly DefinitionResolver definitions = new(store);
     private Task running = Task.CompletedTask;
     private long position;
 
@@ -428,13 +447,8 @@ public sealed class TriggerLoop(
                 case FlowRunEnded ended:
                     await EndedAsync(entry.TenantId, ended, own, entry.Sequence, cancellationToken);
                     break;
-                case ExternalEventRecorded external when own:
-                    await ExternalAsync(external, cancellationToken);
-                    break;
                 case ExternalEventRecorded external:
-                    logger.LogInformation(
-                        "External event {Event} of kind '{Kind}' in project {Project} was recorded by another node, so it creates no parcel and starts nothing here.",
-                        Ids.Short(external.EventId), external.Kind, external.Project);
+                    await ExternalAsync(external, own, entry.Sequence, cancellationToken);
                     break;
             }
         }
@@ -571,7 +585,8 @@ public sealed class TriggerLoop(
     /// and passed over: it neither starts nor waits, and every later follower is decided as though it had
     /// not matched, so the follows already set to wait are still written to the parcel's follow queue. A
     /// stop is no failure of the follower: it leaves the end unhandled, and the next start handles it again,
-    /// where a follower that already started is not started twice.
+    /// where a follower that already started is not started twice. Once the follows are decided, every trigger
+    /// on a flow run's end that matches the end fires (<see cref="EndTriggersAsync"/>), under the same claims.
     /// </summary>
     private async Task EndedAsync(string project, FlowRunEnded ended, bool own, long sequence, CancellationToken cancellationToken)
     {
@@ -584,7 +599,7 @@ public sealed class TriggerLoop(
             return;
         }
 
-        TriggerEvent candidate = TriggerEvent.FlowRunEnded(parent.FlowName, ended.Outcome, parcel.TypeName);
+        TriggerEvent candidate = TriggerEvent.FlowRunEnded(parent.FlowName, ended.Outcome, parcel.TypeName, parcel.Title);
 
         IReadOnlyList<Definition> published = await flows.ListAsync(LoopPrincipal, project, cancellationToken);
         IEnumerable<Flow> followers = published
@@ -636,6 +651,40 @@ public sealed class TriggerLoop(
         if (waiting.Count > 0)
         {
             await DeferFollowsAsync(project, parent.ParcelId, waiting, cancellationToken);
+        }
+
+        await EndTriggersAsync(project, parent, parcel, candidate, cancellationToken);
+    }
+
+    /// <summary>
+    /// Every published trigger on a flow run's end that fires in the project and matches <paramref name="candidate"/>, the
+    /// end of <paramref name="parent"/> on <paramref name="parcel"/>, creates a parcel of its target's type, derived from
+    /// that parcel and that flow run, and starts its target's flow on it. The claims on the ended flow run's parcel were
+    /// weighed before the follows were, and gate the triggers alike; whether that parcel is closed or holds another live
+    /// flow run does not, since the parcel a trigger creates is a new one. No trigger acts on the ended flow run's own
+    /// parcel. A trigger refused, or failing for any other reason, is logged and the next one goes on.
+    /// </summary>
+    private async Task EndTriggersAsync(string project, FlowRun parent, Parcel parcel, TriggerEvent candidate, CancellationToken cancellationToken)
+    {
+        string cause = $"the end of flow run {Ids.Short(parent.Id)}";
+        foreach (ResolvedTrigger trigger in await MatchingTriggersAsync(project, candidate, cancellationToken))
+        {
+            try
+            {
+                CreateParcelTarget target = trigger.Content.Target.CreateParcel
+                    ?? throw new DomainException(
+                        $"It acts on the parcel the event names, and a trigger on a flow run's end only creates a parcel; starting a flow on parcel {Ids.Short(parcel.Id)} is a flow's follow.");
+                await CreateAsync(
+                    trigger, target, project, TriggerKey.ForFlowRunEnd(trigger.Key, parent.Id), candidate.Fields, new DerivedFrom(parcel.Id, parent.Id), cause, cancellationToken);
+            }
+            catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogTriggerRefused(trigger, cause, refused);
+            }
+            catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogTriggerFailed(trigger, cause, failure);
+            }
         }
     }
 
@@ -858,8 +907,308 @@ public sealed class TriggerLoop(
             "Flow '{Flow}' follows the end of flow run {FlowRun}, but its start was refused: {Rule}",
             flowName, Ids.Short(parentId), refused.Message);
 
-    /// <summary>An external event: every subscription in its project that matches it creates its parcel and starts its flow.</summary>
-    private async Task ExternalAsync(ExternalEventRecorded external, CancellationToken cancellationToken)
+    /// <summary>
+    /// An external event. One this node recorded creates, for every subscription of its project that matches it, the
+    /// subscription's parcel and starts its flow, and for every trigger that fires in the project, matches it, and
+    /// creates a parcel, the target's parcel and a flow run of the target's flow; one another node recorded creates no
+    /// parcel here. Whichever node recorded it, every trigger that matches it and acts on the event's parcel starts its
+    /// flow there where the parcel's claims let this node, weighed once for the event (<see cref="EventParcelAsync"/>).
+    /// An event handled again because it was held back on its parcel's claim creates nothing: its creations were
+    /// decided when it was first read, and only its starts on the parcel waited.
+    /// </summary>
+    private async Task ExternalAsync(ExternalEventRecorded external, bool own, long sequence, CancellationToken cancellationToken)
+    {
+        string project = external.Project;
+        bool heldBackBefore = replaying is Guid parcel && parcel == external.ParcelId;
+        IReadOnlyList<ResolvedTrigger> matching = await MatchingTriggersAsync(project, new TriggerEvent(external.Kind, external.Fields), cancellationToken);
+        if (own && !heldBackBefore)
+        {
+            await SubscriptionsAsync(external, cancellationToken);
+            string cause = $"external event {Ids.Short(external.EventId)}";
+            foreach (ResolvedTrigger trigger in matching)
+            {
+                if (trigger.Content.Target.CreateParcel is not { } target)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await CreateAsync(
+                        trigger, target, project, TriggerKey.ForEvent(trigger.Key, external.EventId), external.Fields, null, cause, cancellationToken);
+                }
+                catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+                {
+                    LogTriggerRefused(trigger, cause, refused);
+                }
+                catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+                {
+                    LogTriggerFailed(trigger, cause, failure);
+                }
+            }
+        }
+        else if (!own)
+        {
+            logger.LogInformation(
+                "External event {Event} of kind '{Kind}' in project {Project} was recorded by another node, so it creates no parcel here.",
+                Ids.Short(external.EventId), external.Kind, project);
+        }
+
+        ResolvedTrigger[] onParcel = [.. matching.Where(t => t.Content.Target.EventParcel is not null)];
+        if (onParcel.Length > 0)
+        {
+            await EventParcelAsync(external, onParcel, own, sequence, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// The triggers among <paramref name="triggers"/>, each acting on the event's parcel, start their flows on it. The
+    /// parcel's claims are weighed first, once for the event, as a binding's are (<see cref="TriggersAsync"/>): on a parcel
+    /// this node holds, whichever node recorded the event; on an unclaimed one, only for an event this node recorded; on
+    /// one another node's claim wins, never; and while this node's own claim is not yet held, the event is held back and
+    /// handled again once it is held or lost. Only then is each trigger checked, and one refused is logged with its reason
+    /// and keeps nothing to start later.
+    /// </summary>
+    private async Task EventParcelAsync(
+        ExternalEventRecorded external, IReadOnlyList<ResolvedTrigger> triggers, bool own, long sequence, CancellationToken cancellationToken)
+    {
+        string project = external.Project;
+        string cause = $"external event {Ids.Short(external.EventId)}";
+        if (external.ParcelId is not Guid parcelId)
+        {
+            foreach (ResolvedTrigger trigger in triggers)
+            {
+                LogTriggerRefused(trigger, cause, new DomainException(
+                    $"It acts on the parcel the event names, and event {Ids.Short(external.EventId)} of kind '{external.Kind}' names no parcel."));
+            }
+
+            return;
+        }
+
+        if (!await TriggersAsync(project, parcelId, own, sequence, cause, cancellationToken))
+        {
+            return;
+        }
+
+        foreach (ResolvedTrigger trigger in triggers)
+        {
+            try
+            {
+                await StartOnEventParcelAsync(trigger, external, parcelId, cancellationToken);
+            }
+            catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogTriggerRefused(trigger, cause, refused);
+            }
+            catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogTriggerFailed(trigger, cause, failure);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Starts <paramref name="trigger"/>'s flow on <paramref name="parcelId"/>, the parcel <paramref name="external"/> names,
+    /// as a principal naming the trigger and the event, unless the parcel already has a flow run that principal started, live
+    /// or ended, on this node or another. The parcel must be of the event's project, open, free of a live flow run, and of a
+    /// type the target's flow, a published flow of the project, accepts.
+    /// </summary>
+    private async Task StartOnEventParcelAsync(ResolvedTrigger trigger, ExternalEventRecorded external, Guid parcelId, CancellationToken cancellationToken)
+    {
+        string project = external.Project;
+        Principal principal = new(TriggerKey.ForEvent(trigger.Key, external.EventId), Role.Member);
+        Parcel parcel = await parcels.ShowAsync(LoopPrincipal, project, parcelId, cancellationToken)
+            ?? throw new DomainException(
+                $"It acts on the parcel the event names, and event {Ids.Short(external.EventId)} names parcel {Ids.Short(parcelId)}, which is no parcel of project '{project}' on this node.");
+        IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parcel.Id, cancellationToken);
+        if (existing.Any(f => string.Equals(f.StartedBy, principal.Id, StringComparison.Ordinal)))
+        {
+            logger.LogInformation(
+                "Trigger {Trigger} already started a flow run on parcel {Parcel} for event {Event}, so it starts none again.",
+                trigger.Key, Ids.Short(parcel.Id), Ids.Short(external.EventId));
+            return;
+        }
+
+        if (parcel.IsClosed)
+        {
+            throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is closed ({parcel.Resolution}), and no flow run starts on a closed parcel.");
+        }
+
+        if (parcel.LiveFlowRunId is Guid live)
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcel.Id)} has flow run {Ids.Short(live)} live, and a parcel has at most one live flow run; nothing is kept to start later.");
+        }
+
+        string flowName = trigger.Content.Target.EventParcel?.Flow
+            ?? throw new DomainException("Its target names no flow to start on the parcel the event names.");
+        Flow flow = await PublishedFlowAsync(project, flowName, cancellationToken);
+        RequireAccepts(flow, parcel.TypeName);
+        await StartAsync(principal, project, parcel.Id, flow.Name, $"trigger {trigger.Key}", cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates <paramref name="target"/>'s parcel, recording <paramref name="key"/>, which names the trigger and the cause,
+    /// as its origin and, when <paramref name="derivedFrom"/> is given, a derived-from relation in the same save, and starts
+    /// the target's flow on it, both as a Member-role principal whose id is <paramref name="key"/>. Before anything is
+    /// created, the target's type must resolve in the project, its flow be a published flow of the project that accepts
+    /// the type, and <paramref name="fields"/> carry the field the target titles the parcel with, within a parcel title's
+    /// cap; the value is never shortened. When the project already has a parcel recording that origin, from this node or
+    /// another, nothing is created; when this node created it and it has no flow run, as after a stop between the
+    /// creation and the start, the target's flow starts on it.
+    /// </summary>
+    private async Task CreateAsync(
+        ResolvedTrigger trigger,
+        CreateParcelTarget target,
+        string project,
+        string key,
+        IReadOnlyDictionary<string, string> fields,
+        DerivedFrom? derivedFrom,
+        string cause,
+        CancellationToken cancellationToken)
+    {
+        if (target is not { ParcelType: { } typeName, TitleField: { } titleField, Flow: { } flowName })
+        {
+            throw new DomainException("Its target names no parcel type, title field, or flow, so it creates nothing.");
+        }
+
+        var principal = new Principal(key, Role.Member);
+        if (await parcels.FindByOriginAsync(LoopPrincipal, project, key, cancellationToken) is { } found)
+        {
+            await StartOnFoundAsync(trigger, principal, project, found, flowName, cause, cancellationToken);
+            return;
+        }
+
+        ParcelType type = await parcels.ResolveTypeAsync(LoopPrincipal, project, typeName, cancellationToken)
+            ?? throw new DomainException($"Its target's parcel type '{typeName}' does not resolve in project '{project}', so no parcel was created.");
+        Flow flow = await PublishedFlowAsync(project, flowName, cancellationToken);
+        RequireAccepts(flow, type.Name);
+        if (!fields.TryGetValue(titleField, out string? title))
+        {
+            throw new DomainException(
+                $"It titles its parcel with the field '{titleField}', which {cause} does not carry, so no parcel was created.");
+        }
+
+        int length = title.Trim().Length;
+        if (length > ParcelCaps.TitleLength)
+        {
+            throw new DomainException(
+                $"It titles its parcel with the field '{titleField}' of {cause}, whose value is {length} characters long, and a parcel's title holds at most {ParcelCaps.TitleLength}; the value is not shortened, so no parcel was created and no flow run started.");
+        }
+
+        Parcel parcel = await parcels.AddAsync(principal, project, type.Name, title, null, key, derivedFrom, cancellationToken);
+        logger.LogInformation(
+            "Trigger {Trigger} created parcel {Parcel} of type '{Type}' in project {Project} for {Cause}.",
+            trigger.Key, Ids.Short(parcel.Id), type.Name, project, cause);
+        await StartAsync(principal, project, parcel.Id, flow.Name, $"trigger {trigger.Key}", cancellationToken);
+    }
+
+    /// <summary>
+    /// A parcel the trigger already created for the cause: its flow starts on it only when this node created it and it has
+    /// no flow run yet, so a handling again starts it once and a parcel another node created is that node's to start.
+    /// </summary>
+    private async Task StartOnFoundAsync(
+        ResolvedTrigger trigger, Principal principal, string project, Parcel found, string flowName, string cause, CancellationToken cancellationToken)
+    {
+        if (!await CreatedHereAsync(project, found.Id, cancellationToken))
+        {
+            logger.LogInformation(
+                "Trigger {Trigger} creates nothing for {Cause}: another node already created parcel {Parcel} for it.",
+                trigger.Key, cause, Ids.Short(found.Id));
+            return;
+        }
+
+        if ((await flowRuns.ListAsync(LoopPrincipal, project, found.Id, cancellationToken)).Count > 0)
+        {
+            return;
+        }
+
+        await StartAsync(principal, project, found.Id, flowName, $"trigger {trigger.Key}", cancellationToken);
+    }
+
+    /// <summary>Whether this node recorded the parcel's creation, rather than the import appending it from another node's line.</summary>
+    private async Task<bool> CreatedHereAsync(string project, Guid parcelId, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, 1, token: cancellationToken);
+        if (events.Count == 0)
+        {
+            return false;
+        }
+
+        IReadOnlyDictionary<Guid, LedgerLine> lines = await ImportedEvents.LinesAsync(session, [events[0].Id], cancellationToken);
+        return !lines.TryGetValue(events[0].Id, out LedgerLine? line) || line.Origin == identity.NodeId;
+    }
+
+    /// <summary>
+    /// The published triggers resolution returns for the project that match <paramref name="candidate"/>, nearest scope first
+    /// by name, so of a project-scope and a module-scope trigger of one name only the project's is among them. A module-scope
+    /// trigger is among them only in a project its module is switched on for. One whose content cannot be read is logged and left out.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedTrigger>> MatchingTriggersAsync(string project, TriggerEvent candidate, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Definition> resolved = await definitions.ResolveAllAsync(project, DefinitionKind.Trigger, cancellationToken);
+        if (resolved.Count == 0)
+        {
+            return [];
+        }
+
+        Project? registered = await ProjectService.FindAsync(store, project, cancellationToken);
+        List<ResolvedTrigger> matching = [];
+        foreach (Definition definition in resolved)
+        {
+            if (definition.Scope == DefinitionScope.Module && !(definition.Module is { } module && registered?.IsSwitchedOn(module) == true))
+            {
+                continue;
+            }
+
+            TriggerDefinition content;
+            try
+            {
+                content = TriggerDefinition.FromJson(definition.Content);
+            }
+            catch (DomainException unreadable)
+            {
+                logger.LogWarning(
+                    "Trigger '{Trigger}' of project {Project} cannot be read, so it fires on nothing: {Rule}",
+                    definition.Name, project, unreadable.Message);
+                continue;
+            }
+
+            if (Trigger.ForDefinition(content).Matches(candidate))
+            {
+                matching.Add(new ResolvedTrigger(definition, content));
+            }
+        }
+
+        return matching;
+    }
+
+    /// <summary>The flow resolution returns for the project by <paramref name="flowName"/>, or a refusal saying it is not a published flow of it.</summary>
+    private async Task<Flow> PublishedFlowAsync(string project, string flowName, CancellationToken cancellationToken)
+    {
+        Definition published = await definitions.ResolveAsync(project, DefinitionKind.Flow, flowName, cancellationToken)
+            ?? throw new DomainException($"Its target's flow '{flowName}' is not a published flow of project '{project}', so nothing was created or started.");
+        return Flow.FromJson(published.Content);
+    }
+
+    private static void RequireAccepts(Flow flow, string typeName)
+    {
+        if (!flow.Accepts.Any(type => DefinitionResolution.SameName(type, typeName)))
+        {
+            throw new DomainException(
+                $"Its target's flow '{flow.Name}' accepts {string.Join(", ", flow.Accepts)}, not the parcel type '{typeName}', so nothing was created or started.");
+        }
+    }
+
+    private void LogTriggerRefused(ResolvedTrigger trigger, string cause, DomainException refused) =>
+        logger.LogWarning("Trigger {Trigger} on {Cause} was refused: {Rule}", trigger.Key, cause, refused.Message);
+
+    private void LogTriggerFailed(ResolvedTrigger trigger, string cause, Exception failure) =>
+        logger.LogError(failure, "Trigger {Trigger} on {Cause} failed, and the next trigger goes on.", trigger.Key, cause);
+
+    /// <summary>Every subscription of the event's project that matches it creates its parcel and starts its flow.</summary>
+    private async Task SubscriptionsAsync(ExternalEventRecorded external, CancellationToken cancellationToken)
     {
         TriggerEvent candidate = new(external.Kind, external.Fields);
         IReadOnlyList<Subscription> subscriptions = await triggers.ListSubscriptionsAsync(LoopPrincipal, external.Project, cancellationToken);
