@@ -348,8 +348,14 @@ ended flow run's parcel is closed or holds another live flow run. An entry on a 
 in a node-local document per parcel that never reaches the ledger (a record export carries it, each
 sequence renumbered to its event's place in the export), and is handled again in the order it was read
 once the claim is held or lost, so a claim waiting on its push and fetch does not drop the starts it was
-made to protect; while any entry is held back on a parcel, later entries on it wait behind it. A follow
-waiting for a release starts on any node's release, since it waits only once this node's claims let it
+made to protect; while any entry is held back on a parcel, later entries on it wait behind it. A bound
+entry whose start these claims allow also waits while any parcel the parcel listed as blocking it at the
+entry is not closed in this node's record, a blocker this node has not imported counting as open, and its
+flow starts once every one of them is closed, as the principal a start at the entry would have acted as,
+unless the parcel is by then closed, holds a live flow run, or has moved since the entry. Only a node whose
+claims let it start the flow judges the blockers, the claims weighed again when the wait ends, and the
+wait is node-local and records nothing, so no other node ever reads a judgement made from this node's view.
+A follow waiting for a release starts on any node's release, since it waits only once this node's claims let it
 start. An external event another node recorded creates no parcel here, neither a trigger's nor a
 subscription's, and starts an act-on-parcel trigger's flow only on a parcel this node holds. The
 flow run service refuses a start or a follow on a claimed parcel this node does not hold, whether a person
@@ -581,7 +587,12 @@ whole middleware story.
 The kernel fixes the meta-model and nothing below it: identity and provenance, claim with hash
 arbitration, placement on a node, budget, and generic relations (derived-from, blocked-by,
 stacked-on, member-of). An epic is member-of with a name. A type declares which types it may
-derive. Relations stay within a project for now; crossing projects waits until a real
+derive. A blocked-by holds back the start of the flow a parcel's type binds to the stage it enters:
+while any parcel blocking it at the entry is not closed, the flow waits, and it starts once the last of
+them closes, with any resolution. Only a node whose claims on the parcel let it start the flow judges
+this, and it never counts a blocker it cannot see as closed (section 6). A blocked-by recorded after the
+entry holds nothing back, and since a parcel lists no relation at its creation, a flow bound to its entry
+stage never waits. Relations stay within a project for now; crossing projects waits until a real
 dependency between separately owned projects appears.
 
 The software engineering module ships two types (section 14.10). Idea, with a discovery lifecycle: open, discovery, paused, closed
