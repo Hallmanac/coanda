@@ -25,10 +25,18 @@ public sealed class ProjectAddSettings : ProjectNameSettings
     [Description("One of a switched-on module's replicated settings, recorded with the registration: the module's name, a slash, the setting's name as the module declares it, an equals sign, and the value, read as JSON when it is JSON and as text otherwise. Repeat it for each setting.")]
     public string[]? Settings { get; init; }
 
+    /// <summary>
+    /// Refuses a <c>--repo</c> given with an empty or blank value, which is a mistake rather than a choice to
+    /// register a project with no repos (that is leaving <c>--repo</c> out), and any setting not in the
+    /// <c>&lt;module&gt;/&lt;name&gt;=&lt;value&gt;</c> form.
+    /// </summary>
     public override ValidationResult Validate() =>
-        (Settings ?? []).FirstOrDefault(s => ModuleSettingOption.Parse(s) is null) is { } malformed
-            ? ValidationResult.Error($"Give each setting as --setting <module>/<name>=<value>; '{malformed}' is not in that form.")
-            : ValidationResult.Success();
+        (Repo, (Settings ?? []).FirstOrDefault(s => ModuleSettingOption.Parse(s) is null)) switch
+        {
+            ({ } repo, _) when string.IsNullOrWhiteSpace(repo) => ValidationResult.Error("--repo was given with no remote. Name the remote of the project's repo with --repo <url>, or leave --repo out to register the project with no repos."),
+            (_, { } malformed) => ValidationResult.Error($"Give each setting as --setting <module>/<name>=<value>; '{malformed}' is not in that form."),
+            _ => ValidationResult.Success(),
+        };
 
     /// <summary>
     /// The request this registration sends: the project, its repo's remote, or none when <c>--repo</c> was left out, and each <c>--setting</c> as the

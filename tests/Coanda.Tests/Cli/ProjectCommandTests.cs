@@ -11,6 +11,7 @@ using Coanda.Daemon.Parcels;
 using Coanda.Modules.Software;
 using Coanda.Tests.Daemon;
 using Microsoft.Extensions.DependencyInjection;
+using Spectre.Console;
 
 namespace Coanda.Tests.Cli;
 
@@ -89,6 +90,19 @@ public sealed partial class ProjectCommandTests
 
         Assert.True(settings.Validate().Successful);
         Assert.Null(settings.ToRequest().Remote);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void A_repo_given_with_an_empty_or_blank_remote_is_refused(string remote)
+    {
+        ValidationResult result = new ProjectAddSettings { Name = "blank", Repo = remote }.Validate();
+
+        Assert.False(result.Successful);
+        Assert.Equal(
+            "--repo was given with no remote. Name the remote of the project's repo with --repo <url>, or leave --repo out to register the project with no repos.",
+            result.Message);
     }
 
     [Fact]

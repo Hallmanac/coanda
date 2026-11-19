@@ -1171,8 +1171,8 @@ the remote maps onto a fetched ledger ref. The refspec is forced, so a peer's re
 as it stands and import, not git, judges it.
 
 The ledger home setting's default kind is "the project's repos, all of them"; the relay is a later
-kind, and the at-least-one-repo requirement lifts when it exists, without the module system hearing
-of it. Section 6's rules hold: each repo's ref namespace carries the project-wide events
+kind. A project with no repos has no carrier until it exists, and the relay arrives without the
+module system hearing of it. Section 6's rules hold: each repo's ref namespace carries the project-wide events
 (membership, definitions, decisions) plus the events whose tag names that repo; a node pushes to and
 imports from every repo it holds; import is idempotent on origin plus sequence, so an event that
 arrives through two repos is stored once. An archived or removed repo loses nothing project-wide,
