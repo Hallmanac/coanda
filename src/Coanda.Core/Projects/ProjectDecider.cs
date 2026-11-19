@@ -16,15 +16,17 @@ public static class ProjectDecider
 {
     /// <summary>The rule a command quotes when the project it names has no record.</summary>
     public static string Unregistered(string project) =>
-        $"Project '{project}' is not registered; register it with coa project add {project} --repo <url>.";
+        $"Project '{project}' is not registered; register it with coa project add {project} [--repo <url>].";
 
     /// <summary>
     /// Registers a project with one repo, at <paramref name="remote"/>, named by
-    /// <see cref="ProjectRepo.NameOf"/>. A name and a remote are required.
+    /// <see cref="ProjectRepo.NameOf"/>, or with no repos when <paramref name="remote"/> is null, empty, or
+    /// only whitespace. A name is required. A project with no repos has no carrier for its ledger: its record
+    /// stays on the node, and its parcels cannot be claimed (<see cref="Parcels.ClaimDecider.Claim"/>).
     /// </summary>
     public static ProjectRegistered Register(
         string name,
-        string remote,
+        string? remote,
         Project? existing,
         string registeredBy,
         DateTimeOffset now,
@@ -38,8 +40,9 @@ public static class ProjectDecider
         string trimmed = name.Trim();
         if (existing is not null)
         {
-            throw new DomainException(
-                $"Project '{trimmed}' is already registered, with the repos {string.Join(", ", existing.Repos.Select(r => $"{r.Name} ({r.Remote})"))}.");
+            throw new DomainException(existing.Repos.Count == 0
+                ? $"Project '{trimmed}' is already registered, with no repos."
+                : $"Project '{trimmed}' is already registered, with the repos {string.Join(", ", existing.Repos.Select(r => $"{r.Name} ({r.Remote})"))}.");
         }
 
         if ((registeredNames ?? []).FirstOrDefault(n => string.Equals(n, trimmed, StringComparison.OrdinalIgnoreCase)) is { } differingInCase)
@@ -48,12 +51,10 @@ public static class ProjectDecider
                 $"Project '{trimmed}' differs from the registered project '{differingInCase}' only in letter case; the node keeps each project's clone and work in a directory named after it, and on a filesystem that ignores case the two would share them, so choose another name.");
         }
 
-        if (string.IsNullOrWhiteSpace(remote))
-        {
-            throw new DomainException($"Project '{trimmed}' needs the remote of a repo; none was given.");
-        }
-
-        return new ProjectRegistered(Ids.New(), trimmed, [ProjectRepo.FromRemote(remote)], registeredBy, now);
+        IReadOnlyList<ProjectRepo> repos = string.IsNullOrWhiteSpace(remote)
+            ? []
+            : [ProjectRepo.FromRemote(remote)];
+        return new ProjectRegistered(Ids.New(), trimmed, repos, registeredBy, now);
     }
 
     /// <summary>

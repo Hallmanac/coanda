@@ -58,13 +58,14 @@ public sealed class ProjectService(
     public static readonly Principal UpgradePrincipal = new("coanda-upgrade", Role.Owner);
 
     /// <summary>
-    /// Registers a project with one repo, at <paramref name="remote"/>, switching on for it the modules
+    /// Registers a project with one repo, at <paramref name="remote"/>, or with no repos when it is null, empty,
+    /// or only whitespace (<see cref="ProjectDecider.Register"/>), switching on for it the modules
     /// the host names as the node's defaults (<see cref="DefaultModules"/>), and records
     /// <paramref name="settings"/>, each a replicated setting of one of those modules, in the same save.
     /// Each setting is decided against its module's settings schema and the switch-on this registration
     /// records, so a setting its schema refuses, one naming a module the registration does not switch on,
     /// and one named twice each register nothing. Once the registration is saved, the core makes the
-    /// clone of the project's repo (<see cref="RepoClones.EnsureAsync"/>) before this returns; a clone it
+    /// clone of the project's repo, if it has one (<see cref="RepoClones.EnsureAsync"/>), before this returns; a clone it
     /// cannot make is logged and leaves the registration as it is. A node with no owner id record records
     /// the id that registered the project as its owner id (<see cref="NodeOwner"/>): registering is open to the
     /// Owner role alone, which a call reaches only as the node's owner, so that id is the owner's own, and the
@@ -74,7 +75,7 @@ public sealed class ProjectService(
     public async Task<Project> AddAsync(
         Principal principal,
         string name,
-        string remote,
+        string? remote,
         IReadOnlyList<ModuleSettingValue> settings,
         CancellationToken cancellationToken)
     {

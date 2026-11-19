@@ -2,6 +2,7 @@ using Coanda.Core;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Projects;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
@@ -183,18 +184,21 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     /// <summary>
     /// Records a claim on the parcel naming <paramref name="nodeId"/>, this node, unless this node has already
     /// claimed it, which records nothing and gives false. A closed parcel, and one where this node has seen
-    /// another node's claim and made none of its own, are refused (<see cref="ClaimDecider.Claim"/>).
+    /// another node's claim and made none of its own, are refused (<see cref="ClaimDecider.Claim"/>), and so is
+    /// every parcel of a project with no repos, which has no carrier to push the claim to; a refusal stores nothing.
     /// </summary>
     public async Task<(Parcel Parcel, bool Recorded)> ClaimAsync(Principal principal, string project, Guid parcelId, Guid nodeId, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.claim", principal);
         string tenant = Tenants.RequireProject(project);
 
+        Project registered = await ProjectService.FindAsync(store, tenant, cancellationToken)
+            ?? throw new DomainException(ProjectService.Unregistered(tenant));
         await using IDocumentSession session = store.LightweightSession(tenant);
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
         Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
         IReadOnlyList<StoredClaim> stored = await ParcelClaims.StoredAsync(store, session, parcel, cancellationToken);
-        if (ClaimDecider.Claim(parcel, stored, nodeId, principal.Id, clock.GetUtcNow()) is not { } claimed)
+        if (ClaimDecider.Claim(registered, parcel, stored, nodeId, principal.Id, clock.GetUtcNow()) is not { } claimed)
         {
             return (parcel, false);
         }
