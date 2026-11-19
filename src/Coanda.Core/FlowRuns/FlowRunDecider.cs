@@ -517,9 +517,10 @@ public static class FlowRunDecider
         RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "end it");
 
-        if (!string.Equals(outcome, flow.Outcome, StringComparison.Ordinal))
+        if (!flow.EndOutcomes.Contains(outcome))
         {
-            throw new DomainException($"Flow '{flow.Name}' ends with its declared outcome '{flow.Outcome}', not '{outcome}'.");
+            throw new DomainException(
+                $"Flow '{flow.Name}' ends with its declared outcome '{flow.Outcome}' or an outcome a transition to end names, not '{outcome}'.");
         }
 
         return (new FlowRunEnded(flowRun.Id, outcome, endedBy, now), new ParcelFlowRunReleased(flowRun.ParcelId, flowRun.Id, now));

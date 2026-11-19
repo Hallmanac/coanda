@@ -46,10 +46,13 @@ public sealed class FlowRunDeciderTests
         return flowRun.Current?.SessionId ?? Ids.New();
     }
 
-    /// <summary>A build flow run started on a fresh parcel, standing at its first step, the worktree system step.</summary>
-    private static FlowRun Started(Flow? flow = null)
+    /// <summary>
+    /// A flow run, of the build flow unless another is given, started on a fresh parcel of
+    /// <paramref name="type"/>, standing at its first step.
+    /// </summary>
+    private static FlowRun Started(Flow? flow = null, string type = "task")
     {
-        (FlowRunStarted started, _) = FlowRunDecider.Start(flow ?? Build, 1, ParcelOf(), "owner", Now);
+        (FlowRunStarted started, _) = FlowRunDecider.Start(flow ?? Build, 1, ParcelOf(type), "owner", Now);
         return FlowRun.Create(started);
     }
 
@@ -319,7 +322,31 @@ public sealed class FlowRunDeciderTests
         Action end = () => FlowRunDecider.End(Build, Started(), "merged", "owner", Now);
 
         DomainException exception = Assert.Throws<DomainException>(end);
-        Assert.Equal("Flow 'build' ends with its declared outcome 'pr-opened', not 'merged'.", exception.Message);
+        Assert.Equal("Flow 'build' ends with its declared outcome 'pr-opened' or an outcome a transition to end names, not 'merged'.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("parcels-derived")]
+    [InlineData("carried-forward")]
+    [InlineData("stopped")]
+    public void An_end_with_the_declared_outcome_or_one_a_transition_to_end_names_is_accepted(string outcome)
+    {
+        Flow discovery = SoftwareFlows.Discovery;
+        FlowRun flowRun = Started(discovery, "idea");
+
+        (FlowRunEnded ended, _) = FlowRunDecider.End(discovery, flowRun, outcome, "owner", Now);
+
+        Assert.Equal(outcome, ended.Outcome);
+    }
+
+    [Fact]
+    public void An_end_with_an_outcome_the_flow_neither_declares_nor_names_on_a_transition_to_end_is_refused()
+    {
+        Flow discovery = SoftwareFlows.Discovery;
+        Action end = () => FlowRunDecider.End(discovery, Started(discovery, "idea"), "merged", "owner", Now);
+
+        DomainException exception = Assert.Throws<DomainException>(end);
+        Assert.Equal("Flow 'discovery' ends with its declared outcome 'parcels-derived' or an outcome a transition to end names, not 'merged'.", exception.Message);
     }
 
     [Theory]

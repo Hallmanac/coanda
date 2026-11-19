@@ -557,8 +557,13 @@ subscription can be recorded. If matching needs judgment, the flow starts with a
 may answer "not for me".
 
 Flows compose: a flow declares a typed outcome (PR opened, report produced, parcels
-derived), and the next flow follows it, so a flow run ending with that outcome starts a flow run of the
-next flow on the same parcel, with a depth cap and a budget the chain shares. The followers of one end
+derived), and the next flow follows it. A flow that ends more than one way can tell its endings apart: a
+transition to end may name the outcome its flow run ends with, and a transition to end that names none ends
+it with the flow's declared outcome. Only a transition to end names one, and a flow run ends with no outcome
+its flow neither declares nor names on such a transition. The discovery flow ends with parcels-derived after
+a person's pursue, carried-forward when its agent carries the idea forward, and stopped after a person's
+stop, so a trigger or a follow on its end filters each apart. A flow run ending with the outcome a flow follows
+starts a flow run of that flow on the same parcel, with a depth cap and a budget the chain shares. The followers of one end
 start one at a time, those whose flow closes the parcel last, and a closing follower also waits
 behind every follow already waiting on the parcel, whichever end that follow came from, while a
 follower that does not close is not held back by follows of an earlier end. A waiting follow whose

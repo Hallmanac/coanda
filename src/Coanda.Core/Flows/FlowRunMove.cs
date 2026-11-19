@@ -17,6 +17,9 @@ public abstract record FlowRunMove
     /// <summary>Stop and wait for a human; <paramref name="Reason"/> says why.</summary>
     public sealed record Pause(string Reason) : FlowRunMove;
 
-    /// <summary>The flow run is over and carries <paramref name="Outcome"/>, the one its flow declares.</summary>
+    /// <summary>
+    /// The flow run is over and carries <paramref name="Outcome"/>: the one the transition it ended
+    /// through names, or the one its flow declares when that transition names none.
+    /// </summary>
     public sealed record End(string Outcome) : FlowRunMove;
 }

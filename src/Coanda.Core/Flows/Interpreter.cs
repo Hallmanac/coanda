@@ -50,7 +50,7 @@ public static class Interpreter
                 $"Step '{step.Name}' has no transition for that answer; no field and value in its table match it."),
             _ when !Allows(considered, visits) => new FlowRunMove.Pause(
                 $"Step '{step.Name}' reached the visit cap of {considered.VisitCap} on its transition to '{considered.Target}'."),
-            { Target: Flow.End } => new FlowRunMove.End(flow.Outcome),
+            { Target: Flow.End } => new FlowRunMove.End(considered.Outcome ?? flow.Outcome),
             { Target: Flow.Pause } => new FlowRunMove.Pause(
                 $"Step '{step.Name}' pauses on its answer, as its transition table says."),
             _ => GoTo(flow, position, considered.Target),
