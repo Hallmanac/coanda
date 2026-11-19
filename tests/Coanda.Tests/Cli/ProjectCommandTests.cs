@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Coanda.Cli;
 using Coanda.Cli.Commands;
@@ -6,12 +5,10 @@ using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
-using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Modules.Software;
 using Coanda.Tests.Daemon;
 using Microsoft.Extensions.DependencyInjection;
-using Xunit.Sdk;
 
 namespace Coanda.Tests.Cli;
 
@@ -24,8 +21,6 @@ namespace Coanda.Tests.Cli;
 public sealed partial class ProjectCommandTests
 {
     private static readonly CancellationToken None = CancellationToken.None;
-    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(60);
-    private static readonly string Coa = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "coa.exe" : "coa");
 
     [Fact]
     public void Each_setting_is_sent_by_module_and_setting_name_its_value_read_as_json_when_it_is_json_and_as_text_otherwise()
@@ -271,35 +266,6 @@ public sealed partial class ProjectCommandTests
     [GeneratedRegex(@"(?<=\s)--[a-z][a-z-]*")]
     private static partial Regex OptionNames();
 
-    private sealed record Ran(int ExitCode, string Output, string Error);
-
     /// <summary>Runs the built <c>coa</c> against <paramref name="home"/>, whose daemon the test started, until it exits.</summary>
-    private static async Task<Ran> RunAsync(NodeHome home, params string[] arguments)
-    {
-        var start = new ProcessStartInfo(Coa) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (string argument in arguments)
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        start.Environment[NodeHome.EnvironmentVariable] = home.Path;
-        start.Environment.Remove(SessionAccess.TokenVariable);
-        start.Environment.Remove(SessionAccess.HomeVariable);
-        start.Environment.Remove("COANDA_PROJECT");
-
-        using Process process = Process.Start(start) ?? throw new XunitException($"{Coa} did not start.");
-        Task<string> output = process.StandardOutput.ReadToEndAsync(None);
-        Task<string> error = process.StandardError.ReadToEndAsync(None);
-        try
-        {
-            await process.WaitForExitAsync(None).WaitAsync(Bound);
-        }
-        catch (TimeoutException)
-        {
-            process.Kill(entireProcessTree: true);
-            throw new XunitException($"coa {string.Join(' ', arguments)} did not return within {Bound.TotalSeconds:0} seconds.");
-        }
-
-        return new Ran(process.ExitCode, await output.WaitAsync(Bound), await error.WaitAsync(Bound));
-    }
+    private static Task<Ran> RunAsync(NodeHome home, params string[] arguments) => CoaProcess.RunAsync(home, None, arguments);
 }

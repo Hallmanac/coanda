@@ -175,7 +175,7 @@ Both machines list the same parcels.
 ### 6. On the owner's node: add the task the gate builds
 
 ```
-coa parcel add --project coanda --title "<a small, real change>"
+coa parcel add --project coanda --type task --title "<a small, real change>"
 coa parcel set <id> objective --project coanda --text "<what it should do>"
 coa parcel set <id> criteria --project coanda --item "<how to tell it is done>"
 ```
