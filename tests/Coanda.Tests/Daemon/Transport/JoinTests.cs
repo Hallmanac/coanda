@@ -141,6 +141,42 @@ public sealed class JoinTests
         Assert.Empty(Directory.EnumerateDirectories(joining.Home.Path, ".join-*"));
     }
 
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public async Task A_join_of_a_registration_naming_an_owner_id_edged_with_whitespace_is_refused_on_a_node_with_no_record_and_leaves_nothing_behind(string ownerId)
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync();
+        await owner.AddProjectAsync(Alpha, principal: new Principal(ownerId, Role.Owner));
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+        NodeOwner joiningOwner = NodeOwner.Of(joining.Home, "the-account");
+
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(
+            () => joining.JoinerOf(joiningOwner).JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None));
+
+        Assert.Contains(NodeOwnerTests.EdgedRefusal(ownerId), refused.Message, StringComparison.Ordinal);
+        Assert.StartsWith("The join was refused: ", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(("the-account", false), (joiningOwner.Id, joiningOwner.Recorded));
+        await NothingLeftAsync(joining);
+    }
+
+    [Fact]
+    public async Task A_join_of_a_registration_naming_an_owner_id_with_whitespace_only_inside_it_records_that_id()
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync();
+        await owner.AddProjectAsync(Alpha, principal: new Principal("a b", Role.Owner));
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+
+        JoinResult joined = await joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None);
+
+        Assert.True(joined.Trusted);
+        Assert.Equal(("a b", true), (joining.Owner.Id, joining.Owner.Recorded));
+        Assert.Equal("a b", NodeOwnerRecord.Read(joining.Home));
+    }
+
     [Fact]
     public async Task A_join_on_a_node_that_records_another_owner_id_is_refused_and_leaves_nothing_behind()
     {

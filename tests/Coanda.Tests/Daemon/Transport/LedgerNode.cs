@@ -135,9 +135,11 @@ internal sealed class LedgerNode : IAsyncDisposable
 
     /// <summary>
     /// Registers <paramref name="project"/> with its one repo at <see cref="RemotePath"/> and makes its clone;
-    /// the remote is made too unless <paramref name="withRemote"/> is false, so a push to it fails.
+    /// the remote is made too unless <paramref name="withRemote"/> is false, so a push to it fails. The registration
+    /// names <paramref name="principal"/>, <see cref="Principal.LocalOwner"/> unless another is given, and records no
+    /// owner id.
     /// </summary>
-    public async Task<Project> AddProjectAsync(string project, bool withRemote = true)
+    public async Task<Project> AddProjectAsync(string project, bool withRemote = true, Principal? principal = null)
     {
         if (withRemote)
         {
@@ -145,7 +147,7 @@ internal sealed class LedgerNode : IAsyncDisposable
         }
 
         Project added = await ProjectServices.Software(Store, TimeProvider.System)
-            .AddAsync(Principal.LocalOwner, project, RemotePath(project), RegisteredProjects.Settings, None);
+            .AddAsync(principal ?? Principal.LocalOwner, project, RemotePath(project), RegisteredProjects.Settings, None);
         await new RepoClones(Store, Home, Runner, NullLogger<RepoClones>.Instance).EnsureAsync(added, None);
         return added;
     }

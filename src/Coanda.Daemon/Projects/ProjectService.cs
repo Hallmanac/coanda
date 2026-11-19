@@ -67,7 +67,8 @@ public sealed class ProjectService(
     /// cannot make is logged and leaves the registration as it is. A node with no owner id record records
     /// the id that registered the project as its owner id (<see cref="NodeOwner"/>): registering is open to the
     /// Owner role alone, which a call reaches only as the node's owner, so that id is the owner's own, and the
-    /// record keeps it from then on.
+    /// record keeps it from then on. An id the owner may not record (<see cref="NodeOwner.RefusalOf"/>) is refused
+    /// before anything is saved, so the project is not registered.
     /// </summary>
     public async Task<Project> AddAsync(
         Principal principal,
@@ -84,6 +85,11 @@ public sealed class ProjectService(
         await writes.WaitAsync(cancellationToken);
         try
         {
+            if (owner?.RefusalOf(owner.Id) is { } refused)
+            {
+                throw new DomainException($"Project '{tenant}' was not registered: {refused}");
+            }
+
             Project? existing = await FindAsync(store, tenant, cancellationToken);
             IReadOnlyList<string> registeredNames = existing is null ? await NamesAsync(store, cancellationToken) : [];
             ProjectRegistered registered = ProjectDecider.Register(tenant, remote, existing, principal.Id, clock.GetUtcNow(), registeredNames);
@@ -306,11 +312,12 @@ public sealed class ProjectService(
     /// a project this node registered itself, as a node that registered projects before the record existed does.
     /// Such a node has acted as that id all along, so its later records and the ones before agree, and a join
     /// cannot then quietly take another id as the owner's (<see cref="NodeOwner.RefusalOf"/>). A project whose
-    /// registration was imported from another node's line does not count. The daemon runs it at start.
+    /// registration was imported from another node's line does not count. The daemon runs it at start, so an id
+    /// the owner may not record (<see cref="NodeOwner.RefusalOf"/>) records nothing rather than stopping the start.
     /// </summary>
     public async Task RecordOwnerAsync(CancellationToken cancellationToken)
     {
-        if (owner is not { Recorded: false })
+        if (owner is not { Recorded: false } || owner.RefusalOf(owner.Id) is not null)
         {
             return;
         }

@@ -60,4 +60,82 @@ public sealed class NodeOwnerTests
 
         Assert.Contains("is not one JSON object holding one non-blank ownerId", Assert.Throws<DomainException>(() => NodeOwnerRecord.Read(temp.Home)).Message, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public void An_owner_with_no_record_is_refused_an_id_that_begins_or_ends_with_whitespace_and_records_nothing(string ownerId)
+    {
+        using var temp = new TemporaryHome();
+        NodeOwner owner = NodeOwner.Of(temp.Home, "the-account");
+
+        Assert.Equal(EdgedRefusal(ownerId), owner.RefusalOf(ownerId));
+        DomainException refused = Assert.Throws<DomainException>(() => owner.Record(ownerId));
+
+        Assert.Equal(EdgedRefusal(ownerId), refused.Message);
+        Assert.Equal(("the-account", false), (owner.Id, owner.Recorded));
+        Assert.Null(NodeOwnerRecord.Read(temp.Home));
+        Assert.False(File.Exists(temp.Home.NodeOwnerPath));
+    }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public void An_owner_with_no_home_and_an_id_edged_with_whitespace_is_refused_recording_it(string ownerId)
+    {
+        var owner = new NodeOwner(ownerId);
+
+        Assert.Equal(EdgedRefusal(ownerId), Assert.Throws<DomainException>(() => owner.Record(owner.Id)).Message);
+        Assert.Equal((ownerId, false), (owner.Id, owner.Recorded));
+    }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public void An_owner_id_record_written_before_the_rule_with_an_id_edged_with_whitespace_is_kept_and_not_refused(string ownerId)
+    {
+        using var temp = new TemporaryHome();
+        NodeOwnerRecord.Write(temp.Home, ownerId);
+        string written = File.ReadAllText(temp.Home.NodeOwnerPath);
+        NodeOwner owner = NodeOwner.Of(temp.Home);
+        Assert.Equal((ownerId, true), (owner.Id, owner.Recorded));
+
+        Assert.Null(owner.RefusalOf(ownerId));
+        owner.Record(ownerId);
+
+        Assert.Equal((ownerId, true), (owner.Id, owner.Recorded));
+        Assert.Equal(written, File.ReadAllText(temp.Home.NodeOwnerPath));
+    }
+
+    [Fact]
+    public void An_owner_id_with_whitespace_only_inside_it_is_recorded_as_it_is()
+    {
+        using var temp = new TemporaryHome();
+        NodeOwner owner = NodeOwner.Of(temp.Home, "the-account");
+
+        Assert.Null(owner.RefusalOf("a b"));
+        owner.Record("a b");
+
+        Assert.Equal(("a b", true), (owner.Id, owner.Recorded));
+        Assert.Equal("a b", NodeOwnerRecord.Read(temp.Home));
+    }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    public void The_owner_of_a_home_with_no_record_takes_the_account_name_given_as_it_is(string accountName)
+    {
+        using var temp = new TemporaryHome();
+
+        NodeOwner owner = NodeOwner.Of(temp.Home, accountName);
+
+        Assert.Equal((accountName, false), (owner.Id, owner.Recorded));
+    }
+
+    /// <summary>The reason an owner with no record gives for refusing <paramref name="ownerId"/>, an id edged with whitespace.</summary>
+    internal static string EdgedRefusal(string ownerId) =>
+        $"The owner id '{ownerId}' cannot be recorded: an owner id may not begin or end with whitespace.";
 }
