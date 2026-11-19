@@ -618,6 +618,7 @@ public sealed class LedgerImportTests
         }
 
         root.Add(Created(out Guid parcel), parcel);
+        DateTimeOffset pushed = DateTimeOffset.UtcNow;
         await root.PushAsync(remote);
 
         // Generous against a loaded machine: the loop itself comes round every quarter of a second.
@@ -631,6 +632,10 @@ public sealed class LedgerImportTests
         }
 
         Assert.Equal([1L, 2L], records.Select(r => r.Sequence).Order());
+
+        // Each record keeps the time this node imported its line, which is not the time the line records.
+        DateTimeOffset stored = DateTimeOffset.UtcNow;
+        Assert.All(records, r => Assert.True(r.ImportedAt >= pushed && r.ImportedAt <= stored, $"Line {r.Sequence} was imported at {r.ImportedAt}."));
         await using (IQuerySession session = store.QuerySession(Alpha))
         {
             Assert.NotNull(await session.LoadAsync<Parcel>(parcel, None));

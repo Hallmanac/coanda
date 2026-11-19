@@ -49,4 +49,12 @@ public sealed class LedgerLine
     /// event and this record are saved together.
     /// </summary>
     public long StoreSequence { get; set; }
+
+    /// <summary>
+    /// The time on this node's clock when the import recorded the line, for a line of another origin; null for a
+    /// line this node authored, and for one imported before the import kept the time. It is no part of the line, so
+    /// the line's bytes and its event are as the origin wrote them. The trigger loop's hourly cap reads it, so a
+    /// parcel an origin recorded as created ahead of this node's clock counts from when it arrived here.
+    /// </summary>
+    public DateTimeOffset? ImportedAt { get; set; }
 }

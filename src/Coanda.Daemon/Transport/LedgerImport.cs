@@ -698,10 +698,11 @@ public sealed class LedgerImport(
     private static ImportFault Refused(Pending pending, Exception refused) =>
         new(pending.Line.Content.Sequence, ImportFaultKind.StoreRefused, $"Line {pending.Line.Content.Sequence} passed every check, and the store refused to append it: {refused.Message}");
 
-    /// <summary>Appends each line's event to the stream it names and keeps its record, all in one save.</summary>
+    /// <summary>Appends each line's event to the stream it names and keeps its record, with the time of the import, all in one save.</summary>
     private async Task SaveAllAsync(string tenant, IReadOnlyList<Pending> batch, CancellationToken cancellationToken)
     {
         await using IDocumentSession session = store.LightweightSession(tenant);
+        DateTimeOffset importedAt = clock.GetUtcNow();
         foreach (Pending pending in batch)
         {
             LineContent content = pending.Line.Content;
@@ -719,6 +720,7 @@ public sealed class LedgerImport(
                 Hash = pending.Line.Hash,
                 Segment = pending.Segment,
                 Line = Encoding.UTF8.GetString(pending.Line.Bytes),
+                ImportedAt = importedAt,
             });
         }
 
