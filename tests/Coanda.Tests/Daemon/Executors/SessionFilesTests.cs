@@ -33,11 +33,11 @@ public sealed class SessionFilesTests : IDisposable
         File.WriteAllText(victim, "untouched");
         Directory.CreateSymbolicLink(Path.Combine(work, ".coanda"), outside);
 
-        SessionFiles.Write(work, SessionFiles.TaskFile, "fresh record");
+        SessionFiles.Write(work, SessionFiles.ParcelFile, "fresh record");
 
-        Assert.False(File.Exists(Path.Combine(outside, "task.md")), "the linked directory is never written into");
+        Assert.False(File.Exists(Path.Combine(outside, "parcel.md")), "the linked directory is never written into");
         Assert.Null(new DirectoryInfo(Path.Combine(work, ".coanda")).LinkTarget);
-        Assert.Equal("fresh record", File.ReadAllText(Path.Combine(work, ".coanda", "task.md")));
+        Assert.Equal("fresh record", File.ReadAllText(Path.Combine(work, ".coanda", "parcel.md")));
 
         File.CreateSymbolicLink(Path.Combine(work, ".coanda", "prompt.md"), victim);
         SessionFiles.Write(work, SessionFiles.PromptFile, "fresh context");

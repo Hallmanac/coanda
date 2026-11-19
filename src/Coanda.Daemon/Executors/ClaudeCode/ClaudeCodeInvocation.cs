@@ -395,7 +395,7 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>
     /// The prompt the session's first process receives: the context itself, so an agent that cannot
-    /// read files still has it, the names of the two files that hold the task record and the
+    /// read files still has it, the names of the two files that hold the parcel's record and the
     /// context, and the answer schema the reply must end in.
     /// </summary>
     public static string Prompt(string context, AnswerSchema schema)
@@ -403,7 +403,7 @@ public static partial class ClaudeCodeInvocation
         ArgumentNullException.ThrowIfNull(schema);
         var prompt = new StringBuilder();
         prompt.Append(context).Append("\n\n");
-        prompt.Append($"The task's record is in {SessionFiles.TaskFile} and this context is in {SessionFiles.PromptFile}, both under your working directory.\n\n");
+        prompt.Append($"The parcel's record is in {SessionFiles.ParcelFile} and this context is in {SessionFiles.PromptFile}, both under your working directory.\n\n");
         prompt.Append("End your reply with your answer: exactly one JSON object, and nothing after it, with a \"verdict\" of ")
             .Append(string.Join(" or ", schema.Verdicts.Select(v => $"\"{v}\"")))
             .Append(". The object must be one that the '")

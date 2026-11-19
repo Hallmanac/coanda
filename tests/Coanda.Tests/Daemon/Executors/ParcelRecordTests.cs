@@ -4,8 +4,8 @@ using Coanda.Daemon.Executors;
 
 namespace Coanda.Tests.Daemon.Executors;
 
-/// <summary>task.md as <see cref="SessionFiles.RenderTask"/> writes it: every value fenced, and the title on one line.</summary>
-public sealed class TaskRecordTests
+/// <summary>parcel.md as <see cref="SessionFiles.RenderParcel"/> writes it: every value fenced, and the title on one line.</summary>
+public sealed class ParcelRecordTests
 {
     private static readonly Guid ParcelId = Guid.Parse("019a4b2c-0000-7000-8000-00000000abcd");
 
@@ -18,13 +18,13 @@ public sealed class TaskRecordTests
         return parcel;
     }
 
-    private static string[] Render(Parcel parcel) => SessionFiles.RenderTask(parcel, SoftwareTypes.Task).Split('\n');
+    private static string[] Render(Parcel parcel) => SessionFiles.RenderParcel(parcel, SoftwareTypes.Task).Split('\n');
 
     /// <summary>The blocks under a field's heading, in order, up to the next heading.</summary>
     private static List<string> BlocksUnder(string[] lines, string field)
     {
         int at = Array.IndexOf(lines, $"## {field}") + 2;
-        Assert.True(at >= 2, $"task.md has no heading for {field}");
+        Assert.True(at >= 2, $"parcel.md has no heading for {field}");
         var blocks = new List<string>();
         while (at < lines.Length && !lines[at].StartsWith("## ", StringComparison.Ordinal))
         {

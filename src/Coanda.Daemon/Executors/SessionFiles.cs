@@ -6,7 +6,7 @@ namespace Coanda.Daemon.Executors;
 
 /// <summary>
 /// The files an agent step's session reads, written under <c>.coanda/</c> at the root of the flow run's work
-/// directory: <c>task.md</c>, the parcel record, and <c>prompt.md</c>, the context the spawn carries,
+/// directory: <c>parcel.md</c>, the parcel record, and <c>prompt.md</c>, the context the spawn carries,
 /// which the runner writes before every spawn, and <c>persona.md</c>, which an adapter that hands its
 /// vendor the persona as a file writes at its spawn and again before every resume, since the resumed
 /// process reads it too. Each is written fresh, owner-only, and never read back by the daemon, so a
@@ -19,7 +19,7 @@ public static class SessionFiles
     public const string DirectoryName = ".coanda";
 
     /// <summary>The parcel record, relative to the work directory; every platform reads the forward slash.</summary>
-    public const string TaskFile = DirectoryName + "/task.md";
+    public const string ParcelFile = DirectoryName + "/parcel.md";
 
     /// <summary>The context the spawn carries, relative to the work directory.</summary>
     public const string PromptFile = DirectoryName + "/prompt.md";
@@ -27,12 +27,12 @@ public static class SessionFiles
     /// <summary>The agent's persona, relative to the work directory.</summary>
     public const string PersonaFile = DirectoryName + "/persona.md";
 
-    /// <summary>Writes <c>task.md</c> and <c>prompt.md</c>, creating the work directory when it is absent.</summary>
+    /// <summary>Writes <c>parcel.md</c> and <c>prompt.md</c>, creating the work directory when it is absent.</summary>
     public static void WriteInputs(string workingDirectory, Parcel parcel, ParcelType type, string context)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(type);
-        Write(workingDirectory, TaskFile, RenderTask(parcel, type));
+        Write(workingDirectory, ParcelFile, RenderParcel(parcel, type));
         Write(workingDirectory, PromptFile, context);
     }
 
@@ -65,7 +65,7 @@ public static class SessionFiles
     /// block for a text, one per item of a list, and one each for a reference's id and URL. The words
     /// "not set" stay outside every fence, so an unset field and a text reading "not set" differ.
     /// </summary>
-    public static string RenderTask(Parcel parcel, ParcelType type)
+    public static string RenderParcel(Parcel parcel, ParcelType type)
     {
         ArgumentNullException.ThrowIfNull(parcel);
         ArgumentNullException.ThrowIfNull(type);

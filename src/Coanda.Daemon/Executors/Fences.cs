@@ -10,7 +10,7 @@ namespace Coanda.Daemon.Executors;
 public static partial class Fences
 {
     /// <summary>
-    /// The sentence that opens <c>prompt.md</c> and <c>task.md</c>. It covers only the fenced values,
+    /// The sentence that opens <c>prompt.md</c> and <c>parcel.md</c>. It covers only the fenced values,
     /// since the answer instructions the executor sends after the context sit outside every fence.
     /// </summary>
     public const string Framing =
