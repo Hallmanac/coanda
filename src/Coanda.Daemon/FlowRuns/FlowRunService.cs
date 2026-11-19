@@ -425,18 +425,48 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     }
 
     /// <summary>The project's flow runs, or one parcel's when <paramref name="parcelId"/> is given, oldest first.</summary>
-    public async Task<IReadOnlyList<FlowRun>> ListAsync(Principal principal, string project, Guid? parcelId, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<FlowRun>> ListAsync(Principal principal, string project, Guid? parcelId, CancellationToken cancellationToken) =>
+        ListAsync(principal, project, parcelId, null, null, cancellationToken);
+
+    /// <summary>
+    /// The project's flow runs, oldest first, narrowed to those meeting every filter given: on the parcel
+    /// <paramref name="parcelId"/>, started under the flow whose hash is <paramref name="flowHash"/>, and
+    /// holding a step visit whose agent hash, the one it last launched or answered from, is
+    /// <paramref name="agentHash"/>. Hashes compare ordinally, so a hash differing only in case matches
+    /// nothing, and a visit holding no agent hash matches no agent hash. A hash given empty or blank is
+    /// refused rather than read as not given.
+    /// </summary>
+    public async Task<IReadOnlyList<FlowRun>> ListAsync(
+        Principal principal, string project, Guid? parcelId, string? flowHash, string? agentHash, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.list", principal);
         string tenant = Tenants.RequireProject(project);
         SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        RequireHashGivenWithValue("flow", flowHash);
+        RequireHashGivenWithValue("agent", agentHash);
 
         await using IQuerySession session = store.QuerySession(tenant);
         IReadOnlyList<FlowRun> flowRuns = parcelId is Guid parcel
             ? await session.Query<FlowRun>().Where(f => f.ParcelId == parcel).ToListAsync(cancellationToken)
             : await session.Query<FlowRun>().ToListAsync(cancellationToken);
-        return [.. flowRuns.OrderBy(f => f.StartedAt).ThenBy(f => f.Id)];
+        return [.. flowRuns
+            .Where(f => flowHash is null || string.Equals(f.FlowHash, flowHash, StringComparison.Ordinal))
+            .Where(f => agentHash is null || f.Steps.Any(s => string.Equals(s.AgentHash, agentHash, StringComparison.Ordinal)))
+            .OrderBy(f => f.StartedAt)
+            .ThenBy(f => f.Id)];
+    }
+
+    /// <summary>The refusal of a <paramref name="kind"/> hash filter given with an empty or blank value.</summary>
+    public static string BlankHashFilter(string kind) =>
+        $"A {kind} hash to list flow runs by cannot be empty or blank; leave it out to list flow runs under any {kind} hash.";
+
+    private static void RequireHashGivenWithValue(string kind, string? hash)
+    {
+        if (hash is not null && string.IsNullOrWhiteSpace(hash))
+        {
+            throw new DomainException(BlankHashFilter(kind));
+        }
     }
 
     public async Task<FlowRun?> ShowAsync(Principal principal, string project, Guid flowRunId, CancellationToken cancellationToken)
