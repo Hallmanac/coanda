@@ -93,12 +93,15 @@ public sealed class FlowRunResumeAnswerApiTests
         await daemon.StopAsync(None);
     }
 
-    private static FlowStep Hold(string name, string target) => new()
+    /// <summary>A wait-for-human step going to <paramref name="target"/>, on the answer <paramref name="answer"/> when one is named and otherwise on done.</summary>
+    private static FlowStep Hold(string name, string target, string? answer = null) => new()
     {
         Name = name,
         SystemStep = CoreSystemSteps.WaitForHuman,
         Arguments = new Dictionary<string, JsonElement> { ["lever"] = FlowValue.Of("Resume with an answer.") },
-        Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 2, Target = target }],
+        Transitions = answer is null
+            ? [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 2, Target = target }]
+            : [new FlowTransition { Field = "answer", Value = FlowValue.Of(answer), VisitCap = 2, Target = target }],
     };
 
     internal static Flow TwoHolds() => new()
@@ -108,7 +111,7 @@ public sealed class FlowRunResumeAnswerApiTests
         Outcome = "approved",
         Budget = 1m,
         SpawnCap = 1,
-        Steps = [Hold("approve", "confirm"), Hold("confirm", Flow.End)],
+        Steps = [Hold("approve", "confirm", "approve"), Hold("confirm", Flow.End)],
     };
 
     private static Flow PausingHold() => new()
@@ -118,7 +121,7 @@ public sealed class FlowRunResumeAnswerApiTests
         Outcome = "approved",
         Budget = 1m,
         SpawnCap = 1,
-        Steps = [Hold("approve", Flow.Pause)],
+        Steps = [Hold("approve", Flow.Pause, "approve")],
     };
 
     internal static async Task<Guid> StartedAsync(RunningDaemon daemon, DaemonClient client, Flow flow)

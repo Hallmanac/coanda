@@ -464,12 +464,17 @@ public static class FlowRunDecider
 
         string? trimmed = answer is null
             ? null
-            : ResumeAnswer(flowRun, answer);
+            : ResumeAnswer(flow, flowRun, answer);
         return new FlowRunResumed(flowRun.Id, resumedBy, note?.Trim() ?? string.Empty, now, trimmed);
     }
 
-    /// <summary>The trimmed answer a resume records, refused when it breaks the answer's rule or would reach no step.</summary>
-    private static string ResumeAnswer(FlowRun flowRun, string answer)
+    /// <summary>
+    /// The trimmed answer a resume records, refused when it breaks the answer's rule, would reach no
+    /// step, or would reach a step that does not route on it: only an unrecorded visit to a
+    /// wait-for-human step takes an answer, and only one <see cref="WaitForHumanAnswer.Refusal"/>
+    /// accepts at that visit.
+    /// </summary>
+    private static string ResumeAnswer(Flow flow, FlowRun flowRun, string answer)
     {
         string trimmed = answer.Trim();
         if (trimmed.Length == 0)
@@ -493,9 +498,13 @@ public static class FlowRunDecider
         {
             null => throw new DomainException(
                 $"Flow run {Ids.Short(flowRun.Id)} has entered no step, so an answer would reach no step; resume without one."),
+            { } current when current is not { Kind: StepKind.SystemStep, Performer: CoreSystemSteps.WaitForHuman } => throw new DomainException(
+                $"Flow run {Ids.Short(flowRun.Id)}'s current step '{current.Step}' is not a wait-for-human step; only a wait-for-human step takes an answer, so resume without one."),
             { IsRecorded: true } current => throw new DomainException(
                 $"Flow run {Ids.Short(flowRun.Id)}'s visit of step '{current.Step}' has recorded, so the resume performs it again as a new visit and an answer would reach no step; resume without one."),
-            _ => trimmed,
+            { } current => WaitForHumanAnswer.Refusal(StepOf(flow, current.Step), flowRun.Position.VisitsTo(current.Step), trimmed) is string refusal
+                ? throw new DomainException(refusal)
+                : trimmed,
         };
     }
 
@@ -680,6 +689,10 @@ public static class FlowRunDecider
         FlowRunStatus.Stopped => "has been stopped",
         _ => $"is {status}",
     };
+
+    private static FlowStep StepOf(Flow flow, string step) =>
+        flow.Step(step)
+            ?? throw new DomainException($"Flow '{flow.Name}' has no step '{step}'; the flow run's current step must be one of its steps.");
 
     private static StepKind KindOf(FlowStep step) => step.IsAgentStep ? StepKind.AgentStep : StepKind.SystemStep;
 
