@@ -38,7 +38,8 @@ public sealed class ModuleImportTests
     /// <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>), and the three discovery definitions, which have
     /// since come to derive tasks: the idea type declares the task type in its derive list, the discovery
     /// flow's derive-parcels step names the step it derives from and waits behind a gate where a person
-    /// answers pursue or stop, and the discovery agent's answer lists the parcels it derives (the hashes
+    /// answers pursue or stop, and whose carry-forward and stop transitions name the outcomes
+    /// carried-forward and stopped, so its three endings record three outcomes, and the discovery agent's answer lists the parcels it derives (the hashes
     /// they had before are pinned in
     /// <see cref="Coanda.Tests.Core.ParcelTypeFieldTests"/>, <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>,
     /// and <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>).
@@ -49,7 +50,7 @@ public sealed class ModuleImportTests
         { DefinitionKind.ParcelType, "task", "3e16509d2543dbb9" },
         { DefinitionKind.Flow, "build", "96172170513f94b9" },
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
-        { DefinitionKind.Flow, "discovery", "07ed9c92745c142c" },
+        { DefinitionKind.Flow, "discovery", "95e0c2cb2e8aeb43" },
         { DefinitionKind.Flow, "review-on-assignment", "fabaabb2eb82ff10" },
         { DefinitionKind.Agent, "build", "039f9385559d36aa" },
         { DefinitionKind.Agent, "reviewer-adversarial", "282d8d44b1c51255" },

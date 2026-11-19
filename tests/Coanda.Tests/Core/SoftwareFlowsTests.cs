@@ -58,19 +58,20 @@ public sealed class SoftwareFlowsTests
     [Fact]
     public void The_shipped_flows_accept_types_that_ship_and_declare_their_outcomes()
     {
-        (string Name, string Accepts, string Outcome)[] expected =
+        (string Name, string Accepts, string Outcome, string[] EndsWith)[] expected =
         [
-            ("build", "task", "pr-opened"),
-            ("merge", "task", "merged"),
-            ("discovery", "idea", "parcels-derived"),
-            ("review-on-assignment", "task", "report-produced"),
+            ("build", "task", "pr-opened", ["pr-opened"]),
+            ("merge", "task", "merged", ["merged"]),
+            ("discovery", "idea", "parcels-derived", ["carried-forward", "parcels-derived", "stopped"]),
+            ("review-on-assignment", "task", "report-produced", ["report-produced"]),
         ];
 
-        foreach ((string name, string accepts, string outcome) in expected)
+        foreach ((string name, string accepts, string outcome, string[] endsWith) in expected)
         {
             Flow flow = SoftwareFlows.Find(name)!;
             Assert.Equal([accepts], flow.Accepts);
             Assert.Equal(outcome, flow.Outcome);
+            Assert.Equal(endsWith, flow.EndOutcomes.Order(StringComparer.Ordinal));
             Assert.NotNull(SoftwareTypes.Find(accepts));
         }
     }
@@ -178,8 +179,8 @@ public sealed class SoftwareFlowsTests
         Assert.Equal(["lever"], gate.Arguments.Keys);
         Assert.Equal(SoftwareFlows.DiscoveryGateLever, gate.Arguments["lever"].GetString());
         Assert.Equal(
-            [("answer", "pursue", "derive-parcels"), ("answer", "stop", Flow.End)],
-            gate.Transitions.Select(t => (t.Field, t.Value.GetString(), t.Target)));
+            [("answer", "pursue", "derive-parcels", null), ("answer", "stop", Flow.End, "stopped")],
+            gate.Transitions.Select(t => (t.Field, t.Value.GetString(), t.Target, t.Outcome)));
 
         string derive = "derive-parcels";
         FlowStep deriveStep = discovery.Step(derive)!;
@@ -187,7 +188,9 @@ public sealed class SoftwareFlowsTests
         Assert.Equal(["from"], deriveStep.Arguments.Keys);
         Assert.Equal(agentStep.Name, deriveStep.Arguments["from"].GetString());
         Assert.Equal(Flow.End, Next(discovery, derive, "done"));
+        Assert.Null(deriveStep.Transitions.Single().Outcome);
         Assert.Equal(Flow.End, Next(discovery, agentStep.Name, "carry-forward"));
+        Assert.Equal("carried-forward", agentStep.Transitions.Single(t => t.Value.GetString() == "carry-forward").Outcome);
         Assert.Equal("parcels-derived", discovery.Outcome);
         Assert.Equal(3, discovery.Steps.Count);
     }
@@ -317,7 +320,9 @@ public sealed class SoftwareFlowsTests
         Assert.Equal("96172170513f94b9", SoftwareFlows.Build.Hash);
         // the build flow as main shipped it before its review diff step
         Assert.Equal("728a81e81272ed5e", PreviousFlows.BuildBeforeReviewDiff.Hash);
-        Assert.Equal("07ed9c92745c142c", SoftwareFlows.Discovery.Hash);
+        Assert.Equal("95e0c2cb2e8aeb43", SoftwareFlows.Discovery.Hash);
+        // the discovery flow as main shipped it before its transitions to end named their outcomes
+        Assert.Equal("07ed9c92745c142c", PreviousFlows.DiscoveryBeforeOutcomes.Hash);
         // the discovery flow as main shipped it before its gate
         Assert.Equal("abe00b1f353b1872", PreviousFlows.DiscoveryBeforeGate.Hash);
         // the discovery flow as main shipped it before its derive-parcels step named the step it derives from
