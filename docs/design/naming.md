@@ -63,7 +63,7 @@ built, its entry says so.
   it to its type's paused stage, which records who moved it but no reason, and the parcel's paused
   as a condition that keeps its stage is settled but not built.
 - module: A module is a domain's code and definitions that extend the core, run out of process as
-  a program the daemon supervises, and software engineering is the first; until phase 5 the daemon
+  a program the daemon supervises, and software engineering is the first; until phase 6 the daemon
   hosts the software module in process.
 - module archive: A module archive is the one file that `coa module export` writes from a
   module's artifact directory and `coa module install` reads, for carrying a module between nodes
