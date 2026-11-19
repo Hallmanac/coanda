@@ -12,7 +12,7 @@ public sealed class NodeRenderingTests
     private const string Key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
     private const string Rule =
-        "Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this build neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.";
+        "Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this version of coa neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.";
 
     private const string NotYetTrusted =
         "This node's key is not yet trusted in project alpha by the records this node holds: no vouch that counts for it has arrived at this node. A node counts the vouch recorded here only once that node trusts this node's key.";
@@ -71,7 +71,7 @@ public sealed class NodeRenderingTests
         Assert.Contains("Every node in the project accepts what a vouched node records", Rule, StringComparison.Ordinal);
         Assert.Contains("checks the role of the node that signed what it imports", Rule, StringComparison.Ordinal);
         Assert.Contains("asks you to accept a project's commands before this node runs them", Rule, StringComparison.Ordinal);
-        Assert.Contains("this build neither", Rule, StringComparison.Ordinal);
+        Assert.Contains("this version of coa neither", Rule, StringComparison.Ordinal);
     }
 
     [Fact]

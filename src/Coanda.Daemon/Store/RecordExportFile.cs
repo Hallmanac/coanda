@@ -49,7 +49,7 @@ public sealed record RecordExportFile(
 
         if (export.Format != CurrentFormat)
         {
-            throw new DomainException($"The export at {path} is in format {export.Format}, and this build reads format {CurrentFormat} only, so nothing was changed.");
+            throw new DomainException($"The export at {path} is in format {export.Format}, and this version of coa reads format {CurrentFormat} only, so nothing was changed.");
         }
 
         for (int i = 0; i < export.Events.Count; i++)

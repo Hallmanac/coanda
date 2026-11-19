@@ -211,7 +211,7 @@ public sealed class SignedLine
 
         if (version != FormatVersion)
         {
-            fault = $"its format version {format.GetRawText()} is not one this build reads";
+            fault = $"its format version {format.GetRawText()} is not one this version of coa reads";
             return null;
         }
 

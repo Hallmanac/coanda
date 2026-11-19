@@ -91,7 +91,7 @@ public sealed class NodeVouchCommand : AsyncCommand<NodeVouchSettings>
 
     /// <summary>The rule for which nodes may be vouched, printed on every answer, and what would lift it.</summary>
     public const string VouchingRule =
-        "Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this build neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.";
+        "Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this version of coa neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.";
 }
 
 public sealed class JoinSettings : CommandSettings

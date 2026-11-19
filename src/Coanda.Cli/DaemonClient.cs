@@ -172,14 +172,14 @@ public sealed class DaemonClient : IDisposable
 
     /// <summary>
     /// What <c>coa daemon start</c> says when it finds <paramref name="running"/> already running:
-    /// null when that daemon is this build's, and otherwise a refusal naming both versions.
+    /// null when that daemon is this version of coa's, and otherwise a refusal naming both versions.
     /// </summary>
     public static string? RefusalToStartBeside(DaemonInfo running) =>
         IsOtherVersion(running)
-            ? $"A daemon from another build is already running on {running.BaseAddress} (pid {running.Pid}): it {VersionOf(running)}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start."
+            ? $"A daemon from another version of coa is already running on {running.BaseAddress} (pid {running.Pid}): it {VersionOf(running)}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start."
             : null;
 
-    /// <summary>True when <paramref name="info"/> records no version or one not exactly this build's.</summary>
+    /// <summary>True when <paramref name="info"/> records no version or one not exactly this version's.</summary>
     private static bool IsOtherVersion(DaemonInfo info) => !string.Equals(info.Version, DaemonHost.Version, StringComparison.Ordinal);
 
     private static string VersionOf(DaemonInfo info) =>

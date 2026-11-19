@@ -94,7 +94,7 @@ public sealed class DaemonVersionTests
         DaemonInfo? found = await client.FindRunningAsync(None);
         Assert.NotNull(found);
 
-        Assert.Equal($"A daemon from another build is already running on {found.BaseAddress} (pid {found.Pid}): it is version {OtherVersion}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start.", DaemonClient.RefusalToStartBeside(found));
+        Assert.Equal($"A daemon from another version of coa is already running on {found.BaseAddress} (pid {found.Pid}): it is version {OtherVersion}, but this coa is version {DaemonHost.Version}. Run coa daemon stop first, then coa daemon start.", DaemonClient.RefusalToStartBeside(found));
         Assert.Null(DaemonClient.RefusalToStartBeside(found with { Version = DaemonHost.Version }));
     }
 

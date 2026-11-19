@@ -22,7 +22,7 @@ public sealed class PreRenameStoreTests
     /// <summary>A parcel as a build from before the daemon recorded definitions created it, carrying a state rather than a stage.</summary>
     private const string PreDefinitionsParcel = """{"parcelId":"0192a3b4-0000-7000-8000-000000000001","project":"alpha","typeName":"task","state":"refine","title":"Written before definitions","createdBy":"owner","createdAt":"2026-11-03T09:00:00+00:00"}""";
 
-    private const string Refusal = "*written by a build from before the stage and step names*Move the node home aside*.pre-stage'*";
+    private const string Refusal = "*written by a version of coa from before the stage and step names*Move the node home aside*.pre-stage'*";
 
     /// <summary>Writes a record holding only the given drafted definitions, the way an older build would have left them.</summary>
     private static void WriteRecord(NodeHome home, params string[] drafted) =>

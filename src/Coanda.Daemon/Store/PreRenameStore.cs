@@ -58,9 +58,9 @@ public static class PreRenameStore
         if (Holds(home.DatabasePath, Query))
         {
             throw new DomainException(
-                $"The record at {home.DatabasePath} was written by a build from before the stage and step names "
+                $"The record at {home.DatabasePath} was written by a version of coa from before the stage and step names "
                 + "(a position in a type's lifecycle was called a state then, and a step was a judgment or an action), "
-                + "and this build cannot read it. Move the node home aside (for example "
+                + "and this version cannot read it. Move the node home aside (for example "
                 + $"'mv {home.Path} {home.Path}.pre-stage') and start again; a fresh home is created on the first start.");
         }
     }

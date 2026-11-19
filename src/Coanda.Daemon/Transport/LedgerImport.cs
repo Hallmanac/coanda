@@ -728,7 +728,7 @@ public sealed class LedgerImport(
     /// <summary>
     /// The line's event as this build's type of it, or the fault that refuses it: a type this build has no event
     /// type for, an earlier shape, data that does not read as the type, or data that holds what this build's
-    /// type of it does not, as a later build's shape would. The event is stored as this build writes it, so a
+    /// type of it does not, as a later version's shape would. The event is stored as this build writes it, so a
     /// line is stored only when that is the line's data exactly, member for member, and the stored event and
     /// the signed line kept beside it never differ.
     /// </summary>
@@ -738,7 +738,7 @@ public sealed class LedgerImport(
         long sequence = line.Content.Sequence;
         if (!eventTypes.Value.TryGetValue(stored.Type, out Type? type))
         {
-            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence} is a '{stored.Type}', a type this build has no event type for: an earlier shape, which import refuses."));
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence} is a '{stored.Type}', a type this version of coa has no event type for: an earlier shape, which import refuses."));
         }
 
         // The line is judged before its signer is, so its data may be anything a key put in it: whatever
@@ -750,7 +750,7 @@ public sealed class LedgerImport(
         }
         catch (Exception unjudged)
         {
-            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence}'s data could not be judged as this build's '{stored.Type}': {unjudged.Message}"));
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence}'s data could not be judged as this version's '{stored.Type}': {unjudged.Message}"));
         }
 
         if (why is not null)
@@ -770,12 +770,12 @@ public sealed class LedgerImport(
 
         if (data is null)
         {
-            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence}'s data does not read as this build's '{stored.Type}'."));
+            return (null, new ImportFault(sequence, ImportFaultKind.EarlierShape, $"Line {sequence}'s data does not read as this version's '{stored.Type}'."));
         }
 
         return JsonNode.DeepEquals(JsonNode.Parse(stored.Data), JsonNode.Parse(store.Options.Serializer.ToJson(data)))
             ? (data, null)
-            : (null, new ImportFault(sequence, ImportFaultKind.LaterShape, $"Line {sequence}'s data is not this build's '{stored.Type}' as it writes one: it holds a member this build does not know or a value it writes otherwise, as a later build's shape would, and storing it would drop that from the stored event."));
+            : (null, new ImportFault(sequence, ImportFaultKind.LaterShape, $"Line {sequence}'s data is not this version's '{stored.Type}' as it writes one: it holds a member this version does not know or a value it writes otherwise, as a later version's shape would, and storing it would drop that from the stored event."));
     }
 
     /// <summary>The identity events in every line this node holds a record of, each with its signer key, origin, and sequence.</summary>
