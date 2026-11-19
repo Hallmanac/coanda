@@ -70,9 +70,11 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
 
     /// <summary>
     /// Health: the module answers once its start-up sweep has run, which the first call runs. The sweep
-    /// removes the worktree of every flow run an existing clone lists that the core shows ended or stopped,
-    /// noting each such flow run's end even where its removal fails, and leaves the rest. A sweep that fails
-    /// is logged and the module answers all the same; a cancelled one runs again on the next call.
+    /// first repairs every linked worktree each clone lists whose directory exists, so one whose clone the
+    /// core moved works again, and then removes the worktree of every flow run an existing clone lists that
+    /// the core shows ended or stopped, noting each such flow run's end even where its removal fails, and
+    /// leaves the rest. A sweep that fails is logged and the module answers all the same; a cancelled one
+    /// runs again on the next call.
     /// </summary>
     public async Task HealthAsync(CancellationToken cancellationToken)
     {
@@ -211,7 +213,7 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
         }
         catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogError(failure, "Sweeping the worktrees of ended and stopped flow runs failed; the module starts without it.");
+            logger.LogError(failure, "Repairing the clones' worktrees and sweeping those of ended and stopped flow runs failed; the module starts without it, and the next start tries again.");
         }
     }
 
