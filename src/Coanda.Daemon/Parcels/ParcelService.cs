@@ -5,6 +5,7 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
@@ -60,6 +61,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.move", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
 
         await using IDocumentSession session = store.LightweightSession(tenant);
         var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
@@ -92,6 +94,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.set-field", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IDocumentSession session = store.LightweightSession(tenant);
@@ -159,6 +162,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
@@ -170,6 +174,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.show", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
@@ -184,6 +189,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.show", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
@@ -195,6 +201,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
@@ -207,6 +214,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("type.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await definitions.ResolveParcelTypeAsync(tenant, name, cancellationToken);
     }
@@ -216,6 +224,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("parcel.show", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await definitions.ResolveParcelTypeByHashAsync(tenant, typeHash, cancellationToken);
     }
@@ -225,6 +234,7 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
     {
         CommandRegistry.Require("type.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await definitions.ResolveParcelTypesAsync(tenant, cancellationToken);
     }

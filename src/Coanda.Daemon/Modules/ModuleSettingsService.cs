@@ -5,6 +5,7 @@ using Coanda.Core.Modules;
 using Coanda.Core.Modules.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Registry;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Sdk.Contract;
@@ -160,6 +161,7 @@ public sealed class ModuleSettingsService(IDocumentStore store, TimeProvider clo
     {
         string tenant = Tenants.RequireProject(project);
         string moduleName = ModuleNames.Require(module);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         if (principal.Role == Role.Module && !string.Equals(principal.Module, moduleName, StringComparison.Ordinal))
         {
