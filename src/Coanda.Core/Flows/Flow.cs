@@ -247,19 +247,40 @@ public sealed record Flow
                 $"System step '{step.Name}' of flow '{Name}' declares sources; only an agent step declares the sources its context carries.");
         }
 
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seenSteps = new HashSet<string>(StringComparer.Ordinal);
+        var seenOthers = new HashSet<(string Kind, string First, string Second)>();
         foreach ((FlowSource? source, int position) in step.Sources.Select((source, index) => ((FlowSource?)source, index + 1)))
         {
+            string at = $"Agent step '{step.Name}' of flow '{Name}' declares source {position}";
+
             // Read content can carry a null element, whatever the annotations say.
-            string named = source switch
+            (string Kind, string First, string Second) key = source switch
             {
-                null => throw new DomainException(
-                    $"Agent step '{step.Name}' of flow '{Name}' declares source {position} as null; each source is an object naming the step it reads."),
-                { Step: { } name } when !string.IsNullOrWhiteSpace(name) => name,
+                null => throw new DomainException($"{at} as null; each source is an object naming the step it reads."),
+                { Type: not null, Flow: not null } or { Type: not null, Step: not null } or { Type: not null, Origin: not null }
+                    or { Origin: not null, Flow: not null } or { Origin: not null, Step: not null } => throw new DomainException(
+                        $"{at}, which names more than one kind; a source names one of a step, a flow and its step, a type, or the origin."),
+                { Type: { } type } => ("type", PlainSourceName(at, "type", type), string.Empty),
+                { Origin: true } => ("origin", string.Empty, string.Empty),
+                { Flow: { } flow, Step: null } => throw new DomainException(
+                    $"{at}, which names the flow '{flow}' and no step; a source naming a flow names the step of it whose latest recording on the parcel its context carries."),
+                { Flow: { } flow, Step: { } flowStep } => ("flow", PlainSourceName(at, "flow", flow), PlainSourceName(at, "step", flowStep)),
+                { Step: { } name } when !string.IsNullOrWhiteSpace(name) => ("step", name, string.Empty),
                 _ => throw new DomainException(
-                    $"Agent step '{step.Name}' of flow '{Name}' declares source {position}, which names no step; a source names the step of the flow whose latest recording its context carries."),
+                    $"{at}, which names no kind; a source names a step of the flow (Step), a step of a named flow (Flow and Step), the open parcels of a type (Type), or the parcel's origin (Origin true)."),
             };
 
+            if (key.Kind is not "step")
+            {
+                if (!seenOthers.Add(key))
+                {
+                    throw new DomainException($"{at}, which is the same as an earlier source; a step declares each source once.");
+                }
+
+                continue;
+            }
+
+            string named = key.First;
             if (Step(named) is null)
             {
                 throw new DomainException(
@@ -272,13 +293,20 @@ public sealed record Flow
                     $"Agent step '{step.Name}' of flow '{Name}' declares itself as a source; a step's own earlier visits are not a source.");
             }
 
-            if (!seen.Add(named))
+            if (!seenSteps.Add(named))
             {
                 throw new DomainException(
                     $"Agent step '{step.Name}' of flow '{Name}' declares the source step '{named}' twice; a step declares each source once.");
             }
         }
     }
+
+    /// <summary>A name a source of a new kind carries, refused unless it is plain; no other definition is consulted.</summary>
+    private static string PlainSourceName(string at, string what, string name) =>
+        IsPlainName(name)
+            ? name
+            : throw new DomainException(
+                $"{at} naming the {what} '{name}'; a {what}'s name in a source is plain: letters, digits, hyphens, and underscores, and not empty.");
 
     private void ValidateSystemStep(FlowStep step, string systemStep, IReadOnlySet<string> knownSystemSteps, StepArgumentCheck? stepArguments, bool hasSchema)
     {
@@ -392,7 +420,38 @@ public sealed record Flow
 
         if (step.Sources.Count > 0)
         {
-            node["sources"] = JsonSerializer.SerializeToNode(step.Sources.Select(source => source is null ? null : new { step = source.Step }));
+            node["sources"] = new JsonArray([.. step.Sources.Select(SourceNode)]);
+        }
+
+        return node;
+    }
+
+    /// <summary>
+    /// A source's hashed shape: <c>{ step }</c> as a step source always hashed, with the flow, the type,
+    /// and the origin joining it only when set, so a flow whose sources name only steps hashes as before.
+    /// </summary>
+    private static JsonNode? SourceNode(FlowSource? source)
+    {
+        if (source is null)
+        {
+            return null;
+        }
+
+        JsonNode node = JsonSerializer.SerializeToNode(new { step = source.Step })
+            ?? throw new InvalidOperationException("A source's canonical form serialized to nothing.");
+        if (source.Flow is not null)
+        {
+            node["flow"] = source.Flow;
+        }
+
+        if (source.Type is not null)
+        {
+            node["type"] = source.Type;
+        }
+
+        if (source.Origin is { } origin)
+        {
+            node["origin"] = origin;
         }
 
         return node;
