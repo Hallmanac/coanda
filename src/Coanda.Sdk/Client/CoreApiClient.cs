@@ -58,6 +58,20 @@ public sealed class CoreApiClient(HttpClient http, CoreApiOptions options)
         GetAsync<IReadOnlyList<CoreFlowRun>>($"/flow-runs?project={Uri.EscapeDataString(project)}&parcel={parcelId}", cancellationToken);
 
     /// <summary>
+    /// Every flow run of <paramref name="project"/>, on any of its parcels, oldest first, with their steps:
+    /// those started under the flow whose hash is <paramref name="flowHash"/> when it is given, and those
+    /// with a step visit whose agent hash is <paramref name="agentHash"/> when it is given, or both when both
+    /// are. A hash matches only exactly, case included; one given empty or blank the core refuses.
+    /// </summary>
+    public Task<IReadOnlyList<CoreFlowRun>> ProjectFlowRunsAsync(string project, string? flowHash, string? agentHash, CancellationToken cancellationToken)
+    {
+        string path = $"/flow-runs?project={Uri.EscapeDataString(project)}";
+        path = flowHash is null ? path : $"{path}&flowHash={Uri.EscapeDataString(flowHash)}";
+        path = agentHash is null ? path : $"{path}&agentHash={Uri.EscapeDataString(agentHash)}";
+        return GetAsync<IReadOnlyList<CoreFlowRun>>(path, cancellationToken);
+    }
+
+    /// <summary>
     /// Records <paramref name="value"/> in the parcel's field <paramref name="field"/> under the dispatch
     /// <paramref name="dispatchId"/> of the flow run <paramref name="flowRunId"/>, which the module holds,
     /// and returns the parcel as the write left it.
