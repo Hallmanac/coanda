@@ -267,6 +267,34 @@ public sealed class DeriveParcelsFlowRunTests
     }
 
     [Fact]
+    public async Task A_parcel_created_before_its_type_could_derive_pauses_saying_it_keeps_the_earlier_version()
+    {
+        ParcelType before = Source with { Name = "elder", Derives = [] };
+        ParcelType after = before with { Derives = ["piece"] };
+        Flow flow = Split(Flow.End) with { Accepts = [before.Name] };
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await StartAsync(temp);
+        using var client = new DaemonClient(temp.Home);
+        await Publishing.TypeAsync(daemon, Project, before);
+        await Publishing.FlowAsync(daemon, Project, flow);
+        ParcelView elder = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, before.Name, "Split me", null), None);
+        await Publishing.TypeAsync(daemon, Project, after);
+        FlowRunView started = await FlowRunDriver.StartAsync(client, Project, elder.Id, flow.Name);
+
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, started.Id, "paused");
+
+        Assert.Equal("derive", paused.CurrentStep);
+        Assert.Equal(
+            "Step 'derive' could not derive parcels: entry 1 of the answer of step 'plan' names the type 'piece', which the flow run's parcel's type 'elder' "
+            + $"does not list as one it may derive; it declares no type it may derive. The parcel was created under version {before.Hash} of its type and keeps "
+            + $"that version, so the version {after.Hash} the project holds now, which may derive 'piece', does not apply to it; resuming cannot derive from this parcel.",
+            paused.PauseReason);
+        Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_from_step_with_no_recorded_answer_pauses_and_a_system_steps_result_is_not_read()
     {
         Flow flow = Split(Flow.End, from: "wait") with
