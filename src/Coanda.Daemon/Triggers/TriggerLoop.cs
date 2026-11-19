@@ -118,6 +118,13 @@ public sealed class TriggerLoop(
     internal Func<DeferredFollowStart, CancellationToken, Task>? DeferredFollowStarting { get; set; }
 
     /// <summary>
+    /// Awaited just before a follower starts straight from a flow run's end on the free parcel. Null, as it is in
+    /// a running daemon, awaits nothing; a test supplies it through <see cref="Api.DaemonOptions"/> to make that
+    /// start fail, or to hold it open.
+    /// </summary>
+    internal Func<DirectFollowStart, CancellationToken, Task>? DirectFollowStarting { get; set; }
+
+    /// <summary>
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
     /// record as its position. The daemon calls this before it writes its address file.
     /// </summary>
@@ -625,7 +632,7 @@ public sealed class TriggerLoop(
     /// Starts <paramref name="flowName"/> as a follower of <paramref name="parent"/>, unless that
     /// flow run already has a follower of the flow. True when the parcel holds a live flow run, so the
     /// follow has to wait for its release. <paramref name="fromQueue"/> says the follow comes from the
-    /// parcel's follow queue.
+    /// parcel's follow queue rather than straight from the end, which decides only the test hook awaited before the start.
     /// </summary>
     private async Task<bool> FollowAsync(string project, FlowRun parent, string flowName, bool fromQueue, CancellationToken cancellationToken)
     {
@@ -639,10 +646,10 @@ public sealed class TriggerLoop(
             return true;
         }
 
-        if (fromQueue && DeferredFollowStarting is { } starting)
-        {
-            await starting(new DeferredFollowStart(project, parent.ParcelId, parent.Id, flowName), cancellationToken);
-        }
+        Task starting = fromQueue
+            ? DeferredFollowStarting?.Invoke(new DeferredFollowStart(project, parent.ParcelId, parent.Id, flowName), cancellationToken) ?? Task.CompletedTask
+            : DirectFollowStarting?.Invoke(new DirectFollowStart(project, parent.ParcelId, parent.Id, flowName), cancellationToken) ?? Task.CompletedTask;
+        await starting;
 
         FlowRun flowRun;
         try
