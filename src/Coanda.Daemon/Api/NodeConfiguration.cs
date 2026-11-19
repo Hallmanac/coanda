@@ -18,7 +18,10 @@ namespace Coanda.Daemon.Api;
 /// <see cref="LedgerImport.DefaultInterval"/>, so a cold install runs agent steps.
 /// A file with no <c>defaultModules</c>, like a missing one, leaves <see cref="DaemonOptions.DefaultModules"/>
 /// null, for the host that composes the daemon to supply its own. Whether the daemon hosts each module the
-/// list names is checked when the daemon starts, which this reader cannot see.
+/// list names is checked when the daemon starts, which this reader cannot see. A file with no
+/// <c>watchedProjects</c>, like a missing one, leaves <see cref="DaemonOptions.WatchedProjects"/> null, so the
+/// node watches every project; a name no project on the node has is accepted, so a node can be configured
+/// before it joins the project.
 /// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
 /// naming the file and the offending entry.
 /// </summary>
@@ -102,6 +105,7 @@ public static class NodeConfiguration
         }
 
         IReadOnlyList<string>? defaultModules = DefaultModules(path, file.DefaultModules);
+        IReadOnlyList<string>? watchedProjects = WatchedProjects(path, file.WatchedProjects);
         string? claudeExecutable = Given(file.ClaudeExecutable);
         List<CredentialProfile> profiles = Profiles(home, path, file.Profiles);
         IAgentExecutor executor = (file.Executor, claudeExecutable) switch
@@ -123,7 +127,45 @@ public static class NodeConfiguration
                 ? null
                 : LedgerImport.DefaultInterval,
             DefaultModules = defaultModules,
+            WatchedProjects = watchedProjects,
         };
+    }
+
+    /// <summary>
+    /// The <c>watchedProjects</c> list, each entry trimmed, in the order the file gives it, or null when the
+    /// file leaves it out. It is refused when given as anything but a list, and so is a list holding an entry
+    /// that is not a string, is blank, or names the same project as an earlier one once both are trimmed and
+    /// compared without regard to letter case.
+    /// </summary>
+    private static IReadOnlyList<string>? WatchedProjects(string path, JsonElement given)
+    {
+        if (given.ValueKind is JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (given.ValueKind is not JsonValueKind.Array)
+        {
+            throw Refused(path, $"gives \"watchedProjects\" as {Kind(given)}; it is a list of project names, and left out the node watches every project.");
+        }
+
+        List<string> names = [];
+        int position = 0;
+        foreach (JsonElement entry in given.EnumerateArray())
+        {
+            position++;
+            string name = entry.ValueKind is JsonValueKind.String
+                ? Given(entry.GetString()) ?? throw Refused(path, $"gives entry {position} of \"watchedProjects\" blank; each entry is a project's name.")
+                : throw Refused(path, $"gives entry {position} of \"watchedProjects\" as {Kind(entry)}; each entry is a project's name.");
+            if (names.Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                throw Refused(path, $"names the project '{name}' more than once in \"watchedProjects\"; entry {position} repeats it (project names are compared trimmed and without regard to letter case).");
+            }
+
+            names.Add(name);
+        }
+
+        return names;
     }
 
     /// <summary>
@@ -311,6 +353,9 @@ public static class NodeConfiguration
 
         /// <summary>The <c>defaultModules</c> setting as given, whose kind is undefined when the file leaves it out.</summary>
         public JsonElement DefaultModules { get; init; }
+
+        /// <summary>The <c>watchedProjects</c> setting as given, whose kind is undefined when the file leaves it out.</summary>
+        public JsonElement WatchedProjects { get; init; }
 
         private readonly bool? ledgerExport;
 

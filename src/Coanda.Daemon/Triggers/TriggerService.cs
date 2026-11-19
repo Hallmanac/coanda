@@ -17,10 +17,13 @@ namespace Coanda.Daemon.Triggers;
 /// store are still listed and still fire. An external event is recorded through the loopback API's
 /// <c>/events</c> route, a module's chiefly. A Module principal records only in a
 /// project its module is switched on for, and only kinds prefixed with its own module's name; a kind
-/// prefixed with a module's name is recorded by that module alone.
+/// prefixed with a module's name is recorded by that module alone. A Module principal also records only
+/// in a project this node watches (<see cref="WatchedProjects"/>); no other principal is held to that.
 /// </summary>
-public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
+public sealed class TriggerService(IDocumentStore store, TimeProvider clock, WatchedProjects? watched = null)
 {
+    private readonly WatchedProjects watched = watched ?? WatchedProjects.All;
+
     private readonly SemaphoreSlim writes = new(1, 1);
 
     /// <summary>
@@ -44,6 +47,7 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
         CommandRegistry.Require("event.record", principal);
         string tenant = Tenants.RequireProject(project);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        watched.RequireWatchedForModule(principal, tenant);
         ModuleScope.RequireOwnKind(principal, kind);
         ExternalEventRecorded recorded = TriggerDecider.RecordExternalEvent(tenant, kind, externalId, parcelId, fields, principal, clock.GetUtcNow());
         string matchKind = recorded.Kind;

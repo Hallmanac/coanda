@@ -125,6 +125,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<RepoClones>();
         builder.Services.AddSingleton(new DefaultModules(options.DefaultModules ?? []));
+        builder.Services.AddSingleton(new WatchedProjects(options.WatchedProjects));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
