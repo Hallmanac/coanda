@@ -258,6 +258,39 @@ described under how a Claude Code session runs. Managed settings that disable ho
 everything else, so they switch off the guard and the session-start hook alike; the daemon then
 sees no marker and stops every session rather than letting one run unguarded.
 
+### What a confined session may reach
+
+An agent definition may declare itself confined (`"Confined": true`). A confined agent's session
+gets a narrower version of everything above, at its spawn, at every retry, and at a resume after a
+daemon restart, which reads the confinement back from the session's record:
+
+- It is offered Read, Glob, Grep, Edit, and Write, and only those of them its tools name. It never
+  gets Bash, WebFetch, or WebSearch, in its tool list or its pre-approvals, even if a stored
+  definition names `shell` or `web`.
+- Its tool guard is registered for every tool call, not only the six above, and refuses a call to
+  any tool other than those five.
+- Every path a Read, Edit, Write, Glob, or Grep call names, once links are resolved as above, must
+  lie inside the session's work directory or inside its own conversation's directory. Anything
+  else is refused, wherever it is, not only the node home and the config directories.
+- Each such path is also judged the way Claude Code itself opens it, and must pass both ways.
+  Claude Code expands only a leading `~`, takes a `$NAME` as written rather than as a variable, and
+  collapses `.` and `..` by name before it follows any link. So `$PWD/../..` climbs out of the work
+  directory as written, and so does `link/../..` for a link pointing deeper inside it.
+- Its environment holds only the inherited variables on a short allowed list (the Claude Code
+  adapter's `ConfinedEnvironmentVariables`): the path, the home directory, the user's name, the
+  temporary directory, the locale, `CLAUDE_CONFIG_DIR`, the credential variables, the proxy
+  variables and `NODE_EXTRA_CA_CERTS` that Claude Code's own calls to its API need behind a proxy,
+  `DOTNET_ROOT` and its architecture-specific forms that `coa` needs to find its runtime, the
+  Windows system variables a process needs, and `CLAUDE_CODE_GIT_BASH_PATH`. A token such as
+  `GH_TOKEN` in the daemon's environment does not reach it, and neither does a variable that
+  chooses another API provider or endpoint, such as `ANTHROPIC_BASE_URL`. The spawn still sets a
+  profile's config directory and puts the directory holding `coa` first on the path. It sets no
+  session token, node home, or project, since a confined session has no shell to run `coa` in.
+
+A Glob or Grep walk does not follow symbolic links in Claude Code 2.1.328, the version this was
+confirmed against: a link inside the work directory to a directory outside it is not searched
+through. A Read through such a link is judged where the link leads, and refused.
+
 ## The ledger export
 
 While it runs, the daemon writes the events it recorded in each project as signed lines on
@@ -303,35 +336,6 @@ the daemon runs.
   "ledgerImport": false
 }
 ```
-
-### What a confined session may reach
-
-An agent definition may declare itself confined (`"Confined": true`). A confined agent's session
-gets a narrower version of everything above, at its spawn, at every retry, and at a resume after a
-daemon restart, which reads the confinement back from the session's record:
-
-- It is offered Read, Glob, Grep, Edit, and Write, and only those of them its tools name. It never
-  gets Bash, WebFetch, or WebSearch, in its tool list or its pre-approvals, even if a stored
-  definition names `shell` or `web`.
-- Its tool guard is registered for every tool call, not only the six above, and refuses a call to
-  any tool other than those five.
-- Every path a Read, Edit, Write, Glob, or Grep call names, once links are resolved as above, must
-  lie inside the session's work directory or inside its own conversation's directory. Anything
-  else is refused, wherever it is, not only the node home and the config directories.
-- Its environment holds only the inherited variables on a short allowed list (the Claude Code
-  adapter's `ConfinedEnvironmentVariables`): the path, the home directory, the user's name, the
-  temporary directory, the locale, `CLAUDE_CONFIG_DIR`, the credential variables, the proxy
-  variables and `NODE_EXTRA_CA_CERTS` that Claude Code's own calls to its API need behind a proxy,
-  `DOTNET_ROOT` and its architecture-specific forms that `coa` needs to find its runtime, the
-  Windows system variables a process needs, and `CLAUDE_CODE_GIT_BASH_PATH`. A token such as
-  `GH_TOKEN` in the daemon's environment does not reach it, and neither does a variable that
-  chooses another API provider or endpoint, such as `ANTHROPIC_BASE_URL`. The spawn still sets a
-  profile's config directory and puts the directory holding `coa` first on the path. It sets no
-  session token, node home, or project, since a confined session has no shell to run `coa` in.
-
-A Glob or Grep walk does not follow symbolic links in Claude Code 2.1.328, the version this was
-confirmed against: a link inside the work directory to a directory outside it is not searched
-through. A Read through such a link is judged where the link leads, and refused.
 
 ## Credential profiles
 
