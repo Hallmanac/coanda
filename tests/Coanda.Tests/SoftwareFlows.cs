@@ -18,6 +18,10 @@ public static class SoftwareFlows
 
     public static readonly IReadOnlyList<Flow> All = [Build, Merge, Discovery, ReviewOnAssignment];
 
+    /// <summary>The lever the discovery flow's gate pauses with, written out here so a test holds the file to this exact text.</summary>
+    public const string DiscoveryGateLever =
+        "Read the discovery step's answer with coa flow-run show first. Then run coa flow-run resume with --answer pursue to derive the tasks that answer lists, or with --answer stop to end the flow run with nothing derived.";
+
     /// <summary>The visit cap on the gated merge's pending lap: how many visits to it can answer pending or behind and go round again.</summary>
     public static int MergePendingCap => MergeCap("pending");
 

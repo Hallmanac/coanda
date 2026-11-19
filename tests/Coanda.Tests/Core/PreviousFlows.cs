@@ -51,14 +51,38 @@ public static class PreviousFlows
     }
 
     /// <summary>
-    /// The discovery flow as main shipped it before its derive-parcels step named the step it derives from:
-    /// today's, with that step's arguments taken out.
+    /// The discovery flow as main shipped it before its gate: today's, with the gate taken out and the
+    /// transitions into it going straight on to the step its pursue answer targets.
     /// </summary>
-    public static Flow DiscoveryBeforeDerive => SoftwareFlows.Discovery with
+    public static Flow DiscoveryBeforeGate
+    {
+        get
+        {
+            Flow discovery = SoftwareFlows.Discovery;
+            FlowStep gate = discovery.Step("gate") ?? throw new InvalidOperationException("The discovery flow has no gate step.");
+            string onward = gate.Transitions.Single(t => t.Value.GetString() == "pursue").Target;
+            return discovery with
+            {
+                Steps =
+                [
+                    .. discovery.Steps.Where(s => s.Name != gate.Name).Select(s => s with
+                    {
+                        Transitions = [.. s.Transitions.Select(t => t.Target == gate.Name ? t with { Target = onward } : t)],
+                    }),
+                ],
+            };
+        }
+    }
+
+    /// <summary>
+    /// The discovery flow as main shipped it before its derive-parcels step named the step it derives from:
+    /// <see cref="DiscoveryBeforeGate"/>, with that step's arguments taken out.
+    /// </summary>
+    public static Flow DiscoveryBeforeDerive => DiscoveryBeforeGate with
     {
         Steps =
         [
-            .. SoftwareFlows.Discovery.Steps.Select(s => s.SystemStep == CoreSystemSteps.DeriveParcels
+            .. DiscoveryBeforeGate.Steps.Select(s => s.SystemStep == CoreSystemSteps.DeriveParcels
                 ? s with { Arguments = new Dictionary<string, JsonElement>() }
                 : s),
         ],
