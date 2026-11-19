@@ -12,9 +12,9 @@ namespace Coanda.Core.Types;
 /// The definition of a kind of parcel: its lifecycle (stages, allowed moves, entry stages, the
 /// one terminal stage and its resolutions), the paused stage reachable from any live stage, its
 /// fields (each named, of a kind, required to leave the stages it names, owned by the module it
-/// names, if it names one, and at most one of them marked as the tag field), and its bindings: a
-/// flow to start when a parcel enters a stage, and a gate that must pass before a move. A type is
-/// data; the types the binary ships and a user's type are the same shape.
+/// names, if it names one, and at most one of them marked as the tag field), its bindings: a flow to
+/// start when a parcel enters a stage, and a gate that must pass before a move, and the names of the
+/// types it may derive. A type is data; the types the binary ships and a user's type are the same shape.
 /// </summary>
 public sealed record ParcelType
 {
@@ -35,6 +35,13 @@ public sealed record ParcelType
 
     /// <summary>The fields a parcel of the type holds values in, in the order the type declares them.</summary>
     public IReadOnlyList<FieldDeclaration> Fields { get; init; } = [];
+
+    /// <summary>
+    /// The names of the parcel types a parcel of this type may derive, in the order the type declares
+    /// them, each a plain name and none twice regardless of case. Recording a derived-from relation does
+    /// not read it; the step that derives parcels holds a derived parcel's type to it.
+    /// </summary>
+    public IReadOnlyList<string> Derives { get; init; } = [];
 
     /// <summary>Content hash of the definition, recorded on every parcel created under it; computed, so never written into content.</summary>
     [JsonIgnore]
@@ -223,6 +230,7 @@ public sealed record ParcelType
         }
 
         ValidateFields();
+        ValidateDerives();
         ValidateFlowBindings();
         ValidateGateBindings(knownGates);
         ValidateFieldEnforcement();
@@ -344,6 +352,31 @@ public sealed record ParcelType
         }
     }
 
+    private void ValidateDerives()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string? derived in Derives)
+        {
+            // Read content can carry a null element, whatever the annotations say.
+            if (derived is null)
+            {
+                throw new DomainException($"Parcel type '{Name}' lists a type it may derive that is null; each entry is a parcel type's name.");
+            }
+
+            if (!Flow.IsPlainName(derived))
+            {
+                throw new DomainException(
+                    $"Parcel type '{Name}' lists '{derived}' as a type it may derive; a type's name there is plain: letters, digits, hyphens, and underscores, and not empty.");
+            }
+
+            if (!seen.Add(derived))
+            {
+                throw new DomainException(
+                    $"Parcel type '{Name}' lists '{derived}' twice as a type it may derive, regardless of case; each type it may derive is listed once.");
+            }
+        }
+    }
+
     private void ValidateFlowBindings()
     {
         foreach (FlowBinding? binding in FlowBindings)
@@ -400,10 +433,11 @@ public sealed record ParcelType
     }
 
     /// <summary>
-    /// The fields and the bindings join the hashed shape only when the type has some, so adding either
-    /// to the shape left the hash of a type that declares neither as it was. That holds for fields and
-    /// bindings alone: a change to the lifecycle's own keys or stages (the paused stage of 2026-11-03,
-    /// for one) changes every type's hash, and a record written before such a change is not read across it.
+    /// The fields, the bindings, and the types it may derive join the hashed shape only when the type has
+    /// some, so adding any of them to the shape left the hash of a type that declares none as it was.
+    /// That holds for those alone: a change to the lifecycle's own keys or stages (the paused stage of
+    /// 2026-11-03, for one) changes every type's hash, and a record written before such a change is not
+    /// read across it.
     /// </summary>
     private string ComputeHash()
     {
@@ -430,6 +464,11 @@ public sealed record ParcelType
         if (GateBindings.Count > 0)
         {
             lifecycle["gates"] = GateBindings.Select(b => new[] { b.From, b.To, b.Gate }).ToList();
+        }
+
+        if (Derives.Count > 0)
+        {
+            lifecycle["derives"] = Derives;
         }
 
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(lifecycle);
