@@ -40,8 +40,8 @@ paused, closed).
 
 ## Installing
 
-Phase 0: build from source with the .NET 10 SDK (`dotnet build`), then run
-`src/Coanda.Cli/bin/Debug/net10.0/coa`. Release binaries follow in phase 5.
+Phase 0: build from source with the .NET 11 SDK (`dotnet build`), then run
+`src/Coanda.Cli/bin/Debug/net11.0/coa`. Release binaries follow in phase 5.
 
 ## Operating
 

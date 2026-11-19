@@ -28,7 +28,7 @@ GitHub: `Hallmanac/coanda`, public since 2026-11-06 (the ledger refs are public 
 hall9k's are). License: Apache 2.0 with NOTICE, in the first commit with a one-paragraph README.
 Created only on Brian's go at a terminal.
 
-Stack: C# on .NET 10, one self-contained executable per platform that is both daemon and CLI
+Stack: C# on .NET 11, one self-contained executable per platform that is both daemon and CLI
 (`coa`). Projects: `Coanda.Core` (meta-model, definitions, interpreter, registry), `Coanda.Daemon`
 (store, loops, adapters, transport), `Coanda.Sdk`, `Coanda.Modules.Software`, `Coanda.Cli` (thin),
 `Coanda.Tests` (unit on the scripted adapter and an in-memory Fisher store; no git integration
