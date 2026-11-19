@@ -180,6 +180,7 @@ public sealed class DaemonHost
         {
             TriggerLoop loop = ActivatorUtilities.CreateInstance<TriggerLoop>(services);
             loop.FollowDecided = options.FollowDecided;
+            loop.DeferredFollowStarting = options.DeferredFollowStarting;
             return loop;
         });
 

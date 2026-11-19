@@ -57,7 +57,7 @@ namespace Coanda.Daemon.Triggers;
 /// names the ended flow run, and is skipped when that flow run already has a follower of the flow. A
 /// replayed entry that was refused is refused again, since the parcel's stage at the entry does not
 /// change. Deferred follows are one document per parcel in the parcel's project, and a follow
-/// leaves it only once its start has been written or refused, so a replay finds the follower
+/// leaves it only once its start has been written, refused, or has failed, so a replay finds the follower
 /// already started and drops it.
 /// </remarks>
 public sealed class TriggerLoop(
@@ -107,6 +107,13 @@ public sealed class TriggerLoop(
     /// through <see cref="Api.DaemonOptions"/> to act between one follower's decision and the next.
     /// </summary>
     internal Func<FollowDecision, CancellationToken, Task>? FollowDecided { get; set; }
+
+    /// <summary>
+    /// Awaited just before a follow from a parcel's follow queue starts on the free parcel. Null, as it is in a
+    /// running daemon, awaits nothing; a test supplies it through <see cref="Api.DaemonOptions"/> to make that
+    /// start fail, or to hold it open.
+    /// </summary>
+    internal Func<DeferredFollowStart, CancellationToken, Task>? DeferredFollowStarting { get; set; }
 
     /// <summary>
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
@@ -564,7 +571,7 @@ public sealed class TriggerLoop(
                     || (follower.Closes is not null && await HasDeferredFollowsAsync(project, parent.ParcelId, cancellationToken));
                 waits = held
                     ? !await FollowedAsync(project, parent, follower.Name, cancellationToken)
-                    : await FollowAsync(project, parent, follower.Name, cancellationToken);
+                    : await FollowAsync(project, parent, follower.Name, fromQueue: false, cancellationToken);
                 if (waits)
                 {
                     waiting.Add(new PendingFollow(parent.Id, follower.Name, follower.Closes is not null));
@@ -590,9 +597,10 @@ public sealed class TriggerLoop(
     /// <summary>
     /// Starts <paramref name="flowName"/> as a follower of <paramref name="parent"/>, unless that
     /// flow run already has a follower of the flow. True when the parcel holds a live flow run, so the
-    /// follow has to wait for its release.
+    /// follow has to wait for its release. <paramref name="fromQueue"/> says the follow comes from the
+    /// parcel's follow queue.
     /// </summary>
-    private async Task<bool> FollowAsync(string project, FlowRun parent, string flowName, CancellationToken cancellationToken)
+    private async Task<bool> FollowAsync(string project, FlowRun parent, string flowName, bool fromQueue, CancellationToken cancellationToken)
     {
         if (await FollowedAsync(project, parent, flowName, cancellationToken))
         {
@@ -602,6 +610,11 @@ public sealed class TriggerLoop(
         if (await HasLiveFlowRunAsync(project, parent.ParcelId, cancellationToken))
         {
             return true;
+        }
+
+        if (fromQueue && DeferredFollowStarting is { } starting)
+        {
+            await starting(new DeferredFollowStart(project, parent.ParcelId, parent.Id, flowName), cancellationToken);
         }
 
         FlowRun flowRun;
@@ -664,7 +677,8 @@ public sealed class TriggerLoop(
     /// <summary>
     /// Starts the follows waiting on the parcel, oldest first, until one has to wait for a release
     /// again, which the first one started makes the next do. A follow leaves the list once it has
-    /// started, was already started, or was refused. Any node's release frees the parcel: a follow waits here only
+    /// started, was already started, was refused, or failed to start for another reason, which is logged and
+    /// passed over as a refusal is. A stop leaves the list as it was. Any node's release frees the parcel: a follow waits here only
     /// once this node's claims let it start, so whichever node recorded the release, the follow is this node's own.
     /// </summary>
     private async Task StartDeferredFollowsAsync(string project, Guid parcelId, long sequence, CancellationToken cancellationToken)
@@ -688,7 +702,7 @@ public sealed class TriggerLoop(
             {
                 FlowRun parent = await flowRuns.ShowAsync(LoopPrincipal, project, next.ParentFlowRunId, cancellationToken)
                     ?? throw new DomainException($"No flow run {Ids.Short(next.ParentFlowRunId)} in project '{project}'.");
-                if (await FollowAsync(project, parent, next.Flow, cancellationToken))
+                if (await FollowAsync(project, parent, next.Flow, fromQueue: true, cancellationToken))
                 {
                     break;
                 }
@@ -696,6 +710,13 @@ public sealed class TriggerLoop(
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
             {
                 LogFollowRefused(next.Flow, next.ParentFlowRunId, refused);
+            }
+            catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogError(
+                    failure,
+                    "Flow '{Flow}' follows the end of flow run {FlowRun}, but its start failed, so it leaves the parcel's follow queue and the next follow goes on.",
+                    next.Flow, Ids.Short(next.ParentFlowRunId));
             }
 
             remaining.RemoveAt(0);
