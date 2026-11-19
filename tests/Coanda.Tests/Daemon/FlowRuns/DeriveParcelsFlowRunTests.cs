@@ -267,7 +267,7 @@ public sealed class DeriveParcelsFlowRunTests
     }
 
     [Fact]
-    public async Task A_parcel_created_before_its_type_could_derive_pauses_saying_it_keeps_the_earlier_version()
+    public async Task A_parcel_created_before_its_type_could_derive_pauses_saying_it_keeps_the_earlier_version_with_a_lever_to_add_a_new_parcel()
     {
         ParcelType before = Source with { Name = "elder", Derives = [] };
         ParcelType after = before with { Derives = ["piece"] };
@@ -289,6 +289,7 @@ public sealed class DeriveParcelsFlowRunTests
             + $"does not list as one it may derive; it declares no type it may derive. The parcel was created under version {before.Hash} of its type and keeps "
             + $"that version, so the version {after.Hash} the project holds now, which may derive 'piece', does not apply to it; resuming cannot derive from this parcel.",
             paused.PauseReason);
+        Assert.Equal(FlowRunLevers.TypeVersionKept(before.Name), paused.Lever);
         Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
 
         await daemon.StopAsync(None);

@@ -28,4 +28,12 @@ public static class FlowRunLevers
     /// </summary>
     public static string AnswerReadAgain(string step, string from) =>
         $"Stop the flow run, or change what refused the answer; a resume performs step '{step}' again on the same answer of step '{from}', so it pauses again while that refuses it.";
+
+    /// <summary>
+    /// Names the way out of a flow run whose parcel keeps a version of its type <paramref name="type"/> that may not
+    /// derive what the answer lists, while the version the project holds now may: no change to the project lets a
+    /// resume derive from that parcel, so the way forward is a new parcel, created under the version held now.
+    /// </summary>
+    public static string TypeVersionKept(string type) =>
+        $"Stop the flow run and add a new '{type}' parcel to derive from; the flow run's parcel keeps the earlier version of type '{type}' it was created under, so a resume pauses again.";
 }

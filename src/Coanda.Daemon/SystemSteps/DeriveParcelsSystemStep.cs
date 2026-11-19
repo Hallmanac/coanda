@@ -89,10 +89,10 @@ public sealed class DeriveParcelsSystemStep(ParcelService parcels, FlowRunServic
         foreach (JsonElement entry in listed.EnumerateArray())
         {
             position++;
-            (ParcelType? type, string? title, string? refusal) = await CheckAsync(request, parcelType, entry, cancellationToken);
+            (ParcelType? type, string? title, string? refusal, string? lever) = await CheckAsync(request, parcelType, entry, cancellationToken);
             if (refusal is not null || type is null || title is null)
             {
-                return Paused(request, from, $"entry {position} of the answer of step '{from}' {refusal}");
+                return Paused(request, from, $"entry {position} of the answer of step '{from}' {refusal}", lever);
             }
 
             entries.Add((type, title));
@@ -140,24 +140,26 @@ public sealed class DeriveParcelsSystemStep(ParcelService parcels, FlowRunServic
     /// with a string <c>type</c> and a string <c>title</c>, a type <paramref name="parcelType"/> does not list
     /// as one it may derive or the project does not resolve, or a title the parcel decider refuses. When
     /// <paramref name="parcelType"/> is an earlier version of a type whose version the project holds now may
-    /// derive the entry's type, the refusal says so, since a parcel keeps the type version it was created under.
+    /// derive the entry's type, the refusal says so, since a parcel keeps the type version it was created under,
+    /// and it carries the lever <see cref="FlowRunLevers.TypeVersionKept"/> in place of a resume no change can
+    /// make succeed.
     /// </summary>
-    private async Task<(ParcelType? Type, string? Title, string? Refusal)> CheckAsync(
+    private async Task<(ParcelType? Type, string? Title, string? Refusal, string? Lever)> CheckAsync(
         SystemStepDispatch request, ParcelType parcelType, JsonElement entry, CancellationToken cancellationToken)
     {
         if (entry.ValueKind != JsonValueKind.Object)
         {
-            return (null, null, "is not an object.");
+            return (null, null, "is not an object.", null);
         }
 
         if (!entry.TryGetProperty("type", out JsonElement typeValue) || typeValue.ValueKind != JsonValueKind.String)
         {
-            return (null, null, "has no string 'type'.");
+            return (null, null, "has no string 'type'.", null);
         }
 
         if (!entry.TryGetProperty("title", out JsonElement titleValue) || titleValue.ValueKind != JsonValueKind.String)
         {
-            return (null, null, "has no string 'title'.");
+            return (null, null, "has no string 'title'.", null);
         }
 
         string typeName = typeValue.GetString() ?? string.Empty;
@@ -167,31 +169,33 @@ public sealed class DeriveParcelsSystemStep(ParcelService parcels, FlowRunServic
                 ? "declares no type it may derive"
                 : $"may derive only {string.Join(", ", parcelType.Derives)}";
             ParcelType? current = await parcels.ResolveTypeAsync(request.Principal, request.Project, parcelType.Name, cancellationToken);
-            string earlier = current is not null && current.Hash != parcelType.Hash && MayDerive(current, typeName)
-                ? $" The parcel was created under version {parcelType.Hash} of its type and keeps that version, so the version {current.Hash} the project holds now, which may derive '{typeName}', does not apply to it; resuming cannot derive from this parcel."
-                : string.Empty;
-            return (null, null, $"names the type '{typeName}', which the flow run's parcel's type '{parcelType.Name}' does not list as one it may derive; it {derives}.{earlier}");
+            string refusal = $"names the type '{typeName}', which the flow run's parcel's type '{parcelType.Name}' does not list as one it may derive; it {derives}.";
+            return current is not null && current.Hash != parcelType.Hash && MayDerive(current, typeName)
+                ? (null, null,
+                    $"{refusal} The parcel was created under version {parcelType.Hash} of its type and keeps that version, so the version {current.Hash} the project holds now, which may derive '{typeName}', does not apply to it; resuming cannot derive from this parcel.",
+                    FlowRunLevers.TypeVersionKept(parcelType.Name))
+                : (null, null, refusal, null);
         }
 
         ParcelType? type = await parcels.ResolveTypeAsync(request.Principal, request.Project, typeName, cancellationToken);
         if (type is null)
         {
-            return (null, null, $"names the type '{typeName}', which project '{request.Project}' resolves no parcel type of.");
+            return (null, null, $"names the type '{typeName}', which project '{request.Project}' resolves no parcel type of.", null);
         }
 
         try
         {
-            return (type, ParcelDecider.RequireTitle(titleValue.GetString()), null);
+            return (type, ParcelDecider.RequireTitle(titleValue.GetString()), null, null);
         }
         catch (DomainException refused)
         {
-            return (null, null, $"has a title the parcel decider refuses: {refused.Message}");
+            return (null, null, $"has a title the parcel decider refuses: {refused.Message}", null);
         }
     }
 
     private static bool MayDerive(ParcelType parcelType, string typeName) =>
         parcelType.Derives.Any(derived => DefinitionResolution.SameName(derived, typeName));
 
-    private static SystemStepAnswer.Paused Paused(SystemStepDispatch request, string from, string reason) =>
-        new($"Step '{request.Step.Name}' could not derive parcels: {reason}", FlowRunLevers.AnswerReadAgain(request.Step.Name, from));
+    private static SystemStepAnswer.Paused Paused(SystemStepDispatch request, string from, string reason, string? lever = null) =>
+        new($"Step '{request.Step.Name}' could not derive parcels: {reason}", lever ?? FlowRunLevers.AnswerReadAgain(request.Step.Name, from));
 }
