@@ -49,13 +49,13 @@ worktrees, pull requests, and the code host are the software engineering module'
 
 Everything hall9k learned carries over; what changes is where it lives and how it is expressed.
 Kept as kernel behaviour: hash arbitration for claims, the generation fence (local to a node),
-adopt-on-restart, pause with a lever, two-lens fresh-context review, two-tier identity with three
-replication scopes, vouches, revocation, and succession by ranked keys. Kept in the software
-engineering module rather than the kernel (section 14.10): worktree per build, and the pre-approved
-gated merge with the head-commit guard. Decisions and lessons are kept too, but not as kernel
-behaviour: each is a parcel of its own type, the decision type and the lesson type, which the
-bundled record module ships, and recording, superseding, and distilling them are flows (decision
-833d8902).
+adopt-on-restart, pause with a lever, two-tier identity with three replication scopes, vouches,
+revocation, and succession by ranked keys. Kept in the software engineering module rather than the
+kernel (section 14.10): worktree per build, two-lens fresh-context review as the build flow's two
+reviewer agents, and the pre-approved gated merge with the head-commit guard. Decisions and lessons
+are kept too, but not as kernel behaviour: each is a parcel of its own type, the decision type and
+the lesson type, which the bundled record module ships, and recording, superseding, and distilling
+them are flows (decision 833d8902).
 Kept as doctrine: prescriptive lifecycle and permissive judgment, now raised one level (section 8);
 tools before tokens; hall9k is the source of truth and the tracker is its outflow; a rule carries
 the incident that created it; an unobserved fact is recorded as unknown.
@@ -828,7 +828,15 @@ generic" is how a thing that belongs in a module gets into the engine.
 
 1. **The vocabulary test** is a test in the test project. It searches the engine's projects (Core,
    Daemon, Cli, and the Sdk's contract) for the domain noun list and passes only when every hit is
-   in the exception list. The phase 3 sweep ran this search by hand for Core.
+   in the exception list. A hit is a listed noun as a whole word in an identifier those projects
+   declare, split at its case boundaries, or in a string literal; comments are not searched, and
+   neither is a name the engine only uses from .NET, such as `Task`. Build and test also have an
+   engine sense, build as a verb or as the running executable ("this build") and test as one of this
+   rule's own checks; each such use is matched by a pattern in a senses list the test keeps apart from
+   the exception list, so it is not counted as a domain noun and does not grow the exception list.
+   The exception list starts with two entries: the daemon's map of the software module's earlier
+   step names and Core's four name-only answer schemas, each ending when no stored flow run or agent
+   in a live home names the earlier form. The phase 3 sweep ran this search by hand for Core.
 2. **The reference test** is the test that holds every project to its allowed references. Core
    references no Coanda project, the SDK references none, the daemon references Core and the SDK
    only, and a module is referenced only by the host, in one file.
@@ -1355,7 +1363,7 @@ parcels (recursion). Git-native signing (no commit on the relay). GitHub auto-me
 A fixed lifecycle (Brian: building a lifecycle is a feature). Per-project SQLite files. The Agent
 SDK as the primary adapter. Hardwiring idea and task in C# for the first version (a meta-model
 cannot be retrofitted under live data). The portal as the first version's primary surface. A
-service installer in the first version. Windows earlier than the last week.
+service installer in the first version. Windows earlier than phase 6.
 
 From the module design (section 14.14 gives the reason for each): in-process modules on the Orchard
 Core model; scripting in definitions (decision fa75e412); WebAssembly; MCP as the core-to-module
