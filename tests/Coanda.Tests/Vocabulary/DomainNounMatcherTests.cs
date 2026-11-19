@@ -50,6 +50,22 @@ public sealed class DomainNounMatcherTests
             hits.Select(hit => (hit.Noun, hit.Line, hit.Text)));
     }
 
+    [Fact]
+    public void A_hit_in_a_multi_line_literal_names_the_line_of_the_whole_word_not_a_longer_word_holding_it()
+    {
+        NounHit hit = Assert.Single(Hits("static class C\n{\n    const string Said = \"\"\"\n        the latest\n        test run\n        \"\"\";\n}\n"));
+
+        Assert.Equal(("test", 5), (hit.Noun, hit.Line));
+    }
+
+    [Fact]
+    public void A_hit_after_an_escape_sequence_names_the_line_the_literal_is_on()
+    {
+        NounHit hit = Assert.Single(Hits("static class C\n{\n    const string Said = \"one\\ntest\";\n}\n"));
+
+        Assert.Equal(("test", 3), (hit.Noun, hit.Line));
+    }
+
     [Theory]
     [InlineData("sealed class PullRequestView;", "PullRequestView")]
     [InlineData("sealed class OpenPullRequests;", "OpenPullRequests")]

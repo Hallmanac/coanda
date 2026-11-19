@@ -116,23 +116,40 @@ public static partial class DomainNounMatcher
         at + form.Length <= words.Count
             && form.Select((word, offset) => string.Equals(words[at + offset], word, StringComparison.OrdinalIgnoreCase)).All(same => same);
 
-    /// <summary>The line of the word in the token's source text, so a hit in a multi-line literal names the line the word is on.</summary>
+    /// <summary>
+    /// The line of the word in the token's source text, so a hit in a multi-line literal names the line the word is on.
+    /// The source text is split into words the same way, with each escape sequence's letter masked so it does not join
+    /// the word after it, and the word is found as a whole word, never inside a longer one. When the source text holds
+    /// fewer such words than the value does, the hit names the token's first line.
+    /// </summary>
     private static int LineOf(SyntaxTree tree, SyntaxToken token, string word, int index, IReadOnlyList<string> words)
     {
-        string raw = token.Text;
         int occurrence = words.Take(index).Count(earlier => string.Equals(earlier, word, StringComparison.OrdinalIgnoreCase));
-        int position = -1;
-        for (int seen = 0; seen <= occurrence; seen++)
-        {
-            position = raw.IndexOf(word, position + 1, StringComparison.OrdinalIgnoreCase);
-            if (position < 0)
-            {
-                return tree.GetLineSpan(token.Span).StartLinePosition.Line + 1;
-            }
-        }
+        string masked = HasEscapes(token)
+            ? Escapes().Replace(token.Text, escape => new string(' ', escape.Length))
+            : token.Text;
+        int[] positions =
+        [
+            .. LetterRuns().Matches(masked)
+                .SelectMany(run => CaseWords().Matches(run.Value).Select(found => (Word: found.Value, Position: run.Index + found.Index)))
+                .Where(found => string.Equals(found.Word, word, StringComparison.OrdinalIgnoreCase))
+                .Select(found => found.Position),
+        ];
 
-        return tree.GetLineSpan(new TextSpan(token.SpanStart + position, 0)).StartLinePosition.Line + 1;
+        int start = occurrence < positions.Length
+            ? token.SpanStart + positions[occurrence]
+            : token.SpanStart;
+        return tree.GetLineSpan(new TextSpan(start, 0)).StartLinePosition.Line + 1;
     }
+
+    /// <summary>Whether a backslash in the token's source text starts an escape sequence: in a regular string, but not a verbatim or raw one.</summary>
+    private static bool HasEscapes(SyntaxToken token) =>
+        token.Kind() switch
+        {
+            SyntaxKind.StringLiteralToken or SyntaxKind.Utf8StringLiteralToken => !token.Text.StartsWith('@'),
+            SyntaxKind.InterpolatedStringTextToken => token.Parent?.Parent is InterpolatedStringExpressionSyntax { StringStartToken.RawKind: (int)SyntaxKind.InterpolatedStringStartToken },
+            _ => false,
+        };
 
     private static bool IsLiteral(SyntaxToken token) =>
         token.Kind() is SyntaxKind.StringLiteralToken
@@ -187,6 +204,9 @@ public static partial class DomainNounMatcher
 
     private static (string, string[][]) Single(string singular, string plural) =>
         (singular, [[singular], [plural]]);
+
+    [GeneratedRegex(@"\\.")]
+    private static partial Regex Escapes();
 
     [GeneratedRegex(@"\p{L}+")]
     private static partial Regex LetterRuns();
