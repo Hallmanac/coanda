@@ -522,9 +522,19 @@ carries an external id, so recording it is idempotent on project, kind, and exte
 core compiles the triggers on a module's event kinds into the watch requests it
 hands that module (decision d97f5f86). A matching event also resumes a step waiting for it (section
 14.12). A person's trigger is a trigger definition in project or owner scope, which is what hall9k's
-personas become. A trigger that creates parcels carries the most it creates in an hour, and the engine
-enforces that number; one that acts on the event's parcel carries none. A trigger on a flow run's end
-names the flow whose end it follows with a filter on the event's `flow` field, and may name the outcome
+personas become. A trigger that creates parcels carries an hourly cap, the most parcels it creates in a
+project in any sliding hour, and the engine creates no parcel for it past that cap. The count is by the
+trigger's name, without regard to case and whatever its scope, so a project's trigger that shadows a
+module's trigger of the same name shares its count, and republishing a trigger neither resets it nor counts
+anything twice. It runs over every parcel the node's record of the project holds that the trigger created,
+open or closed, the node's own and those imported from other nodes. A parcel counts for the hour after its
+recorded creation time, or, for one imported with a creation time ahead of the node's clock, for the hour
+after its import. An event over the cap creates no parcel and starts no flow run, and is dropped with a
+warning rather than kept, since keeping it would rebuild the unbounded queue the cap exists to stop; a
+replayed event whose parcel already exists is no new creation and is never refused by the cap. Until one
+node watches a project, two nodes recording events for it can together pass a cap between imports. A
+trigger that acts on the event's parcel carries no cap, and neither does a subscription. A trigger on a
+flow run's end names the flow whose end it follows with a filter on the event's `flow` field, and may name the outcome
 with one on its `outcome` field; it creates a parcel of the type it names, starting a flow other than
 the one it follows, and never acts on the parcel whose flow run ended, since starting a flow on that
 parcel is a flow's follow, below. The parcel a trigger creates and the flow run it starts are created
