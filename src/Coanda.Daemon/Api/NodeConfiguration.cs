@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Coanda.Core;
+using Coanda.Core.Registry;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Executors.ClaudeCode;
 using Coanda.Daemon.Transport;
@@ -10,10 +11,14 @@ namespace Coanda.Daemon.Api;
 /// <summary>
 /// Reads the node configuration, <see cref="NodeHome.ConfigurationPath"/>, into the options the
 /// daemon starts with: the executor, named by key, the credential profiles the node holds per
-/// vendor, whether the daemon exports and pushes its ledger, and whether it fetches and imports its peers'
-/// ledgers. It is read once, when <c>coa daemon run</c> starts. A missing file is the Claude Code executor
-/// running <c>claude</c> from the PATH, with no profiles, exporting every <see cref="LedgerExport.DefaultInterval"/>
-/// and importing every <see cref="LedgerImport.DefaultInterval"/>, so a cold install runs agent steps.
+/// vendor, whether the daemon exports and pushes its ledger, whether it fetches and imports its peers'
+/// ledgers, and the modules a project registered on the node is switched on for. It is read once, when
+/// <c>coa daemon run</c> starts. A missing file is the Claude Code executor running <c>claude</c> from the
+/// PATH, with no profiles, exporting every <see cref="LedgerExport.DefaultInterval"/> and importing every
+/// <see cref="LedgerImport.DefaultInterval"/>, so a cold install runs agent steps.
+/// A file with no <c>defaultModules</c>, like a missing one, leaves <see cref="DaemonOptions.DefaultModules"/>
+/// null, for the host that composes the daemon to supply its own. Whether the daemon hosts each module the
+/// list names is checked when the daemon starts, which this reader cannot see.
 /// Anything else the documented format does not allow is refused with a <see cref="DomainException"/>
 /// naming the file and the offending entry.
 /// </summary>
@@ -96,6 +101,7 @@ public static class NodeConfiguration
             throw Refused(path, "gives \"ledgerImport\" as null; it is true or false, and left out it is true.");
         }
 
+        IReadOnlyList<string>? defaultModules = DefaultModules(path, file.DefaultModules);
         string? claudeExecutable = Given(file.ClaudeExecutable);
         List<CredentialProfile> profiles = Profiles(home, path, file.Profiles);
         IAgentExecutor executor = (file.Executor, claudeExecutable) switch
@@ -116,8 +122,62 @@ public static class NodeConfiguration
             ImportInterval = file.LedgerImport == false
                 ? null
                 : LedgerImport.DefaultInterval,
+            DefaultModules = defaultModules,
         };
     }
+
+    /// <summary>
+    /// The <c>defaultModules</c> list, in the order the file gives it, or null when the file leaves it out.
+    /// It is refused when given as anything but a list, and so is a list holding an entry that is not a
+    /// module's name or naming one module twice.
+    /// </summary>
+    private static IReadOnlyList<string>? DefaultModules(string path, JsonElement given)
+    {
+        if (given.ValueKind is JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (given.ValueKind is not JsonValueKind.Array)
+        {
+            throw Refused(path, $"gives \"defaultModules\" as {Kind(given)}; it is a list of module names, and left out it is the modules the daemon switches on by default.");
+        }
+
+        List<string> names = [];
+        int position = 0;
+        foreach (JsonElement entry in given.EnumerateArray())
+        {
+            position++;
+            string name = entry.ValueKind is JsonValueKind.String
+                ? entry.GetString() ?? string.Empty
+                : throw Refused(path, $"gives entry {position} of \"defaultModules\" as {Kind(entry)}; each entry is a module's name.");
+            if (!ModuleNames.IsModuleName(name))
+            {
+                throw Refused(path, $"names '{name}' as entry {position} of \"defaultModules\", which is not a module's name; a module's name is {ModuleNames.Rule}.");
+            }
+
+            if (names.Contains(name, StringComparer.Ordinal))
+            {
+                throw Refused(path, $"names the module '{name}' more than once in \"defaultModules\"; entry {position} repeats it.");
+            }
+
+            names.Add(name);
+        }
+
+        return names;
+    }
+
+    /// <summary>What kind of JSON value <paramref name="value"/> is, for a refusal to name.</summary>
+    private static string Kind(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Null => "null",
+        JsonValueKind.String => "a string",
+        JsonValueKind.Number => "a number",
+        JsonValueKind.True or JsonValueKind.False => "true or false",
+        JsonValueKind.Object => "an object",
+        JsonValueKind.Array => "a list",
+        _ => "something that is not a value",
+    };
 
     /// <summary>
     /// The directory of the <c>coa</c> executable hosting this daemon, which its sessions find first
@@ -248,6 +308,9 @@ public static class NodeConfiguration
         public string? ClaudeExecutable { get; init; }
 
         public Dictionary<string, List<ProfileShape?>?>? Profiles { get; init; }
+
+        /// <summary>The <c>defaultModules</c> setting as given, whose kind is undefined when the file leaves it out.</summary>
+        public JsonElement DefaultModules { get; init; }
 
         private readonly bool? ledgerExport;
 

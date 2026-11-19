@@ -96,6 +96,27 @@ public sealed class ModuleCompositionTests
         Assert.False(File.Exists(temp.Home.DaemonInfoPath));
     }
 
+    [Fact]
+    public void The_composition_switches_on_the_software_module_alone_when_the_options_name_no_default_modules()
+    {
+        DaemonOptions options = ModuleComposition.Compose(new DaemonOptions(), new SoftwareHosting());
+
+        Assert.Equal([SoftwareSteps.Module], options.DefaultModules);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("cms")]
+    [InlineData("cms software")]
+    public void The_composition_keeps_the_default_modules_the_options_name(string list)
+    {
+        string[] named = list.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        DaemonOptions options = ModuleComposition.Compose(new DaemonOptions { DefaultModules = named }, new SoftwareHosting());
+
+        Assert.Equal(named, options.DefaultModules);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
