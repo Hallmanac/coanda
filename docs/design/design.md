@@ -598,6 +598,10 @@ accepts, declares `"type": "object"`, and requires a `verdict` string with an `e
 verdicts. It resolves no reference outside itself, so every `$ref` is a pointer into the same
 content, and nothing about a schema reads a file or the network. A module or a new flow can
 therefore bring an agent whose verdicts the release does not ship.
+An agent's MCP servers list must be empty until the structured server shape (a server and the tools
+it offers) is designed, because agent sessions load no MCP server yet; drafting or importing an
+agent that names a server is refused. The member stays in the content and the hash covers it, and
+the rule binds only a draft or an import, so agent content already stored with a server still reads.
 Per-parcel context (criteria, journal, notes, code) is assembled by the daemon per step from
 declared sources and never folded into the agent. The daemon fences every value it renders into a
 session's files (a parcel's title, each field value, and each earlier step's answer, in prompt.md and
