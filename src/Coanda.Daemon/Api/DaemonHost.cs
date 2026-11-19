@@ -223,6 +223,7 @@ public sealed class DaemonHost
         app.MapProjectEndpoints();
         app.MapProjectModuleEndpoints();
         app.MapParcelEndpoints();
+        app.MapEventEndpoints();
         app.MapNodeEndpoints();
 
         // Served in every environment: the slim builder's environment is Production unless set.
