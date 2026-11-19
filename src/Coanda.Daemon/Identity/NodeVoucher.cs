@@ -78,6 +78,7 @@ public sealed class NodeVoucher(IDocumentStore store, LedgerExport export, NodeI
         }
 
         LedgerPublication published = await export.PublishAsync(tenant, cancellationToken);
+        bool ownKeyTrusted = await TrustedAsync(tenant, cancellationToken);
         return new NodeVouchResult(
             nodeId,
             key,
@@ -86,7 +87,26 @@ public sealed class NodeVoucher(IDocumentStore store, LedgerExport export, NodeI
             published.Published,
             published.Published
                 ? null
-                : string.Join(" ", published.Failures));
+                : string.Join(" ", published.Failures),
+            ownKeyTrusted);
+    }
+
+    /// <summary>
+    /// Whether this node's own key may sign in the project by the identity records this node holds now, after the
+    /// vouch is stored, counting its own records on no line yet as its own, judged against the key in this node's
+    /// root key record for the project. A project with no root key record trusts no key.
+    /// </summary>
+    private async Task<bool> TrustedAsync(string tenant, CancellationToken cancellationToken)
+    {
+        LedgerRoot? root;
+        await using (IQuerySession session = store.QuerySession(tenant))
+        {
+            root = await session.LoadAsync<LedgerRoot>(LedgerRoot.DocumentId, cancellationToken);
+        }
+
+        return root is not null
+            && IdentityTrust.Evaluate(root.Key, await IdentityRecords.ReadAsync(store, tenant, identity, cancellationToken))
+                .MaySign(identity.Key.PublicKey, identity.NodeId).MaySign;
     }
 
     /// <summary>
@@ -106,6 +126,8 @@ public sealed class NodeVoucher(IDocumentStore store, LedgerExport export, NodeI
 
 /// <summary>
 /// What a vouch came to: the node and key, whether this call recorded the vouch, whether it recorded the
-/// project's owner root first, and whether the export pushed the project, with the push's reason when it did not.
+/// project's owner root first, whether the export pushed the project, with the push's reason when it did not, and
+/// whether this node's own key may sign in the project by the identity records this node holds once the vouch is
+/// stored. A node counts the vouch only once it trusts this node's key.
 /// </summary>
-public sealed record NodeVouchResult(Guid NodeId, string Key, bool Recorded, bool RootRecorded, bool Pushed, string? Reason);
+public sealed record NodeVouchResult(Guid NodeId, string Key, bool Recorded, bool RootRecorded, bool Pushed, string? Reason, bool Trusted);
