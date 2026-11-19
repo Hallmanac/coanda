@@ -51,9 +51,12 @@ public sealed class TriggerTests
     [Fact]
     public void A_follow_matches_a_flow_run_end_with_its_outcome_and_its_flow_when_it_names_one()
     {
-        TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
+        TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task", "Add the button");
         Assert.Equal("flow-run-ended", ended.Kind);
-        Assert.Equivalent(new Dictionary<string, string> { ["flow"] = TriggerEvent.FlowKey("build"), ["outcome"] = "pr-opened", ["type"] = "task" }, ended.Fields, strict: true);
+        Assert.Equivalent(
+            new Dictionary<string, string> { ["flow"] = TriggerEvent.FlowKey("build"), ["outcome"] = "pr-opened", ["type"] = "task", ["title"] = "Add the button" },
+            ended.Fields,
+            strict: true);
 
         Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 }).Matches(ended));
         Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 }).Matches(ended), "a follow naming no flow takes the outcome from any flow");
@@ -64,11 +67,11 @@ public sealed class TriggerTests
     [Fact]
     public void A_follow_names_its_flow_in_any_spelling_as_flow_names_compare_without_case()
     {
-        TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task");
+        TriggerEvent ended = TriggerEvent.FlowRunEnded("build", "pr-opened", "task", "Add the button");
 
         Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "Build", DepthCap = 1 }).Matches(ended));
         Assert.True(Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", Flow = "build", DepthCap = 1 })
-            .Matches(TriggerEvent.FlowRunEnded("BUILD", "pr-opened", "task")));
+            .Matches(TriggerEvent.FlowRunEnded("BUILD", "pr-opened", "task", "Add the button")));
         Assert.False(Trigger.ForFollow(new FlowFollow { Outcome = "PR-Opened", Flow = "build", DepthCap = 1 }).Matches(ended), "an outcome is a typed value and compares exactly");
     }
 
@@ -78,5 +81,29 @@ public sealed class TriggerTests
         Trigger follow = Trigger.ForFollow(new FlowFollow { Outcome = "pr-opened", DepthCap = 1 });
 
         Assert.False(follow.Matches(Event("pr-merged", ("flow", "build"), ("outcome", "pr-opened"), ("type", "task"))));
+    }
+
+    [Fact]
+    public void A_trigger_definition_on_a_flow_run_end_matches_its_flow_without_regard_to_case_and_its_outcome_exactly()
+    {
+        TriggerDefinition triage = SampleTriggers.EvaluateBuild with { Filters = SampleTriggers.Filters(("flow", "triage"), ("outcome", "pr-opened")) };
+        Trigger matcher = Trigger.ForDefinition(triage);
+
+        Assert.True(matcher.Matches(TriggerEvent.FlowRunEnded("Triage", "pr-opened", "task", "A title")));
+        Assert.False(matcher.Matches(TriggerEvent.FlowRunEnded("Triage", "PR-opened", "task", "A title")), "an outcome compares exactly");
+        Assert.False(matcher.Matches(TriggerEvent.FlowRunEnded("build", "pr-opened", "task", "A title")));
+        // the stored filter is left as written
+        Assert.Equal("triage", triage.Filters["flow"]);
+    }
+
+    [Fact]
+    public void A_trigger_definition_on_an_external_event_compares_every_filter_exactly_as_written()
+    {
+        TriggerDefinition opened = SampleTriggers.IssueOpened with { Filters = SampleTriggers.Filters(("flow", "Triage")) };
+        Trigger matcher = Trigger.ForDefinition(opened);
+
+        Assert.True(matcher.Matches(Event("tracker/issue-opened", ("flow", "Triage"))));
+        Assert.False(matcher.Matches(Event("tracker/issue-opened", ("flow", "TRIAGE"))));
+        Assert.False(matcher.Matches(Event("tracker/issue-closed", ("flow", "Triage"))));
     }
 }

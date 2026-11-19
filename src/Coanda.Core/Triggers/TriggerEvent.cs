@@ -4,7 +4,7 @@ namespace Coanda.Core.Triggers;
 /// An event as a trigger reads it: a kind and named string fields. A parcel's creation and every
 /// move read as <see cref="ParcelEnteredKind"/> with the fields <c>type</c> and <c>stage</c>; a
 /// flow run's end reads as <see cref="FlowRunEndedKind"/> with the fields <c>flow</c>, <c>outcome</c>,
-/// and <c>type</c>, the type of the flow run's parcel.
+/// <c>type</c>, the type of the flow run's parcel, and <c>title</c>, that parcel's title.
 /// </summary>
 public sealed record TriggerEvent(string Kind, IReadOnlyDictionary<string, string> Fields)
 {
@@ -18,6 +18,7 @@ public sealed record TriggerEvent(string Kind, IReadOnlyDictionary<string, strin
     public const string StageField = "stage";
     public const string FlowField = "flow";
     public const string OutcomeField = "outcome";
+    public const string TitleField = "title";
 
     public static TriggerEvent ParcelEntered(string typeName, string stage) => new(
         ParcelEnteredKind,
@@ -25,11 +26,18 @@ public sealed record TriggerEvent(string Kind, IReadOnlyDictionary<string, strin
 
     /// <summary>
     /// A flow run's end. Its <c>flow</c> field carries the flow's name as <see cref="FlowKey"/> folds it,
-    /// because flow names compare without regard to case.
+    /// because flow names compare without regard to case. Its <c>title</c> field carries the title of the
+    /// flow run's parcel, which a trigger on the end may title the parcel it creates with.
     /// </summary>
-    public static TriggerEvent FlowRunEnded(string flowName, string outcome, string typeName) => new(
+    public static TriggerEvent FlowRunEnded(string flowName, string outcome, string typeName, string title) => new(
         FlowRunEndedKind,
-        new Dictionary<string, string>(StringComparer.Ordinal) { [FlowField] = FlowKey(flowName), [OutcomeField] = outcome, [TypeField] = typeName });
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [FlowField] = FlowKey(flowName),
+            [OutcomeField] = outcome,
+            [TypeField] = typeName,
+            [TitleField] = title,
+        });
 
     /// <summary>
     /// A flow's name folded to one case, so that the exact equality a trigger compares with finds two
