@@ -54,7 +54,8 @@ code, and `decisions.md` in its worktree carries the binding rules.
   open-pr, gated-merge, and rebase steps, the GitHub client, and the worktrees they act on, which it cuts from
   the core's clones at the work path each dispatch carries; it makes no clone. It removes a flow run's
   worktree, at the work path the core's flow run view shows, when the module feed delivers that flow
-  run's end or stop, and sweeps what is left at its start. It references the SDK and no other Coanda project, and the daemon hosts
+  run's end or stop, and at its start repairs every linked worktree of every clone (the core runs no
+  worktree command, even when it moves a clone) before it sweeps what is left. It references the SDK and no other Coanda project, and the daemon hosts
   it in process until phase 5.
   Its `module.json` and its `definitions` folder (one JSON file per type, flow, and agent) are copied
   to `modules/software/` beside `coa`, from where the daemon imports the definitions in module scope at start.
