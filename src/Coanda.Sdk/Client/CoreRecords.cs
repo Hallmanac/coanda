@@ -97,6 +97,21 @@ public sealed record CoreFlowRun(
 /// </summary>
 public sealed record CoreFlowRunStep(string Step, string Kind, string Performer, JsonElement? Result, DateTimeOffset? RecordedAt, string? AgentHash = null);
 
+/// <summary>
+/// An external event as the core's API shows it: its kind, the id the outside world gives it, the parcel
+/// its recorder said it concerns, when it named one, its string fields, which are untrusted text, and who
+/// recorded it and when.
+/// </summary>
+public sealed record CoreExternalEvent(
+    Guid Id,
+    string Project,
+    string Kind,
+    string ExternalId,
+    Guid? ParcelId,
+    IReadOnlyDictionary<string, string> Fields,
+    string RecordedBy,
+    DateTimeOffset RecordedAt);
+
 /// <summary>The core's API refused a call or could not find what it named; the message quotes the core's own reason.</summary>
 public sealed class CoreApiException(int status, string message) : Exception(message)
 {
