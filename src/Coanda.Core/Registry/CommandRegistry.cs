@@ -49,6 +49,7 @@ public static class CommandRegistry
         new("flow-run.outcome", EntryKind.Command, "Record the outcome of a system step's dispatch, a result or a pause, under its dispatch id.", EveryoneAndModules),
         new("flow-run.pause", EntryKind.Command, "Pause a flow run with a reason and a lever.", Everyone),
         new("flow-run.resume", EntryKind.Command, "Resume a paused flow run.", People),
+        new("flow-run.resume-on-event", EntryKind.Command, "Resume a flow run its wait-for-external-event step paused, for the external event it waits for; the daemon's own.", AgentOnly),
         new("flow-run.end", EntryKind.Command, "End a flow run with its flow's outcome.", Everyone),
         new("flow-run.stop", EntryKind.Command, "Stop a live flow run before its end.", People),
         new("flow-run.yield", EntryKind.Command, "Stop a live flow run this node started on a parcel another node's claim wins; the daemon's own.", AgentOnly),

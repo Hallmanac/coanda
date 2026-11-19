@@ -318,6 +318,88 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         return resumed;
     }
 
+    /// <summary>
+    /// The id of the parcel's live flow run when it awaits, as the store now holds it, the external event of
+    /// <paramref name="kind"/> at <paramref name="sequence"/> in this node's record (<see cref="AwaitedEvent"/>) and this
+    /// node started it, so only this node may resume it; otherwise null. The trigger loop reads this before it weighs
+    /// the parcel's claims, and <see cref="ResumeOnEventAsync"/> decides again inside its write.
+    /// </summary>
+    public async Task<Guid?> AwaitingEventAsync(
+        Principal principal, string project, Guid parcelId, string kind, long sequence, string resumedBy, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flow-run.show", principal);
+        string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+
+        await using IQuerySession session = store.QuerySession(tenant);
+        if (await session.LoadAsync<Parcel>(parcelId, cancellationToken) is not { LiveFlowRunId: Guid live }
+            || await session.LoadAsync<FlowRun>(live, cancellationToken) is not { } flowRun
+            || await ImportedEvents.StartedElsewhereAsync(store, session, flowRun.Id, cancellationToken) is not null)
+        {
+            return null;
+        }
+
+        Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, cancellationToken);
+        IReadOnlyList<IEvent> stream = await session.Events.FetchStreamAsync(flowRun.Id, token: cancellationToken);
+        return AwaitedEvent.Matches(flow, flowRun, stream, kind, sequence, resumedBy)
+            ? flowRun.Id
+            : null;
+    }
+
+    /// <summary>
+    /// The trigger loop's resume of a flow run its own wait-for-external-event step paused, for the external event
+    /// <paramref name="eventId"/> of <paramref name="kind"/> at <paramref name="sequence"/> in this node's record. Whether
+    /// the event is the one the step waits for (<see cref="AwaitedEvent"/>) is decided inside the write, against the flow
+    /// run's stream as the write fetched it, and again on every concurrent write, so a pause the step did not answer is
+    /// never resumed. The resume is recorded with <paramref name="principal"/>'s id, which names the event, as its
+    /// resumer and a note naming the event and its kind, and gives no answer; on that visit the step answers done.
+    /// Null, writing nothing, when the event is not the one the flow run awaits. It is open only to the daemon's own
+    /// Agent-role entry, which no route or command reaches, and like every write refused on a flow run another node started.
+    /// </summary>
+    public async Task<FlowRun?> ResumeOnEventAsync(
+        Principal principal, string project, Guid flowRunId, Guid eventId, string kind, long sequence, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flow-run.resume-on-event", principal);
+        string tenant = Tenants.RequireProject(project);
+        RequireBoundFlowRun(principal, tenant, flowRunId);
+
+        FlowRun? resumed = await DecidingAgainAsync<FlowRun?>(
+            async token =>
+            {
+                await using IDocumentSession session = store.LightweightSession(tenant);
+                var flowRunStream = await session.Events.FetchForWriting<FlowRun>(flowRunId, token);
+                FlowRun flowRun = flowRunStream.Aggregate ?? throw FlowRunNotFound(flowRunId, tenant);
+                RequireBoundLaunch(principal, flowRun);
+                await RequireStartedHereAsync(session, flowRun, token);
+                Flow flow = await RequireStartedUnderFlowAsync(tenant, flowRun, token);
+
+                // Read after the fetch for writing: an event past the version it fetched fails the save, which decides again.
+                IReadOnlyList<IEvent> stream = await session.Events.FetchStreamAsync(flowRunId, token: token);
+                if (!AwaitedEvent.Matches(flow, flowRun, stream, kind, sequence, principal.Id))
+                {
+                    return null;
+                }
+
+                string note = $"External event {eventId} of kind '{kind}' is the event step '{flowRun.Current?.Step}' waits for.";
+                FlowRunResumed recorded = FlowRunDecider.Resume(flow, flowRun, note, null, principal.Id, clock.GetUtcNow());
+                flowRunStream.AppendOne(recorded);
+                await session.SaveChangesAsync(token);
+
+                flowRun.Apply(recorded);
+                return flowRun;
+            },
+            $"Flow run {Ids.Short(flowRunId)} kept changing while its resume for external event {Ids.Short(eventId)} was being recorded, so nothing was.",
+            cancellationToken);
+
+        if (resumed is not null)
+        {
+            _ = advancer?.RequestAdvance(tenant, resumed.Id);
+        }
+
+        return resumed;
+    }
+
     public Task<FlowRun> EndAsync(Principal principal, string project, Guid flowRunId, string outcome, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("flow-run.end", principal);
@@ -623,8 +705,8 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     /// against the flow run as it now stands, so the write is refused only by a rule that flow run breaks.
     /// Only a run of <see cref="Attempts"/> concurrent writes refuses it with <paramref name="refusal"/>.
     /// </summary>
-    private static async Task<FlowRun> DecidingAgainAsync(
-        Func<CancellationToken, Task<FlowRun>> attempt, string refusal, CancellationToken cancellationToken)
+    private static async Task<T> DecidingAgainAsync<T>(
+        Func<CancellationToken, Task<T>> attempt, string refusal, CancellationToken cancellationToken)
     {
         for (int tried = 1; ; tried++)
         {

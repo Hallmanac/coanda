@@ -61,6 +61,7 @@ public sealed class ModuleRoleRegistryTests
         ["flow-run.outcome"] = Everyone,
         ["flow-run.pause"] = Everyone,
         ["flow-run.resume"] = People,
+        ["flow-run.resume-on-event"] = [Role.Agent],
         ["flow-run.end"] = Everyone,
         ["flow-run.stop"] = People,
         ["flow-run.yield"] = [Role.Agent],
