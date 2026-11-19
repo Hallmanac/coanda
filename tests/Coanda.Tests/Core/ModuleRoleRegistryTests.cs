@@ -21,6 +21,7 @@ public sealed class ModuleRoleRegistryTests
         "flow-run.list", "flow-run.show", "flow-run.outcome",
         "attention.list",
         "event.record", "subscription.list",
+        "definition.list", "definition.show",
     ];
 
     private static readonly Role[] Owner = [Role.Owner];
@@ -69,6 +70,8 @@ public sealed class ModuleRoleRegistryTests
         ["flow-run.yield"] = [Role.Agent],
         ["event.record"] = People,
         ["subscription.list"] = Everyone,
+        ["definition.list"] = Everyone,
+        ["definition.show"] = Everyone,
         ["definition.draft"] = Everyone,
         ["definition.publish"] = Owner,
         ["definition.retire"] = Owner,
