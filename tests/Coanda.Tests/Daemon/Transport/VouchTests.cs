@@ -68,6 +68,21 @@ public sealed class VouchTests
     }
 
     [Fact]
+    public async Task The_owners_first_vouch_answers_that_its_key_is_trusted_whether_or_not_it_is_pushed()
+    {
+        await using LedgerNode pushing = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode unpushed = await LedgerNode.StartAsync();
+        await unpushed.AddProjectAsync(Alpha, withRemote: false);
+        NodeIdentity other = await LedgerNode.OtherIdentityAsync();
+
+        NodeVouchResult pushed = await pushing.Voucher.VouchAsync(Owner, Alpha, other.NodeId, other.Key.PublicKey, None);
+        NodeVouchResult failed = await unpushed.Voucher.VouchAsync(Owner, Alpha, other.NodeId, other.Key.PublicKey, None);
+
+        Assert.Equal((true, true, true), (pushed.RootRecorded, pushed.Pushed, pushed.Trusted));
+        Assert.Equal((true, false, true), (failed.RootRecorded, failed.Pushed, failed.Trusted));
+    }
+
+    [Fact]
     public async Task A_vouch_for_this_nodes_own_id_is_refused_and_records_nothing()
     {
         await using LedgerNode node = await LedgerNode.StartAsync(Alpha);

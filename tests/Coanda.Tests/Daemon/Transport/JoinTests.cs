@@ -360,6 +360,26 @@ public sealed class JoinTests
     }
 
     [Fact]
+    public async Task A_vouch_on_a_node_joined_before_the_owner_vouched_for_it_says_its_key_is_not_yet_trusted_until_that_vouch_arrives()
+    {
+        await using LedgerNode owner = await LedgerNode.StartAsync(Alpha);
+        await using LedgerNode joining = await LedgerNode.StartAsync();
+        NodeIdentity other = await LedgerNode.OtherIdentityAsync();
+        NodeIdentity third = await LedgerNode.OtherIdentityAsync();
+        await owner.Voucher.VouchAsync(Owner, Alpha, other.NodeId, other.Key.PublicKey, None);
+        Assert.False((await joining.Joiner.JoinAsync(Owner, owner.RemotePath(Alpha), owner.Fingerprint, None)).Trusted);
+
+        NodeVouchResult before = await joining.Voucher.VouchAsync(Owner, Alpha, third.NodeId, third.Key.PublicKey, None);
+        Assert.Equal((true, false, false), (before.Recorded, before.RootRecorded, before.Trusted));
+
+        // Once the owner's vouch for the joined node arrives, the vouch it already holds answers as trusted.
+        await owner.Voucher.VouchAsync(Owner, Alpha, joining.Identity.NodeId, joining.Identity.Key.PublicKey, None);
+        await ImportAsync(joining);
+        NodeVouchResult after = await joining.Voucher.VouchAsync(Owner, Alpha, third.NodeId, third.Key.PublicKey, None);
+        Assert.Equal((false, true), (after.Recorded, after.Trusted));
+    }
+
+    [Fact]
     public async Task A_run_carrying_no_root_record_that_names_the_trusted_key_stores_nothing_from_its_origin()
     {
         await using LedgerNode owner = await LedgerNode.StartAsync(Alpha);
