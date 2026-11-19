@@ -30,6 +30,7 @@ public static class CommandRegistry
         new("parcel.move", EntryKind.Command, "Move a parcel to a stage its type allows.", Everyone),
         new("parcel.set-field", EntryKind.Command, "Record a value in one of a parcel's fields, replacing the value it held.", EveryoneAndModules),
         new("parcel.close", EntryKind.Command, "Close a parcel with a resolution and a reason.", People),
+        new("parcel.relate", EntryKind.Command, "Record that another parcel of the project blocks a parcel.", People),
         new("parcel.claim", EntryKind.Command, "Claim a parcel for this node, so that only the node holding it starts flow runs on it.", People),
         new("type.list", EntryKind.Query, "List the installed parcel types.", EveryoneAndModules),
         new("flow.list", EntryKind.Query, "List the flows that govern a project.", EveryoneAndModules),

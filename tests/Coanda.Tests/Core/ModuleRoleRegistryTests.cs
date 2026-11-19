@@ -43,6 +43,7 @@ public sealed class ModuleRoleRegistryTests
         ["parcel.set-field"] = Everyone,
         ["parcel.close"] = People,
         ["parcel.claim"] = People,
+        ["parcel.relate"] = People,
         ["type.list"] = Everyone,
         ["flow.list"] = Everyone,
         ["agent.list"] = Everyone,
