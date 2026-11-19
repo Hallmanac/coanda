@@ -1035,7 +1035,19 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
                     try
                     {
                         recorded = await flowRuns.RecordAnswerAsync(
-                            principal, project, flowRunId, step.Name, launched.Agent, answered.Session.Id, launched.AgentHash, launched.Model, answer, answered.Usage, cancellationToken);
+                            principal,
+                            project,
+                            flowRunId,
+                            step.Name,
+                            launched.Agent,
+                            answered.Session.Id,
+                            launched.AgentHash,
+                            launched.Model,
+                            answer,
+                            answered.Usage,
+                            answered.Hashes?.Prompt,
+                            answered.Hashes?.Transcript,
+                            cancellationToken);
                     }
                     catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
                     {
@@ -1045,7 +1057,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
                     return new Recording(recorded, answer);
                 case AgentStepOutcome.Paused paused:
-                    await PauseAgentStepAsync(principal, project, flowRunId, launched, paused.Reason, paused.Lever, paused.Usage, cancellationToken);
+                    await PauseAgentStepAsync(principal, project, flowRunId, launched, paused.Reason, paused.Lever, paused.Usage, paused.Hashes, cancellationToken);
                     return null;
                 default:
                     throw new InvalidOperationException($"An agent step ended in an outcome the runner does not know: {outcome.GetType().Name}.");
@@ -1098,6 +1110,22 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// reported. An agent step whose session the flow run recorded pauses only while the visit still expects
     /// that session; when the pause is refused, what it spent is settled as a refused answer's is.
     /// </summary>
+    private Task PauseAgentStepAsync(
+        Principal principal,
+        string project,
+        Guid flowRunId,
+        Launched launched,
+        string reason,
+        string lever,
+        Measurement? usage,
+        CancellationToken cancellationToken) =>
+        PauseAgentStepAsync(principal, project, flowRunId, launched, reason, lever, usage, hashes: null, cancellationToken);
+
+    /// <summary>
+    /// Pauses the flow run for an agent step as the overload without <paramref name="hashes"/> does,
+    /// recording the hashes of the session's prompt and transcript that an agent step that paused
+    /// after its retry collected. They are recorded only with the session the flow run recorded.
+    /// </summary>
     private async Task PauseAgentStepAsync(
         Principal principal,
         string project,
@@ -1106,12 +1134,14 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         string reason,
         string lever,
         Measurement? usage,
+        SessionFileHashes? hashes,
         CancellationToken cancellationToken)
     {
         Guid? session = launched is { Recorded: true, Session: { } held } ? held.Id : null;
+        SessionFileHashes? recorded = session is null ? null : hashes;
         try
         {
-            await flowRuns.PauseAsync(principal, project, flowRunId, reason, lever, usage, session, cancellationToken);
+            await flowRuns.PauseAsync(principal, project, flowRunId, reason, lever, usage, session, recorded?.Prompt, recorded?.Transcript, cancellationToken);
         }
         catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
         {

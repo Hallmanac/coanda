@@ -25,7 +25,10 @@ public interface IAgentExecutor
         SessionAccess? access,
         CancellationToken cancellationToken);
 
-    /// <summary>Reads the session's latest answer, its transcript path, and its usage.</summary>
+    /// <summary>
+    /// Reads the session's latest answer, the path its transcript is kept at, its usage, and the hashes
+    /// of its prompt and transcript when the executor keeps those files.
+    /// </summary>
     ValueTask<CollectedAnswer> CollectAsync(SessionHandle handle, CancellationToken cancellationToken);
 
     /// <summary>Continues the session with a message, leaving a new answer to collect.</summary>

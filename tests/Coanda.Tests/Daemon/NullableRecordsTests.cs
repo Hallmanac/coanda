@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Coanda.Core;
+using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Parcels;
@@ -118,6 +122,128 @@ public sealed class NullableRecordsTests
             ?? throw new InvalidOperationException("The flow run is gone.");
         Assert.Null(Assert.Single(read.Steps).ResumeAnswer);
         await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task An_answer_and_a_pause_stored_without_the_hashes_of_their_sessions_files_read_back_with_none_and_replay_as_before()
+    {
+        using var temp = new TemporaryHome();
+        NodeHome home = temp.Home;
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
+        var at = new DateTimeOffset(2026, 11, 3, 6, 0, 0, TimeSpan.Zero);
+        string promptHash = "sha256:" + new string('a', 64);
+        string transcriptHash = "sha256:" + new string('b', 64);
+        Guid answeredId = Ids.New();
+        Guid pausedId = Ids.New();
+        object[] answeredEvents = Launched(answeredId, at,
+            new AgentStepAnswered(
+                answeredId, "implement", "implementer", "sha256:agent", new ModelSpec("claude-code", "claude-sonnet-5-5", "high"),
+                JsonSerializer.SerializeToElement(new { verdict = "done" }), new Measurement(10, 0.1m, 1, TimeSpan.FromSeconds(1)), at, promptHash, transcriptHash));
+        object[] pausedEvents = Launched(pausedId, at,
+            new FlowRunPaused(
+                pausedId, "no valid answer after one retry", "/transcripts/1.jsonl.gz", "flow-run", at,
+                new Measurement(20, 0.2m, 2, TimeSpan.FromSeconds(2)), PromptHash: promptHash, TranscriptHash: transcriptHash));
+        await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
+        {
+            await using IDocumentSession session = store.LightweightSession(Alpha);
+            session.Events.StartStream<FlowRun>(answeredId, answeredEvents);
+            session.Events.StartStream<FlowRun>(pausedId, pausedEvents);
+            await session.SaveChangesAsync(None);
+        }
+
+        // As the builds before the hashes wrote them: without those members at all.
+        SqliteConnection.ClearAllPools();
+        using (SqliteConnection connection = RecordHomes.Open(home.DatabasePath))
+        using (SqliteCommand earlier = connection.CreateCommand())
+        {
+            earlier.CommandText = "UPDATE fi_events SET data = json_remove(data, '$.promptHash', '$.transcriptHash') "
+                + "WHERE type IN ('agent_step_answered', 'flow_run_paused') AND stream_id IN ($answered, $paused)";
+            earlier.Parameters.AddWithValue("$answered", answeredId.ToString());
+            earlier.Parameters.AddWithValue("$paused", pausedId.ToString());
+            Assert.Equal(2, earlier.ExecuteNonQuery());
+        }
+
+        string[] streams = [answeredId.ToString(), pausedId.ToString()];
+        Assert.All(
+            RecordHomes.Events(home.DatabasePath).Where(e => streams.Contains(e.Stream) && e.Type is "agent_step_answered" or "flow_run_paused"),
+            e => Assert.DoesNotContain("Hash\"", e.Data.Replace("agentHash\"", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal));
+
+        await using (IDocumentStore reopened = StoreConfiguration.Open(home.DatabasePath))
+        await using (IQuerySession query = reopened.QuerySession(Alpha))
+        {
+            object[] answeredRead = [.. (await query.Events.FetchStreamAsync(answeredId, token: None)).Select(e => e.Data)];
+            object[] pausedRead = [.. (await query.Events.FetchStreamAsync(pausedId, token: None)).Select(e => e.Data)];
+            AgentStepAnswered answered = Assert.Single(answeredRead.OfType<AgentStepAnswered>());
+            FlowRunPaused paused = Assert.Single(pausedRead.OfType<FlowRunPaused>());
+            Assert.Equal((null, null), (answered.PromptHash, answered.TranscriptHash));
+            Assert.Equal((null, null), (paused.PromptHash, paused.TranscriptHash));
+            Assert.Equal(((AgentStepAnswered)answeredEvents[^1]) with { PromptHash = null, TranscriptHash = null }, answered with { Answer = ((AgentStepAnswered)answeredEvents[^1]).Answer });
+            Assert.Equal("""{"verdict":"done"}""", answered.Answer.GetRawText());
+            Assert.Equal(((FlowRunPaused)pausedEvents[^1]) with { PromptHash = null, TranscriptHash = null }, paused);
+
+            FlowRun answeredBefore = Replay(answeredEvents);
+            FlowRun answeredAfter = Replay(answeredRead);
+            FlowRun pausedBefore = Replay(pausedEvents);
+            FlowRun pausedAfter = Replay(pausedRead);
+            Assert.Equal(WithoutHashes(answeredBefore), WithoutHashes(answeredAfter));
+            Assert.Equal(WithoutHashes(pausedBefore), WithoutHashes(pausedAfter));
+            Assert.Equal((promptHash, transcriptHash), (answeredBefore.Steps[0].PromptHash, answeredBefore.Steps[0].TranscriptHash));
+            Assert.Equal((null, null), (answeredAfter.Steps[0].PromptHash, answeredAfter.Steps[0].TranscriptHash));
+            Assert.Equal((promptHash, transcriptHash), (pausedBefore.PausePromptHash, pausedBefore.PauseTranscriptHash));
+            Assert.Equal((null, null), (pausedAfter.PausePromptHash, pausedAfter.PauseTranscriptHash));
+        }
+    }
+
+    /// <summary>A flow run started at an agent step whose launch opened a session, then <paramref name="last"/>.</summary>
+    private static object[] Launched(Guid flowRunId, DateTimeOffset at, object last) =>
+    [
+        new FlowRunStarted(flowRunId, Ids.New(), "build", 1, "sha256:flow", Principal.LocalOwner.Id, "implement", StepKind.AgentStep, "implementer", at),
+        new AgentStepSpawned(flowRunId, "implement", "implementer", "sha256:agent", new ModelSpec("claude-code", "claude-sonnet-5-5", "high"), at, Ids.New()),
+        new AgentStepSessionOpened(flowRunId, "implement", Ids.New(), at),
+        last,
+    ];
+
+    private static FlowRun Replay(IReadOnlyList<object> events)
+    {
+        FlowRun flowRun = FlowRun.Create(Assert.IsType<FlowRunStarted>(events[0]));
+        foreach (object recorded in events.Skip(1))
+        {
+            switch (recorded)
+            {
+                case AgentStepSpawned spawned:
+                    flowRun.Apply(spawned);
+                    break;
+                case AgentStepSessionOpened opened:
+                    flowRun.Apply(opened);
+                    break;
+                case AgentStepAnswered answered:
+                    flowRun.Apply(answered);
+                    break;
+                case FlowRunPaused paused:
+                    flowRun.Apply(paused);
+                    break;
+                default:
+                    throw new InvalidOperationException($"The replay does not apply {recorded.GetType().Name}.");
+            }
+        }
+
+        return flowRun;
+    }
+
+    /// <summary>The flow run as JSON with the members the hashes added taken out: every member that was there before them.</summary>
+    private static string WithoutHashes(FlowRun flowRun)
+    {
+        JsonObject document = JsonSerializer.SerializeToNode(flowRun)?.AsObject() ?? throw new InvalidOperationException("The flow run did not serialize.");
+        Assert.True(document.Remove(nameof(FlowRun.PausePromptHash)));
+        Assert.True(document.Remove(nameof(FlowRun.PauseTranscriptHash)));
+        foreach (JsonNode? step in document[nameof(FlowRun.Steps)]?.AsArray() ?? [])
+        {
+            JsonObject entry = step?.AsObject() ?? throw new InvalidOperationException("A step did not serialize.");
+            Assert.True(entry.Remove(nameof(FlowRunStepEntry.PromptHash)));
+            Assert.True(entry.Remove(nameof(FlowRunStepEntry.TranscriptHash)));
+        }
+
+        return document.ToJsonString();
     }
 
     [Fact]

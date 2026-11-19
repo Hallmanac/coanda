@@ -771,7 +771,7 @@ public sealed class FlowRunAdvancerTests
             await flowRuns.SessionOpenedAsync(Principal.LocalOwner, Project, flowRun.Id, "build", session, None);
             await flowRuns.RecordAnswerAsync(
                 Principal.LocalOwner, Project, flowRun.Id, "build", "build", session, SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model,
-                JsonSerializer.SerializeToElement(new { verdict = "done" }), Scripts.Usage(1), None);
+                JsonSerializer.SerializeToElement(new { verdict = "done" }), Scripts.Usage(1), null, null, None);
             flowRunId = flowRun.Id;
         }
 

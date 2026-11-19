@@ -156,7 +156,7 @@ public static class AgentStep
         IReadOnlyList<string> firstFailures = Check(answerSchema, first.Answer);
         if (first.Answer is { } firstAnswer && firstFailures.Count == 0)
         {
-            return new AgentStepOutcome.Answered(handle, firstAnswer, first.TranscriptPath, first.Usage);
+            return new AgentStepOutcome.Answered(handle, firstAnswer, first.TranscriptPath, first.Usage, first.Hashes);
         }
 
         await executor.ResumeAsync(handle, RetryMessage(answerSchema, first.Answer, firstFailures), cancellationToken);
@@ -180,12 +180,13 @@ public static class AgentStep
         Measurement usage = Sum(earlier, second.Usage);
         IReadOnlyList<string> secondFailures = Check(answerSchema, second.Answer);
         return second.Answer is { } secondAnswer && secondFailures.Count == 0
-            ? new AgentStepOutcome.Answered(handle, secondAnswer, second.TranscriptPath, usage)
+            ? new AgentStepOutcome.Answered(handle, secondAnswer, second.TranscriptPath, usage, second.Hashes)
             : new AgentStepOutcome.Paused(
                 handle,
                 $"Agent '{handle.Agent}' gave no valid '{answerSchema.Name}' answer after one retry: {string.Join("; ", secondFailures)}.",
                 second.TranscriptPath,
-                usage);
+                usage,
+                second.Hashes);
     }
 
     /// <summary>

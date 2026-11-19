@@ -75,7 +75,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
                 }
 
                 ScriptEntry entry = entries[ordinal - 1];
-                session.Current = new CollectedAnswer(entry.Answer, entry.TranscriptPath, entry.Usage);
+                session.Current = new CollectedAnswer(entry.Answer, entry.TranscriptPath, entry.Usage, entry.Hashes);
                 collected[agent] = ordinal;
             }
 
