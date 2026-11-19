@@ -695,12 +695,16 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     }
 
     /// <summary>
-    /// Removes, as <see cref="RemoveAsync"/> does, every worktree a clone under the node home lists whose
-    /// path is the work path the core gives a flow run that has ended or been stopped, which
-    /// <paramref name="finalWorkPath"/> answers with, given the project and the flow run the path's last
-    /// segment names, and answers null for a flow run that is live or that the core does not hold. A
-    /// listed path that is not that flow run's work path, the clone's own included, is left alone. A
-    /// clone, or a worktree, that cannot be swept is logged and passed over.
+    /// Repairs every linked worktree each clone under the node home lists whose directory exists, by
+    /// <c>git worktree repair</c> from the clone at its current path, so a worktree whose clone the core
+    /// moved points at it again; a worktree no flow run cut is repaired too. A clone's repairs all run
+    /// before anything else touches its worktrees. Then removes, as <see cref="RemoveAsync"/> does, every
+    /// worktree a clone lists whose path is the work path the core gives a flow run that has ended or been
+    /// stopped, which <paramref name="finalWorkPath"/> answers with, given the project and the flow run the
+    /// path's last segment names, and answers null for a flow run that is live or that the core does not
+    /// hold. A listed path that is not that flow run's work path, the clone's own included, is left alone. A
+    /// clone whose worktrees cannot be listed, a worktree that cannot be repaired, and a worktree that
+    /// cannot be removed are each logged and passed over; the next start tries again.
     /// </summary>
     public async Task SweepAsync(Func<string, Guid, CancellationToken, Task<string?>> finalWorkPath, CancellationToken cancellationToken)
     {
@@ -720,7 +724,7 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
                 }
                 catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
                 {
-                    logger.LogError(failure, "Sweeping the worktrees of the clone at {Clone} failed; they are left as they are.", clone);
+                    logger.LogError(failure, "Sweeping the worktrees of the clone at {Clone} failed; the next start tries again.", clone);
                 }
             }
         }
@@ -729,7 +733,23 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
     private async Task SweepCloneAsync(string project, string clone, Func<string, Guid, CancellationToken, Task<string?>> finalWorkPath, CancellationToken cancellationToken)
     {
         using Held held = await LockAsync(clone, cancellationToken);
-        foreach (ListedWorktree entry in await ListAsync(clone, cancellationToken))
+        CommandLine list = Git.Against(clone, "worktree", "list", "--porcelain");
+        CommandResult listed = await git.TryRunAsync(list, cancellationToken);
+        if (listed is not { Succeeded: true, Truncated: false })
+        {
+            logger.LogError(
+                "The worktrees of the clone at {Clone} could not be listed, so none was repaired or swept; the next start tries again. {Reason}",
+                clone, new GitCommandException(list, listed).Message);
+            return;
+        }
+
+        IReadOnlyList<ListedWorktree> entries = ListedWorktree.Parse(listed.StandardOutput);
+        foreach (ListedWorktree entry in entries.Where(e => !e.Bare && Directory.Exists(e.Path)))
+        {
+            await RepairAsync(clone, entry.Path, cancellationToken);
+        }
+
+        foreach (ListedWorktree entry in entries)
         {
             if (entry.Bare
                 || FlowRunNamedBy(entry.Path) is not Guid flowRunId
@@ -748,6 +768,22 @@ public sealed class ProjectClones(string homePath, ICommandRunner runner, ILogge
             {
                 logger.LogError(failure, "Removing the worktree of flow run {FlowRun} at {Path} failed; it is left as it is.", ShortId.Of(flowRunId), entry.Path);
             }
+        }
+    }
+
+    /// <summary>
+    /// Points the worktree at <paramref name="worktree"/> and the clone at <paramref name="clone"/> back at
+    /// each other, wherever the clone now is; a failure is logged naming both.
+    /// </summary>
+    private async Task RepairAsync(string clone, string worktree, CancellationToken cancellationToken)
+    {
+        CommandLine repair = Git.Against(clone, "worktree", "repair", worktree);
+        CommandResult repaired = await git.TryRunAsync(repair, cancellationToken);
+        if (!repaired.Succeeded)
+        {
+            logger.LogError(
+                "The worktree at {Worktree} could not be repaired from its clone at {Clone}; the next start tries again. {Reason}",
+                worktree, clone, new GitCommandException(repair, repaired).Message);
         }
     }
 
