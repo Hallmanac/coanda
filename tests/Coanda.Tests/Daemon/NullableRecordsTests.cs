@@ -18,7 +18,8 @@ namespace Coanda.Tests.Daemon;
 /// <summary>
 /// Two records earlier builds wrote are current shapes, not earlier ones, so a home holding them starts
 /// and reads normally: an <c>agent_step_spawned</c> with no agent hash, model, or launch id, and a deferred
-/// follow with no closes flag, which reads as not closing.
+/// follow with no closes flag, which reads as not closing. A <c>flow_run_resumed</c> recorded before
+/// resumes carried answers is a current shape too, and reads with no answer.
 /// </summary>
 public sealed class NullableRecordsTests
 {
@@ -70,6 +71,52 @@ public sealed class NullableRecordsTests
         IReadOnlyList<IEvent> stream = await events.Events.FetchStreamAsync(flowRunId, token: None);
         AgentStepSpawned spawned = Assert.Single(stream.Select(e => e.Data).OfType<AgentStepSpawned>());
         Assert.Equal((null, null, null), (spawned.AgentHash, spawned.Model, spawned.LaunchId));
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_home_holding_a_flow_run_resumed_with_no_answer_starts_and_reads_it_with_none()
+    {
+        using var temp = new TemporaryHome();
+        NodeHome home = temp.Home;
+        RecordHomes.Restore(home, RecordHomes.RebuiltByEe75e50);
+        Guid flowRunId = Guid.Parse("01a1ad6c-bc0b-727b-a228-9e5042800022");
+        var at = new DateTimeOffset(2026, 11, 3, 6, 0, 0, TimeSpan.Zero);
+        await using (IDocumentStore store = StoreConfiguration.Open(home.DatabasePath))
+        {
+            Guid parcelId;
+            await using (IQuerySession query = store.QuerySession(Alpha))
+            {
+                parcelId = Assert.Single(await query.Query<Parcel>().ToListAsync(None)).Id;
+            }
+
+            await using IDocumentSession session = store.LightweightSession(Alpha);
+            session.Events.StartStream<FlowRun>(
+                flowRunId,
+                new FlowRunStarted(flowRunId, parcelId, "build", 1, "sha256:flow", Principal.LocalOwner.Id, "approve", StepKind.SystemStep, "wait-for-human", at),
+                new FlowRunPaused(flowRunId, "Waits for a person.", "Resume it.", "flow-run", at),
+                new FlowRunResumed(flowRunId, Principal.LocalOwner.Id, "Carry on.", at, "approve"),
+                new FlowRunStopped(flowRunId, Principal.LocalOwner.Id, "Stopped after its resume", at));
+            await session.SaveChangesAsync(None);
+        }
+
+        // As the builds before resumes carried answers wrote it: without the member at all.
+        SqliteConnection.ClearAllPools();
+        using (SqliteConnection connection = RecordHomes.Open(home.DatabasePath))
+        using (SqliteCommand earlier = connection.CreateCommand())
+        {
+            earlier.CommandText = "UPDATE fi_events SET data = json_remove(data, '$.answer') WHERE type = 'flow_run_resumed'";
+            Assert.Equal(1, earlier.ExecuteNonQuery());
+        }
+
+        await using RunningDaemon daemon = await Daemons.StartAsync(home, None);
+        await using IQuerySession events = daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Alpha);
+        IReadOnlyList<IEvent> stream = await events.Events.FetchStreamAsync(flowRunId, token: None);
+        FlowRunResumed resumed = Assert.Single(stream.Select(e => e.Data).OfType<FlowRunResumed>());
+        Assert.Equal(("Carry on.", null), (resumed.Note, resumed.Answer));
+        FlowRun read = await events.Events.AggregateStreamAsync<FlowRun>(flowRunId, token: None)
+            ?? throw new InvalidOperationException("The flow run is gone.");
+        Assert.Null(Assert.Single(read.Steps).ResumeAnswer);
         await daemon.StopAsync(None);
     }
 

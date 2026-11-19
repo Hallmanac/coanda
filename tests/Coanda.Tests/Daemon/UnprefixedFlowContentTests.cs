@@ -41,7 +41,7 @@ public sealed class UnprefixedFlowContentTests
         await flowRuns.DispatchedAsync(Principal.LocalOwner, Project, started.Id, "worktree", None);
         FlowRun recorded = await flowRuns.RecordResultAsync(Principal.LocalOwner, Project, started.Id, "worktree", "worktree", done, None);
         await flowRuns.PauseAsync(Principal.LocalOwner, Project, started.Id, "Held for the test.", "resume it", None);
-        await flowRuns.ResumeAsync(Principal.LocalOwner, Project, started.Id, null, None);
+        await flowRuns.ResumeAsync(Principal.LocalOwner, Project, started.Id, null, null, None);
         await flowRuns.StartStepAsync(Principal.LocalOwner, Project, started.Id, "gates", None);
         await flowRuns.DispatchedAsync(Principal.LocalOwner, Project, started.Id, "gates", None);
         await flowRuns.RecordResultAsync(Principal.LocalOwner, Project, started.Id, "gates", "gates", done, None);

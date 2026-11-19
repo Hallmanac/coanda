@@ -216,7 +216,7 @@ public sealed class ModulePrincipalApiTests
         Assert.Equal(
             $"Flow run {Ids.Short(flowRunId)} is paused; only a running flow run can record a dispatch's outcome.",
             await node.RefusedAsync(token, HttpMethod.Post, "/parcels/set-field", Objective(parcelId, "Paused.", held)));
-        await flowRuns.ResumeAsync(Principal.LocalOwner, On, flowRunId, null, None);
+        await flowRuns.ResumeAsync(Principal.LocalOwner, On, flowRunId, null, null, None);
         await FlowRunDriver.UntilAsync(() => node.Step.Dispatches.Count(d => d.FlowRunId == flowRunId) == 2, "the resume dispatches the step again");
         Assert.Equal(
             $"Step 'work' of flow run {Ids.Short(flowRunId)} holds dispatch {Ids.Short(node.Step.Dispatches.Last(d => d.FlowRunId == flowRunId).DispatchId)}, not {Ids.Short(dispatchId)}; an outcome under dispatch {Ids.Short(dispatchId)} is not recorded.",

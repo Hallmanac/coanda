@@ -81,7 +81,7 @@ public sealed class FlowRunControlConcurrencyTests
         await flowRuns.PauseAsync(Principal.LocalOwner, Project, flowRun.Id, "Hold on.", FlowRunLevers.PerformAgain("build"), None);
 
         interjection.Arm(() => flowRuns.RecordUsageAsync(Runner, Project, flowRun.Id, "build", "build", session, Scripts.Usage(1), None));
-        FlowRun resumed = await flowRuns.ResumeAsync(Principal.LocalOwner, Project, flowRun.Id, "Go on.", None);
+        FlowRun resumed = await flowRuns.ResumeAsync(Principal.LocalOwner, Project, flowRun.Id, "Go on.", null, None);
 
         // the usage record landed inside the resume's save
         Assert.Equal(1, interjection.Fired);

@@ -69,7 +69,8 @@ public static class FlowRunEndpoints
             {
                 // The service hands a resumed flow run to the daemon's workers; the resume answers without waiting for it.
                 string project = request.Project.Trim();
-                FlowRun flowRun = await flowRuns.ResumeAsync(RequestPrincipal.PrincipalOf(context), project, id, request.Note, cancellationToken);
+                FlowRun flowRun = await flowRuns.ResumeAsync(
+                    RequestPrincipal.PrincipalOf(context), project, id, request.Note, request.Answer, cancellationToken);
                 return Results.Ok(FlowRunView.From(project, flowRun, workers, home));
             })
             .Produces<FlowRunView>();

@@ -123,7 +123,7 @@ public sealed class DispatchOutcomeTests : IAsyncLifetime
     {
         (Guid flowRunId, Guid dispatchId) = await DispatchedAsync();
         await flowRuns.PauseAsync(Principal.LocalOwner, Project, flowRunId, "Wait.", "Resume when ready.", None);
-        await flowRuns.ResumeAsync(Principal.LocalOwner, Project, flowRunId, null, None);
+        await flowRuns.ResumeAsync(Principal.LocalOwner, Project, flowRunId, null, null, None);
 
         DomainException beforeNew = await RefusedAsync(flowRunId, dispatchId, Done());
         FlowRun redispatched = await flowRuns.DispatchedAsync(Principal.LocalOwner, Project, flowRunId, "worktree", None);

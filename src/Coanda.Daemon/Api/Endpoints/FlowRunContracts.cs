@@ -11,7 +11,8 @@ public sealed record FlowRunPauseRequest(string Project, string Reason);
 
 public sealed record FlowRunStopRequest(string Project, string Reason);
 
-public sealed record FlowRunResumeRequest(string Project, string? Note);
+/// <summary>A resume of a paused flow run, with an optional note for its record and an optional answer for the step it lands on.</summary>
+public sealed record FlowRunResumeRequest(string Project, string? Note, string? Answer = null);
 
 /// <summary>
 /// A flow run as the loopback API carries it. <see cref="Status"/> is running, paused, ended, or

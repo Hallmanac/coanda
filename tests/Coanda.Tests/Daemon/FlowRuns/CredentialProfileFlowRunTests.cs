@@ -109,7 +109,7 @@ public sealed class CredentialProfileFlowRunTests
         Assert.Empty(executor.Spawns);
 
         await client.PostAsync<ProjectView>("/projects/profile", new ProjectSetProfileRequest(Project, "ci"), None);
-        await daemon.Services.GetRequiredService<FlowRunService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Named a held profile.", None);
+        await daemon.Services.GetRequiredService<FlowRunService>().ResumeAsync(Principal.LocalOwner, Project, paused.Id, "Named a held profile.", null, None);
         FlowRunView resumed = await FlowRunDriver.UntilAsync(client, Project, paused.Id, "ended");
 
         Assert.Equal(Ci, Assert.Single(executor.Spawns).CredentialProfile);
