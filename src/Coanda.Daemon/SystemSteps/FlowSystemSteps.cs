@@ -51,17 +51,18 @@ public sealed class FlowSystemSteps
     public IReadOnlySet<string> Names => systemSteps.Keys.ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
-    /// The core's system steps, with the move-parcel step writing through <paramref name="parcels"/> and
-    /// the timer reading <paramref name="clock"/>; derive-parcels is still a placeholder.
+    /// The core's system steps, with the move-parcel step writing through <paramref name="parcels"/>, the
+    /// derive-parcels step reading the flow run's answers through <paramref name="flowRuns"/> and creating
+    /// parcels through <paramref name="parcels"/>, and the timer reading <paramref name="clock"/>.
     /// </summary>
-    public static IReadOnlyList<IFlowSystemStep> Core(ParcelService parcels, TimeProvider clock) =>
+    public static IReadOnlyList<IFlowSystemStep> Core(ParcelService parcels, FlowRunService flowRuns, TimeProvider clock) =>
     [
         new MoveParcelSystemStep(parcels),
         new TimerSystemStep(clock),
         new WaitForHumanSystemStep(),
         new WaitForExternalEventSystemStep(),
         new EmitOutcomeSystemStep(),
-        new PlaceholderSystemStep(CoreSystemSteps.DeriveParcels),
+        new DeriveParcelsSystemStep(parcels, flowRuns),
     ];
 
     /// <summary>
