@@ -232,6 +232,7 @@ public sealed class DaemonHost
         app.MapTypeEndpoints();
         app.MapFlowEndpoints();
         app.MapAgentEndpoints();
+        app.MapDefinitionEndpoints();
         app.MapFlowRunEndpoints();
         app.MapAttentionEndpoints();
         app.MapProjectEndpoints();
