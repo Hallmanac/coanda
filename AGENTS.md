@@ -56,7 +56,7 @@ code, and `decisions.md` in its worktree carries the binding rules.
   worktree, at the work path the core's flow run view shows, when the module feed delivers that flow
   run's end or stop, and at its start repairs every linked worktree of every clone (the core runs no
   worktree command, even when it moves a clone) before it sweeps what is left. It references the SDK and no other Coanda project, and the daemon hosts
-  it in process until phase 5.
+  it in process until phase 6.
   Its `module.json` and its `definitions` folder (one JSON file per type, flow, and agent) are copied
   to `modules/software/` beside `coa`, from where the daemon imports the definitions in module scope at start.
 - `schemas/module/v1`: the module API's JSON schemas, with `index.json` naming each call's documents.
