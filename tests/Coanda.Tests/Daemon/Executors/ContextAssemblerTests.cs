@@ -349,4 +349,30 @@ public sealed class ContextAssemblerTests
             Assert.DoesNotContain(part, context, StringComparison.Ordinal);
         }
     }
+
+    [Fact]
+    public void A_source_of_a_kind_not_rendered_yet_gets_one_line_naming_it_and_never_a_visit_of_this_flow_run()
+    {
+        FlowStep step = Fixing with
+        {
+            Sources =
+            [
+                From("review"),
+                new FlowSource { Flow = "build", Step = "review" },
+                new FlowSource { Type = "decision" },
+                new FlowSource { Origin = true },
+            ],
+        };
+
+        string[] lines = ContextAssembler.Assemble(TaskParcel(), step, [Visit("review", """{"verdict":"clean"}""")]).Split('\n');
+
+        Assert.Equal(
+            [
+                """Source review: visit 1, recorded 2026-11-04T09:30:15.2500000-05:00: `{"verdict":"clean"}`""",
+                "Source flow build step review: this context does not carry it yet",
+                "Source open parcels of type decision: this context does not carry it yet",
+                "Source origin: this context does not carry it yet",
+            ],
+            lines[^4..]);
+    }
 }
