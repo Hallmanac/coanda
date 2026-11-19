@@ -26,18 +26,7 @@ public static class ParcelDecider
             throw new DomainException("A parcel belongs to a project; none was given.");
         }
 
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            throw new DomainException("A parcel needs a title.");
-        }
-
-        string trimmed = title.Trim();
-        if (trimmed.Length > ParcelCaps.TitleLength)
-        {
-            throw new DomainException(
-                $"A parcel's title holds at most {ParcelCaps.TitleLength} characters, and the title given is {trimmed.Length} characters long.");
-        }
-
+        string trimmed = RequireTitle(title);
         string stage = entryStage ?? type.EntryStages[0];
         if (!type.IsEntry(stage))
         {
@@ -46,6 +35,24 @@ public static class ParcelDecider
         }
 
         return new ParcelCreated(Ids.New(), project.Trim(), type.Name, type.Hash, stage, trimmed, createdBy, now, origin);
+    }
+
+    /// <summary>
+    /// The title a parcel is created with, trimmed: one that is not blank and holds at most
+    /// <see cref="ParcelCaps.TitleLength"/> characters once trimmed, or a <see cref="DomainException"/> quoting the rule.
+    /// </summary>
+    public static string RequireTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new DomainException("A parcel needs a title.");
+        }
+
+        string trimmed = title.Trim();
+        return trimmed.Length > ParcelCaps.TitleLength
+            ? throw new DomainException(
+                $"A parcel's title holds at most {ParcelCaps.TitleLength} characters, and the title given is {trimmed.Length} characters long.")
+            : trimmed;
     }
 
     /// <summary>
