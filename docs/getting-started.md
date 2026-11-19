@@ -4,7 +4,7 @@ Coanda is under construction. Phase 0 ships a binary, `coa`, that starts a daemo
 and keeps its record in one SQLite file in your home directory.
 
 ```
-coa project add try-coanda --repo git@github.com:you/try-coanda.git --branch main
+coa project add try-coanda --repo git@github.com:you/try-coanda.git
 coa parcel add --project try-coanda --type task --title "Try Coanda"
 coa parcel list --project try-coanda
 ```
@@ -16,18 +16,40 @@ without `.git` (the remote above is the repo `try-coanda`); `coa project show` a
 print each repo's name and remote. Registering the project makes the node's bare clone of the repo,
 at `projects/<project>/repos/<repo>/` under the node home, without contacting the remote, and nothing
 contacts the remote until a build flow run needs a worktree. The primary branch, the build and test commands, and the checks a merge waits for are not
-the project's: they are settings of the software engineering module, which every project has
-switched on. `coa project add` records `--branch` as the module's `primary-branch` setting for the
-repo, and `--build <command>` and `--test <command>` as its `build` and `test` settings when they are
-given, all in the one command, so the build flow runs with nothing else set. Each build flow run then
+the project's: they are settings of the software engineering module, which a project registered on
+a node with the default configuration has switched on. `coa project add` needs none of them. When the
+module's `primary-branch` setting names no branch for the repo, each step that acts on the repo uses
+the branch the repo's remote reports as its default, read when the step runs, so a repo whose
+default branch is the one its work lands on needs nothing set. Each build flow run then
 works in a git worktree of that clone, at the flow run's work path under the node home, on a branch named
 `coanda/<short parcel id>`, and its gates run the module's build and test commands there:
 `dotnet build` and `dotnet test` unless they were set, and `coa project module show try-coanda software`
-prints the two the gates will run. `coa project module set` changes a setting later:
+prints the two the gates will run.
+
+A module's settings can be given at registration, each with `--setting <module>/<name>=<value>`,
+repeated for each one; the value is read as JSON when it is JSON and as text otherwise, the same way
+`coa project module set` reads it:
+
+```bash
+coa project add try-coanda --repo git@github.com:you/try-coanda.git \
+  --setting "software/build=dotnet build --configuration Release" \
+  --setting 'software/primary-branch={"try-coanda":"trunk"}'
+```
+
+A setting the module does not declare, a setting of a module the registration does not switch on, or
+a value the setting refuses registers nothing, and the command prints why; for a name the module does
+not declare, it lists the names the module does. The line printed on success names each module the
+project is switched on for and the `coa project module show` command that shows its settings.
+`coa project module set` changes a setting later:
 
 ```bash
 coa project module set try-coanda software test "dotnet test --no-build"
 ```
+
+When the setting names no branch and the remote reports no default branch, or reports one whose name
+holds anything but ASCII letters, digits, `.`, `_`, `-`, and `/`, the step pauses, and its lever
+names the `coa project module set` command that sets `primary-branch`. When the remote cannot be
+reached, the step pauses quoting git, and resuming the flow run performs it again.
 
 A task records the repo it works in, in its `repos` field, which the software module sets to the
 project's one repo the first time one of its steps acts on the task. Each of the two commands may

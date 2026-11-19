@@ -351,11 +351,10 @@ start, and the refusal lists the modules it does host. `coa daemon run` hosts th
 alone today, so `["software"]`, which is what leaving the list out means, and `[]` are the only lists
 a node can start with until a second module is hosted.
 
-`coa project add` sends the software module's settings with every registration (the repo's primary
-branch, and the build and test commands when given). A registration that carries a setting of a module
-it does not switch on is refused, so a node whose list leaves the software module out cannot register
-a project through `coa project add` until registration renders its settings from the modules' describe
-answers.
+`coa project add` sends only the settings given with `--setting`, by the names each module declares.
+A registration that carries a setting of a module it does not switch on is refused and registers
+nothing, so on a node whose list leaves a module out, a registration names none of that module's
+settings.
 
 ## When the daemon refuses the file
 
