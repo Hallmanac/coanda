@@ -121,6 +121,19 @@ app.Configure(config =>
         flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flow run of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "<flow>", "--parcel", "0192a3b4");
     });
 
+    config.AddBranch("definition", definition =>
+    {
+        definition.SetDescription("A definition is a parcel type, flow, agent, or trigger in project, owner, or module scope; a draft governs nothing until it is published.");
+        definition.AddCommand<DefinitionListCommand>("list").WithDescription("List every definition that can govern the project, drafts and retired versions included.").WithExample("definition", "list");
+        definition.AddCommand<DefinitionShowCommand>("show").WithDescription("Show one definition and its content.").WithExample("definition", "show", "0192a3b4");
+        definition.AddCommand<DefinitionDraftCommand>("draft").WithDescription("Draft a definition from a JSON file in the shape a module ships for its kind.")
+            .WithExample("definition", "draft", "flow", "my-flow.json")
+            .WithExample("definition", "draft", "parcel-type", "my-type.json", "--fork")
+            .WithExample("definition", "draft", "agent", "my-agent.json", "--scope", "owner");
+        definition.AddCommand<DefinitionPublishCommand>("publish").WithDescription("Publish a draft so that it governs work.").WithExample("definition", "publish", "0192a3b4");
+        definition.AddCommand<DefinitionRetireCommand>("retire").WithDescription("Retire a published definition so that it no longer governs work.").WithExample("definition", "retire", "0192a3b4");
+    });
+
     config.AddBranch("flow-run", flowRun =>
     {
         flowRun.SetDescription("A flow run is one execution of a flow on a parcel; a parcel has at most one live flow run.");
