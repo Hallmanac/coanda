@@ -67,7 +67,9 @@ public sealed record CoreFieldReference(string Id, string? Url = null);
 /// advancing the flow run or a person's stop of it being saved; a core that does not say is taken as
 /// working, the side that never acts on a flow run something may still be running for.
 /// <see cref="WorkPath"/> is the flow run's work path as the core places it, the path every dispatch of
-/// it carries, or null when the core gives it none; a module never computes it.
+/// it carries, or null when the core gives it none; a module never computes it. <see cref="FlowHash"/>
+/// is the content hash of the flow version the flow run started under, or null from a core that does
+/// not say.
 /// </summary>
 public sealed record CoreFlowRun(
     Guid Id,
@@ -79,7 +81,8 @@ public sealed record CoreFlowRun(
     Guid RootFlowRunId,
     IReadOnlyList<CoreFlowRunStep> Steps,
     bool Working = true,
-    string? WorkPath = null)
+    string? WorkPath = null,
+    string? FlowHash = null)
 {
     /// <summary>Whether the flow run has ended or been stopped, after which it never runs again.</summary>
     public bool IsFinal => Status is "ended" or "stopped";
@@ -88,8 +91,11 @@ public sealed record CoreFlowRun(
 /// <summary>
 /// One step a flow run entered: its name, its <see cref="Kind"/> (agent-step or system-step), the agent or
 /// system step it names as <see cref="Performer"/>, and, for a system step, its result once recorded.
+/// <see cref="AgentHash"/> is, for an agent step, the content hash of the agent the visit last launched
+/// or recorded its answer from, or null while it has done neither, for a visit recorded before launches
+/// carried one, and for a system step.
 /// </summary>
-public sealed record CoreFlowRunStep(string Step, string Kind, string Performer, JsonElement? Result, DateTimeOffset? RecordedAt);
+public sealed record CoreFlowRunStep(string Step, string Kind, string Performer, JsonElement? Result, DateTimeOffset? RecordedAt, string? AgentHash = null);
 
 /// <summary>The core's API refused a call or could not find what it named; the message quotes the core's own reason.</summary>
 public sealed class CoreApiException(int status, string message) : Exception(message)
