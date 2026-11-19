@@ -54,7 +54,7 @@ public sealed class ModuleImportTests
         { DefinitionKind.Agent, "reviewer-adversarial", "282d8d44b1c51255" },
         { DefinitionKind.Agent, "reviewer-conformance", "8a5e994ba08f9e6f" },
         { DefinitionKind.Agent, "fix", "6052573ca3d9be35" },
-        { DefinitionKind.Agent, "discovery", "d9ca3d77b744e74f" },
+        { DefinitionKind.Agent, "discovery", "59a5c3f3e3762316" },
     };
 
     private static async Task StartAndStopAsync(NodeHome home, DaemonOptions? options = null) =>
