@@ -34,20 +34,24 @@ public sealed class EngineVocabularyTests
             ["branch", "build", "test"],
             "The members of a registration stored before repos, which the earlier-shape check names so a home holding one is refused with a rebuild.",
             "It ends when the daemon no longer recognizes a registration from before repos as an earlier shape.",
+            NounSite.Literal,
             ["primaryBranch", "buildCommand", "testCommand"]),
         AllowedUse.OtherSense(
             "src/Coanda.Daemon/Store/RecordExportFile.cs",
             ["build"],
+            NounSite.DeclaredName,
             ["Build"],
             "The version of coa that wrote an export: a member of the record export file's format, which renaming would change."),
         AllowedUse.OtherSense(
             "src/Coanda.Sdk/Contract/ApprovalRecord.cs",
             ["review"],
+            NounSite.DeclaredName,
             ["ReviewId"],
             "The member that carries reviewId in schemas/module/v1/approval.schema.json, a module API document."),
         AllowedUse.OtherSense(
             "src/Coanda.Daemon/Executors/ClaudeCode/ShellWords.cs",
             ["test"],
+            NounSite.Literal,
             ["test"],
             "The shell builtin test, a name Coanda does not own."),
     ];
@@ -92,6 +96,23 @@ public sealed class EngineVocabularyTests
         Assert.All(
             Allowed.Where(entry => entry.Ends is null),
             entry => Assert.True(entry.Texts is { Count: > 0 }, $"{entry.File} allows a noun in another sense without naming the name or literal it allows."));
+    }
+
+    [Fact]
+    public void An_entry_that_names_its_texts_allows_them_at_its_site_alone()
+    {
+        Assert.All(Allowed.Where(entry => entry.Texts is not null), entry =>
+        {
+            NounSite site = Assert.IsType<NounSite>(entry.Site);
+            NounSite other = site == NounSite.Literal
+                ? NounSite.DeclaredName
+                : NounSite.Literal;
+            Assert.All(entry.Texts ?? [], text => Assert.All(entry.Nouns, noun =>
+            {
+                Assert.True(entry.Allows(new NounHit(entry.File, 1, noun, site, text)), $"{entry.File} does not allow '{noun}' in \"{text}\" at its own site.");
+                Assert.False(entry.Allows(new NounHit(entry.File, 1, noun, other, text)), $"{entry.File} allows '{noun}' in \"{text}\" at a site it does not name.");
+            }));
+        });
     }
 
     [Fact]
@@ -144,20 +165,25 @@ public sealed class EngineVocabularyTests
 
     /// <summary>
     /// One entry of the list. <see cref="Texts"/>, when it is set, is the declared names or literal texts the
-    /// entry allows its nouns in; when it is null the entry allows its nouns anywhere in its file, which only a
-    /// domain-sense entry may do. <see cref="Ends"/> is set on a domain-sense entry alone.
+    /// entry allows its nouns in, and <see cref="Site"/> says which of the two they are, so a declared name and a
+    /// literal spelled alike are not both allowed; when <see cref="Texts"/> is null the entry allows its nouns
+    /// anywhere in its file, which only a domain-sense entry may do. <see cref="Ends"/> is set on a domain-sense
+    /// entry alone.
     /// </summary>
-    private sealed record AllowedUse(string File, IReadOnlyList<string> Nouns, IReadOnlyList<string>? Texts, string Reason, string? Ends)
+    private sealed record AllowedUse(string File, IReadOnlyList<string> Nouns, NounSite? Site, IReadOnlyList<string>? Texts, string Reason, string? Ends)
     {
-        public static AllowedUse DomainSense(string file, string[] nouns, string reason, string ends, string[]? texts = null) =>
-            new(file, nouns, texts, reason, ends);
+        public static AllowedUse DomainSense(string file, string[] nouns, string reason, string ends) =>
+            new(file, nouns, Site: null, Texts: null, reason, ends);
 
-        public static AllowedUse OtherSense(string file, string[] nouns, string[] texts, string reason) =>
-            new(file, nouns, texts, reason, Ends: null);
+        public static AllowedUse DomainSense(string file, string[] nouns, string reason, string ends, NounSite site, string[] texts) =>
+            new(file, nouns, site, texts, reason, ends);
+
+        public static AllowedUse OtherSense(string file, string[] nouns, NounSite site, string[] texts, string reason) =>
+            new(file, nouns, site, texts, reason, Ends: null);
 
         public bool Allows(NounHit hit) =>
             hit.File == File
                 && Nouns.Contains(hit.Noun, StringComparer.Ordinal)
-                && (Texts is null || Texts.Contains(hit.Text, StringComparer.Ordinal));
+                && (Texts is null || (hit.Site == Site && Texts.Contains(hit.Text, StringComparer.Ordinal)));
     }
 }
