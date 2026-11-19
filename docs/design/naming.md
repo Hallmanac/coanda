@@ -73,7 +73,8 @@ built, its entry says so.
   daemon performs the core system steps itself and dispatches the software steps to the software module.
 - watch request: A watch request is an event kind and equality filters the core compiles from the
   user's triggers and hands to a module, so the module reports only the external events a trigger
-  can match; it is settled as a word but not built.
+  can match; the daemon sends one to each module it hosts, for each project the module is switched
+  on for, when it starts.
 - feed: The feed is the core's delivery to a module, in sequence order and at least once, of the
   core events the module subscribes to, for observing and mirroring work rather than doing it; the
   feed delivers to the software module the daemon hosts.
