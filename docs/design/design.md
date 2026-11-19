@@ -521,7 +521,9 @@ derived), and the next flow follows it, so a flow run ending with that outcome s
 next flow on the same parcel, with a depth cap and a budget the chain shares. The followers of one end
 start one at a time, those whose flow closes the parcel last, and a closing follower also waits
 behind every follow already waiting on the parcel, whichever end that follow came from, while a
-follower that does not close is not held back by follows of an earlier end.
+follower that does not close is not held back by follows of an earlier end. A waiting follow whose
+start is refused or fails leaves the parcel's queue and the next one goes on, and when the daemon
+starts, a queue whose parcel has no live flow run proceeds as a release would make it.
 
 The interpreter is a pure function: given the flow, the position, and the answer just
 returned, it returns the next move (go to, pause, end). Every flow run records the content hash of its

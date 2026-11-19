@@ -58,7 +58,9 @@ namespace Coanda.Daemon.Triggers;
 /// replayed entry that was refused is refused again, since the parcel's stage at the entry does not
 /// change. Deferred follows are one document per parcel in the parcel's project, and a follow
 /// leaves it only once its start has been written, refused, or has failed, so a replay finds the follower
-/// already started and drops it.
+/// already started and drops it. Once the loop has handled the record up to the head it read at start, every
+/// queue whose parcel is free proceeds, so a queue no release is left to start, as one an earlier daemon left
+/// behind a failed start, does not wait forever.
 /// </remarks>
 public sealed class TriggerLoop(
     IDocumentStore store,
@@ -156,11 +158,33 @@ public sealed class TriggerLoop(
 
     private async Task RunAsync(CancellationToken cancellationToken)
     {
+        // The head of the record as the loop read it at start, which it handles up to before it resumes the
+        // follow queues, so the resume never decides ahead of an entry already in the record.
+        long? resumeAt = null;
+        bool resumed = false;
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                while (await HandlePageAsync(cancellationToken))
+                if (!resumed)
+                {
+                    resumeAt ??= await store.Database.FetchHighestEventSequenceNumber(cancellationToken);
+                    while (await HandlePageAsync(resumeAt.Value, cancellationToken))
+                    {
+                    }
+
+                    resumed = true;
+                    try
+                    {
+                        await ResumeFollowQueuesAsync(cancellationToken);
+                    }
+                    catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        logger.LogError(failure, "The trigger loop could not resume the follow queues at start; each waits for its parcel's next release.");
+                    }
+                }
+
+                while (await HandlePageAsync(long.MaxValue, cancellationToken))
                 {
                 }
 
@@ -188,12 +212,15 @@ public sealed class TriggerLoop(
         }
     }
 
-    /// <summary>Handles the next page of the record past the position; true when the position moved.</summary>
-    private async Task<bool> HandlePageAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Handles the next page of the record past the position, going no further than <paramref name="limit"/>;
+    /// true when the position moved.
+    /// </summary>
+    private async Task<bool> HandlePageAsync(long limit, CancellationToken cancellationToken)
     {
         // The head is read before the projects are, so every event at or below it was committed
         // with its project's documents already in place: no project's first entry can slip past.
-        long head = await store.Database.FetchHighestEventSequenceNumber(cancellationToken);
+        long head = Math.Min(await store.Database.FetchHighestEventSequenceNumber(cancellationToken), limit);
         if (head <= position)
         {
             return false;
@@ -675,11 +702,9 @@ public sealed class TriggerLoop(
     }
 
     /// <summary>
-    /// Starts the follows waiting on the parcel, oldest first, until one has to wait for a release
-    /// again, which the first one started makes the next do. A follow leaves the list once it has
-    /// started, was already started, was refused, or failed to start for another reason, which is logged and
-    /// passed over as a refusal is. A stop leaves the list as it was. Any node's release frees the parcel: a follow waits here only
-    /// once this node's claims let it start, so whichever node recorded the release, the follow is this node's own.
+    /// A release of the parcel's live flow run: the parcel's follow queue proceeds. Any node's release frees the
+    /// parcel: a follow waits here only once this node's claims let it start, so whichever node recorded the
+    /// release, the follow is this node's own.
     /// </summary>
     private async Task StartDeferredFollowsAsync(string project, Guid parcelId, long sequence, CancellationToken cancellationToken)
     {
@@ -694,6 +719,80 @@ public sealed class TriggerLoop(
             return;
         }
 
+        await ProceedAsync(project, parcelId, deferred, cancellationToken);
+    }
+
+    /// <summary>
+    /// At start, once the loop has handled the record up to the head it read: every follow queue whose parcel is
+    /// free proceeds as it does after a release, so a queue a release never came to start again, as one left by
+    /// a daemon that failed a follow's start without taking it out, does not wait forever. A queue whose parcel
+    /// has a live flow run waits for that flow run's release. One whose parcel holds back entries, or whose claims
+    /// do not let this node start a flow run, starts nothing and is not held back, since there is no entry to
+    /// hold: a later release, or the next start, finds it again.
+    /// </summary>
+    private async Task ResumeFollowQueuesAsync(CancellationToken cancellationToken)
+    {
+        foreach (string project in await ProjectsAsync(cancellationToken))
+        {
+            IReadOnlyList<DeferredFollows> queues;
+            await using (IQuerySession session = store.QuerySession(project))
+            {
+                queues = await session.Query<DeferredFollows>().ToListAsync(cancellationToken);
+            }
+
+            foreach (DeferredFollows queue in queues.Where(q => q.Pending.Count > 0))
+            {
+                try
+                {
+                    await ResumeFollowQueueAsync(project, queue, cancellationToken);
+                }
+                catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogError(
+                        failure, "The trigger loop could not resume the follow queue of parcel {Parcel} in project {Project} at start.",
+                        Ids.Short(queue.Id), project);
+                }
+            }
+        }
+    }
+
+    private async Task ResumeFollowQueueAsync(string project, DeferredFollows queue, CancellationToken cancellationToken)
+    {
+        if (await HasLiveFlowRunAsync(project, queue.Id, cancellationToken))
+        {
+            return;
+        }
+
+        if (await HasHeldBackAsync(project, queue.Id, cancellationToken))
+        {
+            logger.LogInformation(
+                "Parcel {Parcel} in project {Project} holds back entries, so its follow queue starts nothing at start.",
+                Ids.Short(queue.Id), project);
+            return;
+        }
+
+        if (await StandingAsync(project, queue.Id, cancellationToken) is { } standing && !ClaimDecider.Triggers(standing, ownEvent: true))
+        {
+            logger.LogInformation(
+                "Parcel {Parcel} in project {Project} is not this node's to start a flow run on, so its follow queue starts nothing at start.",
+                Ids.Short(queue.Id), project);
+            return;
+        }
+
+        logger.LogInformation(
+            "Parcel {Parcel} in project {Project} has no live flow run, so its follow queue proceeds at start.",
+            Ids.Short(queue.Id), project);
+        await ProceedAsync(project, queue.Id, queue, cancellationToken);
+    }
+
+    /// <summary>
+    /// Starts the follows waiting on the parcel, oldest first, until one has to wait for a release
+    /// again, which the first one started makes the next do. A follow leaves the list once it has
+    /// started, was already started, was refused, or failed to start for another reason, which is
+    /// logged and passed over as a refusal is. A stop leaves the list as it was.
+    /// </summary>
+    private async Task ProceedAsync(string project, Guid parcelId, DeferredFollows deferred, CancellationToken cancellationToken)
+    {
         List<PendingFollow> remaining = [.. deferred.Pending];
         while (remaining.Count > 0)
         {
