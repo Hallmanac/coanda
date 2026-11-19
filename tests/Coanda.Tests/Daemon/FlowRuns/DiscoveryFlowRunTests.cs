@@ -14,7 +14,8 @@ namespace Coanda.Tests.Daemon.FlowRuns;
 /// <summary>
 /// The shipped discovery flow on the scripted executor, for an idea created on this build and moved into its
 /// discovery stage: a <c>derive</c> answer listing tasks ends the flow run with one task parcel per entry, each
-/// derived from the idea by that flow run, and a <c>carry-forward</c> answer ends it with none.
+/// derived from the idea by that flow run, a <c>derive</c> answer with no list pauses at derive-parcels, and a
+/// <c>carry-forward</c> answer ends it with none.
 /// </summary>
 public sealed class DiscoveryFlowRunTests
 {
@@ -75,6 +76,26 @@ public sealed class DiscoveryFlowRunTests
                 ParcelRelation relation = Assert.Single(task.Relations);
                 Assert.Equal((RelationKinds.DerivedFrom, idea.Id, (Guid?)flowRunId), (relation.Kind, relation.RelatedParcelId, relation.FlowRunId));
             });
+
+            await daemon.StopAsync(None);
+        }
+    }
+
+    [Fact]
+    public async Task A_derive_answer_with_no_parcels_list_passes_the_answer_schema_and_pauses_at_derive_parcels_creating_nothing()
+    {
+        using var temp = new TemporaryHome();
+        (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(
+            temp, """{"verdict":"derive","summary":"Two tasks, described here."}""");
+        await using (daemon)
+        using (client)
+        {
+            FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
+
+            Assert.Equal("derive-parcels", paused.CurrentStep);
+            Assert.Equal("Step 'derive-parcels' could not derive parcels: the answer of step 'discover' has no 'parcels' array.", paused.PauseReason);
+            Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
+            Assert.Equal(idea.Id, only.Id);
 
             await daemon.StopAsync(None);
         }

@@ -63,22 +63,6 @@
           }
         }
       }
-    },
-    "anyOf": [
-      {
-        "properties": {
-          "verdict": {
-            "enum": [
-              "carry-forward"
-            ]
-          }
-        }
-      },
-      {
-        "required": [
-          "parcels"
-        ]
-      }
-    ]
+    }
   }
 }
