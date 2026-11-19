@@ -94,7 +94,8 @@ public static class FlowRunDecider
     /// <summary>
     /// Records the answer the session <paramref name="sessionId"/> gave for the current agent step
     /// step. Only the session the visit currently expects may answer it: the one its latest launch
-    /// returned, with no resume since that launch.
+    /// returned, with no resume since that launch. The <paramref name="promptHash"/> and
+    /// <paramref name="transcriptHash"/> of the session's files are given together or not at all.
     /// </summary>
     public static AgentStepAnswered Answer(
         Flow flow,
@@ -106,7 +107,9 @@ public static class FlowRunDecider
         ModelSpec model,
         JsonElement answer,
         Measurement measurement,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? promptHash = null,
+        string? transcriptHash = null)
     {
         RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "record an answer");
@@ -133,9 +136,10 @@ public static class FlowRunDecider
         }
 
         RequireMeasurement(measurement);
+        RequireFileHashes(promptHash, transcriptHash, "An answer");
         RequireExpected(current, sessionId, "an answer");
 
-        return new AgentStepAnswered(flowRun.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now);
+        return new AgentStepAnswered(flowRun.Id, current.Step, agent, agentHash.Trim(), model, answer.Clone(), measurement, now, promptHash, transcriptHash);
     }
 
     /// <summary>
@@ -391,7 +395,8 @@ public static class FlowRunDecider
     /// <summary>
     /// Pauses a running flow run; <paramref name="usage"/> is what an agent step that paused without an
     /// answer reported. When the agent step's <paramref name="session"/> is given, the current visit
-    /// must still expect that session, as it must for an answer.
+    /// must still expect that session, as it must for an answer. The <paramref name="promptHash"/> and
+    /// <paramref name="transcriptHash"/> of the session's files are given together, and only with the session.
     /// </summary>
     public static FlowRunPaused Pause(
         Flow flow,
@@ -401,7 +406,9 @@ public static class FlowRunDecider
         string pausedBy,
         DateTimeOffset now,
         Measurement? usage = null,
-        Guid? session = null)
+        Guid? session = null,
+        string? promptHash = null,
+        string? transcriptHash = null)
     {
         RequireFlow(flow, flowRun);
         RequireRunning(flowRun, "pause it");
@@ -428,7 +435,13 @@ public static class FlowRunDecider
             RequireMeasurement(usage);
         }
 
-        return new FlowRunPaused(flowRun.Id, reason.Trim(), lever.Trim(), pausedBy, now, usage);
+        RequireFileHashes(promptHash, transcriptHash, "A pause");
+        if (promptHash is not null && session is null)
+        {
+            throw new DomainException("A pause records the hashes of a session's files only for the agent step session it names; none was given.");
+        }
+
+        return new FlowRunPaused(flowRun.Id, reason.Trim(), lever.Trim(), pausedBy, now, usage, PromptHash: promptHash, TranscriptHash: transcriptHash);
     }
 
     /// <summary>The most characters a resume's answer holds after trimming, as <see cref="string.Length"/> counts them.</summary>
@@ -555,6 +568,24 @@ public static class FlowRunDecider
         if (measurement.Tokens < 0 || measurement.CostUsd < 0 || measurement.Turns < 0 || measurement.Duration < TimeSpan.Zero)
         {
             throw new DomainException("A measurement is never negative: tokens, cost, turns, and duration are zero or more.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses a prompt hash without a transcript hash or the other way round, and either one not
+    /// written as <see cref="FileHash"/> writes it. Neither at all is accepted.
+    /// </summary>
+    private static void RequireFileHashes(string? promptHash, string? transcriptHash, string what)
+    {
+        switch (promptHash, transcriptHash)
+        {
+            case (null, null):
+                return;
+            case (null, _) or (_, null):
+                throw new DomainException($"{what} records the hashes of its session's prompt and transcript together; only one was given.");
+            case ({ } prompt, { } transcript) when !FileHash.IsHash(prompt) || !FileHash.IsHash(transcript):
+                throw new DomainException(
+                    $"{what} records each of its session's files as '{FileHash.Prefix}' and the 64 lowercase hexadecimal characters of its SHA-256 digest.");
         }
     }
 

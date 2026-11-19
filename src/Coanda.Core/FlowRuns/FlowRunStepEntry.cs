@@ -25,6 +25,16 @@ public sealed record FlowRunStepEntry
 
     public JsonElement? Answer { get; init; }
     public Measurement? Measurement { get; init; }
+
+    /// <summary>
+    /// The <see cref="FileHash"/> of the prompt the session that gave an agent step's answer was given,
+    /// or null until an answer is recorded, or when the answer was recorded before it was carried.
+    /// </summary>
+    public string? PromptHash { get; init; }
+
+    /// <summary>The <see cref="FileHash"/> of the transcript of the session that gave an agent step's answer, or null as <see cref="PromptHash"/> is.</summary>
+    public string? TranscriptHash { get; init; }
+
     public JsonElement? Result { get; init; }
     public DateTimeOffset? RecordedAt { get; init; }
 
