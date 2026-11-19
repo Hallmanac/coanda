@@ -35,6 +35,14 @@ public static partial class GuardPath
     }
 
     /// <summary>
+    /// <paramref name="path"/> resolved against <paramref name="baseDirectory"/> when it is relative,
+    /// with its <c>.</c> and <c>..</c> collapsed by name first and its links resolved after, as a
+    /// program that normalizes a path before it opens it reaches it.
+    /// </summary>
+    public static string Collapsed(string path, string baseDirectory) =>
+        Resolve(Path.GetFullPath(path, Path.GetFullPath(baseDirectory)), baseDirectory);
+
+    /// <summary>
     /// The paths a text may name. On Windows that is the text as Windows reads it and, when it is in
     /// the form Git Bash gives a drive (<c>/c/Users/me</c> or <c>/cygdrive/c/Users/me</c>), the drive
     /// path the shell reads it as; elsewhere it is the text alone.

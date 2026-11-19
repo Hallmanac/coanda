@@ -145,6 +145,12 @@ public static class ToolGuard
             return Unreadable($"it names the tool '{tool}' without the input the guard judges");
         }
 
+        // A confined session's path is also judged as the CLI itself opens it, which no shell reads first.
+        if (rules.Confined)
+        {
+            named = [.. named, .. Opened()];
+        }
+
         if (unknowable is not null)
         {
             return ToolGuardOutcome.Denied($"coa refused this call: it depends on {unknowable}, which the tool guard cannot know, so it cannot judge where the call reaches.");
@@ -162,6 +168,43 @@ public static class ToolGuard
         return ToolGuardOutcome.Allowed;
 
         string Expanded(string text) => ShellWords.Expand(text, Value, home, UserHome);
+
+        // The CLI expands only a leading ~ or ~/ in a path, takes $NAME as written, and collapses . and
+        // .. by name before it opens the path, so a link a .. follows is never followed. A ~ it may leave
+        // as written is judged both ways.
+        IReadOnlyList<string> AsOpened(string text) =>
+            text == "~" || text.StartsWith("~/", StringComparison.Ordinal) || (OperatingSystem.IsWindows() && text.StartsWith("~\\", StringComparison.Ordinal))
+                ? [home + text[1..], text]
+                : [text];
+
+        List<Named> Opened()
+        {
+            switch (tool)
+            {
+                case "Read" or "Edit" or "Write" when Text(toolInput, "file_path") is { } file:
+                    return [.. AsOpened(file).Select(text => new Named(text, atCwd, Collapsed: true))];
+                case "Grep":
+                    return [.. AsOpened(Text(toolInput, "path") ?? string.Empty).Select(text => new Named(text, atCwd, Collapsed: true))];
+                case "Glob" when Text(toolInput, "pattern") is { } pattern:
+                    IReadOnlyList<string> patterns = ShellWords.Braces(pattern) is { } words
+                        ? [.. words.SelectMany(AsOpened)]
+                        : [];
+                    List<Named> paths = [.. patterns.Select(text => new Named(text, atCwd, Collapsed: true))];
+                    if (Text(toolInput, "path") is { } path)
+                    {
+                        foreach (string under in AsOpened(path))
+                        {
+                            paths.Add(new(under, atCwd, Collapsed: true));
+                            IReadOnlyList<string> bases = [.. GuardPath.Readings(ShellWords.HighestReach(under)).Select(reading => GuardPath.Collapsed(reading, cwd))];
+                            paths.AddRange(patterns.Select(text => new Named(text, bases, Collapsed: true)));
+                        }
+                    }
+
+                    return paths;
+                default:
+                    return [];
+            }
+        }
 
         // A shell looks ~NAME up as a user's home or, in zsh, a named directory, neither of which the hook receives.
         string UserHome(string name)
@@ -393,7 +436,11 @@ public static class ToolGuard
     /// A path a call names, expanded but not yet resolved, with the directories it is resolved against
     /// when it is relative. It is judged against each of them.
     /// </summary>
-    private sealed record Named(string Text, IReadOnlyList<string> Bases);
+    /// <remarks>
+    /// A <see cref="Collapsed"/> path has its <c>.</c> and <c>..</c> collapsed by name before its links
+    /// are resolved, as the CLI opens the path of a Read, Edit, Write, Glob, or Grep.
+    /// </remarks>
+    private sealed record Named(string Text, IReadOnlyList<string> Bases, bool Collapsed = false);
 
     /// <summary>
     /// Where the shell may be at one subshell depth: <see cref="Bases"/>, the directories the next
@@ -416,7 +463,10 @@ public static class ToolGuard
             {
                 foreach (string directory in named.Bases)
                 {
-                    if (Refusal(GuardPath.Resolve(reading, directory)) is { } reason)
+                    string path = named.Collapsed
+                        ? GuardPath.Collapsed(reading, directory)
+                        : GuardPath.Resolve(reading, directory);
+                    if (Refusal(path) is { } reason)
                     {
                         return reason;
                     }

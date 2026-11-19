@@ -889,6 +889,70 @@ public sealed class ToolGuardTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Read")]
+    [InlineData("Edit")]
+    [InlineData("Write")]
+    [InlineData("Glob")]
+    [InlineData("Grep")]
+    public void A_confined_path_holding_a_variable_is_judged_as_the_cli_opens_it_with_the_variable_left_as_written(string tool)
+    {
+        // The CLI opens "$DEEP" as one directory of that name, so this climbs from the work directory to
+        // the test root and down to root/elsewhere, while a shell's reading of $DEEP, a few levels deeper than
+        // the climb, would keep it in the work directory. The value is relative so that no reading puts a
+        // drive or a root partway through the path on Windows.
+        string elsewhere = Path.Combine(root, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        int depth = Path.GetRelativePath(root, work).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries).Length;
+        string deep = string.Join('/', Enumerable.Repeat("level", depth + 2));
+        string path = $"$DEEP/{string.Concat(Enumerable.Repeat("../", depth + 1))}elsewhere/notes.txt";
+        object input = tool switch
+        {
+            "Glob" => new { pattern = "*.txt", path },
+            "Grep" => new { pattern = "x", path },
+            _ => new { file_path = path },
+        };
+
+        RefusedOutsideWork(ToolGuard.Run(
+            (Rules(null, Environment()) with { Confined = true }).Arguments,
+            new StringReader(Call(tool, input)),
+            Environment(("DEEP", deep))));
+    }
+
+    [Fact]
+    public void A_confined_path_climbing_back_out_of_a_symbolic_link_is_judged_as_the_cli_collapses_it_first()
+    {
+        string deep = Path.Combine(work, "a", "b");
+        Directory.CreateDirectory(deep);
+        string link = Path.Combine(work, "deep");
+        try
+        {
+            Directory.CreateSymbolicLink(link, deep);
+        }
+        catch (Exception unsupported) when (unsupported is IOException or UnauthorizedAccessException)
+        {
+            // Windows without the privilege to create links.
+            return;
+        }
+
+        // Followed first, the link keeps "deep/../../x" in the work directory; collapsed first, as the CLI does, it climbs out.
+        ToolGuardOutcome outcome = Confined(Call("Read", new { file_path = "deep/../../x" }));
+
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+    }
+
+    [Fact]
+    public void A_confined_path_beginning_with_a_tilde_is_judged_at_the_home_directory()
+    {
+        string elsewhere = Path.Combine(root, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+
+        RefusedOutsideWork(ToolGuard.Run(
+            (Rules(null, Environment()) with { Confined = true }).Arguments,
+            new StringReader(Call("Read", new { file_path = "~/notes.txt" })),
+            Environment(("HOME", elsewhere))));
+    }
+
+    [Theory]
     [InlineData("Bash", """{"command":"ls"}""")]
     [InlineData("WebFetch", """{"url":"https://example.com","prompt":"read it"}""")]
     [InlineData("WebSearch", """{"query":"coanda"}""")]
