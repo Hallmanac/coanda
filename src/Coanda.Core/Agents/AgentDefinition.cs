@@ -40,6 +40,15 @@ public sealed record AgentDefinition
     public JsonElement? AnswerSchemaContent { get; init; }
 
     /// <summary>
+    /// Whether the agent declares itself confined, a module's policy carried in the definition.
+    /// <see cref="Validate"/> refuses a confined agent that holds <see cref="ToolCatalog.Shell"/> or
+    /// <see cref="ToolCatalog.Web"/>. It is left out of the JSON and of the hash when false, so an
+    /// agent that does not declare it reads and hashes as it did before agents could.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Confined { get; init; }
+
+    /// <summary>
     /// Content hash of the definition. The tool set, the skills, and the MCP servers are taken in
     /// ordinal order, so listing them in another order does not change it.
     /// </summary>
@@ -84,6 +93,16 @@ public sealed record AgentDefinition
             {
                 throw new DomainException(
                     $"Agent '{Name}' names the tool '{tool}', which the shipped tool catalog does not hold; it holds {string.Join(", ", ToolCatalog.Names)}.");
+            }
+        }
+
+        if (Confined)
+        {
+            string[] held = [.. ConfinedRefuses.Where(HoldsTool)];
+            if (held.Length > 0)
+            {
+                throw new DomainException(
+                    $"Agent '{Name}' is confined and holds {string.Join(" and ", held.Select(tool => $"the {tool} tool"))}; a confined agent holds neither the {ToolCatalog.Shell} tool nor the {ToolCatalog.Web} tool.");
             }
         }
 
@@ -164,13 +183,23 @@ public sealed record AgentDefinition
             answer = AnswerSchema,
         };
 
-        // Content without schema content hashes exactly as it did before agents carried any.
+        // Content without schema content, or without the confined declaration, hashes exactly as it
+        // did before agents carried either.
         byte[] bytes;
-        if (AnswerSchemaContent is { } content)
+        if (AnswerSchemaContent is not null || Confined)
         {
             JsonNode node = JsonSerializer.SerializeToNode(canonical)
                 ?? throw new InvalidOperationException("An agent's canonical form serialized to nothing.");
-            node["answerSchema"] = Sorted(content);
+            if (AnswerSchemaContent is { } content)
+            {
+                node["answerSchema"] = Sorted(content);
+            }
+
+            if (Confined)
+            {
+                node["confined"] = true;
+            }
+
             bytes = JsonSerializer.SerializeToUtf8Bytes(node);
         }
         else
@@ -193,6 +222,9 @@ public sealed record AgentDefinition
         JsonValueKind.Array => new JsonArray([.. element.EnumerateArray().Select(Sorted)]),
         _ => JsonValue.Create(element),
     };
+
+    /// <summary>The tools a confined agent may not hold, in the order a refusal names them.</summary>
+    private static readonly string[] ConfinedRefuses = [ToolCatalog.Shell, ToolCatalog.Web];
 
     private static string[] Ordinal(IReadOnlyList<string> names) => [.. names.Order(StringComparer.Ordinal)];
 

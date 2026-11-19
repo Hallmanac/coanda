@@ -183,6 +183,7 @@ public sealed class AgentDefinitionTests
             agent with { McpServers = ["docs"] },
             agent with { AnswerSchema = "review" },
             agent with { AnswerSchemaContent = Content("""{"type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["drafted"]}}}""") },
+            agent with { Confined = true },
         ];
 
         IEnumerable<string> actual = changed.Select(a => a.Hash);
@@ -205,6 +206,58 @@ public sealed class AgentDefinitionTests
         };
 
         Assert.Equal("bf46e78dca27f71e", agent.Hash);
+        Assert.Equal("bf46e78dca27f71e", (agent with { Confined = false }).Hash);
+        Assert.NotEqual("bf46e78dca27f71e", (agent with { Confined = true }).Hash);
+    }
+
+    [Fact]
+    public void A_confined_agent_reads_back_from_its_canonical_json_confined_and_with_the_same_hash()
+    {
+        AgentDefinition confined = Agent() with { Confined = true };
+
+        string json = AgentDefinition.CanonicalJson(confined);
+        AgentDefinition read = AgentDefinition.FromJson(json);
+
+        Assert.Contains("\"Confined\": true", json, StringComparison.Ordinal);
+        Assert.True(read.Confined);
+        Assert.Equal(confined.Hash, read.Hash);
+        Assert.NotEqual(Agent().Hash, read.Hash);
+    }
+
+    [Fact]
+    public void An_agent_that_does_not_declare_itself_confined_writes_no_confined_member_and_hashes_as_before()
+    {
+        AgentDefinition unconfined = Agent();
+        AgentDefinition declaredFalse = AgentDefinition.FromJson(
+            AgentDefinition.CanonicalJson(unconfined).Replace("\"Name\":", "\"Confined\": false,\n  \"Name\":", StringComparison.Ordinal));
+
+        Assert.False(declaredFalse.Confined);
+        Assert.Equal(unconfined.Hash, declaredFalse.Hash);
+        Assert.DoesNotContain("Confined", AgentDefinition.CanonicalJson(unconfined), StringComparison.Ordinal);
+        Assert.DoesNotContain("Confined", AgentDefinition.CanonicalJson(declaredFalse), StringComparison.Ordinal);
+        Assert.Equal(AgentDefinition.CanonicalJson(unconfined), AgentDefinition.CanonicalJson(declaredFalse));
+    }
+
+    [Fact]
+    public void A_confined_agent_that_holds_the_shell_or_the_web_tool_is_refused_naming_each()
+    {
+        Refused(
+            Agent() with { Confined = true, Tools = ["read", "shell"] },
+            "Agent 'scribe' is confined and holds the shell tool; a confined agent holds neither the shell tool nor the web tool.");
+        Refused(
+            Agent() with { Confined = true, Tools = ["web", "read"] },
+            "Agent 'scribe' is confined and holds the web tool; a confined agent holds neither the shell tool nor the web tool.");
+        Refused(
+            Agent() with { Confined = true, Tools = ["web", "edit", "shell"] },
+            "Agent 'scribe' is confined and holds the shell tool and the web tool; a confined agent holds neither the shell tool nor the web tool.");
+    }
+
+    [Fact]
+    public void A_confined_agent_that_holds_only_read_search_or_edit_is_valid()
+    {
+        (Agent() with { Confined = true }).Validate();
+        (Agent() with { Confined = true, Tools = [] }).Validate();
+        (Agent() with { Confined = true, Tools = ["read"] }).Validate();
     }
 
     [Fact]
