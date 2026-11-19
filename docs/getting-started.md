@@ -224,4 +224,6 @@ the first start. The commands changed with the names: `coa flow list` lists the 
 `coa parcel move <id> <stage>` name a stage. The API serves flows under `/flows` and flow runs under
 `/flow-runs`, so a script written against the earlier names needs the new ones;
 [the naming notes](design/naming.md#commands-and-the-api) map the old names to these, and
-[the overview](overview.md#operating) has the full list of commands.
+[the overview](overview.md#operating) has the full list of commands. Separately, and more recently,
+`coa parcel add` needs `--type`: it no longer creates a task when the type is left out, and instead
+refuses, creates nothing, and lists the types the project holds (the same ones `coa type list` prints).

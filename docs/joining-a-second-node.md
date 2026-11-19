@@ -108,7 +108,7 @@ first, so it prints:
 Recorded this node as the owner root of project coanda, and trusts its own key as the project's root.
 Recorded a vouch in project coanda for node <windows-node-id> with the key <windows-public-key>.
 The vouch is pushed.
-Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this build neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.
+Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this version of coa neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.
 ```
 
 The last line is the vouching rule, and every answer from `coa node vouch` ends with it: vouch only
