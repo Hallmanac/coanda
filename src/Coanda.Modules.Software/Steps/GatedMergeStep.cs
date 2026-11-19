@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Coanda.Modules.Software.GitHub;
+using Coanda.Modules.Software.Repositories;
 using Coanda.Sdk.Client;
 using Coanda.Sdk.Contract;
 
@@ -28,7 +29,8 @@ namespace Coanda.Modules.Software.Steps;
 /// merged onto, a window of one request. It answers <see cref="PendingVerdict"/> with a
 /// <c>reason</c> while a check or GitHub's mergeability is still to come, and pauses on everything
 /// waiting or a rebase will not change. Nothing here enables GitHub's auto-merge, and nothing reads
-/// the node's clone.
+/// the node's clone's refs; a repo whose primary branch the module's setting does not name asks the
+/// remote for its default branch through the clone, as every step that acts on a repo does.
 /// <para>
 /// With required-checks unset, the merge waits on every check reported on the head. Right after a
 /// push nothing may be reported yet, because CI has not created its check runs or posted a status,
@@ -45,7 +47,7 @@ namespace Coanda.Modules.Software.Steps;
 /// naming checks in required-checks is how a project waits for those.
 /// </para>
 /// </summary>
-public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github, TimeProvider clock) : ISoftwareStep
+public sealed class GatedMergeStep(ProjectClones clones, GitHubToken tokens, Func<GitHubClient> github, TimeProvider clock) : ISoftwareStep
 {
     /// <summary>
     /// How long after its head was recorded a merge with required-checks unset waits for anything to be
@@ -79,7 +81,7 @@ public sealed class GatedMergeStep(GitHubToken tokens, Func<GitHubClient> github
             return PerformAgain(step, $"has no repository to merge in: {missing.Message}");
         }
 
-        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        if ((await StepTargets.TargetAsync(context, project, clones, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
         {
             return pause;
         }

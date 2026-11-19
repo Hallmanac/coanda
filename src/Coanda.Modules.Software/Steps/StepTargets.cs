@@ -8,7 +8,7 @@ namespace Coanda.Modules.Software.Steps;
 
 /// <summary>
 /// What a step that acts on a repo acts on: the project, the repo's name and remote, and the repo's
-/// primary branch, which the module's settings name.
+/// primary branch, which the module's settings name or, when they name none, the remote reports as its default.
 /// </summary>
 public sealed record RepoTarget(string Project, string Repo, string Remote, string PrimaryBranch);
 
@@ -56,10 +56,14 @@ public static class StepTargets
     /// as the module that owns it, so a later step on the task acts on the same repo; and a parcel whose type
     /// version declares no repos field acts on the project's only repo. A project with more than one repo
     /// and an empty field, a field naming a repo the project does not have, and a field naming more than
-    /// one repo each pause with a lever that names the field. A repo with no primary branch in the
-    /// module's settings pauses with a lever that names the setting.
+    /// one repo each pause with a lever that names the field. The primary branch is the one the module's
+    /// setting names for the repo; when it names none, it is the branch the repo's remote reports as its
+    /// default as the step runs (<see cref="ProjectClones.DefaultBranchAsync"/>), read afresh each time and
+    /// recorded nowhere. A remote that reports no default branch the module accepts pauses with a lever
+    /// that names the setting, and one that cannot be reached pauses with the perform-again lever, quoting git.
     /// </summary>
-    public static async Task<Needed<RepoTarget>> TargetAsync(StepContext context, CoreProject project, CancellationToken cancellationToken)
+    public static async Task<Needed<RepoTarget>> TargetAsync(
+        StepContext context, CoreProject project, ProjectClones clones, CancellationToken cancellationToken)
     {
         if ((await RepoAsync(context, project, cancellationToken)).Lacks(out CoreRepo? chosen, out DispatchAnswer? pause))
         {
@@ -67,18 +71,30 @@ public static class StepTargets
         }
 
         CoreModuleSettings settings = await context.SettingsAsync(cancellationToken);
-        return settings.ValueOf(SoftwareSettings.PrimaryBranch) is { ValueKind: JsonValueKind.Object } branches
+        if (settings.ValueOf(SoftwareSettings.PrimaryBranch) is { ValueKind: JsonValueKind.Object } branches
             && branches.TryGetProperty(chosen.Name, out JsonElement branch)
             && branch.ValueKind == JsonValueKind.String
             && branch.GetString() is { } named
-            && !string.IsNullOrWhiteSpace(named)
-                ? Needed<RepoTarget>.Ready(new RepoTarget(project.Name, chosen.Name, chosen.Remote, named))
-                : Needed<RepoTarget>.Paused(await MissingSettingAsync(
-                    context,
-                    SoftwareSettings.PrimaryBranch,
-                    $"has no primary branch for repo '{chosen.Name}': the software module's setting '{SoftwareSettings.PrimaryBranch}' names none for it in project '{project.Name}'.",
-                    $"'{{\"{chosen.Name}\":\"<branch>\"}}'",
-                    cancellationToken));
+            && !string.IsNullOrWhiteSpace(named))
+        {
+            return Needed<RepoTarget>.Ready(new RepoTarget(project.Name, chosen.Name, chosen.Remote, named));
+        }
+
+        string unset = $"has no primary branch for repo '{chosen.Name}': the software module's setting '{SoftwareSettings.PrimaryBranch}' names none for it in project '{project.Name}'";
+        DefaultBranch remoteDefault = await clones.DefaultBranchAsync(project.Name, chosen.Name, cancellationToken);
+        return remoteDefault switch
+        {
+            DefaultBranch.Named found => Needed<RepoTarget>.Ready(new RepoTarget(project.Name, chosen.Name, chosen.Remote, found.Branch)),
+            DefaultBranch.Unnamed unnamed => Needed<RepoTarget>.Paused(await MissingSettingAsync(
+                context,
+                SoftwareSettings.PrimaryBranch,
+                $"{unset}, and {unnamed.Reason}.",
+                $"'{{\"{chosen.Name}\":\"<branch>\"}}'",
+                cancellationToken)),
+            DefaultBranch.Unreached unreached => Needed<RepoTarget>.Paused(await context.PerformAgainAsync(
+                $"{unset}, and the default branch of the repo's remote could not be read: {unreached.Reason}", cancellationToken)),
+            _ => throw new InvalidOperationException($"A default branch read ended in a way the step does not know: {remoteDefault.GetType().Name}."),
+        };
     }
 
     /// <summary>The repo the task works in, as <see cref="TargetAsync"/> finds it.</summary>

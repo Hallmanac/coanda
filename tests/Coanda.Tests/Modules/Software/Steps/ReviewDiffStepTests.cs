@@ -233,9 +233,15 @@ public sealed class ReviewDiffStepTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_repo_with_no_primary_branch_pauses_naming_the_setting_and_writes_nothing()
+    public async Task A_repo_with_no_primary_branch_on_a_remote_whose_head_names_no_branch_pauses_naming_the_setting_and_writes_nothing()
     {
         await node.Projects.AddAsync(Principal.LocalOwner, "bare", RegisteredProjects.Remote, [], None);
+        string pushed = await PushPrimaryAsync("base.txt", "the base line");
+        await GitAsync(remote, "update-ref", "--no-deref", "HEAD", pushed);
+        string bareClone = node.Home.RepoClonePath("bare", RegisteredProjects.Repo);
+        Directory.CreateDirectory(bareClone);
+        await GitAsync(bareClone, "init", "--bare", "--quiet");
+        await GitAsync(bareClone, "remote", "add", Git.Remote, remote);
         await Publishing.FlowAsync(node.Daemon, "bare", SoftwareNode.Steps);
         Guid parcel = (await node.TaskAsync("No branch", "bare")).Id;
         Guid flowRun = (await node.HeldAsync(parcel, "review-diff", "bare")).FlowRunId;
@@ -243,7 +249,7 @@ public sealed class ReviewDiffStepTests : IAsyncLifetime
         SystemStepAnswer.Paused paused = Assert.IsType<SystemStepAnswer.Paused>(
             await node.DispatchAsync(SoftwareSteps.ReviewDiff, parcel, flowRun, project: "bare", module: module));
 
-        Assert.Equal("Step 'review-diff' has no primary branch for repo 'repo': the software module's setting 'primary-branch' names none for it in project 'bare'.", paused.Reason);
+        Assert.Equal("Step 'review-diff' has no primary branch for repo 'repo': the software module's setting 'primary-branch' names none for it in project 'bare', and the repo's remote reports no default branch: its HEAD names no branch.", paused.Reason);
         Assert.Equal(
             """Give the software module's setting 'primary-branch' a value in project 'bare' (coa project module set bare software primary-branch '{"repo":"<branch>"}'), then resume the flow run to perform step 'review-diff' again.""",
             paused.Lever);

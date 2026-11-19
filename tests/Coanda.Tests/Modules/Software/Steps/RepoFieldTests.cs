@@ -141,7 +141,7 @@ public sealed class RepoFieldTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_repo_with_no_primary_branch_pauses_naming_the_setting_and_the_command_that_sets_it()
+    public async Task A_repo_with_no_primary_branch_on_a_remote_reporting_no_default_pauses_naming_the_setting_and_the_command_that_sets_it()
     {
         await node.Projects.AddAsync(Principal.LocalOwner, "bare", RegisteredProjects.Remote, [], None);
         await Publishing.FlowAsync(node.Daemon, "bare", SoftwareNode.Steps);
@@ -151,11 +151,15 @@ public sealed class RepoFieldTests : IAsyncLifetime
         (SystemStepAnswer answer, IReadOnlyList<CommandLine> ran) = await WorktreeAsync(task.Id, "bare");
         SystemStepAnswer.Paused paused = Paused(answer);
 
-        Assert.Equal("Step 'worktree' has no primary branch for repo 'repo': the software module's setting 'primary-branch' names none for it in project 'bare'.", paused.Reason);
+        Assert.Equal("Step 'worktree' has no primary branch for repo 'repo': the software module's setting 'primary-branch' names none for it in project 'bare', and the repo's remote reports no default branch: its HEAD names no branch.", paused.Reason);
         Assert.Equal(
             """Give the software module's setting 'primary-branch' a value in project 'bare' (coa project module set bare software primary-branch '{"repo":"<branch>"}'), then resume the flow run to perform step 'worktree' again.""",
             paused.Lever);
-        Assert.Empty(ran);
+        // the step only asked the remote, through the clone, for its default branch
+        Assert.Equal(
+            ["rev-parse --is-bare-repository", "ls-remote --symref origin HEAD"],
+            ran.Select(c => string.Join(' ', c.GitArguments())));
+        Assert.All(ran, c => Assert.Equal(node.Home.ProjectClonePath("bare"), c.GitDirectory()));
     }
 
     [Fact]

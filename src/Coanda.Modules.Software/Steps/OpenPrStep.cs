@@ -44,7 +44,7 @@ public sealed class OpenPrStep(ProjectClones clones, GitHubToken tokens, Func<Gi
             return await context.PerformAgainAsync($"has no repository to open a pull request in: {missing.Message}", cancellationToken);
         }
 
-        if ((await StepTargets.TargetAsync(context, project, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
+        if ((await StepTargets.TargetAsync(context, project, clones, cancellationToken)).Lacks(out RepoTarget? target, out DispatchAnswer? pause))
         {
             return pause;
         }
