@@ -14,9 +14,15 @@ namespace Coanda.Tests.Daemon;
 
 public sealed class AgentListTests
 {
-    private static async Task RunAndStopAsync(NodeHome home, Func<DaemonClient, Task> act)
+    /// <summary>
+    /// Starts a daemon over <paramref name="home"/>, acts, and stops it; <paramref name="newHome"/> starts over
+    /// the home as it is, for a test whose subject is the first start on a home with no record.
+    /// </summary>
+    private static async Task RunAndStopAsync(NodeHome home, Func<DaemonClient, Task> act, bool newHome = false)
     {
-        await using RunningDaemon daemon = await Daemons.StartAsync(home, CancellationToken.None);
+        await using RunningDaemon daemon = newHome
+            ? await Daemons.StartOnNewHomeAsync(home, CancellationToken.None)
+            : await Daemons.StartAsync(home, CancellationToken.None);
         using var client = new DaemonClient(home);
         await act(client);
         await client.StopAsync(CancellationToken.None);
@@ -49,7 +55,7 @@ public sealed class AgentListTests
     {
         using var temp = new TemporaryHome();
 
-        await RunAndStopAsync(temp.Home, _ => Task.CompletedTask);
+        await RunAndStopAsync(temp.Home, _ => Task.CompletedTask, newHome: true);
 
         List<Definition> held = await AgentsInStoreAsync(temp.Home);
         Assert.Equal(5, held.Count);
@@ -75,7 +81,8 @@ public sealed class AgentListTests
 
             Assert.Equivalent(SoftwareAgents.All.Select(a => (a.Name, 1, a.Model, a.Hash)), agents.Select(a => (a.Name, a.Version, a.Model, a.Hash)), strict: true);
             Assert.Equal(5, agents.Count);
-        });
+        },
+        newHome: true);
     }
 
     [Fact]

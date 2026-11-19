@@ -20,9 +20,13 @@ public sealed class DaemonSeedingTests
     private static async Task<List<TypeView>> TypesAsync(DaemonClient client, string project) =>
         await client.GetAsync<List<TypeView>>($"/types?project={Uri.EscapeDataString(project)}", CancellationToken.None);
 
+    /// <summary>
+    /// Starts a daemon over <paramref name="home"/> as it is, since what a start seeds into a home with no
+    /// record is these tests' subject, acts, and stops it.
+    /// </summary>
     private static async Task RunAndStopAsync(NodeHome home, Func<DaemonClient, Task> act)
     {
-        await using RunningDaemon daemon = await Daemons.StartAsync(home, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartOnNewHomeAsync(home, CancellationToken.None);
         using var client = new DaemonClient(home);
         await act(client);
         await client.StopAsync(CancellationToken.None);
