@@ -60,10 +60,12 @@ public sealed record DaemonOptions
 
     /// <summary>
     /// The names of the modules a project registered on this node is switched on for, which a project
-    /// registered before modules were also has switched on at start. None by default: <c>coa daemon run</c>
-    /// has the host that builds the executable supply them.
+    /// registered before modules were also has switched on at start: the node configuration's
+    /// <c>defaultModules</c>, or null when it names none, which leaves the list to the host that builds
+    /// the executable. A daemon started with null switches on none. Every name must be a module the
+    /// daemon hosts, or the start is refused before anything is recorded.
     /// </summary>
-    public IReadOnlyList<string> DefaultModules { get; init; } = [];
+    public IReadOnlyList<string>? DefaultModules { get; init; }
 
     /// <summary>
     /// Modules the daemon hosts in its own process beside the composed ones, by name, already built, each

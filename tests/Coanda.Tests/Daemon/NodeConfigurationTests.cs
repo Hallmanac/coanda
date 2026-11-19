@@ -142,6 +142,49 @@ public sealed class NodeConfigurationTests
     }
 
     [Fact]
+    public void A_configuration_with_no_default_modules_leaves_them_to_the_host()
+    {
+        using var temp = new TemporaryHome();
+        Assert.Null(NodeConfiguration.Load(temp.Home).DefaultModules);
+
+        Write(temp, """{ "executor": "scripted" }""");
+        Assert.Null(NodeConfiguration.Load(temp.Home).DefaultModules);
+    }
+
+    [Theory]
+    [InlineData("[]", new string[0])]
+    [InlineData("""["software"]""", new[] { "software" })]
+    [InlineData("""["mail", "software", "cms-2"]""", new[] { "mail", "software", "cms-2" })]
+    public void The_default_modules_are_the_list_the_configuration_gives(string list, string[] expected)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted", "defaultModules": {{list}} }""");
+
+        Assert.Equal(expected, NodeConfiguration.Load(temp.Home).DefaultModules);
+    }
+
+    [Theory]
+    [InlineData("null", "gives \"defaultModules\" as null; it is a list of module names, and left out it is the modules the daemon switches on by default.")]
+    [InlineData("\"software\"", "gives \"defaultModules\" as a string; it is a list of module names")]
+    [InlineData("{ \"software\": true }", "gives \"defaultModules\" as an object; it is a list of module names")]
+    [InlineData("[\"software\", null]", "gives entry 2 of \"defaultModules\" as null; each entry is a module's name.")]
+    [InlineData("[3]", "gives entry 1 of \"defaultModules\" as a number; each entry is a module's name.")]
+    [InlineData("[[\"software\"]]", "gives entry 1 of \"defaultModules\" as a list; each entry is a module's name.")]
+    [InlineData("[\"Software\"]", "names 'Software' as entry 1 of \"defaultModules\", which is not a module's name; a module's name is lowercase letters and digits in runs joined by single hyphens.")]
+    [InlineData("[\" software\"]", "names ' software' as entry 1 of \"defaultModules\", which is not a module's name")]
+    [InlineData("[\"\"]", "names '' as entry 1 of \"defaultModules\", which is not a module's name")]
+    [InlineData("[\"software\", \"mail\", \"software\"]", "names the module 'software' more than once in \"defaultModules\"; entry 3 repeats it.")]
+    public void Default_modules_that_are_not_a_list_of_distinct_module_names_are_refused_naming_the_file_and_the_entry(string list, string rule)
+    {
+        using var temp = new TemporaryHome();
+        Write(temp, $$"""{ "executor": "scripted", "defaultModules": {{list}} }""");
+
+        DomainException exception = Assert.Throws<DomainException>(() => NodeConfiguration.Load(temp.Home));
+        Assert.StartsWith($"The node configuration {temp.Home.ConfigurationPath} ", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(rule, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_configuration_that_selects_scripted_with_no_profiles_holds_none()
     {
         using var temp = new TemporaryHome();

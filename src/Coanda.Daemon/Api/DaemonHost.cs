@@ -59,6 +59,9 @@ public sealed class DaemonHost
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(importInterval, TimeSpan.Zero, nameof(options));
         }
 
+        // Before the home is touched or anything is recorded, so a refused start leaves the store as it found it.
+        RequireHostedDefaults(home, options);
+
         // Narrows what an earlier run left wider, then takes the home's lock before anything touches the
         // database, holding it until the daemon stops, so a record export or rebuild never runs beside a
         // daemon, even one still starting.
@@ -121,7 +124,7 @@ public sealed class DaemonHost
             services.GetRequiredService<FlowSystemSteps>().ArgumentCheckAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<RepoClones>();
-        builder.Services.AddSingleton(new DefaultModules(options.DefaultModules));
+        builder.Services.AddSingleton(new DefaultModules(options.DefaultModules ?? []));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
@@ -350,6 +353,27 @@ public sealed class DaemonHost
         {
             await definitions.ImportAsync(await ModuleArtifact.ReadAsync(path, cancellationToken), cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Refuses a default module (<see cref="DaemonOptions.DefaultModules"/>) the daemon does not host,
+    /// naming the node configuration the list is read from, the module, and the modules it does host:
+    /// those the host composed and those handed over already built. Nothing describes a module yet, and
+    /// nothing needs to, since the names are known before any module starts.
+    /// </summary>
+    private static void RequireHostedDefaults(NodeHome home, DaemonOptions options)
+    {
+        string[] hosted = [.. options.ComposedModules.Select(m => m.Name), .. options.Modules.Keys];
+        if ((options.DefaultModules ?? []).FirstOrDefault(m => !hosted.Contains(m, StringComparer.Ordinal)) is not { } missing)
+        {
+            return;
+        }
+
+        string hosts = hosted.Length == 0
+            ? "it hosts no module"
+            : $"it hosts {string.Join(", ", hosted.Order(StringComparer.Ordinal).Select(m => $"'{m}'"))}";
+        throw new DomainException(
+            $"The node configuration {home.ConfigurationPath} names the module '{missing}' in \"defaultModules\", which this daemon does not host; {hosts}.");
     }
 
     private static int BoundPort(WebApplication app)

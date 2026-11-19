@@ -7,7 +7,8 @@ namespace Coanda.Cli;
 
 /// <summary>
 /// The one place the executable composes the modules its daemon hosts: it builds the software module,
-/// gives it its options, and hands it to the daemon with the modules a new project is switched on for.
+/// gives it its options, and hands it to the daemon with the modules a new project is switched on for
+/// when the node configuration names none.
 /// The daemon names no module, so this is the only file outside <c>coa project add</c>'s command that
 /// names a module's types. <c>coa daemon run</c> starts its daemon through it, and so does every test
 /// that starts one.
@@ -17,7 +18,10 @@ internal static class ModuleComposition
     /// <summary>How long the gates step's build command, and then its test command, may each run unless the host says otherwise.</summary>
     public static readonly TimeSpan DefaultGatesCommandLimit = TimeSpan.FromMinutes(60);
 
-    /// <summary>The modules a project registered on this node is switched on for.</summary>
+    /// <summary>
+    /// The modules a project registered on this node is switched on for when the node configuration names
+    /// none: the software module alone.
+    /// </summary>
     public static readonly IReadOnlyList<string> DefaultModules = [SoftwareSteps.Module];
 
     /// <summary>
@@ -28,9 +32,10 @@ internal static class ModuleComposition
 
     /// <summary>
     /// <paramref name="options"/> with the software module composed ahead of any module they already
-    /// compose, built as <paramref name="software"/> says, and with <see cref="DefaultModules"/> as the
-    /// modules a new project is switched on for. A gates command limit that is not positive is refused
-    /// here, before any daemon starts.
+    /// compose, built as <paramref name="software"/> says. The modules a new project is switched on for
+    /// are those the options already name, which are the node configuration's <c>defaultModules</c>, or
+    /// <see cref="DefaultModules"/> when they name none; an empty list is kept as none. A gates command
+    /// limit that is not positive is refused here, before any daemon starts.
     /// </summary>
     public static DaemonOptions Compose(DaemonOptions options, SoftwareHosting software)
     {
@@ -54,7 +59,7 @@ internal static class ModuleComposition
         return options with
         {
             ComposedModules = [composed, .. options.ComposedModules],
-            DefaultModules = DefaultModules,
+            DefaultModules = options.DefaultModules ?? DefaultModules,
         };
     }
 }
