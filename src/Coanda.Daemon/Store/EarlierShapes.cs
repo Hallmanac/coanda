@@ -32,9 +32,9 @@ namespace Coanda.Daemon.Store;
 /// agent content that names one of the answer schemas build, review, fix, or discovery and holds no
 /// schema content, for the same reason, which reads and hashes as it was stored and whose answers the
 /// daemon validates against the document the release shipped under that name
-/// (<see cref="Coanda.Core.Agents.NameOnlyAnswerSchemas"/>); and an <c>agent_step_spawned</c> with a
-/// null agent hash, model, or launch id, since those members are nullable in the core for the records
-/// written before they existed.
+/// (<see cref="Coanda.Core.Agents.NameOnlyAnswerSchemas"/>); an <c>agent_step_spawned</c> with a
+/// null agent hash, model, or launch id; and an <c>external_event_recorded</c> with no external id or
+/// parcel id. Those members are nullable in the core for the records written before they existed.
 /// </para>
 /// <para>
 /// A document is a snapshot of a stream, or is rebuilt from one, so a stream holding an earlier event is

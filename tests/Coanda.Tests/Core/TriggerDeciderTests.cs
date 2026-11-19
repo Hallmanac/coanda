@@ -13,7 +13,7 @@ public sealed class TriggerDeciderTests
     private static readonly Dictionary<string, string> NoFields = [];
 
     private static ExternalEventRecorded Record(string kind, Dictionary<string, string>? fields = null, Principal? recordedBy = null) =>
-        TriggerDecider.RecordExternalEvent("alpha", kind, fields ?? NoFields, recordedBy ?? Owner, Now);
+        TriggerDecider.RecordExternalEvent("alpha", kind, "delivery-1", null, fields ?? NoFields, recordedBy ?? Owner, Now);
 
     private static SubscriptionRecorded Subscribe(
         string kind = "pr-assigned",
@@ -33,6 +33,52 @@ public sealed class TriggerDeciderTests
         Assert.Equal("pr-assigned", recorded.Kind);
         Assert.Equivalent(new Dictionary<string, string> { ["assignee"] = "brian", ["pr_number"] = "12" }, recorded.Fields, strict: true);
         Assert.Equal("brian", recorded.RecordedBy);
+    }
+
+    [Fact]
+    public void An_external_event_records_its_external_id_exactly_as_given_and_the_parcel_id_its_recorder_names()
+    {
+        Guid parcel = Ids.New();
+
+        ExternalEventRecorded named = TriggerDecider.RecordExternalEvent("alpha", "pr-assigned", " Node-ID ", parcel, NoFields, Owner, Now);
+        ExternalEventRecorded unnamed = TriggerDecider.RecordExternalEvent("alpha", "pr-assigned", "delivery-2", null, NoFields, Owner, Now);
+
+        Assert.Equal((" Node-ID ", (Guid?)parcel), (named.ExternalId, named.ParcelId));
+        Assert.Equal(("delivery-2", (Guid?)null), (unnamed.ExternalId, unnamed.ParcelId));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    public void An_external_event_with_a_missing_or_blank_external_id_is_refused(string? externalId)
+    {
+        DomainException exception = Assert.Throws<DomainException>(
+            () => TriggerDecider.RecordExternalEvent("alpha", "pr-assigned", externalId, null, NoFields, Owner, Now));
+
+        Assert.Equal($"{TriggerDecider.ExternalIdRule}; none was given.", exception.Message);
+    }
+
+    [Fact]
+    public void An_external_id_at_the_cap_is_recorded_and_one_a_character_over_it_is_refused()
+    {
+        string atCap = new('9', ExternalEventCaps.ExternalIdLength);
+
+        Assert.Equal(atCap, TriggerDecider.RecordExternalEvent("alpha", "pr-assigned", atCap, null, NoFields, Owner, Now).ExternalId);
+        DomainException exception = Assert.Throws<DomainException>(
+            () => TriggerDecider.RecordExternalEvent("alpha", "pr-assigned", atCap + "9", null, NoFields, Owner, Now));
+        Assert.Equal(
+            $"An external event's external id is at most {ExternalEventCaps.ExternalIdLength} characters; this one is {ExternalEventCaps.ExternalIdLength + 1}.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void The_external_id_cap_holds_a_code_hosts_ids_well_inside_it()
+    {
+        // A GitHub GraphQL node id, a webhook delivery id, and a schedule tick's fixed id, at a tenth of the cap or less.
+        string[] ids = ["PR_kwDOLx1Q0M5vZ8nT", "MDExOlB1bGxSZXF1ZXN0MjA4NjE5MDQ0OQ==", "72d3162e-cc78-11e3-81ab-4c9367dc0958", "nightly-sweep@2026-11-18T09:00:00Z"];
+
+        Assert.All(ids, id => Assert.True(id.Length * 10 <= ExternalEventCaps.ExternalIdLength, id));
     }
 
     [Fact]

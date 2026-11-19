@@ -16,8 +16,26 @@ namespace Coanda.Core.Triggers;
 /// </summary>
 public static class TriggerDecider
 {
+    /// <summary>
+    /// The rule a recording with no external id, or a blank one, quotes: the id is what makes recording
+    /// idempotent on the project, the kind, and that id.
+    /// </summary>
+    public const string ExternalIdRule = "An external event needs the id the outside world gives it, which recording it again matches on";
+
+    /// <summary>
+    /// Records an external event of <paramref name="kind"/> whose id in the outside world is
+    /// <paramref name="externalId"/>, kept exactly as given, and which concerns <paramref name="parcelId"/>
+    /// when the recorder names one. Whether an event with the same project, kind, and external id is
+    /// already recorded is the daemon's to check, after these rules pass.
+    /// </summary>
     public static ExternalEventRecorded RecordExternalEvent(
-        string project, string kind, IReadOnlyDictionary<string, string> fields, Principal recordedBy, DateTimeOffset now)
+        string project,
+        string kind,
+        string? externalId,
+        Guid? parcelId,
+        IReadOnlyDictionary<string, string> fields,
+        Principal recordedBy,
+        DateTimeOffset now)
     {
         string trimmedProject = RequireProject(project);
 
@@ -53,8 +71,26 @@ public static class TriggerDecider
                 $"An external event's field names are plain names (letters, digits, hyphens, and underscores); '{notPlain}' is not.");
         }
 
+        if (string.IsNullOrWhiteSpace(externalId))
+        {
+            throw new DomainException($"{ExternalIdRule}; none was given.");
+        }
+
+        if (externalId.Length > ExternalEventCaps.ExternalIdLength)
+        {
+            throw new DomainException(
+                $"An external event's external id is at most {ExternalEventCaps.ExternalIdLength} characters; this one is {externalId.Length}.");
+        }
+
         return new ExternalEventRecorded(
-            Ids.New(), trimmedProject, kind, new Dictionary<string, string>(fields, StringComparer.Ordinal), recordedBy.Id, now);
+            Ids.New(),
+            trimmedProject,
+            kind,
+            new Dictionary<string, string>(fields, StringComparer.Ordinal),
+            recordedBy.Id,
+            now,
+            externalId,
+            parcelId);
     }
 
     public static SubscriptionRecorded RecordSubscription(

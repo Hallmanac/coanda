@@ -27,7 +27,7 @@ public sealed class SubscriptionTests
 
     private static Task RecordAsync(RunningDaemon daemon, string project, string assignee, string title) =>
         daemon.Services.GetRequiredService<TriggerService>().RecordEventAsync(
-            Principal.LocalOwner, project, "pr-assigned", new Dictionary<string, string> { ["assignee"] = assignee, ["title"] = title }, None);
+            Principal.LocalOwner, project, "pr-assigned", $"{project}/{title}", null, new Dictionary<string, string> { ["assignee"] = assignee, ["title"] = title }, None);
 
     private static async Task<List<ParcelView>> ParcelsAsync(DaemonClient client, string project) =>
         await client.GetAsync<List<ParcelView>>($"/parcels?project={project}", None);
@@ -106,7 +106,7 @@ public sealed class SubscriptionTests
             Teammate, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
             "task", "title", "review-on-assignment", None);
 
-        await triggers.RecordEventAsync(Principal.LocalOwner, Project, "pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }, None);
+        await triggers.RecordEventAsync(Principal.LocalOwner, Project, "pr-assigned", "untitled", null, new Dictionary<string, string> { ["assignee"] = "brian" }, None);
         await RecordAsync(daemon, Project, "brian", "Titled this time");
 
         await ParcelTitledAsync(client, "Titled this time");
@@ -124,18 +124,18 @@ public sealed class SubscriptionTests
         var agent = new Principal("build-session", Role.Agent);
         var fields = new Dictionary<string, string> { ["assignee"] = "brian" };
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(agent, Project, "pr-assigned", fields, None));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(agent, Project, "pr-assigned", "delivery-1", null, fields, None));
         Assert.Equal("'event.record' is not open to the Agent role.", exception.Message);
         DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => triggers.SubscribeAsync(agent, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None));
         Assert.Equal("'subscription.add' is not open to the Agent role.", exception2.Message);
 
-        ExternalEvent recorded = await triggers.RecordEventAsync(Teammate, Project, "pr-assigned", fields, None);
+        ExternalEvent recorded = await triggers.RecordEventAsync(Teammate, Project, "pr-assigned", "delivery-1", null, fields, None);
         Assert.Equal(Teammate.Id, recorded.RecordedBy);
         Subscription subscription = await triggers.SubscribeAsync(Principal.LocalOwner, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None);
         Assert.Single(await triggers.ListSubscriptionsAsync(agent, Project, None), s => s.Id == subscription.Id);
         Assert.Empty(await triggers.ListSubscriptionsAsync(agent, Other, None));
 
-        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Teammate, Tenants.Node, "pr-assigned", fields, None));
+        DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(Teammate, Tenants.Node, "pr-assigned", "delivery-1", null, fields, None));
         Assert.Contains("reserved for node-level records", exception3.Message, StringComparison.Ordinal);
     }
 }

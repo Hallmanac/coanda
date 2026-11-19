@@ -125,7 +125,7 @@ public sealed class ImportedEventsTests
                 Principal.LocalOwner, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
                 "task", "title", "review-on-assignment", None);
             ExternalEvent external = await triggers.RecordEventAsync(
-                Principal.LocalOwner, Project, "pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "A peer's review" }, None);
+                Principal.LocalOwner, Project, "pr-assigned", "delivery-1", null, new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "A peer's review" }, None);
             streams.Add(external.Id);
             origin = (await triggers.ListSubscriptionsAsync(Principal.LocalOwner, Project, None)).Single().OriginFor(external.Id);
             await RecordLinesAsync(store, peer, [.. streams]);

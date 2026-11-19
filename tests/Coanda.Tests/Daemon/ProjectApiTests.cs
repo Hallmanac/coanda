@@ -138,8 +138,8 @@ public sealed class ProjectApiTests
         // Neither recording the subscription nor recording the event checks for the record.
         await triggers.SubscribeAsync(Principal.LocalOwner, "unregistered", trigger, "task", "title", "review-on-assignment", None);
         await triggers.SubscribeAsync(Principal.LocalOwner, "alpha", trigger, "task", "title", "review-on-assignment", None);
-        await triggers.RecordEventAsync(Principal.LocalOwner, "unregistered", "pr-assigned", fields, None);
-        await triggers.RecordEventAsync(Principal.LocalOwner, "alpha", "pr-assigned", fields, None);
+        await triggers.RecordEventAsync(Principal.LocalOwner, "unregistered", "pr-assigned", "delivery-1", null, fields, None);
+        await triggers.RecordEventAsync(Principal.LocalOwner, "alpha", "pr-assigned", "delivery-1", null, fields, None);
 
         // The loop handles events in order, so once alpha's parcel exists the earlier event has been handled.
         await FlowRunDriver.UntilAsync(

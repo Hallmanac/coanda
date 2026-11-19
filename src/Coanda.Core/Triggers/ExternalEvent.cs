@@ -18,6 +18,12 @@ public sealed class ExternalEvent
     public string RecordedBy { get; private set; } = string.Empty;
     [JsonInclude]
     public DateTimeOffset RecordedAt { get; private set; }
+    /// <summary>The id the outside world gives the event; null for an event recorded before external ids were carried.</summary>
+    [JsonInclude]
+    public string? ExternalId { get; private set; }
+    /// <summary>The parcel the recorder said the event concerns, as given; null when it named none.</summary>
+    [JsonInclude]
+    public Guid? ParcelId { get; private set; }
 
     public static ExternalEvent Create(ExternalEventRecorded recorded)
     {
@@ -34,5 +40,7 @@ public sealed class ExternalEvent
         Fields = new Dictionary<string, string>(recorded.Fields, StringComparer.Ordinal);
         RecordedBy = recorded.RecordedBy;
         RecordedAt = recorded.RecordedAt;
+        ExternalId = recorded.ExternalId;
+        ParcelId = recorded.ParcelId;
     }
 }
