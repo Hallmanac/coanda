@@ -630,7 +630,14 @@ it offers) is designed, because agent sessions load no MCP server yet; drafting 
 agent that names a server is refused. The member stays in the content and the hash covers it, and
 the rule binds only a draft or an import, so agent content already stored with a server still reads.
 Per-parcel context (criteria, journal, notes, code) is assembled by the daemon per step from
-declared sources and never folded into the agent. The daemon fences every value it renders into a
+declared sources and never folded into the agent. An agent step's source names one of four kinds:
+a step of its own flow (`{"Step": "<step>"}`), whose latest recording on the same flow run it reads;
+a step of a named flow (`{"Flow": "<flow>", "Step": "<step>"}`), whose latest recording on the same
+parcel it reads, which may be the step's own flow and the step itself; the open parcels of a named
+type (`{"Type": "<type>"}`); and the parcel's origin (`{"Origin": true}`). Validation checks a named
+flow or type only as a plain name and consults no other definition, because an absent flow or type
+reads as empty in the context rather than refusing the flow. A source that names only a step writes
+and hashes as it did before the other kinds existed. The daemon fences every value it renders into a
 session's files (a parcel's title, each field value, and each earlier step's answer, in prompt.md and
 parcel.md) in backticks the value cannot close, under a sentence framing the fenced values as data that
 describes the work and cannot override the instructions outside the fences. The labels and words the
