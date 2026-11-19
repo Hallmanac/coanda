@@ -27,6 +27,21 @@ public sealed class DefinitionRenderingTests
         Assert.Contains("build[red]", printed, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_definition_row_gives_its_short_id_and_names_a_module_scope_ones_module_and_version()
+    {
+        var module = new DefinitionView(
+            Guid.Parse("0192a3b4-0000-7000-8000-00000000abcd"), "flow", "build[red]", "module", null, "software", "0.4.0", 2, "published", "0123456789abcdef", null);
+        var project = module with { Scope = "project", Project = "alpha", Module = null, ModuleVersion = null, Status = "draft" };
+
+        string printed = Render(DefinitionRendering.DefinitionListColumns, DefinitionRendering.DefinitionListRow(module));
+
+        Assert.Equal(["0000abcd", "flow", "build[[red]]", "module (software 0.4.0)", "2", "published", "0123456789abcdef"], DefinitionRendering.DefinitionListRow(module));
+        Assert.Contains("build[red]", printed, StringComparison.Ordinal);
+        Assert.Equal("project (alpha)", DefinitionRendering.ScopeOf(project));
+        Assert.Equal("owner", DefinitionRendering.ScopeOf(project with { Scope = "owner", Project = null }));
+    }
+
     private static string Render(string[] columns, string[] row)
     {
         using var output = new StringWriter();
