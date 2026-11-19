@@ -49,10 +49,13 @@ worktrees, pull requests, and the code host are the software engineering module'
 
 Everything hall9k learned carries over; what changes is where it lives and how it is expressed.
 Kept as kernel behaviour: hash arbitration for claims, the generation fence (local to a node),
-adopt-on-restart, pause with a lever, two-lens fresh-context review, the decisions and lessons
-record, two-tier identity with three replication scopes, vouches, revocation, and succession by
-ranked keys. Kept in the software engineering module rather than the kernel (section 14.10):
-worktree per build, and the pre-approved gated merge with the head-commit guard.
+adopt-on-restart, pause with a lever, two-lens fresh-context review, two-tier identity with three
+replication scopes, vouches, revocation, and succession by ranked keys. Kept in the software
+engineering module rather than the kernel (section 14.10): worktree per build, and the pre-approved
+gated merge with the head-commit guard. Decisions and lessons are kept too, but not as kernel
+behaviour: each is a parcel of its own type, the decision type and the lesson type, which the
+bundled record module ships, and recording, superseding, and distilling them are flows (decision
+833d8902).
 Kept as doctrine: prescriptive lifecycle and permissive judgment, now raised one level (section 8);
 tools before tokens; hall9k is the source of truth and the tracker is its outflow; a rule carries
 the incident that created it; an unobserved fact is recorded as unknown.
@@ -689,8 +692,10 @@ so registering a project is one command, and it compiles in no module's option. 
 settings are set through generic module commands rendered from the registry, never through
 module-specific verbs (section 14.6).
 
-Rendered files (parcel.md, prompt.md, decisions.md, lessons.md) are projections written at spawn,
-never truth, never edited.
+Rendered files (parcel.md, prompt.md) are projections written at spawn, never truth, never edited.
+Decisions and lessons are not rendered files: they are parcels of their own types (section 3), and
+they reach an agent through a context source in the agent step's context, which reads the open
+parcels of their type.
 
 The portal: a local page served by the daemon on the loopback, for attention and walks first, not
 a kanban; reachable through the relay later. MCP: the registry over loopback streamable HTTP with a
@@ -760,6 +765,89 @@ Software engineering is the first module. It is not part of the Coanda binary: i
 artifact carried in the same release archive, installed by the first daemon start, and switched on
 for every new project by default, so a new project still configures nothing (decision 2d171fa7).
 Pulling it out of the archive later means only that it stops being bundled.
+
+#### 14.1.1 The boundary rule (Brian's ruling, 2026-11-18)
+
+**The rule.** A capability lives in the outermost of four places that can hold it: a definition, a
+module, the daemon, or the core. The engine is the core and the daemon together.
+
+1. It is a definition when it only routes or instructs. A type's lifecycle and fields, a flow's
+   steps and transitions, an agent's persona and tools, and a trigger's event kind and filters are
+   definitions (decision fa75e412).
+2. It is a module's when it is code and either of two things is true: describing it takes a
+   domain's nouns, or it acts on or reports from a system outside Coanda's own record. A system step
+   with an invariant only the module can check, an external event kind, a credential, and a setting
+   are a module's.
+3. It is the engine's only when it passes both of the two tests below.
+4. Inside the engine, it is the core's when it is a shape of the record or a rule over the record
+   that can be written as a pure function. It is the daemon's when it reads or writes anything: the
+   store, a file, a process, the network, or the clock (decisions 0b14eeb2 and fe7e9717).
+
+**The noun test.** The capability can be specified in the engine's vocabulary alone. That
+vocabulary is the settled words of naming.md (parcel, type, lifecycle, stage, flow, flow run, agent,
+the step kinds, trigger, paused, module, dispatch, watch request, feed), plus node, project, repo in
+the one sense of a named remote that carries the ledger, ledger, claim, member, owner, role,
+principal, setting, credential profile, executor, session, artifact, measurement, and the five
+vendor-neutral tool names. A domain's nouns fail it. The list to start with is task, idea,
+discovery, review, build, fix, test, the gates step, branch, worktree, pull request, merge, rebase,
+diff, GitHub, issue, card, decision, lesson, evaluation, and epic. Git passes only as the ledger's
+carrier: a ref, a fetch, a push, a clone.
+
+**The need test.** At least one of two things is true.
+
+- A guarantee of the record depends on it, whichever modules are installed. The guarantees are: one
+  writer, one live flow run per parcel, only the holder writing to a flow run, claim arbitration,
+  trust decided on import, caps and budgets enforced, a role check before any decider, idempotent
+  replication, and the node home and credentials kept from sessions. The test is not "is it
+  optional" but "does correctness depend on it".
+- It needs a power the design withholds from modules so that work stays in flows (decisions
+  253e33e2, d97f5f86, and 09a3372e): creating, moving, or closing a parcel; starting, resuming, or
+  stopping a flow run; publishing a definition; spawning or speaking to an agent session; reading
+  the store; deciding trust; or changing what replicates.
+
+A capability that passes the noun test and fails the need test is a module's or a definition's,
+however general it looks. That is the half of the rule that answers Brian's concern, because "it is
+generic" is how a thing that belongs in a module gets into the engine.
+
+**Three corollaries.**
+
+- **Mechanism in the engine, policy as data.** When a domain needs something only the engine can
+  enforce, the engine gets the mechanism in a form with no domain noun in it, and the module or the
+  definition declares the policy as data. The engine enforces a confined tool set; the software
+  module's reviewer definition says it is confined. The engine caps the parcels a trigger creates in
+  an hour; the trigger says the number.
+- **The engine never names a module.** The engine learns what a module brings from its describe
+  answer and its definitions. A convenience on a core surface, such as `coa project add` taking a
+  module's settings, is rendered from those and never compiled in. Only the host that builds the
+  executable references a module, in one place.
+- **An exception is recorded.** A domain noun in the engine is allowed only as a named exception,
+  with the decision that allows it and the condition that ends it. The list is short and is counted
+  at every gate sweep.
+
+**How it is checked.**
+
+1. **The vocabulary test** is a test in the test project. It searches the engine's projects (Core,
+   Daemon, Cli, and the Sdk's contract) for the domain noun list and passes only when every hit is
+   in the exception list. The phase 3 sweep ran this search by hand for Core.
+2. **The reference test** is the test that holds every project to its allowed references. Core
+   references no Coanda project, the SDK references none, the daemon references Core and the SDK
+   only, and a module is referenced only by the host, in one file.
+3. **The refinement check** is one sentence on every task draft: where the capability lives and, if
+   it is the engine's, which clause of the need test it passes. A draft that cannot say is returned
+   to refinement.
+4. **The second-module test** is a module with no software noun in it that uses each engine
+   capability. It is the gate of phase 4, the engine for modules (prototype-plan.md section 3).
+
+Two numbers go into every gate sweep as the boundary's health: the size of the exception list, and
+the number of content tasks in the phase that had to edit a file in Core or the daemon. Neither is a
+limit. A rising count of the second says a mechanism was shaped wrong for its consumer.
+
+**How it reads against decisions already made.** The rule restates decisions more than it adds to
+them. Decision 269e586e already fails branch, worktree, pull request, and GitHub on the noun test.
+Decision 833d8902 already moved decisions and lessons out of the core because they are content. The
+checklist's question, "could a flow, type, or module do this instead?", is rule 1 to 3 read from
+the inside out. What the rule adds is the pairing of the two tests, the corollary that the engine
+never names a module, and the checks.
 
 ### 14.2 What a module brings
 
@@ -1037,14 +1125,18 @@ when the project is registered and, for any repo still without one, at every sta
 repository whose `origin` is the repo's recorded remote, made beside its path and moved there once
 complete, with no contact with the remote. A clone a build before the per-repo layout kept at
 `clones/<project>/repo.git` moves to its project's one repo at the first start of a build that has
-the layout. The start lists the clone's worktrees before the move, and does not move a clone whose
-worktrees cannot be listed. At every start, after any move, it runs `git worktree repair` from each
-clone for every linked worktree the clone lists whose directory exists, so a flow run paused across
-the upgrade resumes in its worktree. The repair changes nothing for a worktree whose links are sound,
+the layout. Before the core moves a clone from the earlier layout, it checks that the clone reads as
+a bare repository, and a clone that does not is left where it is with the reason logged. All of this
+happens before any module starts and before any live flow run is advanced. What the core cannot
+place or make, it logs and leaves; it never deletes or overwrites a clone.
+
+The core does not repair worktrees, because a worktree is the software module's (decision
+269e586e). The module's start sweep runs `git worktree repair` from each clone for every linked
+worktree the clone lists whose directory exists, so a flow run paused across an upgrade that moved
+its clone resumes in its worktree. The repair changes nothing for a worktree whose links are sound,
 and running it at every start means a start stopped between the move and the repairs, or a repair
-that failed, is finished by the next start. All of this happens before any module starts and before
-any live flow run is advanced. What the
-core cannot place or make, it logs and leaves; it never deletes or overwrites a clone.
+that failed, is finished by the next start. The daemon waits on each module's start, the software
+module's sweep included, before it advances any live flow run.
 
 A module finds a repo's clone by the layout, which the SDK writes once (`RepoLayout`) and the core
 reads too; it is not handed a path. The software module makes no clone: a step that finds none, or
@@ -1184,6 +1276,15 @@ the process, and the adapter is allowed no call the schemas do not define. If ei
 surviving case against this direction (the benefit accrues to domains that do not yet exist while
 the cost is paid now) wins.
 
+Note, 2026-11-18: the phase numbers in this section predate the re-phasing of that date, and
+prototype-plan.md section 3 now defines each phase. Phase 3 and the phases before it keep their
+numbers. The trigger-model work this section gives phase 4 is still phase 4, the engine for modules,
+in its shape and mechanism waves. The boundary on the wire that it gives phase 5, and the phase 5
+gate it restates and names in its last paragraph, are now phase 6, platform. The owner-signed path
+that item 5 places "before any second module" now comes first after the first version and before
+any module that is not in the release archive, because the first version bundles three modules in
+its release archive.
+
 ### 14.13 What this unlocks and what it forecloses
 
 Unlocked: deterministic effects on the world with invariants the core need not know (merge with a
@@ -1226,18 +1327,18 @@ interpreter with caps, triggers, typed outcomes with depth and budget caps, exec
 adapters, resume and reattach, measurement events, rendered files, signed JSONL export and import
 with the hash chain, arbitration, join, identity event shapes including succession, window with
 stored recipe, discovery and build and review-on-assignment flows, gated merge, operations
-(binary, install, update, doctor), Windows in the last week, per-project ledger home setting,
+(binary, install, update, doctor), Windows in phase 6, per-project ledger home setting,
 multi-repo project fields, credential profile field. With them, in the order of section 14.12: the
 carve-out of the software engineering module before phase 3, hosted in process behind the
 schema-defined contract, with the Module principal, the dispatch id, module-owned fields, two-scope
 settings, and the project reduced to a name plus a repos list (decision 6687d821); the event tag
-from the repos field in phase 3; the trigger-model work in phase 4; and in phase 5 the module
+from the repos field in phase 3; the trigger-model work in phase 4; and in phase 6 the module
 boundary on the wire, supervision, install from the release archive, and verification against the
 registry key and the owner's root key (decision 6687d821).
 
-Fold-in (after the first version, in order): before any second module, the owner-signed path with
-per-node acceptance, module sharing through a ref, module export and install from a file, and the
-credential profile commands (section 14.12); then Jira and Linear, succession commands, portal,
+Fold-in (after the first version, in order): first, before any module that is not in the release
+archive, the owner-signed path with per-node acceptance, module sharing through a ref, module
+export and install from a file, and the credential profile commands (section 14.12); then Jira and Linear, succession commands, portal,
 ledger move and forwarding ref, fork notices and three-way diff, courier binding, challenge and walk
 flows, export and import of definitions, type migrate command, service registration, MCP.
 
