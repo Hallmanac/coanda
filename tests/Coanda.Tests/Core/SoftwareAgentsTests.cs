@@ -18,6 +18,16 @@ public sealed class SoftwareAgentsTests
     }
 
     [Fact]
+    public void No_shipped_agent_declares_itself_confined()
+    {
+        foreach (AgentDefinition agent in SoftwareAgents.All)
+        {
+            Assert.False(agent.Confined, agent.Name);
+            Assert.DoesNotContain("Confined", SoftwareDefinitions.Read("agents", agent.Name), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Each_agent_names_its_answer_schema()
     {
         Assert.Equal("build", SoftwareAgents.Build.AnswerSchema);

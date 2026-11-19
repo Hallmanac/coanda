@@ -57,6 +57,34 @@ public sealed class DefinitionDeciderAgentTests
     }
 
     [Fact]
+    public void A_confined_agent_that_holds_the_shell_or_the_web_tool_is_refused_when_drafted_and_when_imported()
+    {
+        AgentDefinition confined = SoftwareAgents.Fix with { Confined = true, Tools = ["read", "shell", "web"] };
+        string expected = "Agent 'fix' is confined and holds the shell tool and the web tool; a confined agent holds neither the shell tool nor the web tool.";
+
+        DomainException drafted = Assert.Throws<DomainException>(() => Draft("fix", AgentDefinition.CanonicalJson(confined), confined.Hash));
+        Assert.Equal(expected, drafted.Message);
+
+        DomainException imported = Assert.Throws<DomainException>(() => DefinitionDecider.Import(ModuleDefinition.FromAgent(confined), "software", "0.1.0", [], "import", Now));
+        Assert.Equal(expected, imported.Message);
+    }
+
+    [Fact]
+    public void A_confined_agent_that_holds_only_read_search_or_edit_is_drafted_and_imported()
+    {
+        AgentDefinition confined = SoftwareAgents.Fix with { Confined = true, Tools = ["read", "search", "edit"] };
+
+        Definition definition = Definition.Create(Draft("fix", AgentDefinition.CanonicalJson(confined), confined.Hash));
+        Assert.Equal(confined.Hash, definition.ContentHash);
+        Assert.True(AgentDefinition.FromJson(definition.Content).Confined);
+
+        (DefinitionDrafted imported, DefinitionPublished _) =
+            DefinitionDecider.Import(ModuleDefinition.FromAgent(confined), "software", "0.1.0", [], "import", Now) ?? throw new InvalidOperationException("Nothing was imported.");
+        Assert.Equal(confined.Hash, imported.ContentHash);
+        Assert.True(AgentDefinition.FromJson(imported.Content).Confined);
+    }
+
+    [Fact]
     public void A_content_hash_that_differs_from_the_agents_hash_is_refused()
     {
         AgentDefinition agent = SoftwareAgents.Fix;
