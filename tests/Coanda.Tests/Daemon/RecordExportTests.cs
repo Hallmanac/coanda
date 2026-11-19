@@ -393,6 +393,9 @@ public sealed class RecordExportTests
 
         public Task StopAsync(StopRequest request, CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task WatchAsync(WatchRequest request, CancellationToken cancellationToken) => Task.CompletedTask;
+
+
         public Task FeedAsync(FeedDelivery delivery, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

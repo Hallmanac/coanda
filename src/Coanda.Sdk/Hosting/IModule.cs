@@ -6,7 +6,6 @@ namespace Coanda.Sdk.Hosting;
 /// A module as the daemon calls it while hosting it in its own process: one method for each call of the
 /// module API's index of calls that the host sends today, each taking and returning the API's own
 /// documents, so a module hosted this way receives nothing a module in a process of its own would not.
-/// The watch request joins it with the work that sends it.
 /// </summary>
 public interface IModule
 {
@@ -24,6 +23,12 @@ public interface IModule
 
     /// <summary>stop: the dispatch is to stop, because a person stopped its flow run or a resume replaced it.</summary>
     Task StopAsync(StopRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// watch: the watches the core compiled from one project's triggers, replacing the module's whole set
+    /// for that project, so an empty list means the module reports nothing for it. It has no answer.
+    /// </summary>
+    Task WatchAsync(WatchRequest request, CancellationToken cancellationToken);
 
     /// <summary>
     /// feed: core events the module's describe subscribes to, in sequence order. The module has handled

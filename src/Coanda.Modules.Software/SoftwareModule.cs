@@ -125,6 +125,15 @@ public sealed class SoftwareModule : IModule, IAsyncDisposable
             : Task.CompletedTask;
 
     /// <summary>
+    /// Watch: the module describes no event kinds and reports no external events, so the watches it is
+    /// handed, which are always none, need nothing of it.
+    /// </summary>
+    public Task WatchAsync(WatchRequest request, CancellationToken cancellationToken) =>
+        cancellationToken.IsCancellationRequested
+            ? Task.FromCanceled(cancellationToken)
+            : Task.CompletedTask;
+
+    /// <summary>
     /// Feed: for each flow run that ended or was stopped, notes its end, which lets a worktree step waiting
     /// to take its worktree over go on, then removes its worktree, the one at the work path the core shows
     /// for the flow run, and keeps its branch. A delivery the module has seen before, one whose worktree
