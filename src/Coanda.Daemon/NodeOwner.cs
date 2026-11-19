@@ -61,12 +61,15 @@ public sealed class NodeOwner
     public Principal Principal => new(Id, Role.Owner);
 
     /// <summary>The owner of <paramref name="home"/>: its owner id record, or the operating system account's name when it holds none.</summary>
-    public static NodeOwner Of(NodeHome home)
+    public static NodeOwner Of(NodeHome home) => Of(home, Environment.UserName);
+
+    /// <summary>The owner of <paramref name="home"/>: its owner id record, or, when it holds none, the owner of the account named <paramref name="accountName"/> (<see cref="OfAccount(string?)"/>).</summary>
+    internal static NodeOwner Of(NodeHome home, string? accountName)
     {
         ArgumentNullException.ThrowIfNull(home);
         return NodeOwnerRecord.Read(home) is { } recordedId
             ? new NodeOwner(recordedId, home, recorded: true)
-            : new NodeOwner(OfAccount().Id, home, recorded: false);
+            : new NodeOwner(OfAccount(accountName).Id, home, recorded: false);
     }
 
     /// <summary>The owner this daemon runs as: the operating system account's name.</summary>
@@ -85,7 +88,9 @@ public sealed class NodeOwner
 
     /// <summary>
     /// Why this node may not take <paramref name="ownerId"/> as its owner id, or null when it may: a node keeps
-    /// one owner id, so one already recorded and different refuses it.
+    /// one owner id, so one already recorded and different refuses it, and a node that records none yet refuses an
+    /// id that begins or ends with whitespace (<see cref="char.IsWhiteSpace(char)"/>), which the CLI's principal
+    /// header cannot carry intact. A record written before that rule keeps its id and is not refused it.
     /// </summary>
     public string? RefusalOf(string ownerId)
     {
@@ -95,14 +100,22 @@ public sealed class NodeOwner
         }
     }
 
-    private string? Refused(string ownerId) =>
-        recorded && !string.Equals(id, ownerId, StringComparison.Ordinal)
-            ? $"This node already records the owner id '{id}', not '{ownerId}'; a node keeps one owner id."
-            : null;
+    private string? Refused(string ownerId) => (recorded, ownerId) switch
+    {
+        (true, _) when !string.Equals(id, ownerId, StringComparison.Ordinal) =>
+            $"This node already records the owner id '{id}', not '{ownerId}'; a node keeps one owner id.",
+        (false, [var first, ..]) when char.IsWhiteSpace(first) => EdgedWithWhitespace(ownerId),
+        (false, [.., var last]) when char.IsWhiteSpace(last) => EdgedWithWhitespace(ownerId),
+        _ => null,
+    };
+
+    private static string EdgedWithWhitespace(string ownerId) =>
+        $"The owner id '{ownerId}' cannot be recorded: an owner id may not begin or end with whitespace.";
 
     /// <summary>
     /// Records <paramref name="ownerId"/> as this node's owner id, in the home's record, and acts as it from
-    /// now on. Recording the id already recorded changes nothing; another id is refused (<see cref="RefusalOf"/>).
+    /// now on. Recording the id already recorded changes nothing; another id, and an id <see cref="RefusalOf"/>
+    /// refuses for any other reason, is refused.
     /// </summary>
     public void Record(string ownerId)
     {

@@ -7,11 +7,14 @@ using Coanda.Core.Projects.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Registry;
 using Coanda.Core;
+using Coanda.Daemon;
+using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Modules.Software;
+using Coanda.Sdk.Contract;
 using Fisher;
 using JasperFx.Events.Documents;
 using JasperFx.Events;
@@ -277,4 +280,115 @@ public sealed class ProjectServiceTests
         Assert.Equal("build", (await parcels.MoveAsync(Owner, "legacy", created.ParcelId, "build", None)).Stage);
         Assert.Equal("abandoned", (await parcels.CloseAsync(Owner, "legacy", created.ParcelId, "abandoned", "Never registered.", None)).Resolution);
     }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public async Task Registering_as_an_owner_with_no_record_whose_id_is_edged_with_whitespace_is_refused_and_records_nothing(string ownerId)
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        NodeOwner owner = NodeOwner.Of(temp.Home, ownerId);
+        ProjectService projects = Owned(store, owner);
+
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(
+            () => projects.AddAsync(new Principal(ownerId, Role.Owner), "coanda", Remote, [], None));
+
+        Assert.Equal($"Project 'coanda' was not registered: {NodeOwnerTests.EdgedRefusal(ownerId)}", refused.Message);
+        Assert.Empty(await projects.ListAsync(Owner, None));
+        Assert.Null(await ProjectService.FindAsync(store, "coanda", None));
+        Assert.Equal((ownerId, false), (owner.Id, owner.Recorded));
+        Assert.Null(NodeOwnerRecord.Read(temp.Home));
+    }
+
+    [Fact]
+    public async Task Registering_as_an_owner_with_no_home_whose_id_is_edged_with_whitespace_is_refused()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var owner = new NodeOwner(" bob");
+        ProjectService projects = Owned(store, owner);
+
+        await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(owner.Principal, "coanda", Remote, [], None));
+
+        Assert.Empty(await projects.ListAsync(Owner, None));
+        Assert.False(owner.Recorded);
+    }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public async Task Registering_on_a_node_whose_record_already_holds_an_id_edged_with_whitespace_is_not_refused(string ownerId)
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        NodeOwnerRecord.Write(temp.Home, ownerId);
+        string written = File.ReadAllText(temp.Home.NodeOwnerPath);
+        NodeOwner owner = NodeOwner.Of(temp.Home);
+
+        Project added = await Owned(store, owner).AddAsync(owner.Principal, "coanda", Remote, [], None);
+
+        Assert.Equal(ownerId, added.RegisteredBy);
+        Assert.Equal((ownerId, true), (owner.Id, owner.Recorded));
+        Assert.Equal(written, File.ReadAllText(temp.Home.NodeOwnerPath));
+    }
+
+    [Fact]
+    public async Task Registering_as_an_owner_whose_id_has_whitespace_only_inside_it_records_that_id()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        NodeOwner owner = NodeOwner.Of(temp.Home, "a b");
+
+        Project added = await Owned(store, owner).AddAsync(owner.Principal, "coanda", Remote, [], None);
+
+        Assert.Equal("a b", added.RegisteredBy);
+        Assert.Equal(("a b", true), (owner.Id, owner.Recorded));
+        Assert.Equal("a b", NodeOwnerRecord.Read(temp.Home));
+    }
+
+    [Theory]
+    [InlineData(" bob")]
+    [InlineData("bob\t")]
+    [InlineData("bob\u00A0")]
+    public async Task The_starts_back_fill_records_nothing_for_an_owner_whose_id_is_edged_with_whitespace_and_does_not_throw(string ownerId)
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        // Registered by a service with no owner, as a node that registered before the record existed did.
+        await ProjectServices.Software(store, TimeProvider.System).AddAsync(new Principal(ownerId, Role.Owner), "coanda", Remote, [], None);
+        NodeOwner owner = NodeOwner.Of(temp.Home, ownerId);
+
+        await Owned(store, owner).RecordOwnerAsync(None);
+
+        Assert.Equal((ownerId, false), (owner.Id, owner.Recorded));
+        Assert.Null(NodeOwnerRecord.Read(temp.Home));
+    }
+
+    [Fact]
+    public async Task The_starts_back_fill_records_an_owner_id_with_whitespace_only_inside_it()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        await ProjectServices.Software(store, TimeProvider.System).AddAsync(Owner, "coanda", Remote, [], None);
+        NodeOwner owner = NodeOwner.Of(temp.Home, "a b");
+
+        await Owned(store, owner).RecordOwnerAsync(None);
+
+        Assert.Equal(("a b", true), (owner.Id, owner.Recorded));
+        Assert.Equal("a b", NodeOwnerRecord.Read(temp.Home));
+    }
+
+    /// <summary>A project service that records <paramref name="owner"/>'s id as it registers, and makes no clone.</summary>
+    private static ProjectService Owned(IDocumentStore store, NodeOwner owner) =>
+        new(
+            store,
+            TimeProvider.System,
+            new CredentialProfiles([]),
+            new ModuleSettingsSchemas(new Dictionary<string, SettingsSchema> { [SoftwareSteps.Module] = SoftwareDescribe.Settings }),
+            ProjectServices.Defaults,
+            null,
+            owner);
 }
