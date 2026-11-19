@@ -86,8 +86,15 @@ only by that flow run's own steps. `coa parcel move` and `coa parcel close` refu
 that holds it; the flow run has to end or be stopped first. `coa flow-run stop <id> --reason <why>` stops
 it and frees the parcel, and `coa flow-run resume <id>` sets a paused one going again instead. A
 resume's `--answer` is one line of at most 200 characters, recorded trimmed on the visit the resume
-lands on and shown as that step's `resumeAnswer` in the loopback API's flow run view; it is refused on a visit
-that has already recorded, since the resume performs that step again as a new visit. A
+lands on and shown as that step's `resumeAnswer` in the loopback API's flow run view. Only a
+`wait-for-human` step takes one: the step records it as the `answer` field of its result, and the flow
+routes on it. An answer is refused at any other step, on a visit that has already recorded (the resume
+performs that step again as a new visit), and when the transition the step would take on it is not a
+transition on `answer` that can fire at that visit, whether because no transition on `answer` matches it,
+another transition matches first, or a visit cap or the flow's spawn cap holds it. Resumed without an
+answer, a `wait-for-human` step whose transitions route on one records its result without it when a
+transition, such as one on `verdict`, still fires on that; otherwise it pauses again, naming the answers
+it takes. A
 flow that declares `closes` is the one way a flow run closes its parcel: when a flow run of it ends, the
 flow run's end, the release of the parcel, and its close with that resolution are recorded together.
 The shipped merge flow declares `closes` as completed, and so does any flow a project

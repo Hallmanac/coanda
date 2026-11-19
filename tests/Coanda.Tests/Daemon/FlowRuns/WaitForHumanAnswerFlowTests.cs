@@ -129,6 +129,28 @@ public sealed class WaitForHumanAnswerFlowTests
     }
 
     [Fact]
+    public async Task A_resume_without_an_answer_of_a_step_whose_verdict_transition_comes_first_ends_the_flow_run()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        Flow flow = PursueOrStop() with
+        {
+            Steps = [Hold("ask", On("verdict", "done", Flow.End), On("answer", "approve", "later")), Hold("later", On("verdict", "done", Flow.End))],
+        };
+        Guid flowRunId = await FlowRunResumeAnswerApiTests.StartedAsync(daemon, client, flow);
+        await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
+
+        await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null);
+        FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
+
+        AssertResult(Assert.Single(ended.Steps).Result, null);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task An_answer_the_step_would_not_route_on_is_refused_and_the_flow_run_stays_paused_on_the_same_visit()
     {
         using var temp = new TemporaryHome();

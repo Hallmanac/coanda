@@ -17,7 +17,8 @@ namespace Coanda.Daemon.SystemSteps;
 /// <paramref name="Principal"/> the step acts as and the <paramref name="Flow"/> ride along for the
 /// daemon's own steps, as does <paramref name="Answer"/>, the answer a person gave on the resume this
 /// visit holds (<see cref="Coanda.Core.FlowRuns.FlowRunStepEntry.ResumeAnswer"/>), which only the
-/// wait-for-human step reads; a module sees none of them (<see cref="ToContract"/>).
+/// wait-for-human step reads, and <paramref name="Spawns"/>, how many agents the flow run has spawned,
+/// which that step weighs against the flow's spawn cap; a module sees none of them (<see cref="ToContract"/>).
 /// </summary>
 public sealed record SystemStepDispatch(
     Principal Principal,
@@ -30,7 +31,8 @@ public sealed record SystemStepDispatch(
     int Visit,
     Guid DispatchId,
     string WorkPath,
-    string? Answer = null)
+    string? Answer = null,
+    int Spawns = 0)
 {
     /// <summary>The name of the system step dispatched.</summary>
     public string SystemStep => Step.SystemStep ?? string.Empty;
