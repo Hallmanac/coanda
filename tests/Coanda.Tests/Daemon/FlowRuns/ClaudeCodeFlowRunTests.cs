@@ -27,7 +27,7 @@ public sealed class ClaudeCodeFlowRunTests
     {
         using var temp = new TemporaryHome();
         using var fake = new FakeClaude(
-            Answer("I am not sure.", rewrite: new { path = ".coanda/task.md", content = "rewritten by the session" }),
+            Answer("I am not sure.", rewrite: new { path = ".coanda/parcel.md", content = "rewritten by the session" }),
             Answer("Still not sure."),
             Answer(Valid));
         await using RunningDaemon daemon = await StartAsync(temp, fake);
@@ -43,18 +43,18 @@ public sealed class ClaudeCodeFlowRunTests
         Assert.StartsWith("Agent 'build' gave no valid 'build' answer after one retry", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(transcript, paused.Lever);
         Assert.Equal(fake.Starts[0].After("--session-id"), Path.GetFileNameWithoutExtension(transcript));
-        foreach (string input in new[] { "task.md", "prompt.md", "persona.md" })
+        foreach (string input in new[] { "parcel.md", "prompt.md", "persona.md" })
         {
             Assert.True(File.Exists(Path.Combine(work, ".coanda", input)));
         }
 
         // the runner and the adapter write nothing else into the work directory, and no transcript
         Assert.Equal(3, Directory.EnumerateFiles(work, "*", SearchOption.AllDirectories).Count());
-        Assert.Equal("rewritten by the session", File.ReadAllText(Path.Combine(work, ".coanda", "task.md")));
+        Assert.Equal("rewritten by the session", File.ReadAllText(Path.Combine(work, ".coanda", "parcel.md")));
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         Assert.Equal("built", (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome);
-        string actual = File.ReadAllText(Path.Combine(work, ".coanda", "task.md"));
+        string actual = File.ReadAllText(Path.Combine(work, ".coanda", "parcel.md"));
         Assert.StartsWith($"{Fences.Framing}\n\n# `Try twice`", actual, StringComparison.Ordinal);
         Assert.Contains($"- Parcel: {parcel.Id}", actual, StringComparison.Ordinal);
         Assert.Equal(ContextOf(fake.Starts[2].Input), File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")));
@@ -307,7 +307,7 @@ public sealed class ClaudeCodeFlowRunTests
         + "A managed settings policy that turns hooks off suppresses that evidence too, and is refused the same way.";
 
     /// <summary>The context a prompt opens with: everything before the paragraph that names the files.</summary>
-    private static string ContextOf(string prompt) => prompt[..prompt.IndexOf("\n\nThe task's record is in", StringComparison.Ordinal)];
+    private static string ContextOf(string prompt) => prompt[..prompt.IndexOf("\n\nThe parcel's record is in", StringComparison.Ordinal)];
 
     private static async Task<RunningDaemon> StartAsync(TemporaryHome temp, FakeClaude fake, TimeSpan? limit = null)
     {

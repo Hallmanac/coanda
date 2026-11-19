@@ -60,9 +60,24 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         Assert.Equal(ClaudeCodeInvocation.Persona(parts), persona);
 
         Assert.StartsWith("Step: build", start.Input, StringComparison.Ordinal);
-        Assert.Contains(".coanda/task.md", start.Input, StringComparison.Ordinal);
+        Assert.Contains(".coanda/parcel.md", start.Input, StringComparison.Ordinal);
         Assert.Contains(".coanda/prompt.md", start.Input, StringComparison.Ordinal);
         Assert.Contains("'build' answer schema", start.Input, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_first_prompt_points_the_session_at_the_parcels_record_without_calling_it_a_task()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering($"Done.\n{ValidBuild}", 0.4m, 0.4m));
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+
+        SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "Step: build", WorkDirectory, Caps, BuildAnswers, null, null, None);
+        await executor.CollectAsync(handle, None);
+
+        FakeClaude.Start start = Assert.Single(fake.Starts);
+        string sentence = Assert.Single(start.Input.Split('\n'), line => line.Contains("record is in", StringComparison.Ordinal));
+        Assert.Equal("The parcel's record is in .coanda/parcel.md and this context is in .coanda/prompt.md, both under your working directory.", sentence);
+        Assert.DoesNotContain("task", sentence, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

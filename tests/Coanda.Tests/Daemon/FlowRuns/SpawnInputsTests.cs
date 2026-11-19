@@ -72,13 +72,13 @@ public sealed class SpawnInputsTests
 
         string work = temp.Home.FlowRunWorkPath(Project, flowRun.Id);
         Assert.Equal(3, executor.Seen.Count);
-        foreach ((string task, string prompt, ScriptedSpawn spawn) in executor.Seen.Zip(executor.Inner.Spawns, (seen, spawn) => (seen.Task, seen.Prompt, spawn)))
+        foreach ((string record, string prompt, ScriptedSpawn spawn) in executor.Seen.Zip(executor.Inner.Spawns, (seen, spawn) => (seen.Record, seen.Prompt, spawn)))
         {
             Assert.Equal(work, spawn.WorkingDirectory);
             // prompt.md holds the context the spawn carries
             Assert.Equal(spawn.Context, prompt);
             // the session rewrote it, and the next spawn wrote it again from the parcel
-            Assert.DoesNotContain(TamperingExecutor.Tampered, task, StringComparison.Ordinal);
+            Assert.DoesNotContain(TamperingExecutor.Tampered, record, StringComparison.Ordinal);
             Assert.Equal(Fences.Framing + $"""
 
 
@@ -125,20 +125,20 @@ public sealed class SpawnInputsTests
                 repo
                 ```
 
-                """.ReplaceLineEndings("\n"), task);
+                """.ReplaceLineEndings("\n"), record);
         }
 
         // the daemon never reads the file back
-        Assert.Equal(TamperingExecutor.Tampered, File.ReadAllText(Path.Combine(work, ".coanda", "task.md")));
+        Assert.Equal(TamperingExecutor.Tampered, File.ReadAllText(Path.Combine(work, ".coanda", "parcel.md")));
         Assert.Equivalent(
-            new[] { ".coanda", ".coanda/task.md", ".coanda/prompt.md" },
+            new[] { ".coanda", ".coanda/parcel.md", ".coanda/prompt.md" },
             Directory.EnumerateFileSystemEntries(work, "*", SearchOption.AllDirectories).Select(p => Path.GetRelativePath(work, p).Replace('\\', '/')),
             strict: true);
 
         if (!OperatingSystem.IsWindows())
         {
             Assert.Equal(3, executor.Modes.Count);
-            Assert.All(executor.Modes, modes => Assert.True(modes.Task == OwnerOnly && modes.Prompt == OwnerOnly, "each spawn finds both written owner-only, the record again after the session left it wider"));
+            Assert.All(executor.Modes, modes => Assert.True(modes.Record == OwnerOnly && modes.Prompt == OwnerOnly, "each spawn finds both written owner-only, the record again after the session left it wider"));
         }
 
         await daemon.StopAsync(None);
@@ -184,12 +184,12 @@ public sealed class SpawnInputsTests
     {
         public const string Tampered = "tampered by the session";
 
-        private readonly List<(string Task, string Prompt)> seen = [];
-        private readonly List<(UnixFileMode Task, UnixFileMode Prompt)> modes = [];
+        private readonly List<(string Record, string Prompt)> seen = [];
+        private readonly List<(UnixFileMode Record, UnixFileMode Prompt)> modes = [];
 
         public ScriptedExecutor Inner => inner;
 
-        public IReadOnlyList<(string Task, string Prompt)> Seen
+        public IReadOnlyList<(string Record, string Prompt)> Seen
         {
             get
             {
@@ -201,7 +201,7 @@ public sealed class SpawnInputsTests
         }
 
         /// <summary>The mode of each file as each spawn found it, on macOS and Linux.</summary>
-        public IReadOnlyList<(UnixFileMode Task, UnixFileMode Prompt)> Modes
+        public IReadOnlyList<(UnixFileMode Record, UnixFileMode Prompt)> Modes
         {
             get
             {
@@ -215,21 +215,21 @@ public sealed class SpawnInputsTests
         public async ValueTask<SessionHandle> SpawnAsync(
             AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, AnswerSchema answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, CancellationToken cancellationToken)
         {
-            string task = Path.Combine(workingDirectory, ".coanda", "task.md");
+            string record = Path.Combine(workingDirectory, ".coanda", "parcel.md");
             string prompt = Path.Combine(workingDirectory, ".coanda", "prompt.md");
             lock (seen)
             {
-                seen.Add((File.ReadAllText(task), File.ReadAllText(prompt)));
+                seen.Add((File.ReadAllText(record), File.ReadAllText(prompt)));
                 if (!OperatingSystem.IsWindows())
                 {
-                    modes.Add((File.GetUnixFileMode(task), File.GetUnixFileMode(prompt)));
+                    modes.Add((File.GetUnixFileMode(record), File.GetUnixFileMode(prompt)));
                 }
             }
 
-            File.WriteAllText(task, Tampered);
+            File.WriteAllText(record, Tampered);
             if (!OperatingSystem.IsWindows())
             {
-                File.SetUnixFileMode(task, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+                File.SetUnixFileMode(record, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
             }
 
             return await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, cancellationToken);
