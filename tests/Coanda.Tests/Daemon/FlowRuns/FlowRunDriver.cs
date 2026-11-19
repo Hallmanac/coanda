@@ -57,8 +57,8 @@ public static class FlowRunDriver
     public static Task<FlowRunView> PauseAsync(DaemonClient client, string project, Guid flowRunId, string reason) =>
         client.PostAsync<FlowRunView>($"/flow-runs/{flowRunId}/pause", new FlowRunPauseRequest(project, reason), CancellationToken.None);
 
-    public static Task<FlowRunView> ResumeAsync(DaemonClient client, string project, Guid flowRunId, string? note) =>
-        client.PostAsync<FlowRunView>($"/flow-runs/{flowRunId}/resume", new FlowRunResumeRequest(project, note), CancellationToken.None);
+    public static Task<FlowRunView> ResumeAsync(DaemonClient client, string project, Guid flowRunId, string? note, string? answer = null) =>
+        client.PostAsync<FlowRunView>($"/flow-runs/{flowRunId}/resume", new FlowRunResumeRequest(project, note, answer), CancellationToken.None);
 
     public static Task<FlowRunView> StopAsync(DaemonClient client, string project, Guid flowRunId, string reason) =>
         client.PostAsync<FlowRunView>($"/flow-runs/{flowRunId}/stop", new FlowRunStopRequest(project, reason), CancellationToken.None);

@@ -68,7 +68,10 @@ public sealed record FlowRunView(
     };
 }
 
-/// <summary>One step a flow run entered, with its answer and measurement (an agent step) or its result (a system step) once recorded.</summary>
+/// <summary>
+/// One step a flow run entered, with its answer and measurement (an agent step) or its result (a system
+/// step) once recorded, and the answer a person gave on a resume that landed on it (<see cref="ResumeAnswer"/>).
+/// </summary>
 public sealed record FlowRunStepView(
     string Step,
     string Kind,
@@ -79,10 +82,12 @@ public sealed record FlowRunStepView(
     JsonElement? Answer,
     Measurement? Measurement,
     JsonElement? Result,
-    DateTimeOffset? RecordedAt)
+    DateTimeOffset? RecordedAt,
+    string? ResumeAnswer)
 {
     public static FlowRunStepView From(FlowRunStepEntry entry) => new(
         entry.Step,
         entry.Kind == StepKind.AgentStep ? "agent-step" : "system-step",
-        entry.Performer, entry.StartedAt, entry.AgentHash, entry.Model, entry.Answer, entry.Measurement, entry.Result, entry.RecordedAt);
+        entry.Performer, entry.StartedAt, entry.AgentHash, entry.Model, entry.Answer, entry.Measurement, entry.Result, entry.RecordedAt,
+        entry.ResumeAnswer);
 }
