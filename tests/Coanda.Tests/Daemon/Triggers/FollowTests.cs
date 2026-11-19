@@ -212,7 +212,7 @@ public sealed class FollowTests
 
         // Once the second follower waits behind the held one, the held one ends and frees the parcel
         // before the loop decides on the closing merge.
-        async Task FreeAfterSecondWaits(FollowDecision decision, CancellationToken token)
+        async Task FreeAfterSecondWaits(FollowChoice decision, CancellationToken token)
         {
             if (decision.Flow != AlsoAfterBuild.Name || !decision.Waits || Interlocked.Exchange(ref freed, 1) == 1)
             {
@@ -274,7 +274,7 @@ public sealed class FollowTests
         };
 
         // The hook runs on the loop, so it only says the second follower of the build's end waits.
-        Task SignalSecondWaits(FollowDecision decision, CancellationToken token)
+        Task SignalSecondWaits(FollowChoice decision, CancellationToken token)
         {
             if (decision.Flow == AlsoAfterBuild.Name && decision.Waits)
             {

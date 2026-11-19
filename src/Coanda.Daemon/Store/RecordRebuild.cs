@@ -55,7 +55,7 @@ public static class RecordRebuild
 
         try
         {
-            await BuildAsync(building, export, cancellationToken);
+            await WriteRecordAsync(building, export, cancellationToken);
             Compare(home.DatabasePath, building);
         }
         catch
@@ -70,7 +70,7 @@ public static class RecordRebuild
         return new RecordRebuildResult(aside, export.Events.Count);
     }
 
-    private static async Task BuildAsync(string databasePath, RecordExportFile export, CancellationToken cancellationToken)
+    private static async Task WriteRecordAsync(string databasePath, RecordExportFile export, CancellationToken cancellationToken)
     {
         await using (IDocumentStore store = StoreConfiguration.Open(databasePath))
         {

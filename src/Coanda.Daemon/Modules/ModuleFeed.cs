@@ -78,7 +78,7 @@ public sealed class ModuleFeed(
     /// writes the end of the existing record as its position. The daemon calls this once its hosted
     /// modules have described themselves, and before it advances any live flow run or writes its address file.
     /// </summary>
-    public async Task FixPositionsAsync(CancellationToken cancellationToken)
+    public async Task SettlePositionsAsync(CancellationToken cancellationToken)
     {
         foreach (string module in modules.Names.Order(StringComparer.Ordinal))
         {

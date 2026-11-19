@@ -37,14 +37,14 @@ public sealed class ComposedModule
 
     /// <summary>
     /// A module hosted as <paramref name="name"/>, whose manifest and definitions are in <paramref name="path"/>,
-    /// built once at start by <paramref name="build"/> from the context the daemon gives it.
+    /// made once at start by <paramref name="create"/> from the context the daemon gives it.
     /// </summary>
-    public static ComposedModule Of<TModule>(string name, string path, Func<ModuleHostContext, TModule> build)
+    public static ComposedModule Of<TModule>(string name, string path, Func<ModuleHostContext, TModule> create)
         where TModule : class, IModule
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        ArgumentNullException.ThrowIfNull(build);
+        ArgumentNullException.ThrowIfNull(create);
         return new ComposedModule(
             name,
             path,
@@ -53,10 +53,10 @@ public sealed class ComposedModule
                 if (services.Any(service => service.ServiceType == typeof(TModule)))
                 {
                     throw new InvalidOperationException(
-                        $"The module '{name}' is composed as a {typeof(TModule).Name}, and another composed module already is; the daemon builds one module of each type.");
+                        $"The module '{name}' is composed as a {typeof(TModule).Name}, and another composed module already is; the daemon hosts one module of each type.");
                 }
 
-                services.AddSingleton(provider => build(context(provider)));
+                services.AddSingleton(provider => create(context(provider)));
             },
             provider => provider.GetRequiredService<TModule>());
     }

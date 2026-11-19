@@ -28,7 +28,7 @@ public sealed class SessionTokens(IDocumentStore store)
     /// plain value, which is kept nowhere here. The binding is saved before this returns, so a
     /// session started with the token afterwards can always resolve it.
     /// </summary>
-    public async Task<string> IssueAsync(SessionBinding binding, CancellationToken cancellationToken)
+    public async Task<string> MintAsync(SessionBinding binding, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(binding);
         string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(TokenBytes))

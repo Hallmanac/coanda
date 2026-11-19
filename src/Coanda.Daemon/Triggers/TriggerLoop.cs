@@ -106,9 +106,9 @@ public sealed class TriggerLoop(
     /// <summary>
     /// Awaited after each follower of an end is started, set waiting, skipped, or refused, before the
     /// loop decides the next one. Null, as it is in a running daemon, awaits nothing; a test supplies it
-    /// through <see cref="Api.DaemonOptions"/> to act between one follower's decision and the next.
+    /// through <see cref="Api.DaemonOptions"/> to act between the choice for one follower and the next.
     /// </summary>
-    internal Func<FollowDecision, CancellationToken, Task>? FollowDecided { get; set; }
+    internal Func<FollowChoice, CancellationToken, Task>? FollowDecided { get; set; }
 
     /// <summary>
     /// Awaited just before a follow from a parcel's follow queue starts on the free parcel. Null, as it is in a
@@ -121,7 +121,7 @@ public sealed class TriggerLoop(
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
     /// record as its position. The daemon calls this before it writes its address file.
     /// </summary>
-    public async Task FixPositionAsync(CancellationToken cancellationToken)
+    public async Task SettlePositionAsync(CancellationToken cancellationToken)
     {
         await using IDocumentSession session = store.LightweightSession(Tenants.Node);
         TriggerPosition? stored = await session.LoadAsync<TriggerPosition>(TriggerPosition.LoopId, cancellationToken);
@@ -611,7 +611,7 @@ public sealed class TriggerLoop(
 
             if (FollowDecided is { } decided)
             {
-                await decided(new FollowDecision(project, parent.Id, follower.Name, waits), cancellationToken);
+                await decided(new FollowChoice(project, parent.Id, follower.Name, waits), cancellationToken);
             }
         }
 

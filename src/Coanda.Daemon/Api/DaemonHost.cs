@@ -280,7 +280,7 @@ public sealed class DaemonHost
             // start, done above, has already swept what those flow runs left. Fixing it before the
             // address is advertised also keeps anything recorded through the API from landing below it.
             ModuleFeed feed = app.Services.GetRequiredService<ModuleFeed>();
-            await feed.FixPositionsAsync(cancellationToken);
+            await feed.SettlePositionsAsync(cancellationToken);
 
             // A flow run on a parcel another node's claim already wins is stopped before anything is
             // advanced, whether or not the import loop runs: the claim may have been stored by a daemon that
@@ -294,7 +294,7 @@ public sealed class DaemonHost
             // The trigger loop's position is fixed before the address is advertised, so nothing
             // recorded through the API can land before the point it reads from.
             TriggerLoop triggers = app.Services.GetRequiredService<TriggerLoop>();
-            await triggers.FixPositionAsync(cancellationToken);
+            await triggers.SettlePositionAsync(cancellationToken);
             triggers.Begin();
             feed.Begin();
             if (options.ExportInterval is { } interval)
