@@ -66,6 +66,9 @@ internal sealed class StepModule(JsonElement argumentSchema, SettingsSchema? set
 
     public Task StopAsync(StopRequest request, CancellationToken cancellationToken) => Task.CompletedTask;
 
+    public Task WatchAsync(WatchRequest request, CancellationToken cancellationToken) => Task.CompletedTask;
+
+
     public Task FeedAsync(FeedDelivery delivery, CancellationToken cancellationToken) => Task.CompletedTask;
 
     public static JsonElement Json(string text)

@@ -25,9 +25,9 @@ public sealed class ModuleHostAdapterTests
     }
 
     [Fact]
-    public void The_adapter_offers_health_describe_dispatch_status_stop_and_the_feed()
+    public void The_adapter_offers_health_describe_dispatch_status_stop_watch_and_the_feed()
     {
-        Assert.Equal(["describe", "dispatch", "feed", "health", "status", "stop"], CallsOf(typeof(ModuleHostAdapter)).Order(StringComparer.Ordinal));
+        Assert.Equal(["describe", "dispatch", "feed", "health", "status", "stop", "watch"], CallsOf(typeof(ModuleHostAdapter)).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -39,6 +39,15 @@ public sealed class ModuleHostAdapterTests
         Assert.All(CallsOf(typeof(IModule)), call => Assert.Contains(call, listed));
         Assert.Empty(typeof(IModule).GetInterfaces());
         Assert.Empty(typeof(IModule).GetProperties());
+    }
+
+    [Fact]
+    public void The_adapter_and_a_hosted_module_carry_every_call_the_index_of_calls_lists()
+    {
+        IReadOnlyList<string> listed = [.. ModuleSchemas.Calls.Select(c => c.Call).Order(StringComparer.Ordinal)];
+
+        Assert.Equal(listed, CallsOf(typeof(ModuleHostAdapter)).Order(StringComparer.Ordinal));
+        Assert.Equal(listed, CallsOf(typeof(IModule)).Order(StringComparer.Ordinal));
     }
 
     [Fact]
