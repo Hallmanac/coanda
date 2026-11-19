@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Coanda.Sdk.Contract;
 
 namespace Coanda.Sdk.Client;
 
@@ -94,6 +95,19 @@ public sealed class CoreApiClient(HttpClient http, CoreApiOptions options)
         using HttpRequestMessage request = Request(HttpMethod.Post, "/parcels/set-field");
         request.Content = JsonContent.Create(new SetFieldRequest(project, parcelId, field, value, null), options: Json);
         return await SendAsync<CoreParcel>(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Records the external event <paramref name="recorded"/>, of a kind prefixed with the module's own
+    /// name, in a project the module is switched on for, and returns the event the project's record holds
+    /// for its kind and external id: the one this call recorded, or the one an earlier call recorded, whose
+    /// fields and parcel id stand whatever this call gave.
+    /// </summary>
+    public async Task<CoreExternalEvent> RecordEventAsync(RecordedEvent recorded, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = Request(HttpMethod.Post, "/events");
+        request.Content = JsonContent.Create(recorded, options: Json);
+        return await SendAsync<CoreExternalEvent>(request, cancellationToken);
     }
 
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
