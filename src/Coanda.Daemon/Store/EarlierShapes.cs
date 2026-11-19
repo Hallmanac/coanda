@@ -22,7 +22,7 @@ namespace Coanda.Daemon.Store;
 /// <c>software/</c> prefix, whether the step kind is stored as a number or a name.</item>
 /// <item>A <c>project_registered</c> carrying a member of the registration from before repos (the remote,
 /// the primary branch, or the build or test command), whether or not it also carries repos.</item>
-/// <item>Any <c>project_required_checks_set</c>, the event that set the merge's checks before module settings.</item>
+/// <item>Any <c>project_required_checks_set</c>, the event that set the required checks before module settings.</item>
 /// <item>A <c>definition_drafted</c> whose fork base has no content hash: a name and a store-given version,
 /// from before fork bases named a content hash.</item>
 /// </list>
@@ -78,7 +78,7 @@ public static class EarlierShapes
         ArgumentNullException.ThrowIfNull(stored);
         if (stored.Type == ProjectRequiredChecksSet)
         {
-            return $"it is a '{ProjectRequiredChecksSet}', which set the merge's checks before module settings";
+            return $"it is a '{ProjectRequiredChecksSet}', which set the required checks before module settings";
         }
 
         if (!Types.Contains(stored.Type, StringComparer.Ordinal) || JsonNode.Parse(stored.Data) is not JsonObject data)
@@ -124,10 +124,10 @@ public static class EarlierShapes
     public static string Refusal(NodeHome home, string why)
     {
         ArgumentNullException.ThrowIfNull(home);
-        return $"The record at {home.DatabasePath} holds an event in a shape an earlier build wrote, which this build does not read ({why}). "
-            + $"Rebuild the record with the build at commit {RebuildCommit} on main, which still reads every earlier shape and holds the "
-            + "export and rebuild commands: stop the daemon, run that build's 'coa record export', then its 'coa record rebuild <export>', "
-            + $"as {RebuildSteps} describes, and start this build again. The record was left as it was.";
+        return $"The record at {home.DatabasePath} holds an event in a shape an earlier version of coa wrote, which this version does not read ({why}). "
+            + $"Rebuild the record with coa at commit {RebuildCommit} on main, which still reads every earlier shape and holds the "
+            + "export and rebuild commands: stop the daemon, run that version's 'coa record export', then its 'coa record rebuild <export>', "
+            + $"as {RebuildSteps} describes, and start this version again. The record was left as it was.";
     }
 
     /// <summary>Why the first earlier-shape event the record holds is earlier, or null when it holds none.</summary>
