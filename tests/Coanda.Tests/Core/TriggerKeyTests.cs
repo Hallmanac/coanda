@@ -39,4 +39,25 @@ public sealed class TriggerKeyTests
         Assert.Equal($"trigger:owner/x:event:{cause}", TriggerKey.ForEvent("trigger:owner/x", cause));
         Assert.Equal($"trigger:owner/x:flow-run:{cause}", TriggerKey.ForFlowRunEnd("trigger:owner/x", cause));
     }
+
+    [Fact]
+    public void A_parcels_origin_gives_back_the_name_of_the_trigger_whose_firing_created_it_whatever_its_scope()
+    {
+        Guid cause = Ids.New();
+
+        Assert.Equal("review-mine", TriggerKey.NameOf(TriggerKey.ForEvent("trigger:project:alpha/review-mine", cause), "alpha"));
+        Assert.Equal("review-mine", TriggerKey.NameOf(TriggerKey.ForFlowRunEnd("trigger:owner/review-mine", cause), "alpha"));
+        Assert.Equal("rebase", TriggerKey.NameOf(TriggerKey.ForEvent("trigger:module:software/rebase", cause), "alpha"));
+        Assert.Equal("a/b", TriggerKey.NameOf(TriggerKey.ForEvent("trigger:project:x/y/a/b", cause), "x/y"));
+    }
+
+    [Theory]
+    [InlineData("subscription:0198a1f2-0000-7000-8000-000000000000:event:0198a1f2-0000-7000-8000-000000000001")]
+    [InlineData("derive-parcels:flow-run:0198a1f2-0000-7000-8000-000000000000:build:1:0")]
+    [InlineData("trigger:owner/review-mine")]
+    [InlineData("trigger:owner/review-mine:event:not-an-id")]
+    [InlineData("trigger:project:beta/review-mine:event:0198a1f2-0000-7000-8000-000000000000")]
+    [InlineData("trigger:elsewhere/review-mine:event:0198a1f2-0000-7000-8000-000000000000")]
+    public void An_origin_no_trigger_of_the_project_recorded_names_no_trigger(string origin) =>
+        Assert.Null(TriggerKey.NameOf(origin, "alpha"));
 }

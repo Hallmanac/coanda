@@ -39,7 +39,9 @@ namespace Coanda.Daemon.Triggers;
 /// its flow, as the principal that recorded the subscription. A trigger fires when it is published and
 /// resolves for the event's project, nearest scope first by name, and a module-scope trigger only in a project
 /// its module is switched on for; it acts as a Member-role principal naming the trigger and the cause
-/// (<see cref="TriggerKey"/>). A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
+/// (<see cref="TriggerKey"/>). A trigger that creates parcels creates none in a project once it has created as many
+/// there in the hour before as its hourly cap (<see cref="TriggerCapCount"/>); an event over the cap is dropped with a
+/// warning, and neither an act-on-parcel trigger nor a subscription is capped. A refusal is logged with its rule and the loop goes on. A bound entry made while the parcel had
 /// a live flow run, as when a flow run's own step moves its parcel into a bound stage, is refused and
 /// starts nothing, then or later; whether the parcel had one is read from the parcel as it stood at
 /// the entry, never as it stands when the loop gets to it, so the outcome does not depend on timing.
@@ -1086,7 +1088,8 @@ public sealed class TriggerLoop(
     /// the type, and <paramref name="fields"/> carry the field the target titles the parcel with, within a parcel title's
     /// cap; the value is never shortened. When the project already has a parcel recording that origin, from this node or
     /// another, nothing is created; when this node created it and it has no flow run, as after a stop between the
-    /// creation and the start, the target's flow starts on it.
+    /// creation and the start, the target's flow starts on it, whatever the trigger's hourly cap. Otherwise a trigger at its
+    /// hourly cap in the project creates nothing (<see cref="WithinCapAsync"/>).
     /// </summary>
     private async Task CreateAsync(
         ResolvedTrigger trigger,
@@ -1107,6 +1110,11 @@ public sealed class TriggerLoop(
         if (await parcels.FindByOriginAsync(LoopPrincipal, project, key, cancellationToken) is { } found)
         {
             await StartOnFoundAsync(trigger, principal, project, found, flowName, cause, cancellationToken);
+            return;
+        }
+
+        if (!await WithinCapAsync(trigger, project, cause, cancellationToken))
+        {
             return;
         }
 
@@ -1132,6 +1140,28 @@ public sealed class TriggerLoop(
             "Trigger {Trigger} created parcel {Parcel} of type '{Type}' in project {Project} for {Cause}.",
             trigger.Key, Ids.Short(parcel.Id), type.Name, project, cause);
         await StartAsync(principal, project, parcel.Id, flow.Name, $"trigger {trigger.Key}", cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="trigger"/> may create a parcel in the project for <paramref name="cause"/> under the hourly
+    /// cap it carries now: it may while fewer parcels than its cap that it created there count toward it at this node's
+    /// time (<see cref="TriggerCapCount"/>). An event over the cap is dropped with a warning and nothing is kept to create
+    /// it later, since keeping it would queue without limit what the cap exists to stop.
+    /// </summary>
+    private async Task<bool> WithinCapAsync(ResolvedTrigger trigger, string project, string cause, CancellationToken cancellationToken)
+    {
+        int cap = trigger.Content.HourlyCap
+            ?? throw new DomainException("It creates parcels and carries no hourly cap, so it creates none.");
+        int counted = await TriggerCapCount.CountAsync(store, project, trigger.Definition.Name, clock.GetUtcNow(), cancellationToken);
+        if (counted < cap)
+        {
+            return true;
+        }
+
+        logger.LogWarning(
+            "Trigger {Trigger} in project {Project} is at its hourly cap of {Cap}, having created {Counted} parcel(s) there in the hour before, so {Cause} is dropped: it creates no parcel and starts no flow run, and is not kept to create one later.",
+            trigger.Key, project, cap, counted, cause);
+        return false;
     }
 
     /// <summary>
