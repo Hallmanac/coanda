@@ -13,7 +13,7 @@ public sealed class AgentDefinitionTests
         Model = new ModelSpec("claude-code", "claude-sonnet-5-5", "high"),
         Tools = ["read", "search", "edit"],
         Skills = ["alpha-skill", "beta-skill"],
-        McpServers = ["docs", "tracker"],
+        McpServers = [],
         AnswerSchema = "essay",
         AnswerSchemaContent = Content("""{"type":"object","required":["verdict"],"properties":{"verdict":{"type":"string","enum":["drafted","abandoned"]}}}"""),
     };
@@ -107,10 +107,32 @@ public sealed class AgentDefinitionTests
         Refused(Agent() with { Tools = ["read", "teleport"] }, "Agent 'scribe' names the tool 'teleport', which the shipped tool catalog does not hold*");
 
     [Fact]
-    public void A_blank_skill_or_mcp_server_name_is_refused()
-    {
+    public void A_blank_skill_name_is_refused() =>
         Refused(Agent() with { Skills = ["alpha-skill", " "] }, "Agent 'scribe' lists a skill with a blank name.");
-        Refused(Agent() with { McpServers = [""] }, "Agent 'scribe' lists an MCP server with a blank name.");
+
+    [Fact]
+    public void An_agent_that_names_any_mcp_server_is_refused()
+    {
+        Refused(
+            Agent() with { McpServers = ["docs"] },
+            "Agent 'scribe' names the MCP servers 'docs'; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty.");
+        Refused(
+            Agent() with { McpServers = ["docs", "tracker"] },
+            "Agent 'scribe' names the MCP servers 'docs', 'tracker'; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty.");
+        Refused(Agent() with { McpServers = [""] }, "Agent 'scribe' names the MCP servers ''; agent sessions load no MCP server yet*");
+        Refused(Agent() with { McpServers = ["docs", "docs"] }, "Agent 'scribe' names the MCP servers 'docs', 'docs'; agent sessions load no MCP server yet*");
+    }
+
+    [Fact]
+    public void Content_stored_with_a_named_mcp_server_still_reads_and_hashes()
+    {
+        AgentDefinition stored = Agent() with { McpServers = ["tracker", "docs"] };
+
+        AgentDefinition read = AgentDefinition.FromJson(AgentDefinition.CanonicalJson(stored));
+
+        Assert.Equal(new[] { "tracker", "docs" }, read.McpServers);
+        Assert.Equal(stored.Hash, read.Hash);
+        Assert.NotEqual(Agent().Hash, read.Hash);
     }
 
     [Fact]
@@ -118,7 +140,6 @@ public sealed class AgentDefinitionTests
     {
         Refused(Agent() with { Tools = ["read", "edit", "read"] }, "Agent 'scribe' lists the tool 'read' twice in its tool set.");
         Refused(Agent() with { Skills = ["a", "a"] }, "Agent 'scribe' lists the skill 'a' twice in its skills.");
-        Refused(Agent() with { McpServers = ["docs", "docs"] }, "Agent 'scribe' lists the MCP server 'docs' twice in its MCP servers.");
     }
 
     [Fact]
@@ -130,20 +151,22 @@ public sealed class AgentDefinitionTests
     [Fact]
     public void Reordering_the_tool_set_the_skills_or_the_servers_leaves_the_hash_unchanged()
     {
-        AgentDefinition reordered = Agent() with
+        // The hash covers the servers although a draft refuses any, so both sides name some.
+        AgentDefinition agent = Agent() with { McpServers = ["docs", "tracker"] };
+        AgentDefinition reordered = agent with
         {
             Tools = ["edit", "read", "search"],
             Skills = ["beta-skill", "alpha-skill"],
             McpServers = ["tracker", "docs"],
         };
 
-        Assert.Equal(Agent().Hash, reordered.Hash);
+        Assert.Equal(agent.Hash, reordered.Hash);
     }
 
     [Fact]
     public void Changing_any_part_of_the_content_changes_the_hash()
     {
-        AgentDefinition agent = Agent();
+        AgentDefinition agent = Agent() with { McpServers = ["docs", "tracker"] };
         AgentDefinition[] changed =
         [
             agent with { Name = "scribe2" },

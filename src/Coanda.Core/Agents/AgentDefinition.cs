@@ -21,7 +21,11 @@ public sealed record AgentDefinition
     public required IReadOnlyList<string> Tools { get; init; }
     /// <summary>Vendor-native skills, referenced by name.</summary>
     public required IReadOnlyList<string> Skills { get; init; }
-    /// <summary>MCP servers by name; how one is launched is node-local and never in the store.</summary>
+    /// <summary>
+    /// MCP servers by name; how one is launched is node-local and never in the store. Agent sessions
+    /// load no MCP server yet, so <see cref="Validate"/> refuses a list that names any; the member
+    /// stays, and the hash covers it, so content stored with a non-empty list still reads and hashes.
+    /// </summary>
     public required IReadOnlyList<string> McpServers { get; init; }
     /// <summary>The name of the answer schema, which a flow's agent step names too.</summary>
     public required string AnswerSchema { get; init; }
@@ -84,10 +88,17 @@ public sealed record AgentDefinition
         }
 
         RequireNamed(Skills, "a skill");
-        RequireNamed(McpServers, "an MCP server");
         RequireNoDuplicates(Tools, "tool", "tool set");
         RequireNoDuplicates(Skills, "skill", "skills");
-        RequireNoDuplicates(McpServers, "MCP server", "MCP servers");
+
+        // The executor loads no MCP server yet, so a named server would be validated, hashed, and
+        // silently never loaded. Stored content is read without this rule, so it binds only a draft
+        // or an import.
+        if (McpServers.Count > 0)
+        {
+            throw new DomainException(
+                $"Agent '{Name}' names the MCP servers {string.Join(", ", McpServers.Select(server => $"'{server}'"))}; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty.");
+        }
     }
 
     /// <summary>

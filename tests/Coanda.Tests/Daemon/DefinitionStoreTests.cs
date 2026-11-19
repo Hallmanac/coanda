@@ -1,4 +1,5 @@
 using Coanda.Core;
+using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
@@ -146,6 +147,31 @@ public sealed class DefinitionStoreTests
         DomainException exception3 = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftParcelTypeAsync(
                 Principal.LocalOwner, scope, project, QaTask, new ForkBase("task", null, null, null), CancellationToken.None));
         Assert.Contains("'task' has an invalid one", exception3.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Drafting_an_agent_that_names_an_mcp_server_is_refused_and_records_nothing()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        DefinitionService definitions = Definitions(store);
+        AgentDefinition named = SoftwareAgents.Fix with { Persona = SoftwareAgents.Fix.Persona with { Role = "A fixer with a tracker." }, McpServers = ["tracker"] };
+
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => definitions.DraftAsync(
+            Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, "alpha", "fix",
+            AgentDefinition.CanonicalJson(named), named.Hash, null, CancellationToken.None));
+
+        Assert.Equal(
+            "Agent 'fix' names the MCP servers 'tracker'; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty.",
+            exception.Message);
+        Assert.Equal(0, await CountEventsAsync(store, "alpha"));
+
+        // The same agent with an empty list drafts as before.
+        AgentDefinition unnamed = named with { McpServers = [] };
+        Definition draft = await definitions.DraftAsync(
+            Principal.LocalOwner, DefinitionKind.Agent, DefinitionScope.Project, "alpha", "fix",
+            AgentDefinition.CanonicalJson(unnamed), unnamed.Hash, null, CancellationToken.None);
+        Assert.Equal(unnamed.Hash, draft.ContentHash);
     }
 
     [Fact]

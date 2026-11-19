@@ -44,6 +44,19 @@ public sealed class DefinitionDeciderAgentTests
     }
 
     [Fact]
+    public void An_agent_that_names_an_mcp_server_is_refused_when_drafted_and_when_imported()
+    {
+        AgentDefinition named = SoftwareAgents.Fix with { McpServers = ["tracker"] };
+        string expected = "Agent 'fix' names the MCP servers 'tracker'; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty.";
+
+        DomainException drafted = Assert.Throws<DomainException>(() => Draft("fix", AgentDefinition.CanonicalJson(named), named.Hash));
+        Assert.Equal(expected, drafted.Message);
+
+        DomainException imported = Assert.Throws<DomainException>(() => DefinitionDecider.Import(ModuleDefinition.FromAgent(named), "software", "0.1.0", [], "import", Now));
+        Assert.Equal(expected, imported.Message);
+    }
+
+    [Fact]
     public void A_content_hash_that_differs_from_the_agents_hash_is_refused()
     {
         AgentDefinition agent = SoftwareAgents.Fix;
