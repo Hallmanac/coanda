@@ -14,9 +14,13 @@ public static class FlowRunEndpoints
     {
         RouteGroupBuilder group = routes.MapGroup("/flow-runs");
 
-        group.MapGet("", async (HttpContext context, FlowRunService flowRuns, FlowRunWorkers workers, NodeHome home, string project, Guid? parcel, CancellationToken cancellationToken) =>
+        group.MapGet("", async (HttpContext context, FlowRunService flowRuns, FlowRunWorkers workers, NodeHome home, string project, Guid? parcel, string? flowHash, string? agentHash, CancellationToken cancellationToken) =>
             {
-                IReadOnlyList<FlowRun> list = await flowRuns.ListAsync(RequestPrincipal.PrincipalOf(context), project, parcel, cancellationToken);
+                // A hash the query names with an empty value reaches the service's refusal as empty,
+                // rather than as though it were not given, whatever the binding made of it.
+                IReadOnlyList<FlowRun> list = await flowRuns.ListAsync(
+                    RequestPrincipal.PrincipalOf(context), project, parcel,
+                    Given(context, nameof(flowHash), flowHash), Given(context, nameof(agentHash), agentHash), cancellationToken);
                 List<FlowRunView> views = [.. list.Select(f => FlowRunView.From(project.Trim(), f, workers, home))];
                 return Results.Ok(views);
             })
@@ -77,4 +81,10 @@ public static class FlowRunEndpoints
 
         return routes;
     }
+
+    /// <summary>The bound <paramref name="value"/> of the query parameter <paramref name="name"/>, empty when the query names it with no value, or null when the query does not name it.</summary>
+    private static string? Given(HttpContext context, string name, string? value) =>
+        context.Request.Query.ContainsKey(name)
+            ? value ?? string.Empty
+            : null;
 }
