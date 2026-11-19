@@ -139,6 +139,12 @@ public sealed record DaemonOptions
     internal Func<DirectFollowStart, CancellationToken, Task>? DirectFollowStarting { get; init; }
 
     /// <summary>
+    /// What the trigger loop awaits just before it starts a bound flow whose entry waited for the parcels blocking it
+    /// to close; null, as <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail that start.
+    /// </summary>
+    internal Func<WaitedEntryStart, CancellationToken, Task>? WaitedEntryStarting { get; init; }
+
+    /// <summary>
     /// What the trigger loop awaits just before it writes the waiting follows of a flow run's end, given their parcel's
     /// id; null, as <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail that write.
     /// </summary>
