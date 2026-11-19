@@ -801,6 +801,152 @@ public sealed class ToolGuardTests : IDisposable
         Assert.Equivalent(new[] { directoryProfile.ConfigDirectory, otherProfile.ConfigDirectory, defaultConfig }, rules.ProtectedConfigDirectories, strict: true);
     }
 
+    // A confined session.
+
+    [Fact]
+    public void A_read_outside_the_work_directory_the_node_home_and_every_config_directory_is_refused_when_confined_and_allowed_when_not()
+    {
+        string outside = Path.Combine(root, "elsewhere", "notes.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
+        File.WriteAllText(outside, "notes");
+        using JsonDocument call = JsonDocument.Parse(Call("Read", new { file_path = outside }));
+        ToolGuardRules unconfined = Rules(null, Environment());
+
+        Allowed(ToolGuard.Decide(unconfined, call.RootElement, Environment()));
+        RefusedOutsideWork(ToolGuard.Decide(unconfined with { Confined = true }, call.RootElement, Environment()));
+    }
+
+    [Theory]
+    [InlineData("Read")]
+    [InlineData("Edit")]
+    [InlineData("Write")]
+    public void A_confined_file_call_inside_the_work_directory_is_allowed(string tool) =>
+        Allowed(Confined(Call(tool, new { file_path = Path.Combine(work, "src", "a.cs") })));
+
+    [Fact]
+    public void A_confined_glob_or_grep_inside_the_work_directory_is_allowed()
+    {
+        Allowed(Confined(Call("Glob", new { pattern = "src/**/*.cs" })));
+        Allowed(Confined(Call("Glob", new { pattern = "**/*.cs", path = Path.Combine(work, "src") })));
+        Allowed(Confined(Call("Grep", new { pattern = "class" })));
+        Allowed(Confined(Call("Grep", new { pattern = "class", path = "src" })));
+    }
+
+    [Fact]
+    public void A_confined_read_in_the_sessions_own_conversation_directory_is_allowed()
+    {
+        string encoded = Path.Combine(defaultConfig, "projects", "-encoded-work");
+
+        Allowed(Confined(Call("Read", new { file_path = Path.Combine(encoded, SessionId, "tool-results", "x.txt") }, transcript: Path.Combine(encoded, SessionId + ".jsonl"))));
+    }
+
+    [Theory]
+    [InlineData("Write")]
+    [InlineData("Edit")]
+    public void A_confined_file_call_outside_the_work_directory_is_refused(string tool) =>
+        RefusedOutsideWork(Confined(Call(tool, new { file_path = Path.Combine(root, "elsewhere", "outside.txt") })));
+
+    [Fact]
+    public void A_confined_file_call_climbing_out_of_the_work_directory_and_the_node_home_is_refused()
+    {
+        string climb = string.Concat(Enumerable.Repeat("../", Path.GetRelativePath(root, work).Split(Path.DirectorySeparatorChar).Length));
+
+        RefusedOutsideWork(Confined(Call("Write", new { file_path = climb + "outside.txt" })));
+        RefusedOutsideWork(Confined(Call("Glob", new { pattern = climb + "elsewhere/**/*.cs" })));
+
+        // a wildcard climbing above the node home reaches it, which is the reason given
+        RefusedInNodeHome(Confined(Call("Glob", new { pattern = climb + "**/*.cs" })));
+    }
+
+    [Fact]
+    public void A_confined_glob_or_grep_reaching_outside_the_work_directory_is_refused()
+    {
+        string elsewhere = Path.Combine(root, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        RefusedOutsideWork(Confined(Call("Glob", new { pattern = Path.Combine(elsewhere, "*.txt") })));
+        RefusedOutsideWork(Confined(Call("Glob", new { pattern = "*.txt", path = elsewhere })));
+        RefusedOutsideWork(Confined(Call("Grep", new { pattern = "x", path = elsewhere })));
+        RefusedOutsideWork(Confined(Call("Grep", new { pattern = "x" }, cwd: elsewhere)));
+    }
+
+    [Fact]
+    public void A_confined_read_through_a_symbolic_link_in_the_work_directory_is_judged_where_it_leads()
+    {
+        string elsewhere = Path.Combine(root, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        string link = Path.Combine(work, "out");
+        try
+        {
+            Directory.CreateSymbolicLink(link, elsewhere);
+        }
+        catch (Exception unsupported) when (unsupported is IOException or UnauthorizedAccessException)
+        {
+            // Windows without the privilege to create links.
+            return;
+        }
+
+        RefusedOutsideWork(Confined(Call("Read", new { file_path = Path.Combine(link, "notes.txt") })));
+    }
+
+    [Theory]
+    [InlineData("Bash", """{"command":"ls"}""")]
+    [InlineData("WebFetch", """{"url":"https://example.com","prompt":"read it"}""")]
+    [InlineData("WebSearch", """{"query":"coanda"}""")]
+    [InlineData("TodoWrite", """{"todos":[]}""")]
+    [InlineData("NotebookEdit", """{"notebook_path":"a.ipynb","new_source":""}""")]
+    [InlineData("mcp__server__tool", "{}")]
+    public void A_confined_call_to_any_tool_but_the_five_it_may_call_is_refused(string tool, string input)
+    {
+        ToolGuardOutcome outcome = Confined(Call(tool, JsonDocument.Parse(input).RootElement));
+
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("a confined session may call only Read, Glob, Grep, Edit, Write", outcome.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_confined_call_into_the_node_home_keeps_the_node_home_reason() =>
+        RefusedInNodeHome(Confined(Call("Read", new { file_path = home.DaemonInfoPath })));
+
+    [Fact]
+    public void Confined_rules_render_their_option_and_parse_back_and_unconfined_ones_do_not_render_it()
+    {
+        ToolGuardRules confined = Rules(directoryProfile, Environment()) with { Confined = true };
+
+        Assert.Equal(ToolGuardRules.ConfinedOption, confined.Arguments[^1]);
+        Assert.DoesNotContain(ToolGuardRules.ConfinedOption, Arguments(directoryProfile));
+        ToolGuardRules? parsed = ToolGuardRules.Parse(confined.Arguments, out string? problem);
+        Assert.True(parsed is not null, problem);
+        Assert.Equivalent(confined, parsed, strict: true);
+
+        // the option may come anywhere among the others
+        List<string> moved = [.. confined.Arguments.SkipLast(1)];
+        moved.Insert(1, ToolGuardRules.ConfinedOption);
+        Assert.Equivalent(confined, ToolGuardRules.Parse(moved, out _), strict: true);
+    }
+
+    [Fact]
+    public void A_confined_option_given_twice_or_followed_by_a_value_is_refused()
+    {
+        IReadOnlyList<string> confined = (Rules(null, Environment()) with { Confined = true }).Arguments;
+
+        Assert.Null(ToolGuardRules.Parse([.. confined, ToolGuardRules.ConfinedOption], out string? twice));
+        Assert.Contains("given twice", twice, StringComparison.Ordinal);
+        Assert.Null(ToolGuardRules.Parse([.. confined, work], out string? valued));
+        Assert.NotNull(valued);
+        ToolGuardOutcome outcome = Run([.. confined, ToolGuardRules.ConfinedOption], Call("Read", new { file_path = Path.Combine(work, "src", "a.cs") }));
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("arguments are malformed", outcome.Reason, StringComparison.Ordinal);
+    }
+
+    private ToolGuardOutcome Confined(string input) =>
+        ToolGuard.Run((Rules(null, Environment()) with { Confined = true }).Arguments, new StringReader(input), Environment());
+
+    private static void RefusedOutsideWork(ToolGuardOutcome outcome)
+    {
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("a confined session may reach only that directory", outcome.Reason, StringComparison.Ordinal);
+    }
+
     private static void RefusedInNodeHome(ToolGuardOutcome outcome)
     {
         Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);

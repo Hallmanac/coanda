@@ -23,8 +23,10 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// subcommand. It reads the call the CLI is about to make from standard input and refuses it when a
 /// path the call names is the node home or a Claude Code config directory, is inside one, or
 /// contains one, unless the path is the session's own work directory or inside it, or inside the
-/// directory the CLI keeps for this session's own conversation. Anything it cannot read or decide is
-/// a refusal.
+/// directory the CLI keeps for this session's own conversation. In a confined session
+/// (<see cref="ToolGuardRules.Confined"/>) it also refuses a call to any tool but those in
+/// <see cref="ConfinedTools"/>, and a path that is neither in the work directory nor in that
+/// conversation's directory. Anything it cannot read or decide is a refusal.
 /// </summary>
 /// <remarks>
 /// The paths a call names are the file path of a Read, Edit, or Write; the path of a Glob or a Grep
@@ -53,6 +55,9 @@ public static class ToolGuard
 {
     /// <summary>The Claude Code tools the hook is registered for, as the settings document's matcher lists them.</summary>
     public static IReadOnlyList<string> GuardedTools { get; } = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
+
+    /// <summary>The only Claude Code tools a confined session may call, for whose every call the hook is registered.</summary>
+    public static IReadOnlyList<string> ConfinedTools { get; } = ["Read", "Glob", "Grep", "Edit", "Write"];
 
     /// <summary>
     /// Runs the guard as <c>coa</c> does: <paramref name="arguments"/> is the whole argument list,
@@ -103,6 +108,11 @@ public static class ToolGuard
             || toolInput.ValueKind != JsonValueKind.Object)
         {
             return Unreadable("it is not a pre-tool-use call naming a tool and its input");
+        }
+
+        if (rules.Confined && !ConfinedTools.Contains(tool, StringComparer.Ordinal))
+        {
+            return ToolGuardOutcome.Denied($"coa refused this call: this session is confined, and a confined session may call only {string.Join(", ", ConfinedTools)}, not '{tool}'.");
         }
 
         string work = GuardPath.Resolve(string.Empty, rules.WorkDirectory);
@@ -397,6 +407,7 @@ public static class ToolGuard
     {
         private readonly string home = GuardPath.Resolve(string.Empty, rules.NodeHome);
         private readonly IReadOnlyList<string> configs = [.. rules.ProtectedConfigDirectories.Select(d => GuardPath.Resolve(string.Empty, d))];
+        private readonly bool confined = rules.Confined;
 
         public string? Refusal(Named named)
         {
@@ -427,8 +438,13 @@ public static class ToolGuard
                 return $"coa refused this call: the path '{path}' is in the node home ({home}) or contains it, and a session may reach only its own work directory ({work}) there.";
             }
 
-            return configs.FirstOrDefault(config => Reaches(path, config)) is { } reached
-                ? $"coa refused this call: the path '{path}' is in a Claude Code config directory or file ({reached}) or contains it, and a session may reach only its own conversation's directory there."
+            if (configs.FirstOrDefault(config => Reaches(path, config)) is { } reached)
+            {
+                return $"coa refused this call: the path '{path}' is in a Claude Code config directory or file ({reached}) or contains it, and a session may reach only its own conversation's directory there.";
+            }
+
+            return confined
+                ? $"coa refused this call: the path '{path}' is outside the work directory ({work}), and a confined session may reach only that directory and its own conversation's directory."
                 : null;
         }
 
