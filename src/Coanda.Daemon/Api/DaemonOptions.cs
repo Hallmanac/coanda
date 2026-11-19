@@ -121,4 +121,10 @@ public sealed record DaemonOptions
     /// <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail or hold open that start.
     /// </summary>
     internal Func<DeferredFollowStart, CancellationToken, Task>? DeferredFollowStarting { get; init; }
+
+    /// <summary>
+    /// What the trigger loop awaits just before it starts a follower straight from a flow run's end; null, as
+    /// <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail or hold open that start.
+    /// </summary>
+    internal Func<DirectFollowStart, CancellationToken, Task>? DirectFollowStarting { get; init; }
 }
