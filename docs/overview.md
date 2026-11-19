@@ -52,7 +52,7 @@ Phase 0: build from source with the .NET 11 SDK (`dotnet build`), then run
   `coa daemon stop` work against a daemon of any version, and `coa daemon start` refuses to start
   beside one from another build.
 
-- `coa project add <name> --repo <url> [--setting <module>/<name>=<value>]...`,
+- `coa project add <name> [--repo <url>] [--setting <module>/<name>=<value>]...`,
   `coa project show <name>`,
   `coa project list`, `coa project set-profile <name> <profile>`
 
@@ -61,7 +61,9 @@ Phase 0: build from source with the .NET 11 SDK (`dotnet build`), then run
   `--setting "software/build=make build"`. The value is read as JSON when it is JSON and as text
   otherwise. A repo whose `primary-branch` setting names no branch is worked on the branch its remote
   reports as its default. Every later change to a module's settings, the required checks included,
-  goes through `coa project module`.
+  goes through `coa project module`. Given no `--repo`, it registers the project with no repos and
+  switches on the same default modules. A project with no repos has no repo to carry its ledger, so
+  its record stays on the node and its parcels cannot be claimed.
 - `coa project module set <project> <module> <name> <value>`,
   `coa project module select-profile <project> <module> <profile>`,
   `coa project module show <project> <module>`

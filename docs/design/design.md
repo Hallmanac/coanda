@@ -172,8 +172,9 @@ node per month before filtering, 2 to 3 MB packed; 25 to 35 MB per node per year
 
 The ledger home is a seam whose value is a replicated project setting. Its default kind is the
 project's repos, all of them, each carrying the ledger in its ref namespace (decision 1c6c858b);
-the relay is a later kind, and when it exists a project's requirement of at least one repo lifts
-(section 14.9). In phase 3 the ledger home has one kind, the project's own repos, and no setting names
+the relay is a later kind. A project may have no repos. Such a project has no carrier, so its record
+stays on the node, and its parcels cannot be claimed, because a claim is held only once a push has
+carried it (section 14.9). In phase 3 the ledger home has one kind, the project's own repos, and no setting names
 it: the setting that would name another kind waits for the relay. Because every node can regenerate its segments for any destination from its own
 table, a hosting repo is a mailbox, not an archive: a move command pushes to the new home, writes
 the new location, and leaves a forwarding ref in the old one. Runbook rule: move before you
@@ -729,9 +730,9 @@ run; the SQLite file is created on first start in the node home, and the first d
 installs the software engineering module from the release archive (decision 836ec405). The
 measure of section 2, cold install to first merged pull request, includes that module install
 (section 14.13). Update fetches the next GitHub release and restarts when no step is in progress,
-reattaching live sessions. Doctor checks git, the agent CLI, and the node key, and checks each
-installed module: present, approved, healthy, and within the supported module API range (section
-14.7); gh is the software engineering module's tool, not the core's. The daemon runs as a user
+reattaching live sessions. Doctor checks git only when a project registered on the node has a
+repo, checks the agent CLI and the node key, and checks each installed module: present, approved,
+healthy, and within the supported module API range (section 14.7); gh is the software engineering module's tool, not the core's. The daemon runs as a user
 process started on demand; service registration is later. Windows through the same process-manager
 seam. One local-time daemon log per node, and beside it one log per module process (section 14.7),
 plus the measurement events, which are what gets queried. The node
@@ -1120,7 +1121,12 @@ project; it knows no branch, worktree, pull request, or GitHub. Those are the so
 module's (decision 269e586e). The git binary is the core's carrier for the ledger and is not a
 software concept.
 
-Each project has a set of repos, at least one today because the ledger rides on git, and no primary.
+Each project has a set of repos, which may be empty, and no primary. A project may have no repos:
+`coa project add` given no `--repo` registers one, and makes no clone. Such a project has no carrier,
+so its record stays on the node, nothing of its ledger is pushed or fetched, and its parcels cannot be
+claimed. A claim is held only once a push has carried it, so a claim on a parcel of such a project is
+refused before anything is recorded, rather than left not yet held for ever with every flow run on the
+parcel held back behind it. On such a project's unclaimed parcels a node still triggers on its own events.
 The node home gives each project a directory with two folders: `projects/<project>/repos/<repo>/`,
 the core's bare clones; and `projects/<project>/modules/<module>/`, each module's per-project
 workspace. Two processes writing one clone's worktree metadata rely on git's own locking, which holds
