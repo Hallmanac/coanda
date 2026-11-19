@@ -154,7 +154,10 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             (flowRun, opened) => flowRun.Apply(opened),
             cancellationToken);
 
-    /// <summary>Records the answer the session <paramref name="sessionId"/> gave, when the visit still expects that session.</summary>
+    /// <summary>
+    /// Records the answer the session <paramref name="sessionId"/> gave, when the visit still expects
+    /// that session, with the hashes of the session's prompt and transcript when the executor kept them.
+    /// </summary>
     public Task<FlowRun> RecordAnswerAsync(
         Principal principal,
         string project,
@@ -166,10 +169,13 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         ModelSpec model,
         JsonElement answer,
         Measurement measurement,
+        string? promptHash,
+        string? transcriptHash,
         CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.answer", principal, project, flowRunId,
-            (flow, flowRun) => FlowRunDecider.Answer(flow, flowRun, step, agent, sessionId, agentHash, model, answer, measurement, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Answer(
+                flow, flowRun, step, agent, sessionId, agentHash, model, answer, measurement, clock.GetUtcNow(), promptHash, transcriptHash),
             (flowRun, answered) => flowRun.Apply(answered),
             cancellationToken);
 
@@ -274,9 +280,27 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         Measurement? usage,
         Guid? session,
         CancellationToken cancellationToken) =>
+        PauseAsync(principal, project, flowRunId, reason, lever, usage, session, promptHash: null, transcriptHash: null, cancellationToken);
+
+    /// <summary>
+    /// Pauses a flow run as <see cref="PauseAsync(Principal, string, Guid, string, string, Measurement?, Guid?, CancellationToken)"/>
+    /// does, recording the hashes of the session's prompt and transcript, which an agent step that
+    /// paused after its retry gives.
+    /// </summary>
+    public Task<FlowRun> PauseAsync(
+        Principal principal,
+        string project,
+        Guid flowRunId,
+        string reason,
+        string lever,
+        Measurement? usage,
+        Guid? session,
+        string? promptHash,
+        string? transcriptHash,
+        CancellationToken cancellationToken) =>
         WriteAsync(
             "flow-run.pause", principal, project, flowRunId,
-            (flow, flowRun) => FlowRunDecider.Pause(flow, flowRun, reason, lever, principal.Id, clock.GetUtcNow(), usage, session),
+            (flow, flowRun) => FlowRunDecider.Pause(flow, flowRun, reason, lever, principal.Id, clock.GetUtcNow(), usage, session, promptHash, transcriptHash),
             (flowRun, paused) => flowRun.Apply(paused),
             cancellationToken);
 

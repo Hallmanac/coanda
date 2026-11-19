@@ -131,7 +131,7 @@ public sealed class SessionPrincipalTests
             () => flowRuns.RespawnAsync(principal, Project, sibling.Id, "build", None),
             () => flowRuns.SpawnedAsync(principal, Project, sibling.Id, "build", SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, None),
             () => flowRuns.SessionOpenedAsync(principal, Project, sibling.Id, "build", Ids.New(), None),
-            () => flowRuns.RecordAnswerAsync(principal, Project, sibling.Id, "build", "build", Ids.New(), SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, value, Scripts.Usage(1), None),
+            () => flowRuns.RecordAnswerAsync(principal, Project, sibling.Id, "build", "build", Ids.New(), SoftwareAgents.Build.Hash, SoftwareAgents.Build.Model, value, Scripts.Usage(1), null, null, None),
             () => flowRuns.RecordResultAsync(principal, Project, sibling.Id, "build", "open-pr", value, None),
             () => flowRuns.PauseAsync(principal, Project, sibling.Id, "Not mine.", FlowRunLevers.PerformAgain("build"), None),
             () => flowRuns.EndAsync(principal, Project, sibling.Id, "built", None),

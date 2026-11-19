@@ -58,6 +58,22 @@ public sealed class AgentStepTests
     }
 
     [Fact]
+    public async Task An_answer_and_a_pause_after_the_retry_carry_the_hashes_the_collect_they_came_from_returned()
+    {
+        var first = new SessionFileHashes(FileHash.Of("one"u8), FileHash.Of("two"u8));
+        var second = new SessionFileHashes(FileHash.Of("three"u8), FileHash.Of("four"u8));
+        ScriptedExecutor answering = Executor(new ScriptEntry(Valid, "/t/1.jsonl", FirstUsage, first));
+        ScriptedExecutor pausing = Executor(new ScriptEntry(Invalid, "/t/1.jsonl", FirstUsage, first), new ScriptEntry(InvalidAgain, "/t/2.jsonl", SecondUsage, second));
+
+        AgentStepOutcome answered = await AgentStep.RunAsync(answering, Request, CancellationToken.None);
+        AgentStepOutcome paused = await AgentStep.RunAsync(pausing, Request, CancellationToken.None);
+
+        Assert.Equal(first, Assert.IsType<AgentStepOutcome.Answered>(answered).Hashes);
+        // the retry's collect covers both attempts, so its hashes are the pause's
+        Assert.Equal(second, Assert.IsType<AgentStepOutcome.Paused>(paused).Hashes);
+    }
+
+    [Fact]
     public async Task A_missing_first_answer_and_an_invalid_second_pause_with_the_second_transcript()
     {
         ScriptedExecutor executor = Executor(

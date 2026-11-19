@@ -42,7 +42,7 @@ public sealed class FlowRunStoreTests
         await flowRuns.SessionOpenedAsync(Owner, Project, flowRun.Id, "build", session, none);
         return await flowRuns.RecordAnswerAsync(
             Owner, Project, flowRun.Id, "build", "build", session, "agenthash1", Model,
-            Json("""{"verdict":"done","files":3,"notes":{"nested":true}}"""), Spend, none);
+            Json("""{"verdict":"done","files":3,"notes":{"nested":true}}"""), Spend, null, null, none);
     }
 
     [Fact]
