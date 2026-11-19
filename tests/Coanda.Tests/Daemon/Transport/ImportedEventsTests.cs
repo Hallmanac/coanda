@@ -19,7 +19,6 @@ using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.FlowRuns;
 using Fisher;
 using JasperFx.Events;
-using JasperFx.Events.Documents;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon.Transport;
