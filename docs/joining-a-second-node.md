@@ -108,10 +108,17 @@ first, so it prints:
 Recorded this node as the owner root of project coanda, and trusts its own key as the project's root.
 Recorded a vouch in project coanda for node <windows-node-id> with the key <windows-public-key>.
 The vouch is pushed.
+Vouch only for nodes you run yourself. Every node in the project accepts what a vouched node records, and this build neither checks the role of the node that signed what it imports nor asks you to accept a project's commands before this node runs them; either one would lift this rule.
 ```
 
-When the last line instead says the vouch is recorded but not yet pushed, it names the push's
-reason; fix it and run the same command again, which records nothing new and pushes again. A vouch
+The last line is the vouching rule, and every answer from `coa node vouch` ends with it: vouch only
+for a node you run yourself, because every node in the project accepts what a vouched node records.
+When the line after the vouch's own instead says it is recorded but not yet pushed, it names
+the push's reason; fix it and run the same command again, which records nothing new and pushes again. On a node
+whose own key is not yet trusted by the records it holds, such as a node that joined before the
+owner's vouch for it arrived, the answer carries one more line, just before the rule, saying so: a
+node counts the vouch recorded there only once that node trusts the vouching node's key. The owner's
+node trusts its own key from its first vouch, so it never prints that line here. A vouch
 is refused, recording nothing, when the id or the key is the owner node's own, when the project
 already pairs that id with another key or that key with another id, or when the key is not a key.
 
