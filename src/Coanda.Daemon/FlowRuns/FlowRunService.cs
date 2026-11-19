@@ -404,6 +404,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         CommandRegistry.Require("flow-run.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
@@ -417,6 +418,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         CommandRegistry.Require("flow-run.show", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
@@ -438,6 +440,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         CommandRegistry.Require("flow-run.show", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await RequireStartedUnderFlowAsync(tenant, flowRun, cancellationToken);
     }
@@ -504,7 +507,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         if (principal.Session is { } bound)
         {
-            throw new DomainException($"{BoundRule(bound)}; a flow run it starts is never its own, so it starts none.");
+            throw new DomainException($"{SessionScope.BoundRule(bound)}; a flow run it starts is never its own, so it starts none.");
         }
     }
 
@@ -517,7 +520,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
         if (principal.Session is { } bound
             && (!string.Equals(bound.Project, tenant, StringComparison.Ordinal) || bound.FlowRunId != flowRunId))
         {
-            throw new DomainException($"{BoundRule(bound)}; flow run {Ids.Short(flowRunId)} in project '{tenant}' is not that flow run.");
+            throw new DomainException($"{SessionScope.BoundRule(bound)}; flow run {Ids.Short(flowRunId)} in project '{tenant}' is not that flow run.");
         }
     }
 
@@ -530,7 +533,7 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     {
         if (principal.Session is { } bound && !flowRun.ExpectsLaunch(bound.LaunchId))
         {
-            throw new DomainException($"{BoundRule(bound)}; that launch has ended, so it records nothing more.");
+            throw new DomainException($"{SessionScope.BoundRule(bound)}; that launch has ended, so it records nothing more.");
         }
     }
 
@@ -558,9 +561,6 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             FlowRunDecider.RequireHeldBy(flowRun, dispatchId, principal.Module ?? string.Empty);
         }
     }
-
-    private static string BoundRule(SessionBinding bound) =>
-        $"A session's principal records only on flow run {Ids.Short(bound.FlowRunId)} in project '{bound.Project}', the flow run it is bound to, while its launch {Ids.Short(bound.LaunchId)} runs";
 
     /// <summary>
     /// Reads, decides, and saves through <paramref name="attempt"/>, and when another write landed on

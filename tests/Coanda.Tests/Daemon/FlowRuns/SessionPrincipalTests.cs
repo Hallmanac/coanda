@@ -8,6 +8,7 @@ using Coanda.Core;
 using Coanda.Core.Flows;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
+using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -150,9 +151,59 @@ public sealed class SessionPrincipalTests
         // a refused start starts nothing
         Assert.Empty(await FlowRunDriver.OfParcelAsync(owner, Project, spare.Id));
 
-        // Queries stay open to the session in any project, and the refusals leave its token resolving.
-        Assert.Single(await session.GetAsync<List<FlowRunView>>($"/flow-runs?project={Other}", None));
+        // Queries are open to the session in its bound project only, and the refusals leave its token resolving.
+        DomainException exception4 = await Assert.ThrowsAsync<DomainException>(() => session.GetAsync<List<FlowRunView>>($"/flow-runs?project={Other}", None));
+        Assert.StartsWith(rule, exception4.Message, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, await StatusAsync(daemon, access.Token, HttpMethod.Get, $"/flow-runs?project={Project}", null));
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_session_reads_moves_and_sets_fields_on_parcels_of_its_bound_project_only_and_a_refusal_names_both_projects()
+    {
+        using var temp = new TemporaryHome();
+        var executor = new GatedExecutor(BuildScript());
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        await RegisteredProjects.AddAsync(daemon, Other, None);
+        await PublishSingleAsync(daemon, Project);
+        using var owner = new DaemonClient(temp.Home, sessionToken: null);
+        FlowRunView own = await StartSingleAsync(owner, Project, "Its own");
+        await executor.Collecting.WaitAsync(Patience);
+        using var session = new DaemonClient(temp.Home, AccessOf(executor, own.Id).Token);
+
+        // Neither parcel is held by a live flow run, so a move made on nobody's behalf is the decider's to allow.
+        ParcelView mine = await owner.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Mine", null), None);
+        ParcelView theirs = await owner.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Other, "task", "Theirs", null), None);
+        string refusal = $"A session's principal records only on flow run {Ids.Short(own.Id)} in project '{Project}'*project '{Other}' is not project '{Project}'*";
+
+        Func<Task>[] elsewhere =
+        [
+            () => session.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Other, theirs.Id, "paused"), None),
+            () => session.PostAsync<ParcelView>("/parcels/set-field", new ParcelSetFieldRequest(Other, theirs.Id, "objective", FieldValue.OfText("Not mine.")), None),
+            () => session.GetAsync<List<ParcelView>>($"/parcels?project={Other}", None),
+            () => session.GetAsync<ParcelView>($"/parcels/{theirs.Id}?project={Other}", None),
+        ];
+        foreach (Func<Task> call in elsewhere)
+        {
+            DomainException refused = await Assert.ThrowsAsync<DomainException>(call);
+            Assert.Matches(WildcardPattern.ToRegex(refusal), refused.Message);
+        }
+
+        // a refused write appends nothing
+        Assert.Single(await EventsAsync(daemon, Other, theirs.Id));
+        Assert.Equal("refine", (await owner.GetAsync<ParcelView>($"/parcels/{theirs.Id}?project={Other}", None)).Stage);
+
+        Assert.Equal("paused", (await session.PostAsync<ParcelView>("/parcels/move", new ParcelMoveRequest(Project, mine.Id, "paused"), None)).Stage);
+        ParcelView set = await session.PostAsync<ParcelView>(
+            "/parcels/set-field", new ParcelSetFieldRequest(Project, mine.Id, "objective", FieldValue.OfText("Mine.")), None);
+        Assert.Equal(FieldValue.OfText("Mine."), set.Fields.Single(f => f.Name == "objective").Value);
+        Assert.Equivalent(
+            await owner.GetAsync<List<ParcelView>>($"/parcels?project={Project}", None),
+            await session.GetAsync<List<ParcelView>>($"/parcels?project={Project}", None),
+            strict: true);
+        Assert.Equivalent(set, await session.GetAsync<ParcelView>($"/parcels/{mine.Id}?project={Project}", None), strict: true);
 
         await daemon.StopAsync(None);
     }

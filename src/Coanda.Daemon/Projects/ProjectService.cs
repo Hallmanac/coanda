@@ -5,6 +5,7 @@ using Coanda.Core.Projects;
 using Coanda.Core.Projects.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
@@ -232,6 +233,7 @@ public sealed class ProjectService(
     {
         CommandRegistry.Require("project.show", principal);
         string tenant = Tenants.RequireProject(name);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         ProjectProfile? setting = await FindProfileAsync(store, tenant, cancellationToken);
         return setting?.Profile;
@@ -239,7 +241,8 @@ public sealed class ProjectService(
 
     /// <summary>
     /// The credential profile every project that names one names, keyed by project; for a Module
-    /// principal, only those of the projects its module is switched on for.
+    /// principal, only those of the projects its module is switched on for, and for a session principal,
+    /// only its bound project's.
     /// </summary>
     public async Task<IReadOnlyDictionary<string, string>> ProfilesAsync(Principal principal, CancellationToken cancellationToken)
     {
@@ -251,7 +254,7 @@ public sealed class ProjectService(
             settings = await session.Query<ProjectProfile>().ToListAsync(cancellationToken);
         }
 
-        IReadOnlySet<string>? visible = principal.Role == Role.Module
+        IReadOnlySet<string>? visible = principal.Role == Role.Module || principal.Session is not null
             ? (await VisibleAsync(principal, cancellationToken)).Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
             : null;
         return settings
@@ -264,13 +267,15 @@ public sealed class ProjectService(
     {
         CommandRegistry.Require("project.show", principal);
         string tenant = Tenants.RequireProject(name);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await FindAsync(store, tenant, cancellationToken);
     }
 
     /// <summary>
     /// Every project registered on the node, ordered by name with ordinal comparison; for a Module
-    /// principal, every project its module is switched on for.
+    /// principal, every project its module is switched on for, and for a session principal, its bound
+    /// project alone.
     /// </summary>
     public async Task<IReadOnlyList<Project>> ListAsync(Principal principal, CancellationToken cancellationToken)
     {
@@ -407,13 +412,14 @@ public sealed class ProjectService(
 
     /// <summary>
     /// Every project registered on the node that <paramref name="principal"/> may act in: all of them,
-    /// or for a Module principal those its module is switched on for. Read without a registry check.
+    /// for a Module principal those its module is switched on for, or for a session principal its bound
+    /// project. Read without a registry check.
     /// </summary>
     private async Task<IReadOnlyList<Project>> VisibleAsync(Principal principal, CancellationToken cancellationToken)
     {
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Project> projects = await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
-        return [.. projects.Where(p => ModuleScope.IsSwitchedOn(principal, p))];
+        return [.. projects.Where(p => ModuleScope.IsSwitchedOn(principal, p) && SessionScope.MayActIn(principal, p.Name))];
     }
 
     /// <summary>The name of every project registered on the node, read without a registry check.</summary>

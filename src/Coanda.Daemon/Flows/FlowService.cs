@@ -1,6 +1,7 @@
 using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Definitions;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
@@ -17,6 +18,7 @@ public sealed class FlowService(IDocumentStore store)
     {
         CommandRegistry.Require("flow.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await definitions.ResolveAllAsync(tenant, DefinitionKind.Flow, cancellationToken);
     }

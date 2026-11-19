@@ -5,6 +5,7 @@ using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
@@ -69,6 +70,10 @@ public sealed class DefinitionService(
     {
         CommandRegistry.Require("definition.draft", principal);
         string tenant = TenantOf(scope, project);
+        if (scope == DefinitionScope.Project)
+        {
+            SessionScope.RequireBoundProject(principal, tenant);
+        }
 
         await writes.WaitAsync(cancellationToken);
         try
@@ -135,6 +140,7 @@ public sealed class DefinitionService(
     {
         CommandRegistry.Require("agent.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await resolver.ResolveAllAsync(tenant, DefinitionKind.Agent, cancellationToken);
     }
@@ -144,6 +150,7 @@ public sealed class DefinitionService(
     {
         CommandRegistry.Require("agent.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
         return await resolver.ResolveAsync(tenant, DefinitionKind.Agent, name, cancellationToken);
     }
@@ -156,6 +163,7 @@ public sealed class DefinitionService(
     {
         CommandRegistry.Require("agent.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         return await resolver.ResolveByHashAsync(tenant, DefinitionKind.Agent, contentHash, cancellationToken);
     }
 

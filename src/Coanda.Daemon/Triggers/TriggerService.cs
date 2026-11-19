@@ -1,6 +1,7 @@
 using Coanda.Core.Registry;
 using Coanda.Core.Triggers;
 using Coanda.Core.Triggers.Events;
+using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Fisher;
@@ -56,6 +57,7 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
     {
         CommandRegistry.Require("subscription.list", principal);
         string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
 
         await using IQuerySession session = store.QuerySession(tenant);
