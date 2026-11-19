@@ -41,9 +41,7 @@ public static class Interpreter
     {
         FlowStep step = Current(flow, position);
         JsonElement root = answer.RootElement;
-        FlowTransition? considered = root.ValueKind == JsonValueKind.Object
-            ? step.Transitions.FirstOrDefault(transition => Matches(root, transition))
-            : null;
+        FlowTransition? considered = Considered(step, root);
         int visits = position.VisitsTo(step.Name);
 
         return considered switch
@@ -68,8 +66,18 @@ public static class Interpreter
     public static bool CanFireAtNextVisit(FlowStep step, int visits) =>
         step.Transitions.Any(transition => Allows(transition, visits + 1));
 
+    /// <summary>
+    /// The transition <see cref="Decide"/> considers for <paramref name="answer"/> at
+    /// <paramref name="step"/>: the first in table order whose answer field is present and equal to
+    /// its value, or none when the answer is not an object or no transition matches it.
+    /// </summary>
+    public static FlowTransition? Considered(FlowStep step, JsonElement answer) =>
+        answer.ValueKind == JsonValueKind.Object
+            ? step.Transitions.FirstOrDefault(transition => Matches(answer, transition))
+            : null;
+
     /// <summary>A transition fires at a visit count no greater than its visit cap.</summary>
-    private static bool Allows(FlowTransition transition, int visits) => visits <= transition.VisitCap;
+    public static bool Allows(FlowTransition transition, int visits) => visits <= transition.VisitCap;
 
     private static FlowRunMove GoTo(Flow flow, FlowRunPosition position, string target)
     {
