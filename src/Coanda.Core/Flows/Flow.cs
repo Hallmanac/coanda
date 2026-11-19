@@ -18,7 +18,10 @@ public sealed record Flow
     /// <summary>The target that pauses the flow run.</summary>
     public const string Pause = "pause";
 
-    /// <summary>The target that ends the flow run with the outcome this flow declares.</summary>
+    /// <summary>
+    /// The target that ends the flow run with the outcome its transition names, or with the outcome
+    /// this flow declares when the transition names none.
+    /// </summary>
     public const string End = "end";
 
     public string Name { get; init; } = string.Empty;
@@ -56,6 +59,16 @@ public sealed record Flow
     /// <summary>The step a flow run starts at, or null when the flow has no steps.</summary>
     [JsonIgnore]
     public FlowStep? First => Steps.Count == 0 ? null : Steps[0];
+
+    /// <summary>
+    /// Every outcome a flow run of this flow may end with: the declared outcome, and each outcome a
+    /// transition to end names.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlySet<string> EndOutcomes =>
+        new HashSet<string>(
+            [Outcome, .. Steps.SelectMany(step => step.Transitions).Select(t => t is { Target: End, Outcome: { } named } ? named : null).OfType<string>()],
+            StringComparer.Ordinal);
 
     public FlowStep? Step(string name) => Steps.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
 
@@ -368,6 +381,16 @@ public sealed record Flow
             throw new DomainException(
                 $"The transition of step '{step.Name}' in flow '{Name}' on '{transition.Field}' targets '{transition.Target}', which is not a step of the flow, pause, or end.");
         }
+
+        switch (transition)
+        {
+            case { Outcome: { } outcome } when string.IsNullOrWhiteSpace(outcome):
+                throw new DomainException(
+                    $"The transition of step '{step.Name}' in flow '{Name}' on '{transition.Field}' equal to {transition.Value.GetRawText()} names a blank outcome; a transition that names an outcome needs the outcome's name.");
+            case { Outcome: { } outcome, Target: not End }:
+                throw new DomainException(
+                    $"The transition of step '{step.Name}' in flow '{Name}' on '{transition.Field}' equal to {transition.Value.GetRawText()} names the outcome '{outcome}' and targets '{transition.Target}'; only a transition to end names an outcome.");
+        }
     }
 
     private string ComputeHash()
@@ -411,7 +434,7 @@ public sealed record Flow
             answerSchema = step.AnswerSchema,
             systemStep = step.SystemStep,
             arguments = step.Arguments.OrderBy(a => a.Key, StringComparer.Ordinal).ToDictionary(a => a.Key, a => a.Value),
-            transitions = step.Transitions.Select(t => new { field = t.Field, value = t.Value, visitCap = t.VisitCap, target = t.Target }),
+            transitions = new JsonArray([.. step.Transitions.Select(TransitionNode)]),
         }) ?? throw new InvalidOperationException("A step's canonical form serialized to nothing.");
         if (step.Fields.Count > 0)
         {
@@ -421,6 +444,27 @@ public sealed record Flow
         if (step.Sources.Count > 0)
         {
             node["sources"] = new JsonArray([.. step.Sources.Select(SourceNode)]);
+        }
+
+        return node;
+    }
+
+    /// <summary>
+    /// A transition's hashed shape: <c>{ field, value, visitCap, target }</c> as a transition always
+    /// hashed, with the outcome joining it only when named, so a transition naming none hashes as before.
+    /// </summary>
+    private static JsonNode TransitionNode(FlowTransition transition)
+    {
+        JsonNode node = JsonSerializer.SerializeToNode(new
+        {
+            field = transition.Field,
+            value = transition.Value,
+            visitCap = transition.VisitCap,
+            target = transition.Target,
+        }) ?? throw new InvalidOperationException("A transition's canonical form serialized to nothing.");
+        if (transition.Outcome is not null)
+        {
+            node["outcome"] = transition.Outcome;
         }
 
         return node;

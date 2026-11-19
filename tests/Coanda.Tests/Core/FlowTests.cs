@@ -89,7 +89,15 @@ public sealed class FlowTests
         { "a blank closing resolution", Valid() with { Closes = " " }, "closes its parcel with the resolution ' '; a closing resolution is plain" },
         { "a closing resolution that is not plain", Valid() with { Closes = "completed or not" }, "closes its parcel with the resolution 'completed or not'; a closing resolution is plain" },
         { "a missing value", WithFirstStep(s => s with { Transitions = [new FlowTransition { Field = "verdict", VisitCap = 1, Target = "act" }] }), "needs a value that is a JSON string, number, or boolean" },
+        { "an empty transition outcome", WithActStep(s => s with { Transitions = [On("done", Flow.End) with { Outcome = "" }, On("failed", "judge")] }), "The transition of step 'act' in flow 'sample' on 'verdict' equal to \"done\" names a blank outcome; a transition that names an outcome needs the outcome's name." },
+        { "a blank transition outcome", WithActStep(s => s with { Transitions = [On("done", Flow.End) with { Outcome = " " }, On("failed", "judge")] }), "The transition of step 'act' in flow 'sample' on 'verdict' equal to \"done\" names a blank outcome" },
+        { "an outcome on a transition to a step", WithActStep(s => s with { Transitions = [On("done", Flow.End), On("failed", "judge") with { Outcome = "failed" }] }), "The transition of step 'act' in flow 'sample' on 'verdict' equal to \"failed\" names the outcome 'failed' and targets 'judge'; only a transition to end names an outcome." },
+        { "an outcome on a transition to pause", WithActStep(s => s with { Transitions = [On("done", Flow.End), On("failed", Flow.Pause) with { Outcome = "failed" }] }), "The transition of step 'act' in flow 'sample' on 'verdict' equal to \"failed\" names the outcome 'failed' and targets 'pause'; only a transition to end names an outcome." },
+        { "no flow outcome beside a transition outcome", WithActStep(s => s with { Transitions = [On("done", Flow.End) with { Outcome = "acted" }, On("failed", "judge")] }) with { Outcome = "" }, "needs an outcome" },
     };
+
+    private static Flow EndingTwoWays() =>
+        WithActStep(s => s with { Transitions = [On("done", Flow.End), On("failed", Flow.End) with { Outcome = "gave-up" }] });
 
     [Fact]
     public void A_valid_flow_passes_and_pause_and_end_are_valid_targets()
@@ -249,6 +257,36 @@ public sealed class FlowTests
         Assert.Equal(closing.Hash, read.Hash);
         Assert.NotEqual(Valid().Hash, closing.Hash);
         Assert.NotEqual(closing.Hash, (Valid() with { Closes = "abandoned" }).Hash);
+    }
+
+    [Fact]
+    public void A_transition_outcome_passes_round_trips_and_changes_the_hash()
+    {
+        Flow flow = EndingTwoWays();
+
+        flow.Validate(Known);
+        Flow read = Flow.FromJson(Flow.CanonicalJson(flow));
+        Assert.Equal("gave-up", read.Step("act")!.Transitions[1].Outcome);
+        Assert.Equal(flow.Hash, read.Hash);
+        Assert.Equal(["gave-up", "thing-done"], flow.EndOutcomes.Order(StringComparer.Ordinal));
+
+        Flow unnamed = WithActStep(s => s with { Transitions = [On("done", Flow.End), On("failed", Flow.End)] });
+        Assert.NotEqual(unnamed.Hash, flow.Hash);
+        Assert.NotEqual(flow.Hash, WithActStep(s => s with { Transitions = [On("done", Flow.End), On("failed", Flow.End) with { Outcome = "abandoned" }] }).Hash);
+    }
+
+    [Fact]
+    public void A_flow_whose_transitions_name_no_outcome_writes_none_into_its_content_and_reads_back_as_before()
+    {
+        string content = Flow.CanonicalJson(Valid());
+
+        Assert.DoesNotContain("\"Outcome\": null", content, StringComparison.Ordinal);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(content, "\"Outcome\""));
+        Flow read = Flow.FromJson(content);
+        Assert.All(read.Steps.SelectMany(s => s.Transitions), t => Assert.Null(t.Outcome));
+        Assert.Equal(Valid().Hash, read.Hash);
+        Assert.Equal(content, Flow.CanonicalJson(read));
+        Assert.Equal(["thing-done"], Valid().EndOutcomes);
     }
 
     [Fact]

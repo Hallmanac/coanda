@@ -183,6 +183,23 @@ public sealed class InterpreterTests
     }
 
     [Fact]
+    public void A_transition_to_end_that_names_an_outcome_ends_with_it_and_one_naming_none_ends_with_the_flow_outcome()
+    {
+        Flow flow = Sample with
+        {
+            Steps = [.. Sample.Steps.Select(s => s.Name == "judge"
+                ? s with { Transitions = [On("done", Flow.End), On("gave-up", Flow.End) with { Outcome = "given-up" }] }
+                : s)],
+        };
+        FlowRunPosition judging = At("judge");
+
+        using JsonDocument gaveUp = Answer("""{"verdict":"gave-up"}""");
+        using JsonDocument done = Answer("""{"verdict":"done"}""");
+        Assert.Equal(new FlowRunMove.End("given-up"), Interpreter.Decide(flow, judging, gaveUp));
+        Assert.Equal(new FlowRunMove.End("thing-done"), Interpreter.Decide(flow, judging, done));
+    }
+
+    [Fact]
     public void Going_to_an_agent_step_at_the_spawn_cap_pauses_naming_the_cap_but_going_to_a_system_step_does_not()
     {
         FlowRunPosition below = At("judge", spawns: Sample.SpawnCap - 1);
