@@ -1,4 +1,5 @@
 using Coanda.Core;
+using Coanda.Core.Definitions;
 using Coanda.Core.Registry;
 
 namespace Coanda.Daemon.FlowRuns;
@@ -25,6 +26,20 @@ public static class SessionScope
         {
             throw new DomainException(
                 $"{BoundRule(bound)}; project '{tenant}' is not project '{bound.Project}', and a session reads, moves parcels, sets fields, and drafts project definitions only in the project its session is bound to.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses a session principal a draft of <paramref name="name"/> in any scope but project scope:
+    /// owner scope reaches every project its owner holds, and a session drafts project definitions only,
+    /// in the project its session is bound to.
+    /// </summary>
+    public static void RequireProjectScope(Principal principal, DefinitionScope scope, string name)
+    {
+        if (principal.Session is { } bound && scope != DefinitionScope.Project)
+        {
+            throw new DomainException(
+                $"{BoundRule(bound)}; '{name.Trim()}' is drafted in {scope} scope, and a session drafts definitions only in project scope, in project '{bound.Project}'.");
         }
     }
 

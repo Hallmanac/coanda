@@ -82,6 +82,28 @@ public sealed class DefinitionResolver(IDocumentStore store)
         return fromNode.FirstOrDefault(forkBase.IsBaseOf);
     }
 
+    /// <summary>
+    /// Every definition of every kind and status that can govern <paramref name="project"/>: the
+    /// project's own, from its tenant, and the owner-scope and module-scope ones, from the node tenant,
+    /// drafts and retired versions included, ordered by kind, name, scope from nearest, and version.
+    /// </summary>
+    public async Task<IReadOnlyList<Definition>> GoverningAsync(string project, CancellationToken cancellationToken)
+    {
+        Tenants.RequireProject(project);
+
+        IReadOnlyList<Definition> fromProject = await AllInAsync(project, cancellationToken);
+        IReadOnlyList<Definition> fromNode = await AllInAsync(Tenants.Node, cancellationToken);
+        return
+        [
+            .. fromProject.Where(d => d.Scope == DefinitionScope.Project && string.Equals(d.Project, project, StringComparison.Ordinal))
+                .Concat(fromNode.Where(d => d.Scope != DefinitionScope.Project))
+                .OrderBy(d => d.Kind)
+                .ThenBy(d => d.Name, StringComparer.Ordinal)
+                .ThenBy(d => d.Scope)
+                .ThenBy(d => d.VersionNumber),
+        ];
+    }
+
     public async Task<IReadOnlyList<ParcelType>> ResolveParcelTypesAsync(string project, CancellationToken cancellationToken)
     {
         IReadOnlyList<Definition> resolved = await ResolveAllAsync(project, DefinitionKind.ParcelType, cancellationToken);
@@ -108,8 +130,13 @@ public sealed class DefinitionResolver(IDocumentStore store)
     {
         // Filtered here rather than in the query: Fisher's SQLite LINQ does not match a
         // string-stored enum against an enum constant, and a node holds few definitions.
-        await using IQuerySession session = store.QuerySession(tenant);
-        IReadOnlyList<Definition> all = await session.Query<Definition>().ToListAsync(cancellationToken);
+        IReadOnlyList<Definition> all = await AllInAsync(tenant, cancellationToken);
         return [.. all.Where(d => d.Kind == kind && d.Status != DefinitionStatus.Draft)];
+    }
+
+    private async Task<IReadOnlyList<Definition>> AllInAsync(string tenant, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(tenant);
+        return await session.Query<Definition>().ToListAsync(cancellationToken);
     }
 }

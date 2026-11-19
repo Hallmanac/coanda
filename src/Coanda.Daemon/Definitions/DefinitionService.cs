@@ -69,6 +69,7 @@ public sealed class DefinitionService(
         CancellationToken cancellationToken)
     {
         CommandRegistry.Require("definition.draft", principal);
+        SessionScope.RequireProjectScope(principal, scope, name);
         string tenant = TenantOf(scope, project);
         if (scope == DefinitionScope.Project)
         {
@@ -101,6 +102,71 @@ public sealed class DefinitionService(
         {
             writes.Release();
         }
+    }
+
+    /// <summary>
+    /// Drafts the definition of <paramref name="kind"/> that <paramref name="json"/>, a file in the shape
+    /// a module ships for that kind, holds: read through the kind's canonical read, as a module's import
+    /// reads it, so the content and hash recorded are the import's whatever the file's layout, and the
+    /// caller gives no hash. <paramref name="project"/> is read only in project scope. When
+    /// <paramref name="fork"/> is set, the draft's fork base is the module-scope definition of its kind
+    /// and name this node holds, the highest version of it when it holds more than one, and the draft is
+    /// refused when it holds none.
+    /// </summary>
+    public async Task<Definition> DraftAsync(
+        Principal principal,
+        DefinitionKind kind,
+        DefinitionScope scope,
+        string? project,
+        string json,
+        bool fork,
+        CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("definition.draft", principal);
+        ModuleDefinition read = ModuleDefinition.Read(kind, json);
+        ForkBase? forkBase = fork ? await ForkBaseOfAsync(kind, read.Name, cancellationToken) : null;
+        return await DraftAsync(
+            principal, kind, scope, scope == DefinitionScope.Project ? project : null, read.Name, read.Content, read.ContentHash, forkBase, cancellationToken);
+    }
+
+    /// <summary>
+    /// Every definition of every kind and status that can govern the project: its own, and the
+    /// owner-scope and module-scope ones, drafts and retired versions included.
+    /// </summary>
+    public async Task<IReadOnlyList<Definition>> ListAsync(Principal principal, string project, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("definition.list", principal);
+        return await GoverningAsync(principal, project, cancellationToken);
+    }
+
+    /// <summary>The definition <paramref name="definitionId"/> among those that can govern the project, or null when it is none of them.</summary>
+    public async Task<Definition?> ShowAsync(Principal principal, string project, Guid definitionId, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("definition.show", principal);
+        IReadOnlyList<Definition> governing = await GoverningAsync(principal, project, cancellationToken);
+        return governing.FirstOrDefault(d => d.Id == definitionId);
+    }
+
+    /// <summary>
+    /// Publishes the draft <paramref name="definitionId"/>, one of the definitions that can govern
+    /// <paramref name="project"/>, in the tenant that holds it.
+    /// </summary>
+    public async Task<Definition> PublishInProjectAsync(Principal principal, string project, Guid definitionId, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("definition.publish", principal);
+        Definition found = await GoverningOneAsync(principal, project, definitionId, cancellationToken);
+        return await PublishAsync(principal, HoldingProject(found), definitionId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Retires the published definition <paramref name="definitionId"/>, one of the definitions that can
+    /// govern <paramref name="project"/>, in the tenant that holds it.
+    /// </summary>
+    public async Task<Definition> RetireInProjectAsync(Principal principal, string project, Guid definitionId, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("definition.retire", principal);
+        Definition found = await GoverningOneAsync(principal, project, definitionId, cancellationToken);
+        return await RetireAsync(principal, HoldingProject(found), definitionId, cancellationToken);
     }
 
     /// <summary>Publishes a draft. A null project names the node tenant, where owner-scope drafts live.</summary>
@@ -236,6 +302,42 @@ public sealed class DefinitionService(
         IReadOnlyList<Definition> inNode = await node.Query<Definition>().ToListAsync(cancellationToken);
         return [.. inNode.Where(d => d.Scope == DefinitionScope.Module && d.Kind == kind)];
     }
+
+    /// <summary>
+    /// The fork base naming the module-scope definition of <paramref name="kind"/> and
+    /// <paramref name="name"/> this node holds, the highest version of it, which is the one resolution
+    /// picks within module scope; refused when the node holds none.
+    /// </summary>
+    private async Task<ForkBase> ForkBaseOfAsync(DefinitionKind kind, string name, CancellationToken cancellationToken)
+    {
+        IReadOnlyCollection<Definition> moduleVersions = await ModuleVersionsAsync(kind, cancellationToken);
+        Definition? highest = moduleVersions
+            .Where(d => DefinitionResolution.SameName(d.Name, name.Trim()))
+            .MaxBy(d => d.VersionNumber);
+        return highest is null
+            ? throw new DomainException(
+                $"No module-scope {DefinitionDecider.Describe(kind)} named '{name.Trim()}' is held on this node, so a draft of it cannot fork one; a fork names the module-scope definition of the draft's own kind and name.")
+            : ForkBase.Of(highest);
+    }
+
+    private async Task<IReadOnlyList<Definition>> GoverningAsync(Principal principal, string project, CancellationToken cancellationToken)
+    {
+        string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        return await resolver.GoverningAsync(tenant, cancellationToken);
+    }
+
+    private async Task<Definition> GoverningOneAsync(Principal principal, string project, Guid definitionId, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Definition> governing = await GoverningAsync(principal, project, cancellationToken);
+        return governing.FirstOrDefault(d => d.Id == definitionId)
+            ?? throw new DomainException($"No definition {Ids.Short(definitionId)} can govern project '{project}'.");
+    }
+
+    /// <summary>The project whose tenant holds <paramref name="definition"/>: its own in project scope, and none, the node tenant, otherwise.</summary>
+    private static string? HoldingProject(Definition definition) =>
+        definition.Scope == DefinitionScope.Project ? definition.Project : null;
 
     private static int LatestVersion(IEnumerable<Definition> existing, DefinitionKind kind, DefinitionScope scope, string? project, string name) =>
         existing
