@@ -7,8 +7,8 @@ while the daemon runs.
 
 The file is optional. Without it, the daemon runs every agent step on Claude Code, starting the
 `claude` executable it finds on the PATH, holds no credential profiles, exports and pushes its
-ledger, fetches and imports its peers' ledgers, and switches each project registered on the node on
-for the software module.
+ledger, fetches and imports its peers' ledgers, switches each project registered on the node on
+for the software module, and watches every project it holds.
 
 ```json
 {
@@ -364,6 +364,39 @@ A registration that carries a setting of a module it does not switch on is refus
 nothing, so on a node whose list leaves a module out, a registration names none of that module's
 settings.
 
+## Watched projects
+
+```json
+{
+  "executor": "claude-code",
+  "watchedProjects": ["coanda"]
+}
+```
+
+`watchedProjects` is optional. It holds the names of the projects this node watches. An entry names a
+project when, trimmed of surrounding whitespace, it equals the project's name without regard to letter
+case. A name that no project on the node has is accepted, so a node can be configured before it
+registers or joins the project the name is for. An empty list, `"watchedProjects": []`, is allowed,
+and that node watches no project. When the list is left out, or the file is missing, the node watches
+every project it holds.
+
+For a project it watches, the daemon hands each module switched on for the project the watches the
+project's triggers compile to for that module, and accepts the external events the module records in
+it. For a project it does not watch, the daemon sends each of those modules an empty set of watches in
+place of the compiled one, which clears any set it sent earlier, and refuses an external event a
+module records in the project before anything is recorded, naming the project and this setting. The
+setting changes only what a watch request carries, never which projects a module is sent requests
+for. It does not touch an external event recorded by anyone other than a module, such as the owner
+recording one by hand.
+
+The daemon reads the list when it starts. Once the list is given, a project registered or joined later
+is not watched until the list names it and the daemon restarts.
+
+An outside event is meant to be recorded once in a project, but each watching node records what its
+own modules see. Two nodes that both watch a project each record the same outside event, and each one
+creates work from it. So of the nodes holding one project, exactly one should watch it. Nothing checks
+that the nodes agree: each node reads only its own file.
+
 ## When the daemon refuses the file
 
 The daemon does not start, and exits with code 2, when the file cannot be parsed as JSON, holds a
@@ -374,7 +407,10 @@ executor other than `claude-code` or `scripted`, gives a `claudeExecutable` unde
 profile that does not hold exactly one non-blank `configDirectory` or `apiKeyHelper`. It does the same
 when `defaultModules` is given as null or as anything but a list, holds an entry that is null, not a
 string, or not a valid module name, names one module twice, or names a module the starting daemon does
-not host; that last refusal also lists the modules the daemon hosts. Every one of these refusals comes
+not host; that last refusal also lists the modules the daemon hosts. It does the same when
+`watchedProjects` is given as null or as anything but a list of strings, holds an entry that is null
+or blank, or holds two entries that are equal once trimmed and compared without regard to letter case.
+Every one of these refusals comes
 before the daemon records anything, so a refused start leaves the node's record as it found it.
 
 The rule it prints names the file and the entry it refused. A foreground `coa daemon run` prints it
