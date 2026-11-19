@@ -241,6 +241,24 @@ usual `coa`. Once this pull request merges, the usual build is rebuilt from the 
 carries the join and the vouch itself. Nothing in the node home needs undoing: the owner root and
 the vouch are records of the project, and the root key record is the owner's own.
 
+## When the two nodes run different builds
+
+A node stops importing a peer's records at the first line in a shape its own build does not write.
+That is a line whose event type is one this build does not have, or a line whose data is not what
+this build writes, member for member. The import stores nothing from that line on, so the origin's
+later lines wait behind it until this node runs a build that writes that shape. `coa join` shows
+it as a `stopped:` reason on that origin's line, naming the line as an earlier or a later shape.
+
+So after any change that adds, removes, or renames an event type, or adds, removes, or alters an
+event's members, both nodes are rebuilt together from the same commit: stop each node's daemon,
+build that commit on both machines, and start both daemons on the new build.
+
+Before either node is rebuilt, both run on the earlier build with no work moving (no flow run
+started, advanced, or resumed, and nothing recorded by hand) until each has imported what the other
+published on that build. The order matters because the new build may refuse a line in the earlier
+shape, and a line once published cannot be rewritten: a line the peer has not imported before the
+rebuild could stop its import of that origin with no way to put the line right.
+
 ## When a vouch was a mistake
 
 No command in this phase revokes a node or removes a vouch, and what a mistaken vouch costs depends
