@@ -26,6 +26,12 @@ works in a git worktree of that clone, at the flow run's work path under the nod
 `dotnet build` and `dotnet test` unless they were set, and `coa project module show try-coanda software`
 prints the two the gates will run.
 
+`--repo` is optional. Given no `--repo`, `coa project add try-coanda` registers the project with no
+repos, switches on the same default modules, and makes no clone; `coa project show` and
+`coa project list` say it has no repos. Coanda carries a project's record between nodes in its repos,
+so a project with no repos keeps its record on this node alone, and its parcels cannot be claimed:
+`coa parcel claim` refuses, saying the project has no repo to carry its ledger.
+
 A module's settings can be given at registration, each with `--setting <module>/<name>=<value>`,
 repeated for each one; the value is read as JSON when it is JSON and as text otherwise, the same way
 `coa project module set` reads it:
