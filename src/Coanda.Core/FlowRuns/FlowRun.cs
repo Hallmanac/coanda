@@ -248,6 +248,9 @@ public sealed class FlowRun
         {
             ResumedAt = resumed.ResumedAt,
             RespawnedAt = null,
+            ResumeAnswer = entry.IsRecorded
+                ? entry.ResumeAnswer
+                : resumed.Answer,
             ResumedSinceDispatch = entry.DispatchId is not null,
         });
         UpdatedAt = resumed.ResumedAt;

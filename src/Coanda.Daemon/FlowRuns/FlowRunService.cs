@@ -280,11 +280,12 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
             (flowRun, paused) => flowRun.Apply(paused),
             cancellationToken);
 
-    public async Task<FlowRun> ResumeAsync(Principal principal, string project, Guid flowRunId, string? note, CancellationToken cancellationToken)
+    public async Task<FlowRun> ResumeAsync(
+        Principal principal, string project, Guid flowRunId, string? note, string? answer, CancellationToken cancellationToken)
     {
         FlowRun resumed = await WriteAsync(
             "flow-run.resume", principal, project, flowRunId,
-            (flow, flowRun) => FlowRunDecider.Resume(flow, flowRun, note, principal.Id, clock.GetUtcNow()),
+            (flow, flowRun) => FlowRunDecider.Resume(flow, flowRun, note, answer, principal.Id, clock.GetUtcNow()),
             (flowRun, recorded) => flowRun.Apply(recorded),
             cancellationToken);
 

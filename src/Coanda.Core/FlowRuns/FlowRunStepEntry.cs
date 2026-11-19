@@ -39,6 +39,14 @@ public sealed record FlowRunStepEntry
     public DateTimeOffset? ResumedAt { get; init; }
 
     /// <summary>
+    /// The answer a person gave on the latest resume of this visit that landed while it had recorded
+    /// nothing, or null when no such resume gave one. A later resume of the visit before it records
+    /// replaces it, a resume after it records leaves it as it was, and a recording does not clear it.
+    /// It is a person's answer, unlike <see cref="Answer"/>, which is an agent step's.
+    /// </summary>
+    public string? ResumeAnswer { get; init; }
+
+    /// <summary>
     /// When the agent step of this unrecorded visit counted one more spawn for the resume that
     /// <see cref="ResumedAt"/> holds, or null when no spawn has been counted for that resume. A
     /// resume clears it, so a restart that performs the same resumed visit again counts no second

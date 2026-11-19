@@ -328,7 +328,7 @@ public sealed class FlowRunDeciderTests
     [InlineData(FlowRunStatus.Stopped)]
     public void Resuming_a_flow_run_that_is_not_paused_is_refused(FlowRunStatus status)
     {
-        Action resume = () => FlowRunDecider.Resume(Build, InStatus(status), "go on", "owner", Now);
+        Action resume = () => FlowRunDecider.Resume(Build, InStatus(status), "go on", null, "owner", Now);
 
         DomainException exception = Assert.Throws<DomainException>(resume);
         Assert.EndsWith("; only a paused flow run resumes.", exception.Message, StringComparison.Ordinal);
@@ -340,7 +340,7 @@ public sealed class FlowRunDeciderTests
         FlowRun flowRun = InStatus(FlowRunStatus.Paused);
         Assert.True(flowRun.IsLive, "a paused flow run is still live");
 
-        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, "answered", "owner", Now));
+        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, "answered", null, "owner", Now));
 
         Assert.Equal(FlowRunStatus.Running, flowRun.Status);
         Assert.Null(flowRun.Lever);
@@ -392,7 +392,7 @@ public sealed class FlowRunDeciderTests
         }
 
         flowRun.Apply(FlowRunDecider.Pause(flow, flowRun, "no valid answer", "perform it again", "flow-run", Now, Spend));
-        flowRun.Apply(FlowRunDecider.Resume(flow, flowRun, "try again", "owner", Now.AddMinutes(1)));
+        flowRun.Apply(FlowRunDecider.Resume(flow, flowRun, "try again", null, "owner", Now.AddMinutes(1)));
         return flowRun;
     }
 
@@ -415,7 +415,7 @@ public sealed class FlowRunDeciderTests
 
         flowRun.Apply(FlowRunDecider.Spawn(Build, flowRun, "build", "agenthash", Model, Now.AddMinutes(3)));
         flowRun.Apply(FlowRunDecider.Pause(Build, flowRun, "no valid answer", "perform it again", "flow-run", Now.AddMinutes(4), Spend));
-        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, "once more", "owner", Now.AddMinutes(5)));
+        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, "once more", null, "owner", Now.AddMinutes(5)));
         flowRun.Apply(FlowRunDecider.Respawn(Build, flowRun, "build", Now.AddMinutes(6)));
         // each resume counts its own spawn
         Assert.Equal(spawns + 2, flowRun.Spawns);
@@ -450,7 +450,7 @@ public sealed class FlowRunDeciderTests
 
         FlowRun atSystemStep = Started();
         atSystemStep.Apply(FlowRunDecider.Pause(Build, atSystemStep, "waiting", "lever", "owner", Now));
-        atSystemStep.Apply(FlowRunDecider.Resume(Build, atSystemStep, "go on", "owner", Now));
+        atSystemStep.Apply(FlowRunDecider.Resume(Build, atSystemStep, "go on", null, "owner", Now));
         DomainException exception3 = Assert.Throws<DomainException>(() => FlowRunDecider.Respawn(Build, atSystemStep, "worktree", Now));
         Assert.Contains("only an agent step spawns an agent", exception3.Message, StringComparison.Ordinal);
     }
@@ -525,7 +525,7 @@ public sealed class FlowRunDeciderTests
         FlowRun flowRun = AtAgentStep();
         Guid held = Launched(flowRun);
         flowRun.Apply(FlowRunDecider.Pause(Build, flowRun, "Hold on.", "resume", "owner", Now));
-        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, "owner", Now));
+        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, null, "owner", Now));
 
         // a resume does not clear the session it found
         Assert.Equal(held, flowRun.Current?.SessionId);

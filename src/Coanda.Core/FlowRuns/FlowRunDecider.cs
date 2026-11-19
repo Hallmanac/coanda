@@ -431,7 +431,16 @@ public static class FlowRunDecider
         return new FlowRunPaused(flowRun.Id, reason.Trim(), lever.Trim(), pausedBy, now, usage);
     }
 
-    public static FlowRunResumed Resume(Flow flow, FlowRun flowRun, string? note, string resumedBy, DateTimeOffset now)
+    /// <summary>The most characters a resume's answer holds after trimming, as <see cref="string.Length"/> counts them.</summary>
+    public const int ResumeAnswerMaxLength = 200;
+
+    /// <summary>
+    /// Resumes a paused flow run. An <paramref name="answer"/>, when given, is recorded trimmed for the
+    /// visit the resume lands on: it is a single line of at most <see cref="ResumeAnswerMaxLength"/>
+    /// characters, not blank, and given only while that visit has recorded nothing, since a recorded
+    /// visit is performed again as a new visit and the answer would reach no step.
+    /// </summary>
+    public static FlowRunResumed Resume(Flow flow, FlowRun flowRun, string? note, string? answer, string resumedBy, DateTimeOffset now)
     {
         RequireFlow(flow, flowRun);
 
@@ -440,7 +449,41 @@ public static class FlowRunDecider
             throw new DomainException($"Flow run {Ids.Short(flowRun.Id)} {Describe(flowRun.Status)}; only a paused flow run resumes.");
         }
 
-        return new FlowRunResumed(flowRun.Id, resumedBy, note?.Trim() ?? string.Empty, now);
+        string? trimmed = answer is null
+            ? null
+            : ResumeAnswer(flowRun, answer);
+        return new FlowRunResumed(flowRun.Id, resumedBy, note?.Trim() ?? string.Empty, now, trimmed);
+    }
+
+    /// <summary>The trimmed answer a resume records, refused when it breaks the answer's rule or would reach no step.</summary>
+    private static string ResumeAnswer(FlowRun flowRun, string answer)
+    {
+        string trimmed = answer.Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new DomainException("A resume's answer is blank; give an answer that is not blank, or resume without one.");
+        }
+
+        if (answer.Any(char.IsControl))
+        {
+            throw new DomainException(
+                "A resume's answer is a single line; it holds no carriage return, line feed, or other control character.");
+        }
+
+        if (trimmed.Length > ResumeAnswerMaxLength)
+        {
+            throw new DomainException(
+                $"A resume's answer is at most {ResumeAnswerMaxLength} characters after trimming; this one is {trimmed.Length}.");
+        }
+
+        return flowRun.Current switch
+        {
+            null => throw new DomainException(
+                $"Flow run {Ids.Short(flowRun.Id)} has entered no step, so an answer would reach no step; resume without one."),
+            { IsRecorded: true } current => throw new DomainException(
+                $"Flow run {Ids.Short(flowRun.Id)}'s visit of step '{current.Step}' has recorded, so the resume performs it again as a new visit and an answer would reach no step; resume without one."),
+            _ => trimmed,
+        };
     }
 
     public static (FlowRunEnded Ended, ParcelFlowRunReleased Released) End(

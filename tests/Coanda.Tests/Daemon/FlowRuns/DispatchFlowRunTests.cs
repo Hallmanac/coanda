@@ -567,7 +567,7 @@ public sealed class DispatchFlowRunTests
         // The resume is saved while no daemon runs, so no advance follows it before the restart.
         await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
         {
-            FlowRun resumed = await new FlowRunService(store, TimeProvider.System).ResumeAsync(Principal.LocalOwner, Project, flowRunId, "Carry on.", None);
+            FlowRun resumed = await new FlowRunService(store, TimeProvider.System).ResumeAsync(Principal.LocalOwner, Project, flowRunId, "Carry on.", null, None);
             Assert.Equal(held, resumed.Current?.DispatchId);
             Assert.True(resumed.Current?.ResumedSinceDispatch);
         }

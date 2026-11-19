@@ -140,7 +140,7 @@ public sealed class FlowRunChainTests
         Assert.Equal(usage, flowRun.PauseUsage);
         Assert.Equal(3.75m, flowRun.Cost);
 
-        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, "owner", Now));
+        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, null, "owner", Now));
         // the usage belongs to the pause the resume ends
         Assert.Null(flowRun.PauseUsage);
         // a resume spends nothing and forgets nothing spent

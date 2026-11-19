@@ -446,7 +446,7 @@ public sealed class ImportedEventsTests
 
         Func<Task>[] writes =
         [
-            () => flowRuns.ResumeAsync(Principal.LocalOwner, Project, run.Id, null, None),
+            () => flowRuns.ResumeAsync(Principal.LocalOwner, Project, run.Id, null, null, None),
             () => flowRuns.PauseAsync(Principal.LocalOwner, Project, run.Id, "Look first.", "resume", None),
             () => flowRuns.PauseAsync(runner, Project, run.Id, "Look first.", "resume", None),
             () => flowRuns.StopAsync(Principal.LocalOwner, Project, run.Id, "Not ours.", None),

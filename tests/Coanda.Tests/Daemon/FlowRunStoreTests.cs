@@ -200,7 +200,7 @@ public sealed class FlowRunStoreTests
         await flowRuns.RecordResultAsync(agent, Project, flowRun.Id, "worktree", SoftwareSteps.Worktree, Json("""{"verdict":"done"}"""), none);
         await flowRuns.StartStepAsync(agent, Project, flowRun.Id, "build", none);
         await flowRuns.PauseAsync(agent, Project, flowRun.Id, "Asked a question.", "Answer it.", none);
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.ResumeAsync(agent, Project, flowRun.Id, null, none));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => flowRuns.ResumeAsync(agent, Project, flowRun.Id, null, null, none));
         Assert.Equal("'flow-run.resume' is not open to the Agent role.", exception.Message);
         DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => flowRuns.StopAsync(agent, Project, flowRun.Id, "Done with it.", none));
         Assert.Equal("'flow-run.stop' is not open to the Agent role.", exception2.Message);
