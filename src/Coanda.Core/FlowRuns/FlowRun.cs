@@ -98,6 +98,17 @@ public sealed class FlowRun
     [JsonInclude]
     public Measurement? PauseUsage { get; private set; }
 
+    /// <summary>
+    /// The <see cref="FileHash"/> of the prompt of the session whose agent step paused the flow run
+    /// after its retry, or null when the pause was any other, or was recorded before it was carried.
+    /// </summary>
+    [JsonInclude]
+    public string? PausePromptHash { get; private set; }
+
+    /// <summary>The <see cref="FileHash"/> of that session's transcript, or null as <see cref="PausePromptHash"/> is.</summary>
+    [JsonInclude]
+    public string? PauseTranscriptHash { get; private set; }
+
     /// <summary>Running or paused: the flow run still holds its parcel.</summary>
     public bool IsLive => Status is FlowRunStatus.Running or FlowRunStatus.Paused;
 
@@ -151,6 +162,8 @@ public sealed class FlowRun
             Model = answered.Model,
             Answer = answered.Answer,
             Measurement = answered.Measurement,
+            PromptHash = answered.PromptHash,
+            TranscriptHash = answered.TranscriptHash,
             RecordedAt = answered.AnsweredAt,
             ResumedAt = null,
         });
@@ -227,6 +240,8 @@ public sealed class FlowRun
         PauseReason = paused.Reason;
         Lever = paused.Lever;
         PauseUsage = paused.Usage;
+        PausePromptHash = paused.PromptHash;
+        PauseTranscriptHash = paused.TranscriptHash;
         PausedCost += paused.Usage?.CostUsd ?? 0m;
         UpdatedAt = paused.PausedAt;
     }
@@ -244,6 +259,8 @@ public sealed class FlowRun
         PauseReason = null;
         Lever = null;
         PauseUsage = null;
+        PausePromptHash = null;
+        PauseTranscriptHash = null;
         Record(entry => entry with
         {
             ResumedAt = resumed.ResumedAt,

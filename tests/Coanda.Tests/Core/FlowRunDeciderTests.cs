@@ -519,6 +519,106 @@ public sealed class FlowRunDeciderTests
         Assert.Null(flowRun.Current?.Model);
     }
 
+    private static readonly string PromptHash = FileHash.Of("the prompt"u8);
+    private static readonly string TranscriptHash = FileHash.Of("the transcript"u8);
+
+    [Fact]
+    public void A_file_hash_is_the_full_sha256_of_the_bytes_in_lowercase_hex_behind_its_prefix()
+    {
+        Assert.Equal("sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", FileHash.Of([]));
+        using var stream = new MemoryStream("the prompt"u8.ToArray());
+        Assert.Equal(PromptHash, FileHash.Of(stream));
+        Assert.True(FileHash.IsHash(PromptHash));
+        Assert.False(FileHash.IsHash(PromptHash.ToUpperInvariant()));
+        Assert.False(FileHash.IsHash(PromptHash[..^1]));
+        Assert.False(FileHash.IsHash(PromptHash.Replace("sha256:", "sha512:", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void An_answer_records_the_hashes_of_its_sessions_prompt_and_transcript_and_the_visit_holds_them()
+    {
+        FlowRun flowRun = AtAgentStep();
+        AgentStepAnswered answered = FlowRunDecider.Answer(
+            Build, flowRun, "build", "build", Launched(flowRun), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now, PromptHash, TranscriptHash);
+
+        Assert.Equal((PromptHash, TranscriptHash), (answered.PromptHash, answered.TranscriptHash));
+        flowRun.Apply(answered);
+        Assert.Equal((PromptHash, TranscriptHash), (flowRun.Current?.PromptHash, flowRun.Current?.TranscriptHash));
+    }
+
+    [Theory]
+    [InlineData(true, false, "together; only one was given")]
+    [InlineData(false, true, "together; only one was given")]
+    [InlineData(true, true, "64 lowercase hexadecimal characters")]
+    public void An_answer_with_one_hash_or_a_hash_not_in_its_form_is_refused(bool prompt, bool transcript, string rule)
+    {
+        FlowRun flowRun = AtAgentStep();
+        string malformed = PromptHash[..^4];
+        Action answer = () => FlowRunDecider.Answer(
+            Build, flowRun, "build", "build", Launched(flowRun), "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now,
+            prompt ? (transcript ? malformed : PromptHash) : null,
+            transcript ? TranscriptHash : null);
+
+        DomainException exception = Assert.Throws<DomainException>(answer);
+        Assert.StartsWith("An answer records", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(rule, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_agent_step_pause_records_the_hashes_of_its_sessions_files_and_a_resume_clears_them()
+    {
+        FlowRun flowRun = AtAgentStep();
+        Guid session = Launched(flowRun);
+        FlowRunPaused paused = FlowRunDecider.Pause(Build, flowRun, "No valid answer.", "/transcripts/1.jsonl.gz", "flow-run", Now, Spend, session, PromptHash, TranscriptHash);
+
+        Assert.Equal((PromptHash, TranscriptHash), (paused.PromptHash, paused.TranscriptHash));
+        flowRun.Apply(paused);
+        Assert.Equal((PromptHash, TranscriptHash), (flowRun.PausePromptHash, flowRun.PauseTranscriptHash));
+        flowRun.Apply(FlowRunDecider.Resume(Build, flowRun, null, null, "owner", Now));
+        Assert.Equal((null, null), (flowRun.PausePromptHash, flowRun.PauseTranscriptHash));
+    }
+
+    [Fact]
+    public void A_pause_with_hashes_but_no_session_or_with_only_one_hash_is_refused()
+    {
+        FlowRun flowRun = AtAgentStep();
+        Guid session = Launched(flowRun);
+
+        DomainException exception = Assert.Throws<DomainException>(() => FlowRunDecider.Pause(Build, flowRun, "Hold on.", "resume", "owner", Now, promptHash: PromptHash, transcriptHash: TranscriptHash));
+        Assert.Equal("A pause records the hashes of a session's files only for the agent step session it names; none was given.", exception.Message);
+        DomainException exception2 = Assert.Throws<DomainException>(() => FlowRunDecider.Pause(Build, flowRun, "No valid answer.", "lever", "flow-run", Now, Spend, session, transcriptHash: TranscriptHash));
+        Assert.Equal("A pause records the hashes of its session's prompt and transcript together; only one was given.", exception2.Message);
+        // a pause with neither is any other pause, as before
+        Assert.Null(FlowRunDecider.Pause(Build, flowRun, "Hold on.", "resume", "owner", Now).PromptHash);
+    }
+
+    [Fact]
+    public void An_answer_and_a_pause_recorded_before_they_carried_hashes_replay_with_none()
+    {
+        FlowRun flowRun = AtAgentStep();
+        Launched(flowRun);
+        FlowRunPaused oldPause = JsonSerializer.Deserialize<FlowRunPaused>(
+            $$"""{"FlowRunId":"{{flowRun.Id}}","Reason":"No valid answer.","Lever":"/transcripts/1.jsonl","PausedBy":"flow-run","PausedAt":"2026-11-03T12:00:00+00:00"}""")
+            ?? throw new InvalidOperationException("The pause did not read back.");
+        Assert.Equal((null, null), (oldPause.PromptHash, oldPause.TranscriptHash));
+        flowRun.Apply(oldPause);
+        Assert.Equal(("No valid answer.", "/transcripts/1.jsonl"), (flowRun.PauseReason, flowRun.Lever));
+        Assert.Equal((null, null), (flowRun.PausePromptHash, flowRun.PauseTranscriptHash));
+
+        FlowRun answering = AtAgentStep();
+        Guid answeringSession = Launched(answering);
+        AgentStepAnswered current = FlowRunDecider.Answer(Build, answering, "build", "build", answeringSession, "agenthash", Model, Json("""{"verdict":"done"}"""), Spend, Now);
+        string written = JsonSerializer.Serialize(current);
+        Assert.Contains("\"PromptHash\":null", written, StringComparison.Ordinal);
+        AgentStepAnswered oldAnswer = JsonSerializer.Deserialize<AgentStepAnswered>(
+            written.Replace(",\"PromptHash\":null,\"TranscriptHash\":null", string.Empty, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("The answer did not read back.");
+        Assert.Equal((null, null), (oldAnswer.PromptHash, oldAnswer.TranscriptHash));
+        answering.Apply(oldAnswer);
+        Assert.Equal(Spend, answering.Current?.Measurement);
+        Assert.Equal((null, null), (answering.Current?.PromptHash, answering.Current?.TranscriptHash));
+    }
+
     [Fact]
     public void An_answer_from_the_session_a_resume_moved_past_is_refused_even_on_the_same_step_and_visit()
     {
