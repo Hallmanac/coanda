@@ -215,7 +215,8 @@ public sealed class ConfinedSessionTests : IDisposable
         string coa = ClaudeCodeExecutor.CoaExecutable(coaDirectory);
         Directory.CreateDirectory(WorkDirectory);
         string file = Path.Combine(WorkDirectory, "a.cs");
-        await File.WriteAllTextAsync(file, "class A;");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await File.WriteAllTextAsync(file, "class A;", timeout.Token);
         IReadOnlyDictionary<string, string> inherited = ClaudeCodeExecutor.CurrentEnvironment();
         ToolGuardRules rules = ClaudeCodeInvocation.Guard(temp.Home, WorkDirectory, null, inherited, [], confined: true);
         IReadOnlyDictionary<string, string> environment = ClaudeCodeInvocation.Environment(inherited, null, access: null, coaDirectory, confined: true);
@@ -233,7 +234,7 @@ public sealed class ConfinedSessionTests : IDisposable
         }
 
         using Process process = Process.Start(start) ?? throw new InvalidOperationException("coa did not start.");
-        await process.StandardInput.WriteAsync(JsonSerializer.Serialize(new Dictionary<string, object?>
+        string call = JsonSerializer.Serialize(new Dictionary<string, object?>
         {
             ["session_id"] = "3f6c1b2a-0000-4000-8000-000000000001",
             ["transcript_path"] = Path.Combine(temp.Home.Path, "config", "projects", "-work", "3f6c1b2a-0000-4000-8000-000000000001.jsonl"),
@@ -241,13 +242,26 @@ public sealed class ConfinedSessionTests : IDisposable
             ["hook_event_name"] = "PreToolUse",
             ["tool_name"] = "Read",
             ["tool_input"] = new { file_path = file },
-        }));
-        process.StandardInput.Close();
-        Task<string> error = process.StandardError.ReadToEndAsync();
-        Task<string> output = process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
+        });
+        string error;
+        string output;
+        try
+        {
+            await process.StandardInput.WriteAsync(call.AsMemory(), timeout.Token);
+            process.StandardInput.Close();
+            Task<string> reading = process.StandardError.ReadToEndAsync(timeout.Token);
+            output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
+            error = await reading;
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Disposing the process does not end it, so a coa that hangs is stopped here.
+            process.Kill(entireProcessTree: true);
+            throw;
+        }
 
-        Assert.True(process.ExitCode == ToolGuardOutcome.AllowCode, $"coa exited {process.ExitCode}: {await error}{await output}");
+        Assert.True(process.ExitCode == ToolGuardOutcome.AllowCode, $"coa exited {process.ExitCode}: {error}{output}");
     }
 
     private FakeClaude Fake(params object[] script)
@@ -292,15 +306,17 @@ public sealed class ConfinedSessionTests : IDisposable
 
     private static async Task Until(Func<bool> condition)
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         while (!condition())
         {
-            if (DateTimeOffset.UtcNow > deadline)
+            try
+            {
+                await Task.Delay(50, timeout.Token);
+            }
+            catch (OperationCanceledException)
             {
                 throw new TimeoutException("The condition did not hold within 30 seconds.");
             }
-
-            await Task.Delay(50);
         }
     }
 }
