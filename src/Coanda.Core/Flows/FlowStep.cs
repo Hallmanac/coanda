@@ -7,8 +7,8 @@ namespace Coanda.Core.Flows;
 /// A step of a flow. An agent step names an <see cref="Agent"/> and an <see cref="AnswerSchema"/>; a
 /// system step names a <see cref="SystemStep"/> and holds zero or more named <see cref="Arguments"/>. Exactly
 /// one of agent and system step is set. An agent step may declare the parcel <see cref="Fields"/> its context
-/// carries, and the <see cref="Sources"/> whose latest recordings on the same flow run it carries after them;
-/// a system step declares neither.
+/// carries, and the <see cref="Sources"/> it carries after them (steps of its flow run, a named flow's step on
+/// the same parcel, the open parcels of a type, or the parcel's origin); a system step declares neither.
 /// </summary>
 public sealed record FlowStep
 {

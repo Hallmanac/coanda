@@ -108,7 +108,7 @@ public sealed class FlowStepSourceTests
         Assert.Contains(source, content, StringComparison.Ordinal);
 
         DomainException exception = Assert.Throws<DomainException>(() => Flow.FromJson(content).Validate(Known));
-        Assert.Equal("Agent step 'judge' of flow 'sample' declares source 2, which names no step; a source names the step of the flow whose latest recording its context carries.", exception.Message);
+        Assert.Equal("Agent step 'judge' of flow 'sample' declares source 2, which names no kind; a source names a step of the flow (Step), a step of a named flow (Flow and Step), the open parcels of a type (Type), or the parcel's origin (Origin true).", exception.Message);
     }
 
     [Fact]
