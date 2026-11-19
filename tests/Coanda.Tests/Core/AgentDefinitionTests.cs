@@ -238,6 +238,32 @@ public sealed class AgentDefinitionTests
         Assert.Equal(AgentDefinition.CanonicalJson(unconfined), AgentDefinition.CanonicalJson(declaredFalse));
     }
 
+    [Theory]
+    [InlineData("confined")]
+    [InlineData("Confine")]
+    [InlineData("Confinded")]
+    public void A_member_the_agent_shape_does_not_define_is_refused_by_name_rather_than_ignored(string member)
+    {
+        string json = AgentDefinition.CanonicalJson(Agent() with { Tools = ["read", "shell"] })
+            .Replace("\"Name\":", $"\"{member}\": true,\n  \"Name\":", StringComparison.Ordinal);
+
+        DomainException refused = Assert.Throws<DomainException>(() => AgentDefinition.FromJson(json));
+
+        Assert.StartsWith("The content cannot be read as an agent definition:", refused.Message, StringComparison.Ordinal);
+        Assert.Contains($"'{member}'", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_member_the_persona_or_the_model_spec_does_not_define_is_refused()
+    {
+        string json = AgentDefinition.CanonicalJson(Agent())
+            .Replace("\"Role\":", "\"Mood\": \"calm\",\n    \"Role\":", StringComparison.Ordinal);
+
+        DomainException refused = Assert.Throws<DomainException>(() => AgentDefinition.FromJson(json));
+
+        Assert.Contains("'Mood'", refused.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_confined_agent_that_holds_the_shell_or_the_web_tool_is_refused_naming_each()
     {

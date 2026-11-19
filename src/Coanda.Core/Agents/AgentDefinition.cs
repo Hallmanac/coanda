@@ -234,11 +234,19 @@ public sealed record AgentDefinition
     // such as '+' and '<' in a pattern or a description are written as themselves.
     private static readonly JsonSerializerOptions ShownOptions = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    private static readonly JsonSerializerOptions ReadOptions = new() { RespectNullableAnnotations = true };
+    private static readonly JsonSerializerOptions ReadOptions = new()
+    {
+        RespectNullableAnnotations = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
 
     public static string CanonicalJson(AgentDefinition agent) => JsonSerializer.Serialize(agent, WriteOptions);
 
-    /// <summary>Reads an agent from the JSON <see cref="CanonicalJson"/> writes; anything else is a rule broken.</summary>
+    /// <summary>
+    /// Reads an agent from the JSON <see cref="CanonicalJson"/> writes; anything else is a rule broken.
+    /// A member the shape does not define, such as <c>confined</c> spelled in lower case, is refused
+    /// by name rather than ignored, so a declaration the reader would drop can never pass silently.
+    /// </summary>
     public static AgentDefinition FromJson(string content)
     {
         try
