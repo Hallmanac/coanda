@@ -344,7 +344,7 @@ public sealed class DaemonHost
         }
         catch
         {
-            await app.DisposeAsync();
+            await RunningDaemon.StopAndDisposeAsync(app);
             throw;
         }
     }
@@ -405,6 +405,8 @@ public sealed class DaemonHost
 
 public sealed class RunningDaemon(WebApplication app, DaemonInfo info, HomeLock homeLock) : IAsyncDisposable
 {
+    private int disposed;
+
     public DaemonInfo Info { get; } = info;
 
     /// <summary>The daemon's services, so a test can write through a service no endpoint exposes yet.</summary>
@@ -414,16 +416,44 @@ public sealed class RunningDaemon(WebApplication app, DaemonInfo info, HomeLock 
 
     public async Task StopAsync(CancellationToken cancellationToken) => await app.StopAsync(cancellationToken);
 
-    /// <summary>Disposes the daemon, then releases the home's lock it held from the start of its start.</summary>
+    /// <summary>
+    /// Stops the daemon if nothing has stopped it yet and disposes it, then releases the home's lock it held
+    /// from the start of its start. A second call does nothing.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref disposed, 1) == 1)
+        {
+            return;
+        }
+
         try
         {
-            await app.DisposeAsync();
+            await StopAndDisposeAsync(app);
         }
         finally
         {
             homeLock.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Stops a started daemon that has not stopped, then disposes it. Disposing alone runs no hosted service's
+    /// stop, so every loop a disposed daemon had begun would go on polling a store that is gone.
+    /// </summary>
+    internal static async Task StopAndDisposeAsync(WebApplication app)
+    {
+        try
+        {
+            if (!app.Lifetime.ApplicationStopped.IsCancellationRequested)
+            {
+                // Disposing takes no token; the host's own shutdown timeout bounds the stop.
+                await app.StopAsync(CancellationToken.None);
+            }
+        }
+        finally
+        {
+            await app.DisposeAsync();
         }
     }
 }
