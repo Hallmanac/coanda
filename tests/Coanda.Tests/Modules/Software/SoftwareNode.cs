@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Flows;
@@ -121,9 +122,12 @@ internal sealed class SoftwareNode : IAsyncDisposable
             new DaemonOptions
             {
                 CommandRunner = runner,
-                GitHubHandler = handler ?? github.Handler,
-                GatesCommandLimit = gatesCommandLimit ?? DaemonOptions.DefaultGatesCommandLimit,
                 LoggerProvider = log,
+            },
+            new SoftwareHosting
+            {
+                GitHubHandler = handler ?? github.Handler,
+                GatesCommandLimit = gatesCommandLimit ?? ModuleComposition.DefaultGatesCommandLimit,
             },
             None);
         var node = new SoftwareNode(temp, daemon, runner, github);
@@ -156,11 +160,11 @@ internal sealed class SoftwareNode : IAsyncDisposable
     {
         HomePath = Home.Path,
         ProfilesPath = Home.ModuleAreaOf(SoftwareSteps.Module),
-        CoreApi = Services.GetRequiredService<ModuleCoreAccess>().Options,
+        CoreApi = Services.GetRequiredKeyedService<ModuleCoreAccess>(SoftwareSteps.Module).Options,
         CommandRunner = runner ?? Runner,
         GitHubHandler = GitHub.Handler,
         LoggerFactory = Services.GetRequiredService<ILoggerFactory>(),
-        GatesCommandLimit = DaemonOptions.DefaultGatesCommandLimit,
+        GatesCommandLimit = ModuleComposition.DefaultGatesCommandLimit,
     });
 
     /// <summary>Gives the software module's setting <paramref name="name"/> the value <paramref name="value"/> in <paramref name="project"/>, as the owner would.</summary>

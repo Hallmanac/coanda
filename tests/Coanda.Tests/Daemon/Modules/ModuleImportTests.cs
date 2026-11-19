@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Coanda.Cli;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
@@ -50,9 +51,15 @@ public sealed class ModuleImportTests
         { DefinitionKind.Agent, "discovery", "a22ef13e3dcd2ab0" },
     };
 
-    private static async Task StartAndStopAsync(NodeHome home, DaemonOptions? options = null)
+    private static async Task StartAndStopAsync(NodeHome home, DaemonOptions? options = null) =>
+        await StartAndStopAsync(home, options ?? new DaemonOptions(), new SoftwareHosting());
+
+    private static async Task StartAndStopAsync(NodeHome home, SoftwareHosting software) =>
+        await StartAndStopAsync(home, new DaemonOptions(), software);
+
+    private static async Task StartAndStopAsync(NodeHome home, DaemonOptions options, SoftwareHosting software)
     {
-        await using RunningDaemon daemon = await Daemons.StartAsync(home, options ?? new DaemonOptions(), None);
+        await using RunningDaemon daemon = await Daemons.StartAsync(home, options, software, None);
         await daemon.StopAsync(None);
     }
 
@@ -67,9 +74,9 @@ public sealed class ModuleImportTests
     private static string CopyOfSoftware(TemporaryHome temp)
     {
         string copy = Path.Combine(temp.Home.Path, "software-module");
-        foreach (string file in Directory.EnumerateFiles(DaemonOptions.DefaultSoftwareModulePath, "*", SearchOption.AllDirectories))
+        foreach (string file in Directory.EnumerateFiles(ModuleComposition.SoftwareModulePath, "*", SearchOption.AllDirectories))
         {
-            string target = Path.Combine(copy, Path.GetRelativePath(DaemonOptions.DefaultSoftwareModulePath, file));
+            string target = Path.Combine(copy, Path.GetRelativePath(ModuleComposition.SoftwareModulePath, file));
             Directory.CreateDirectory(Path.GetDirectoryName(target) ?? copy);
             File.Copy(file, target);
         }
@@ -135,7 +142,7 @@ public sealed class ModuleImportTests
     {
         using var temp = new TemporaryHome();
         string software = CopyOfSoftware(temp);
-        var options = new DaemonOptions { SoftwareModulePath = software };
+        var options = new SoftwareHosting { ModulePath = software };
         await StartAndStopAsync(temp.Home, options);
         string file = Path.Combine(software, "definitions", "flows", "review-on-assignment.json");
         JsonObject edited = JsonNode.Parse(await File.ReadAllTextAsync(file, None))?.AsObject() ?? throw new InvalidOperationException("Not an object.");
@@ -158,7 +165,7 @@ public sealed class ModuleImportTests
     {
         using var temp = new TemporaryHome();
         string software = CopyOfSoftware(temp);
-        var options = new DaemonOptions { SoftwareModulePath = software };
+        var options = new SoftwareHosting { ModulePath = software };
         string file = Path.Combine(software, "definitions", "flows", "review-on-assignment.json");
         string original = await File.ReadAllTextAsync(file, None);
         await StartAndStopAsync(temp.Home, options);
@@ -195,7 +202,7 @@ public sealed class ModuleImportTests
             Directory.Delete(path, recursive: true);
         }
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new DaemonOptions { SoftwareModulePath = software }));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new SoftwareHosting { ModulePath = software }));
 
         Assert.Contains($"'{path}'", exception.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(temp.Home.DaemonInfoPath));
@@ -209,9 +216,9 @@ public sealed class ModuleImportTests
         string manifest = Path.Combine(software, "module.json");
         await File.WriteAllTextAsync(manifest, (await File.ReadAllTextAsync(manifest, None)).Replace("\"software\"", "\"engineering\"", StringComparison.Ordinal), None);
 
-        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new DaemonOptions { SoftwareModulePath = software }));
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new SoftwareHosting { ModulePath = software }));
 
-        Assert.StartsWith($"The software module's manifest in '{software}' names the module 'engineering'; it is 'software',", exception.Message, StringComparison.Ordinal);
+        Assert.StartsWith($"The manifest in '{software}' names the module 'engineering', but it is hosted as 'software',", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>A file of a stand-in module that breaks a rule, as its path in the definitions folder, its text, and the rule's wording.</summary>

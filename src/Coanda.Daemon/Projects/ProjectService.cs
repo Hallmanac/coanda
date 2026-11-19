@@ -8,7 +8,6 @@ using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
-using Coanda.Modules.Software;
 using Coanda.Sdk.Contract;
 using Fisher;
 using JasperFx.Events;
@@ -25,32 +24,26 @@ namespace Coanda.Daemon.Projects;
 /// profile cannot both start its stream.
 /// </summary>
 public sealed class ProjectService(
-    IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, RepoClones? clones, NodeOwner? owner)
+    IDocumentStore store,
+    TimeProvider clock,
+    CredentialProfiles profiles,
+    IModuleSettingsSchemas schemas,
+    DefaultModules defaults,
+    RepoClones? clones,
+    NodeOwner? owner)
 {
     private readonly SemaphoreSlim writes = new(1, 1);
 
     /// <summary>A project service that records no owner id when it registers a project, for a store opened without the daemon.</summary>
-    public ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, RepoClones? clones)
-        : this(store, clock, profiles, schemas, clones, null)
+    public ProjectService(
+        IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, DefaultModules defaults, RepoClones? clones)
+        : this(store, clock, profiles, schemas, defaults, clones, null)
     {
     }
 
     /// <summary>A project service that makes no clone when it registers a project, for a store opened without the daemon.</summary>
-    public ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas)
-        : this(store, clock, profiles, schemas, null, null)
-    {
-    }
-
-    /// <summary>
-    /// A project service whose daemon holds no credential profiles and whose only module settings schema
-    /// is the software module's, the module every registration switches on.
-    /// </summary>
-    public ProjectService(IDocumentStore store, TimeProvider clock)
-        : this(
-            store,
-            clock,
-            new CredentialProfiles([]),
-            new ModuleSettingsSchemas(new Dictionary<string, SettingsSchema> { [SoftwareSteps.Module] = SoftwareDescribe.Settings }))
+    public ProjectService(IDocumentStore store, TimeProvider clock, CredentialProfiles profiles, IModuleSettingsSchemas schemas, DefaultModules defaults)
+        : this(store, clock, profiles, schemas, defaults, null, null)
     {
     }
 
@@ -65,7 +58,7 @@ public sealed class ProjectService(
 
     /// <summary>
     /// Registers a project with one repo, at <paramref name="remote"/>, switching on for it the modules
-    /// the daemon hosts by default (<see cref="HostedModules.Defaults"/>), and records
+    /// the host names as the node's defaults (<see cref="DefaultModules"/>), and records
     /// <paramref name="settings"/>, each a replicated setting of one of those modules, in the same save.
     /// Each setting is decided against its module's settings schema and the switch-on this registration
     /// records, so a setting its schema refuses, one naming a module the registration does not switch on,
@@ -96,7 +89,7 @@ public sealed class ProjectService(
             ProjectRegistered registered = ProjectDecider.Register(tenant, remote, existing, principal.Id, clock.GetUtcNow(), registeredNames);
 
             Project project = Project.Create(registered);
-            ProjectModulesSet switchedOn = ProjectDecider.SetModules(tenant, project, HostedModules.Defaults, principal.Id, registered.RegisteredAt);
+            ProjectModulesSet switchedOn = ProjectDecider.SetModules(tenant, project, defaults.Names, principal.Id, registered.RegisteredAt);
             project.Apply(switchedOn);
             IReadOnlyList<(Guid SettingsId, ModuleSettingSet[] Events)> recorded =
                 await DecideSettingsAsync(project, settings, principal, registered.RegisteredAt, cancellationToken);
@@ -341,9 +334,9 @@ public sealed class ProjectService(
     }
 
     /// <summary>
-    /// Switches the modules the daemon hosts by default on for every project registered on the node
+    /// Switches the default modules (<see cref="DefaultModules"/>) on for every project registered on the node
     /// before modules were, which is every project whose record has never named its modules, with
-    /// nothing configured, so such a project runs the software module's flows as it did. A project whose modules
+    /// nothing configured, so such a project runs the flows it ran before. A project whose modules
     /// were named, even as none, is left as it is, and so is a project whose registration was imported from
     /// another node's line: its modules are the owner's to switch on, and arrive with the owner's lines. The
     /// daemon runs it at start.
@@ -369,7 +362,7 @@ public sealed class ProjectService(
                 }
 
                 ProjectModulesSet set = ProjectDecider.SetModules(
-                    project.Name, project, [.. project.Modules, .. HostedModules.Defaults], UpgradePrincipal.Id, clock.GetUtcNow());
+                    project.Name, project, [.. project.Modules, .. defaults.Names], UpgradePrincipal.Id, clock.GetUtcNow());
                 session.Events.Append(project.Id, set);
                 await session.SaveChangesAsync(cancellationToken);
             }

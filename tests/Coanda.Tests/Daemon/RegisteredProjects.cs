@@ -44,7 +44,7 @@ public static class RegisteredProjects
 
     /// <summary>Registers <paramref name="project"/> in a store opened without the daemon.</summary>
     public static Task<Project> AddAsync(IDocumentStore store, string project, CancellationToken cancellationToken) =>
-        new ProjectService(store, TimeProvider.System).AddAsync(Principal.LocalOwner, project, Remote, Settings, cancellationToken);
+        ProjectServices.Software(store, TimeProvider.System).AddAsync(Principal.LocalOwner, project, Remote, Settings, cancellationToken);
 
     /// <summary>Registers <paramref name="project"/> through the running daemon's own project service.</summary>
     public static Task<Project> AddAsync(RunningDaemon daemon, string project, CancellationToken cancellationToken) =>

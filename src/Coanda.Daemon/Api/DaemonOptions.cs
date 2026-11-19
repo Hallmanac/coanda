@@ -4,8 +4,6 @@ using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Triggers;
-using Coanda.Modules.Software;
-using Coanda.Modules.Software.GitHub;
 using Coanda.Sdk.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -14,32 +12,23 @@ namespace Coanda.Daemon.Api;
 /// <summary>
 /// What the daemon host accepts when it is started. <c>coa daemon run</c> gets the executor and the
 /// credential profiles from the node configuration (<see cref="NodeConfiguration"/>), supplies the
-/// command runner that starts real processes and the GitHub handler that reaches the network, and
-/// takes the defaults for the rest; a test builds these directly.
+/// command runner that starts real processes, and has the host that builds the executable add the modules
+/// it composes and the modules a new project is switched on for; it takes the defaults for the rest. A
+/// test builds these directly, or through the same host.
 /// </summary>
 public sealed record DaemonOptions
 {
     public static readonly TimeSpan DefaultAgentStepLimit = TimeSpan.FromMinutes(30);
 
-    public static readonly TimeSpan DefaultGatesCommandLimit = TimeSpan.FromMinutes(60);
-
     /// <summary>The executor agent steps run through; null runs them through a scripted executor with no entries, so every agent step pauses.</summary>
     public IAgentExecutor? Executor { get; init; }
 
     /// <summary>
-    /// The runner the software module runs every external command of its worktree, gates, open-pr, and
-    /// rebase steps and of a worktree's removal through; null uses <see cref="NoCommandRunner"/>, which
-    /// starts nothing and fails every command, so those steps pause.
+    /// The runner every external command goes through: the core's clones and fetches of each repo, and
+    /// whatever a composed module runs, since it is given this runner (<see cref="ModuleHostContext.CommandRunner"/>);
+    /// null uses <see cref="NoCommandRunner"/>, which starts nothing and fails every command.
     /// </summary>
     public ICommandRunner? CommandRunner { get; init; }
-
-    /// <summary>
-    /// The factory of the primary message handler the software module's GitHub client sends its requests through,
-    /// called each time the client factory makes a handler, so it returns a new one each call; null
-    /// uses <see cref="NoGitHubHandler"/>, which fails every request, so the open-pr step pauses.
-    /// <c>coa daemon run</c> supplies <see cref="GitHubClient.NetworkHandler"/>.
-    /// </summary>
-    public Func<HttpMessageHandler>? GitHubHandler { get; init; }
 
     /// <summary>
     /// The credential profiles the node holds, by vendor and name; an agent step in a project that
@@ -61,10 +50,26 @@ public sealed record DaemonOptions
     public IReadOnlyList<IFlowSystemStep> SystemSteps { get; init; } = [];
 
     /// <summary>
-    /// Modules the daemon hosts in its own process beside the software module, by name, each called
-    /// through a host adapter as the software module is: waited on for health and asked to describe
-    /// itself at start, dispatched the steps it describes, and fed the core events it subscribes to.
-    /// None by default: a test brings stand-in modules here.
+    /// Modules the host composes, which the daemon builds at start from the context it gives each one and
+    /// hosts in its own process, in this order: each gets its module area under the node home and a core
+    /// token issued for the start, and its definitions are imported in module scope from its directory.
+    /// A host adapter carries every call to it, as it does to a module in <see cref="Modules"/>. None by
+    /// default: <c>coa daemon run</c> has the host that builds the executable add its own.
+    /// </summary>
+    public IReadOnlyList<ComposedModule> ComposedModules { get; init; } = [];
+
+    /// <summary>
+    /// The names of the modules a project registered on this node is switched on for, which a project
+    /// registered before modules were also has switched on at start. None by default: <c>coa daemon run</c>
+    /// has the host that builds the executable supply them.
+    /// </summary>
+    public IReadOnlyList<string> DefaultModules { get; init; } = [];
+
+    /// <summary>
+    /// Modules the daemon hosts in its own process beside the composed ones, by name, already built, each
+    /// called through a host adapter as a composed module is: waited on for health and asked to describe
+    /// itself at start, dispatched the steps it describes, and fed the core events it subscribes to. Each
+    /// gets a module area and is issued no core token. None by default: a test brings stand-in modules here.
     /// </summary>
     public IReadOnlyDictionary<string, IModule> Modules { get; init; } = new Dictionary<string, IModule>();
 
@@ -75,23 +80,11 @@ public sealed record DaemonOptions
     public IModuleSettingsSchemas? ModuleSettingsSchemas { get; init; }
 
     /// <summary>
-    /// The directory the software module's <c>module.json</c> and definitions folder are read from at
-    /// start, whose definitions are imported in module scope; null reads <see cref="DefaultSoftwareModulePath"/>.
-    /// </summary>
-    public string? SoftwareModulePath { get; init; }
-
-    /// <summary>
     /// Directories of modules the daemon does not host, each holding a <c>module.json</c> and a
-    /// definitions folder, whose definitions it imports at start after the software module's. None by
+    /// definitions folder, whose definitions it imports at start after the composed modules'. None by
     /// default: a test brings stand-in modules here.
     /// </summary>
     public IReadOnlyList<string> ModulePaths { get; init; } = [];
-
-    /// <summary>
-    /// Where the build puts the software module's <c>module.json</c> and definitions folder: under
-    /// <c>modules/software/</c> beside the daemon's assembly, copied there from the module's project.
-    /// </summary>
-    public static string DefaultSoftwareModulePath => Path.Combine(AppContext.BaseDirectory, "modules", SoftwareSteps.Module);
 
     /// <summary>A logger provider the daemon's log goes to beside the console, or null for the console alone.</summary>
     public ILoggerProvider? LoggerProvider { get; init; }
@@ -114,12 +107,6 @@ public sealed record DaemonOptions
 
     /// <summary>How long one agent step, its retry included, may run before its session is stopped and the flow run pauses.</summary>
     public TimeSpan AgentStepLimit { get; init; } = DefaultAgentStepLimit;
-
-    /// <summary>
-    /// How long the gates step's build command, and then its test command, may each run before it is
-    /// ended and the step answers failed, so a command that never exits sends the work to its fix lap.
-    /// </summary>
-    public TimeSpan GatesCommandLimit { get; init; } = DefaultGatesCommandLimit;
 
     /// <summary>
     /// What the trigger loop awaits after each follower of a flow run's end is decided and before the

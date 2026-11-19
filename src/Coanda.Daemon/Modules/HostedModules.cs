@@ -2,7 +2,6 @@ using System.Text.Json;
 using Coanda.Core;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
-using Coanda.Modules.Software;
 using Coanda.Sdk.Contract;
 using NJsonSchema;
 using NJsonSchema.Validation;
@@ -14,8 +13,8 @@ namespace Coanda.Daemon.Modules;
 /// describe when the daemon started: the steps it brings, whose argument and result schemas are read
 /// once then, the core event kinds it subscribes to, and its settings schema, whose settings' schemas are
 /// read then too, so a schema that cannot be read or refers outside itself stops the start. Until
-/// <see cref="StartAsync"/> has asked every module, no module describes anything. The software module is switched on for every new
-/// project; a test may host stand-in modules beside it.
+/// <see cref="StartAsync"/> has asked every module, no module describes anything. Which of them a new project is switched
+/// on for is the host's to say (<see cref="DefaultModules"/>); a test may host stand-in modules beside them.
 /// </summary>
 /// <remarks>
 /// <paramref name="others"/> are the settings schemas of modules the daemon does not host, a test's
@@ -25,9 +24,6 @@ namespace Coanda.Daemon.Modules;
 /// </remarks>
 public sealed class HostedModules(IReadOnlyDictionary<string, ModuleHostAdapter> adapters, IModuleSettingsSchemas? others = null)
 {
-    /// <summary>The modules a project registered on this node is switched on for.</summary>
-    public static readonly IReadOnlyList<string> Defaults = [SoftwareSteps.Module];
-
     private readonly Dictionary<string, Described> described = new(StringComparer.Ordinal);
     private readonly IModuleSettingsSchemas? standIns = others;
     private IModuleSettingsSchemas hostedSchemas = ModuleSettingsSchemas.None;

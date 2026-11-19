@@ -17,8 +17,6 @@ using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
-using Coanda.Modules.Software;
-using Coanda.Modules.Software.GitHub;
 using Fisher;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -51,7 +49,6 @@ public sealed class DaemonHost
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.AgentStepLimit, TimeSpan.Zero, nameof(options));
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.GatesCommandLimit, TimeSpan.Zero, nameof(options));
         if (options.ExportInterval is { } exportInterval)
         {
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(exportInterval, TimeSpan.Zero, nameof(options));
@@ -85,7 +82,7 @@ public sealed class DaemonHost
         home.EnsureDatabase();
         // Made at the first start on a home and read at every later one; a home holding part of one is refused here.
         NodeIdentity identity = await NodeIdentity.EnsureAsync(home, cancellationToken);
-        string[] moduleAreas = [SoftwareSteps.Module, .. options.Modules.Keys, .. options.ModuleSettingsSchemas?.Modules ?? []];
+        string[] moduleAreas = [.. options.ComposedModules.Select(m => m.Name), .. options.Modules.Keys, .. options.ModuleSettingsSchemas?.Modules ?? []];
         foreach (string module in moduleAreas)
         {
             home.EnsureModuleArea(module);
@@ -124,6 +121,7 @@ public sealed class DaemonHost
             services.GetRequiredService<FlowSystemSteps>().ArgumentCheckAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
         builder.Services.AddSingleton<RepoClones>();
+        builder.Services.AddSingleton(new DefaultModules(options.DefaultModules));
         builder.Services.AddSingleton<ProjectService>();
         builder.Services.AddSingleton<ParcelService>();
         builder.Services.AddSingleton<FlowService>();
@@ -132,27 +130,27 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<ICommandRunner>(options.CommandRunner ?? new NoCommandRunner());
         builder.Services.AddSingleton<FlowRunWorkers>();
 
-        // The software module, hosted in this process behind its host adapter. It is given the node
-        // home, where it finds each repo's clone by the layout, its own area, the command runner, the
-        // GitHub handler, the gates command limit, and the core's address and its token, which exist only
-        // once the daemon is listening, and it reaches the daemon otherwise only through the core's API.
-        var softwareCore = new ModuleCoreAccess(SoftwareSteps.Module);
-        builder.Services.AddSingleton(softwareCore);
-        builder.Services.AddSingleton(services => new SoftwareModule(
-            new SoftwareModuleOptions
-            {
-                HomePath = home.Path,
-                ProfilesPath = home.ModuleAreaOf(SoftwareSteps.Module),
-                CoreApi = softwareCore.Options,
-                CommandRunner = services.GetRequiredService<ICommandRunner>(),
-                GitHubHandler = options.GitHubHandler ?? (() => new NoGitHubHandler()),
-                LoggerFactory = services.GetRequiredService<ILoggerFactory>(),
-                GatesCommandLimit = options.GatesCommandLimit,
-            }));
+        // Each module the host composed, hosted in this process behind its host adapter. It is given the
+        // node home, where it finds each repo's clone by the layout, its own area, the command runner, the
+        // logger factory, and the core's address and its token, which exist only once the daemon is
+        // listening, and it reaches the daemon otherwise only through the core's API. Its core access is
+        // a service keyed by its name.
+        List<(ComposedModule Module, ModuleCoreAccess Core)> composed = [.. options.ComposedModules.Select(m => (m, new ModuleCoreAccess(m.Name)))];
+        foreach ((ComposedModule module, ModuleCoreAccess core) in composed)
+        {
+            builder.Services.AddKeyedSingleton(module.Name, core);
+            module.Register(builder.Services, services => new ModuleHostContext(
+                home.Path,
+                home.ModuleAreaOf(module.Name),
+                core.Options,
+                services.GetRequiredService<ICommandRunner>(),
+                services.GetRequiredService<ILoggerFactory>()));
+        }
+
         builder.Services.AddSingleton(services => new HostedModules(
             new Dictionary<string, ModuleHostAdapter>(
                 [
-                    new(SoftwareSteps.Module, new ModuleHostAdapter(services.GetRequiredService<SoftwareModule>())),
+                    .. composed.Select(c => new KeyValuePair<string, ModuleHostAdapter>(c.Module.Name, new ModuleHostAdapter(c.Module.Resolve(services)))),
                     .. options.Modules.Select(m => new KeyValuePair<string, ModuleHostAdapter>(m.Key, new ModuleHostAdapter(m.Value))),
                 ],
                 StringComparer.Ordinal),
@@ -227,11 +225,15 @@ public sealed class DaemonHost
 
         try
         {
-            // The software module calls the core's API at the address the daemon now listens on,
-            // presenting a token issued to it for this start.
-            softwareCore.Connect(
-                new Uri($"http://127.0.0.1:{boundPort}"),
-                await app.Services.GetRequiredService<ModuleTokens>().ReissueAsync(SoftwareSteps.Module, cancellationToken));
+            // Each composed module calls the core's API at the address the daemon now listens on,
+            // presenting a token issued to it for this start. A module handed over already built is
+            // issued none.
+            foreach ((ComposedModule module, ModuleCoreAccess core) in composed)
+            {
+                core.Connect(
+                    new Uri($"http://127.0.0.1:{boundPort}"),
+                    await app.Services.GetRequiredService<ModuleTokens>().ReissueAsync(module.Name, cancellationToken));
+            }
 
             // A node that registered projects before its owner id was recorded records the id it has acted as.
             await app.Services.GetRequiredService<ProjectService>().RecordOwnerAsync(cancellationToken);
@@ -249,8 +251,8 @@ public sealed class DaemonHost
             // Each hosted module is waited on for health and asked to describe itself once the API it
             // calls is listening, and before anything is advertised: flows are validated against its
             // answer and module settings are read through it. A module answers health only once its own
-            // start is done; the software module's start sweeps the worktrees of flow runs that ended or
-            // were stopped while no daemon ran, so that is done before any live flow run is advanced.
+            // start is done, so whatever a module's start sweeps of flow runs that ended or were stopped
+            // while no daemon ran is done before any live flow run is advanced.
             await app.Services.GetRequiredService<HostedModules>().StartAsync(cancellationToken);
 
             // Types come from the store, so the modules' ones are in it before anything is served
@@ -325,21 +327,24 @@ public sealed class DaemonHost
     }
 
     /// <summary>
-    /// Imports the definitions of the software module, whose manifest must name it by the name its steps
-    /// are prefixed with and projects switch it on by, then those of each module in
-    /// <see cref="DaemonOptions.ModulePaths"/>, each module in one save.
+    /// Imports the definitions of each composed module, whose manifest must name it by the name it is
+    /// hosted as, the name its steps are prefixed with and projects switch it on by, then those of each
+    /// module in <see cref="DaemonOptions.ModulePaths"/>, each module in one save.
     /// </summary>
     private static async Task ImportModulesAsync(DefinitionService definitions, DaemonOptions options, CancellationToken cancellationToken)
     {
-        string softwarePath = options.SoftwareModulePath ?? DaemonOptions.DefaultSoftwareModulePath;
-        ModuleArtifact software = await ModuleArtifact.ReadAsync(softwarePath, cancellationToken);
-        if (!string.Equals(software.Module, SoftwareSteps.Module, StringComparison.Ordinal))
+        foreach (ComposedModule module in options.ComposedModules)
         {
-            throw new DomainException(
-                $"The software module's manifest in '{softwarePath}' names the module '{software.Module}'; it is '{SoftwareSteps.Module}', the name its steps are prefixed with and projects switch it on by.");
+            ModuleArtifact artifact = await ModuleArtifact.ReadAsync(module.Path, cancellationToken);
+            if (!string.Equals(artifact.Module, module.Name, StringComparison.Ordinal))
+            {
+                throw new DomainException(
+                    $"The manifest in '{module.Path}' names the module '{artifact.Module}', but it is hosted as '{module.Name}', the name its steps are prefixed with and projects switch it on by.");
+            }
+
+            await definitions.ImportAsync(artifact, cancellationToken);
         }
 
-        await definitions.ImportAsync(software, cancellationToken);
         foreach (string path in options.ModulePaths)
         {
             await definitions.ImportAsync(await ModuleArtifact.ReadAsync(path, cancellationToken), cancellationToken);

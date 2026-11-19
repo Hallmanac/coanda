@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Coanda.Cli;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
@@ -75,7 +76,7 @@ public sealed class StoreRebuiltTests
     private static async Task<RunningDaemon> StartAsync(TemporaryHome temp)
     {
         RecordHomes.Restore(temp.Home, RecordHomes.RebuiltByEe75e50);
-        return await Daemons.StartAsync(temp.Home, new DaemonOptions { CommandRunner = new ScriptedCommandRunner(), GitHubHandler = new FakeGitHub().Handler }, None);
+        return await Daemons.StartAsync(temp.Home, new DaemonOptions { CommandRunner = new ScriptedCommandRunner() }, new SoftwareHosting { GitHubHandler = new FakeGitHub().Handler }, None);
     }
 
     private static List<(DefinitionKind Kind, string Name, string Hash)> Expected(Flow build, params Flow[] more) =>

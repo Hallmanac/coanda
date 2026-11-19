@@ -563,10 +563,10 @@ public sealed class MergeFlowRunTests
                 new DaemonOptions
                 {
                     Executor = executor ?? Scripts.CleanBuildExecutor(),
-                    GitHubHandler = github.Handler,
                     Gates = gate is null ? [] : [gate],
                     CommandRunner = runner,
                 },
+                new SoftwareHosting { GitHubHandler = github.Handler },
                 None);
             await RegisteredProjects.AddAsync(daemon, Project, None);
             if (project is not null)
