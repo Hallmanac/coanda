@@ -47,13 +47,13 @@ public sealed class ConfiguredDefaultModulesTests
     }
 
     [Fact]
-    public async Task A_registration_on_a_node_that_switches_on_no_module_refuses_the_settings_coa_project_add_sends()
+    public async Task A_registration_on_a_node_that_switches_on_no_module_refuses_a_setting_given_with_coa_project_add()
     {
         using var temp = new TemporaryHome();
         Configure(temp, """{ "executor": "scripted", "defaultModules": [] }""");
         await using RunningDaemon daemon = await StartAsync(temp);
         using var client = new DaemonClient(temp.Home);
-        ProjectAddRequest request = new Coanda.Cli.Commands.ProjectAddSettings { Name = "alpha", Repo = RegisteredProjects.Remote, Branch = "main" }.ToRequest();
+        ProjectAddRequest request = new Coanda.Cli.Commands.ProjectAddSettings { Name = "alpha", Repo = RegisteredProjects.Remote, Settings = ["software/build=make"] }.ToRequest();
 
         DomainException refused = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ProjectView>("/projects", request, None));
 

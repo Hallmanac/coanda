@@ -261,7 +261,7 @@ public sealed class ProjectServiceTests
         await RegisteredProjects.AddAsync(store, "alpha", None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.AddAsync(Owner, " beta ", type, "Nowhere to go", null, None));
-        Assert.StartsWith("Project 'beta' is not registered; register it with coa project add beta", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("Project 'beta' is not registered; register it with coa project add beta --repo <url>.", exception.Message);
         Assert.Empty(await parcels.ListAsync(Owner, "beta", None));
 
         Assert.Equal("alpha", (await parcels.AddAsync(Owner, "alpha", "task", "Somewhere to go", null, None)).Project);

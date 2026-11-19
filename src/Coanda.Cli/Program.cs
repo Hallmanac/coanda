@@ -69,8 +69,8 @@ app.Configure(config =>
     config.AddBranch("project", project =>
     {
         project.SetDescription("A project is a name and the repos its work acts on, each a git remote; a module's settings for it are set with coa project module.");
-        project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its first repo's remote and the software module's primary branch, build, and test settings.")
-            .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git", "--branch", "main");
+        project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its first repo's remote, switching on the node's default modules, and any of their settings given with --setting.")
+            .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git");
         project.AddCommand<ProjectSetProfileCommand>("set-profile").WithDescription("Name the credential profile this node spawns the project's agent steps with.")
             .WithExample("project", "set-profile", "coanda", "work");
         project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
