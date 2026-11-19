@@ -153,6 +153,9 @@ cases are these:
 - This node already records a different owner id ("This node already records the owner id ...").
   The Windows machine has registered or joined a project as someone else. Give it a fresh home, as
   "When a vouch was a mistake" below describes, and start again from step 1.
+- This node records no owner id yet, and the registration names one that begins or ends with
+  whitespace ("The owner id '...' cannot be recorded: an owner id may not begin or end with
+  whitespace."). The CLI's principal header cannot carry such an id intact, so this node does not take it.
 - Something other than an unfinished join's clone is already where the clone goes.
 - The fetch failed.
 

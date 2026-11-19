@@ -409,7 +409,8 @@ event, when no root record on the remote has a key with the fingerprint, when th
 not verify through it and the registration, when the remote's lines root more than one project at that
 key, when the remote is not exactly the remote of one of the registration's repos, when a project of the
 same name in any letter case is registered here under another id, when this node records an owner id
-other than the registration's, when something other than an unfinished join's clone is at the clone's
+other than the registration's, when this node records none and the registration's id begins or ends with
+whitespace, when something other than an unfinished join's clone is at the clone's
 path, and when the fetch fails. A join that passed every check and then stopped before the import stored
 the owner's registration (cancelled, the daemon stopped, or an owner's line that does not import) leaves
 its root key record, its clone, and perhaps its owner id record, and says it is not finished when it
@@ -428,7 +429,11 @@ records the registered-by id of the owner's registration it imported, so the joi
 its records carry the owner's id, not the account name of the machine it runs on. A node that registered
 projects before the record existed has acted as the account's name all along, so its daemon's start
 records that name when it finds a project this node registered and no record. A join is refused when
-the node already records another id.
+the node already records another id. A node with no record never records an id that begins or ends with
+whitespace, since the CLI's principal header cannot carry such an id intact: registering under one, or
+joining a project whose registration names one, is refused before anything is recorded, and the start
+records nothing then. An id with whitespace only inside it is recorded as it is, and a record that already
+holds a whitespace-edged id is read and kept as it is.
 
 Identity: one owner root, one key per node, vouches, root-only revocation, and succession by ranked
 keys (successor named, root rotated, successor revoked), carried over from hall9k as events. The
