@@ -94,7 +94,7 @@ public sealed class SoftwareAgentsTests
     [InlineData("reviewer-adversarial", "4ff7ac20b180df0d", "a05d63d65709b916", "282d8d44b1c51255")]
     [InlineData("reviewer-conformance", "9f867144783e855c", "be473f662ee5093e", "8a5e994ba08f9e6f")]
     [InlineData("fix", "4ca4afe60ac4e100", "6052573ca3d9be35", "6052573ca3d9be35")]
-    [InlineData("discovery", "e99e12f13d399792", "a22ef13e3dcd2ab0", "59a5c3f3e3762316")]
+    [InlineData("discovery", "e99e12f13d399792", "a22ef13e3dcd2ab0", "1a81a8ffac8dc7bc")]
     public void Each_agent_hashes_as_before_without_its_schema_content_and_anew_with_it(string agent, string before, string after, string now)
     {
         AgentDefinition shipped = SoftwareAgents.All.Single(a => a.Name == agent);
@@ -119,8 +119,8 @@ public sealed class SoftwareAgentsTests
         Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":[{"title":"One"}]}""").IsValid);
         Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":[{"type":3,"title":"One"}]}""").IsValid);
         Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":{"type":"task","title":"One"}}""").IsValid);
-        // a derive answer the derive-parcels step would refuse is refused here, where the agent can still correct it
-        Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","summary":"Two tasks, described here."}""").IsValid);
+        // parcels is optional: a derive answer without it passes here, and the derive-parcels step refuses it
+        Assert.True(AnswerValidator.Validate(schema, """{"verdict":"derive","summary":"Two tasks, described here."}""").IsValid);
         Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":[]}""").IsValid);
         const string entry = """{"type":"task","title":"One"}""";
         Assert.False(AnswerValidator.Validate(schema, $$"""{"verdict":"derive","parcels":[{{string.Join(",", Enumerable.Repeat(entry, DeriveParcelsSystemStep.MaxEntries + 1))}}]}""").IsValid);
