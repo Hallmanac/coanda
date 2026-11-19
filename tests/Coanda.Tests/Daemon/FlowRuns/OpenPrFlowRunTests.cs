@@ -25,7 +25,7 @@ public sealed class OpenPrFlowRunTests
         var runner = new ScriptedCommandRunner();
         var github = new FakeGitHub();
         await using RunningDaemon daemon = await Daemons.StartAsync(
-            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), CommandRunner = runner, GitHubHandler = github.Handler }, None);
+            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), CommandRunner = runner }, new SoftwareHosting { GitHubHandler = github.Handler }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Open it");
@@ -52,7 +52,7 @@ public sealed class OpenPrFlowRunTests
         var github = new FakeGitHub();
         github.Refuse(r => r.IsOpen, HttpStatusCode.UnprocessableEntity, "Validation Failed");
         await using RunningDaemon daemon = await Daemons.StartAsync(
-            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), GitHubHandler = github.Handler }, None);
+            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, new SoftwareHosting { GitHubHandler = github.Handler }, None);
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         ParcelView parcel = await FlowRunDriver.TaskAtBuildAsync(client, Project, "Refused once");

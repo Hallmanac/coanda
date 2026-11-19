@@ -30,13 +30,13 @@ public sealed class ProjectServiceTests
         using var temp = new TemporaryHome();
         await using (IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath))
         {
-            Project added = await new ProjectService(store, TimeProvider.System).AddAsync(Owner, " coanda ", Remote, [], None);
+            Project added = await ProjectServices.Software(store, TimeProvider.System).AddAsync(Owner, " coanda ", Remote, [], None);
             Assert.Equal("coanda", added.Name);
             Assert.Equal(Owner.Id, added.RegisteredBy);
         }
 
         await using IDocumentStore reopened = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(reopened, TimeProvider.System);
+        var projects = ProjectServices.Software(reopened, TimeProvider.System);
 
         Project? shown = await projects.ShowAsync(Owner, "coanda", None);
         Assert.NotNull(shown);
@@ -55,7 +55,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
         await projects.AddAsync(Owner, "coanda", "https://example.invalid/a.git", [], None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "Coanda", "https://example.invalid/b.git", [], None));
@@ -69,7 +69,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
         await projects.AddAsync(Owner, "beta", "https://example.invalid/beta.git", [], None);
         await projects.AddAsync(Owner, "alpha", "https://example.invalid/alpha.git", [], None);
         await projects.AddAsync(Owner, "Gamma", "https://example.invalid/gamma.git", [], None);
@@ -85,7 +85,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
         await projects.AddAsync(Owner, "coanda", Remote, [], None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, " coanda ", "https://example.invalid/other.git", [], None));
@@ -99,7 +99,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
 
         Task<Project>[] adds =
         [
@@ -122,7 +122,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, name, remote, [], None));
         Assert.Matches(WildcardPattern.ToRegex(rule), exception.Message);
@@ -134,7 +134,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
 
         Project added = await projects.AddAsync(
             Owner,
@@ -199,7 +199,7 @@ public sealed class ProjectServiceTests
         Assert.NotEmpty(refused);
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "coanda", Remote, settings, None));
 
@@ -214,7 +214,7 @@ public sealed class ProjectServiceTests
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
-        var projects = new ProjectService(store, TimeProvider.System);
+        var projects = ProjectServices.Software(store, TimeProvider.System);
         var agent = new Principal("build-session", Role.Agent);
         var member = new Principal("teammate", Role.Member);
 

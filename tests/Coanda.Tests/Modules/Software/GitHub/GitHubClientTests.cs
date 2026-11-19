@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Coanda.Cli;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
@@ -50,7 +51,7 @@ public sealed class GitHubClientTests
         using var temp = new TemporaryHome();
 
         // Started on its own rather than through Daemons, which would supply a fake GitHub.
-        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, new DaemonOptions { CommandRunner = new ScriptedCommandRunner() }, None);
+        await using RunningDaemon daemon = await DaemonHost.StartAsync(temp.Home, 0, ModuleComposition.Compose(new DaemonOptions { CommandRunner = new ScriptedCommandRunner() }, new SoftwareHosting()), None);
         await RegisteredProjects.AddAsync(daemon, SoftwareNode.Project, None);
         await Publishing.FlowAsync(daemon, SoftwareNode.Project, SoftwareNode.Steps);
         Parcel parcel = await daemon.Services.GetRequiredService<ParcelService>().AddAsync(Principal.LocalOwner, SoftwareNode.Project, "task", "Nowhere to send it", null, None);

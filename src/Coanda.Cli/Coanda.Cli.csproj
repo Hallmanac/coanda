@@ -14,6 +14,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Coanda.Core\Coanda.Core.csproj" />
     <ProjectReference Include="..\Coanda.Daemon\Coanda.Daemon.csproj" />
+    <!--
+      The software module, which ModuleComposition.cs builds and hands to the daemon; the daemon references
+      no module. Its manifest and definitions are copied to modules/software/ beside coa.
+    -->
+    <ProjectReference Include="..\Coanda.Modules.Software\Coanda.Modules.Software.csproj" />
   </ItemGroup>
 
   <ItemGroup>

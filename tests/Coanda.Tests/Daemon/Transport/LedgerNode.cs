@@ -72,7 +72,7 @@ internal sealed class LedgerNode : IAsyncDisposable
             owner,
             ImportGit,
             Import,
-            new ProjectService(Store, TimeProvider.System),
+            ProjectServices.Software(Store, TimeProvider.System),
             new RepoClones(Store, Home, Runner, new Logger<RepoClones>(new LoggerFactory([Logs]))),
             new Logger<NodeJoiner>(new LoggerFactory([Logs])));
 
@@ -144,7 +144,7 @@ internal sealed class LedgerNode : IAsyncDisposable
             await MakeRemoteAsync(project);
         }
 
-        Project added = await new ProjectService(Store, TimeProvider.System)
+        Project added = await ProjectServices.Software(Store, TimeProvider.System)
             .AddAsync(Principal.LocalOwner, project, RemotePath(project), RegisteredProjects.Settings, None);
         await new RepoClones(Store, Home, Runner, NullLogger<RepoClones>.Instance).EnsureAsync(added, None);
         return added;

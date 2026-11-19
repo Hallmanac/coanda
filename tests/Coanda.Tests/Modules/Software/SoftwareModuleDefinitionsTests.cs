@@ -1,4 +1,5 @@
 using System.Reflection;
+using Coanda.Cli;
 using Coanda.Core.Definitions;
 using Coanda.Core.Flows;
 using Coanda.Daemon.Api;
@@ -40,7 +41,7 @@ public sealed class SoftwareModuleDefinitionsTests
         Assert.Equal(SoftwareSteps.Module, name);
         Assert.All(SoftwareSteps.All, step => Assert.StartsWith($"{name}/", step, StringComparison.Ordinal));
         Assert.All(SoftwareDescribe.Answer.Steps, step => Assert.StartsWith($"{name}/", step.Name, StringComparison.Ordinal));
-        Assert.Contains(name, HostedModules.Defaults);
+        Assert.Contains(name, ModuleComposition.DefaultModules);
     }
 
     [Fact]
@@ -64,7 +65,7 @@ public sealed class SoftwareModuleDefinitionsTests
     [Fact]
     public async Task The_build_copies_the_manifest_and_definitions_beside_the_daemon_where_it_reads_them()
     {
-        ModuleArtifact copied = await ModuleArtifact.ReadAsync(DaemonOptions.DefaultSoftwareModulePath, CancellationToken.None);
+        ModuleArtifact copied = await ModuleArtifact.ReadAsync(ModuleComposition.SoftwareModulePath, CancellationToken.None);
         ModuleArtifact source = await ModuleArtifact.ReadAsync(SoftwareDefinitions.ProjectPath, CancellationToken.None);
 
         Assert.Equal((source.Module, source.Version), (copied.Module, copied.Version));

@@ -195,7 +195,7 @@ public sealed class SoftwareModuleHostingTests
         await using SoftwareNode node = await SoftwareNode.StartAsync();
         Flow flow = OneStep("opening", SoftwareSteps.OpenPr, "opened");
         await Publishing.FlowAsync(node.Daemon, Project, flow);
-        ModuleCoreAccess access = node.Services.GetRequiredService<ModuleCoreAccess>();
+        ModuleCoreAccess access = node.Services.GetRequiredKeyedService<ModuleCoreAccess>(SoftwareSteps.Module);
         CoreApiOptions direct = access.Options();
         await using RecordingForwarder forwarder = await RecordingForwarder.StartAsync(node.Daemon.Info.BaseAddress, None);
         access.Connect(forwarder.Address, direct.Token);
