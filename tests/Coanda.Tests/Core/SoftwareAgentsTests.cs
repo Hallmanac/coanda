@@ -43,16 +43,16 @@ public sealed class SoftwareAgentsTests
     [InlineData("reviewer-conformance", NameOnlyAnswerSchemas.Review)]
     [InlineData("fix", NameOnlyAnswerSchemas.Fix)]
     [InlineData("discovery", NameOnlyAnswerSchemas.Discovery)]
-    public void Each_agent_holds_as_its_schema_content_the_document_the_release_shipped_under_its_schema_name(string agent, string schema)
+    public void Each_agent_carried_as_its_first_schema_content_the_document_the_release_shipped_under_its_schema_name(string agent, string schema)
     {
-        AgentDefinition shipped = SoftwareAgents.All.Single(a => a.Name == agent);
+        AgentDefinition earlier = Earlier(agent);
         AnswerSchema named = NameOnlyAnswerSchemas.Find(schema) ?? throw new InvalidOperationException($"No schema '{schema}'.");
         using JsonDocument document = JsonDocument.Parse(named.Document);
 
-        JsonElement content = shipped.AnswerSchemaContent ?? throw new InvalidOperationException($"Agent '{agent}' holds no schema content.");
-        Assert.Equal(schema, shipped.AnswerSchema);
+        JsonElement content = earlier.AnswerSchemaContent ?? throw new InvalidOperationException($"Agent '{agent}' holds no schema content.");
+        Assert.Equal(schema, earlier.AnswerSchema);
         Assert.True(JsonElement.DeepEquals(document.RootElement, content), $"{agent}: {content}");
-        Assert.Equal(named.Verdicts, shipped.ResolveAnswerSchema().Verdicts);
+        Assert.Equal(named.Verdicts, earlier.ResolveAnswerSchema().Verdicts);
     }
 
     /// <summary>
@@ -66,26 +66,63 @@ public sealed class SoftwareAgentsTests
     };
 
     /// <summary>
+    /// Each shipped agent as it was when it first carried its schema content: the reviewers with the rules
+    /// they had before they were told to read the review diff, and the discovery agent with the output and
+    /// the schema content it had before its answer listed the parcels it derives.
+    /// </summary>
+    private static AgentDefinition Earlier(string agent)
+    {
+        AgentDefinition shipped = SoftwareAgents.All.Single(a => a.Name == agent);
+        return agent switch
+        {
+            _ when RulesBeforeReviewDiff.TryGetValue(agent, out string? rules) =>
+                shipped with { Persona = shipped.Persona with { Rules = $"{SoftwareAgents.ProjectGuidance} {rules}" } },
+            "discovery" => PreviousAgents.DiscoveryBeforeParcels,
+            _ => shipped,
+        };
+    }
+
+    /// <summary>
     /// The hash of each shipped agent before it carried its schema content, as the store fixtures and
-    /// every node's earlier module versions hold it, and after, both with the rules it had before the
-    /// reviewers were told to read the review diff, and its hash as it ships now.
+    /// every node's earlier module versions hold it, and after, both as it was then (<see cref="Earlier"/>),
+    /// and its hash as it ships now.
     /// </summary>
     [Theory]
     [InlineData("build", "37dd84328f49ca25", "039f9385559d36aa", "039f9385559d36aa")]
     [InlineData("reviewer-adversarial", "4ff7ac20b180df0d", "a05d63d65709b916", "282d8d44b1c51255")]
     [InlineData("reviewer-conformance", "9f867144783e855c", "be473f662ee5093e", "8a5e994ba08f9e6f")]
     [InlineData("fix", "4ca4afe60ac4e100", "6052573ca3d9be35", "6052573ca3d9be35")]
-    [InlineData("discovery", "e99e12f13d399792", "a22ef13e3dcd2ab0", "a22ef13e3dcd2ab0")]
+    [InlineData("discovery", "e99e12f13d399792", "a22ef13e3dcd2ab0", "d9ca3d77b744e74f")]
     public void Each_agent_hashes_as_before_without_its_schema_content_and_anew_with_it(string agent, string before, string after, string now)
     {
         AgentDefinition shipped = SoftwareAgents.All.Single(a => a.Name == agent);
-        AgentDefinition earlier = RulesBeforeReviewDiff.TryGetValue(agent, out string? rules)
-            ? shipped with { Persona = shipped.Persona with { Rules = $"{SoftwareAgents.ProjectGuidance} {rules}" } }
-            : shipped;
+        AgentDefinition earlier = Earlier(agent);
 
         Assert.Equal(before, (earlier with { AnswerSchemaContent = null }).Hash);
         Assert.Equal(after, earlier.Hash);
         Assert.Equal(now, shipped.Hash);
+    }
+
+    [Fact]
+    public void The_discovery_agents_answer_lists_the_parcels_it_derives_each_an_object_with_a_type_and_a_title()
+    {
+        AnswerSchema schema = SoftwareAgents.Discovery.ResolveAnswerSchema();
+
+        Assert.Equal(["derive", "carry-forward"], schema.Verdicts);
+        Assert.True(AnswerValidator.Validate(schema, """{"verdict":"carry-forward","summary":"Still unknown."}""").IsValid);
+        Assert.True(AnswerValidator.Validate(
+            schema, """{"verdict":"derive","summary":"Two tasks.","parcels":[{"type":"task","title":"One"},{"type":"task","title":"Two"}]}""").IsValid);
+        Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":["One"]}""").IsValid);
+        Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":[{"type":"task"}]}""").IsValid);
+        Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":[{"title":"One"}]}""").IsValid);
+        Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":[{"type":3,"title":"One"}]}""").IsValid);
+        Assert.False(AnswerValidator.Validate(schema, """{"verdict":"derive","parcels":{"type":"task","title":"One"}}""").IsValid);
+
+        string output = SoftwareAgents.Discovery.Persona.Output;
+        Assert.Contains("\"parcels\"", output, StringComparison.Ordinal);
+        Assert.Contains("\"type\" field whose value is \"task\"", output, StringComparison.Ordinal);
+        Assert.Contains("\"title\"", output, StringComparison.Ordinal);
+        Assert.Contains("The summary still lays out what you found and why.", output, StringComparison.Ordinal);
     }
 
     [Fact]

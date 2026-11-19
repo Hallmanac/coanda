@@ -29,7 +29,8 @@ public sealed class ParcelTypeBindingTests
     public void A_type_that_binds_nothing_hashes_to_a_literal()
     {
         Assert.Equal("3e70a726cd7c44a1", (Ungated with { FlowBindings = [] }).Hash);
-        Assert.Equal("d548b43e0f79bc35", (SoftwareTypes.Idea with { FlowBindings = [] }).Hash);
+        // the idea with its derive list cleared too, so the literal covers a type that names no other definition
+        Assert.Equal("d548b43e0f79bc35", (SoftwareTypes.Idea with { FlowBindings = [], Derives = [] }).Hash);
     }
 
     [Fact]

@@ -33,23 +33,28 @@ public sealed class ModuleImportTests
     /// e86428f, but for the task type, which has since gained the repos field the module owns and marked
     /// it as the type's tag field, the five agents, which have since come to carry their answer
     /// schema as content, and whose two reviewers have since been told to read the review diff (the
-    /// hashes they had before are pinned in <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>), and the
+    /// hashes they had before are pinned in <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>), the
     /// build flow, which has since gained its review diff step (the hash it had before is pinned in
-    /// <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>).
+    /// <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>), and the three discovery definitions, which have
+    /// since come to derive tasks: the idea type declares the task type in its derive list, the discovery
+    /// flow's derive-parcels step names the step it derives from, and the discovery agent's answer lists
+    /// the parcels it derives (the hashes they had before are pinned in
+    /// <see cref="Coanda.Tests.Core.ParcelTypeFieldTests"/>, <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>,
+    /// and <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>).
     /// </summary>
     public static TheoryData<DefinitionKind, string, string> HashesOnMain() => new()
     {
-        { DefinitionKind.ParcelType, "idea", "e6c4447a6bc6586d" },
+        { DefinitionKind.ParcelType, "idea", "ba8ba31be0a921be" },
         { DefinitionKind.ParcelType, "task", "3e16509d2543dbb9" },
         { DefinitionKind.Flow, "build", "96172170513f94b9" },
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
-        { DefinitionKind.Flow, "discovery", "c8b01e99a6cc7916" },
+        { DefinitionKind.Flow, "discovery", "abe00b1f353b1872" },
         { DefinitionKind.Flow, "review-on-assignment", "fabaabb2eb82ff10" },
         { DefinitionKind.Agent, "build", "039f9385559d36aa" },
         { DefinitionKind.Agent, "reviewer-adversarial", "282d8d44b1c51255" },
         { DefinitionKind.Agent, "reviewer-conformance", "8a5e994ba08f9e6f" },
         { DefinitionKind.Agent, "fix", "6052573ca3d9be35" },
-        { DefinitionKind.Agent, "discovery", "a22ef13e3dcd2ab0" },
+        { DefinitionKind.Agent, "discovery", "d9ca3d77b744e74f" },
     };
 
     private static async Task StartAndStopAsync(NodeHome home, DaemonOptions? options = null) =>

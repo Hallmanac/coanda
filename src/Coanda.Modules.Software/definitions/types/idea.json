@@ -28,5 +28,8 @@
     }
   ],
   "GateBindings": [],
-  "Fields": []
+  "Fields": [],
+  "Derives": [
+    "task"
+  ]
 }

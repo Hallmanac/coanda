@@ -51,6 +51,20 @@ public static class PreviousFlows
     }
 
     /// <summary>
+    /// The discovery flow as main shipped it before its derive-parcels step named the step it derives from:
+    /// today's, with that step's arguments taken out.
+    /// </summary>
+    public static Flow DiscoveryBeforeDerive => SoftwareFlows.Discovery with
+    {
+        Steps =
+        [
+            .. SoftwareFlows.Discovery.Steps.Select(s => s.SystemStep == CoreSystemSteps.DeriveParcels
+                ? s with { Arguments = new Dictionary<string, JsonElement>() }
+                : s),
+        ],
+    };
+
+    /// <summary>
     /// The build flow before it ended at the open pull request: open-pr answered done into a
     /// gated-merge step, which went on to move the task to review.
     /// </summary>

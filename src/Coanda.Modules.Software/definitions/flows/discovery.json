@@ -35,7 +35,9 @@
       "Agent": null,
       "AnswerSchema": null,
       "SystemStep": "derive-parcels",
-      "Arguments": {},
+      "Arguments": {
+        "from": "discover"
+      },
       "Transitions": [
         {
           "Field": "verdict",

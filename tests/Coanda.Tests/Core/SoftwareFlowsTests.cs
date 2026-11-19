@@ -173,9 +173,14 @@ public sealed class SoftwareFlowsTests
         Assert.Equal("discovery", agentStep.AnswerSchema);
 
         string derive = Next(discovery, agentStep.Name, "derive");
-        Assert.Equal(CoreSystemSteps.DeriveParcels, discovery.Step(derive)!.SystemStep);
+        FlowStep deriveStep = discovery.Step(derive)!;
+        Assert.Equal(CoreSystemSteps.DeriveParcels, deriveStep.SystemStep);
+        Assert.Equal(["from"], deriveStep.Arguments.Keys);
+        Assert.Equal(agentStep.Name, deriveStep.Arguments["from"].GetString());
         Assert.Equal(Flow.End, Next(discovery, derive, "done"));
         Assert.Equal(Flow.End, Next(discovery, agentStep.Name, "carry-forward"));
+        Assert.Equal("parcels-derived", discovery.Outcome);
+        Assert.Equal(2, discovery.Steps.Count);
     }
 
     [Fact]
@@ -303,7 +308,9 @@ public sealed class SoftwareFlowsTests
         Assert.Equal("96172170513f94b9", SoftwareFlows.Build.Hash);
         // the build flow as main shipped it before its review diff step
         Assert.Equal("728a81e81272ed5e", PreviousFlows.BuildBeforeReviewDiff.Hash);
-        Assert.Equal("c8b01e99a6cc7916", SoftwareFlows.Discovery.Hash);
+        Assert.Equal("abe00b1f353b1872", SoftwareFlows.Discovery.Hash);
+        // the discovery flow as main shipped it before its derive-parcels step named the step it derives from
+        Assert.Equal("c8b01e99a6cc7916", PreviousFlows.DiscoveryBeforeDerive.Hash);
         Assert.Equal("fabaabb2eb82ff10", SoftwareFlows.ReviewOnAssignment.Hash);
     }
 
