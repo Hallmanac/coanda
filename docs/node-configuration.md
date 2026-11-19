@@ -7,7 +7,8 @@ while the daemon runs.
 
 The file is optional. Without it, the daemon runs every agent step on Claude Code, starting the
 `claude` executable it finds on the PATH, holds no credential profiles, exports and pushes its
-ledger, and fetches and imports its peers' ledgers.
+ledger, fetches and imports its peers' ledgers, and switches each project registered on the node on
+for the software module.
 
 ```json
 {
@@ -323,6 +324,39 @@ two profiles, and two entries named `work` and ` work` under one vendor are a du
 The file holds paths and commands only. Nothing at start reads a config directory or runs a helper
 command, and neither is checked for existence.
 
+## Default modules
+
+```json
+{
+  "executor": "claude-code",
+  "defaultModules": ["software"]
+}
+```
+
+`defaultModules` is optional. It holds the names of the modules a project registered on this node is
+switched on for, each one a module's name (lowercase letters and digits in runs joined by single
+hyphens) and none named twice. A project registered through `coa project add`, or any other call to
+`POST /projects`, is recorded as switched on for exactly the modules the list names and for no others.
+An empty list, `"defaultModules": []`, is allowed, and a project registered on that node is switched
+on for no module. When the list is left out, or the file is missing, a project is switched on for the
+software module alone.
+
+The daemon reads the list when it starts, so a change applies to the projects registered after the
+next start. It also applies to a project registered before modules existed whose modules were never
+recorded: the daemon switches that project on for the listed modules at start. A project whose modules
+are already recorded keeps them, whatever the list says; `coa project module` changes them.
+
+Every name in the list must be a module the starting daemon hosts. A name it does not host stops the
+start, and the refusal lists the modules it does host. `coa daemon run` hosts the software module
+alone today, so `["software"]`, which is what leaving the list out means, and `[]` are the only lists
+a node can start with until a second module is hosted.
+
+`coa project add` sends the software module's settings with every registration (the repo's primary
+branch, and the build and test commands when given). A registration that carries a setting of a module
+it does not switch on is refused, so a node whose list leaves the software module out cannot register
+a project through `coa project add` until registration renders its settings from the modules' describe
+answers.
+
 ## When the daemon refuses the file
 
 The daemon does not start, and exits with code 2, when the file cannot be parsed as JSON, holds a
@@ -330,12 +364,18 @@ property this page does not name (property names are case-sensitive), names no e
 executor other than `claude-code` or `scripted`, gives a `claudeExecutable` under `scripted`, or gives a
 `ledgerExport` or `ledgerImport` that is not `true` or `false`. It does the same for a profile under a vendor other than
 `claude-code`, a profile with a blank name, two profiles with the same name under one vendor, and a
-profile that does not hold exactly one non-blank `configDirectory` or `apiKeyHelper`.
+profile that does not hold exactly one non-blank `configDirectory` or `apiKeyHelper`. It does the same
+when `defaultModules` is given as null or as anything but a list, holds an entry that is null, not a
+string, or not a valid module name, names one module twice, or names a module the starting daemon does
+not host; that last refusal also lists the modules the daemon hosts. Every one of these refusals comes
+before the daemon records anything, so a refused start leaves the node's record as it found it.
 
 The rule it prints names the file and the entry it refused. A foreground `coa daemon run` prints it
 to the console. A detached start writes it to the node home's log, `coanda.log`, and `coa daemon
 start`, like any command that starts the daemon on demand, checks the file first and prints the same
-rule.
+rule. Whether the daemon hosts each default module is the one check that command cannot make, because
+only the starting daemon knows what it hosts; that refusal reaches it as a daemon that exited before it
+was ready, described below.
 
 A detached daemon runs apart from the command that started it: in a process group of its own,
 without that command's console, and holding none of its standard handles, so the command returns
