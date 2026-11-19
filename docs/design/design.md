@@ -362,8 +362,18 @@ attach, so once its own flow run is released it folds no live flow run while the
 The vouch. `coa node vouch <node-id> <public-key> --project <project>`, open to the Owner role alone,
 records a node vouched event for that node id and that exact key in the project's tenant, then exports
 and pushes the project before it answers, and reports that the vouch is pushed, or that it is recorded but
-not yet pushed with the push's reason. Run again with the same id and key, it records nothing and pushes
-again. It records nothing, and is refused with a rule naming the case, when the node id or the key is
+not yet pushed with the push's reason. When this node's own key may not sign in the project by the
+identity records it holds once the vouch is stored (counting its own records on no line yet, and judged
+against the key in its root key record for the project), the answer also says that this node's key is not
+yet trusted by the records it holds, because no vouch that counts for it has arrived, and that a node
+counts the vouch recorded here only once that node trusts this node's key; that is the case on a node that
+joined before the owner's vouch for it arrived, and the line claims nothing about what the owner's node
+holds. Every answer ends with the vouching rule, recorded or already held, pushed or not: "Vouch only
+for nodes you run yourself. Every node in the project accepts what a vouched node records, and this
+build neither checks the role of the node that signed what it imports nor asks you to accept a project's
+commands before this node runs them; either one would lift this rule." Run again with the same id and
+key, it records nothing and pushes again. It records nothing, and is refused with a rule naming the
+case, when the node id or the key is
 this node's own, when the project's records already pair the node id with another key or the key with
 another node id (by a vouch or by the owner root), or when the key is not 32 bytes in the line format's
 key form. The owner root is recorded with the owner's first vouch in a project: on a node that recorded
