@@ -77,6 +77,20 @@ public sealed class WaitForHumanSystemStepTests
             spent.Reason);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task A_resumed_dispatch_without_an_answer_records_the_result_its_verdict_transition_still_routes_on(int visit)
+    {
+        // the verdict transition fires whether it comes before or after the answer transitions, and
+        // whatever answer transitions the visit has spent
+        FlowStep before = Hold(On("verdict", FlowValue.Of("done"), Flow.End, cap: 5), On("answer", FlowValue.Of("approve"), Flow.End, cap: 5));
+        FlowStep after = Hold(On("answer", FlowValue.Of("again"), "ask", cap: 1), On("verdict", FlowValue.Of("done"), Flow.End, cap: 5));
+
+        Assert.Equal("""{"verdict":"done","systemStep":"wait-for-human"}""", Done(await DispatchAsync(before, resumed: true, null, visit)).GetRawText());
+        Assert.Equal("""{"verdict":"done","systemStep":"wait-for-human"}""", Done(await DispatchAsync(after, resumed: true, null, visit)).GetRawText());
+    }
+
     [Fact]
     public async Task A_resumed_dispatch_without_an_answer_of_a_step_routing_on_none_records_the_result_it_always_has()
     {

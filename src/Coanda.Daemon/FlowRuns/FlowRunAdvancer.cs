@@ -1399,7 +1399,8 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
                 Visit: flowRun.Position.VisitsTo(step.Name),
                 DispatchId: dispatchId,
                 WorkPath: home.FlowRunWorkPath(project, flowRun.Id),
-                Answer: current.ResumeAnswer);
+                Answer: current.ResumeAnswer,
+                Spawns: flowRun.Position.Spawns);
             Called<SystemStepAnswer> dispatched = await CallWatchedAsync(
                 flowRun.Id, step, token => systemSteps.DispatchAsync(request, token), cancellationToken);
             switch (dispatched)

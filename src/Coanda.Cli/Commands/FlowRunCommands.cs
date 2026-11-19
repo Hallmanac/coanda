@@ -120,7 +120,7 @@ public sealed class FlowRunResumeSettings : FlowRunIdSettings
     public string? Note { get; init; }
 
     [CommandOption("--answer <ANSWER>")]
-    [Description("A one-line answer, at most 200 characters, recorded on the step the resume lands on.")]
+    [Description("A one-line answer, at most 200 characters, for the wait-for-human step the resume lands on to record and route on; any other step refuses one.")]
     public string? Answer { get; init; }
 }
 

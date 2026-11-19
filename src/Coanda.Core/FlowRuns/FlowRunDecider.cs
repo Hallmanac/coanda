@@ -450,8 +450,10 @@ public static class FlowRunDecider
     /// <summary>
     /// Resumes a paused flow run. An <paramref name="answer"/>, when given, is recorded trimmed for the
     /// visit the resume lands on: it is a single line of at most <see cref="ResumeAnswerMaxLength"/>
-    /// characters, not blank, and given only while that visit has recorded nothing, since a recorded
-    /// visit is performed again as a new visit and the answer would reach no step.
+    /// characters, not blank, and given only to a wait-for-human step whose visit has recorded nothing
+    /// (a recorded visit is performed again as a new visit, and the answer would reach no step). It
+    /// must also be one <see cref="WaitForHumanAnswer.Refusal"/> accepts: the transition the step would
+    /// take on it routes on the answer and fires at the visit. Any other answer is refused.
     /// </summary>
     public static FlowRunResumed Resume(Flow flow, FlowRun flowRun, string? note, string? answer, string resumedBy, DateTimeOffset now)
     {
@@ -502,7 +504,8 @@ public static class FlowRunDecider
                 $"Flow run {Ids.Short(flowRun.Id)}'s current step '{current.Step}' is not a wait-for-human step; only a wait-for-human step takes an answer, so resume without one."),
             { IsRecorded: true } current => throw new DomainException(
                 $"Flow run {Ids.Short(flowRun.Id)}'s visit of step '{current.Step}' has recorded, so the resume performs it again as a new visit and an answer would reach no step; resume without one."),
-            { } current => WaitForHumanAnswer.Refusal(StepOf(flow, current.Step), flowRun.Position.VisitsTo(current.Step), trimmed) is string refusal
+            { } current => WaitForHumanAnswer.Refusal(
+                    flow, StepOf(flow, current.Step), flowRun.Position.VisitsTo(current.Step), flowRun.Position.Spawns, trimmed) is string refusal
                 ? throw new DomainException(refusal)
                 : trimmed,
         };

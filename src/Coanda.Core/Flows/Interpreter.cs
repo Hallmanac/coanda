@@ -79,14 +79,19 @@ public static class Interpreter
     /// <summary>A transition fires at a visit count no greater than its visit cap.</summary>
     public static bool Allows(FlowTransition transition, int visits) => visits <= transition.VisitCap;
 
-    private static FlowRunMove GoTo(Flow flow, FlowRunPosition position, string target)
-    {
-        bool spawns = flow.Step(target) is { IsAgentStep: true };
-        return spawns && position.Spawns >= flow.SpawnCap
+    /// <summary>
+    /// Whether going to <paramref name="target"/> pauses on <paramref name="flow"/>'s spawn cap, as
+    /// <see cref="Decide"/> pauses: the target is an agent step and the flow run has already spawned
+    /// <paramref name="spawns"/> agents, as many as the cap allows.
+    /// </summary>
+    public static bool SpawnCapped(Flow flow, int spawns, string target) =>
+        flow.Step(target) is { IsAgentStep: true } && spawns >= flow.SpawnCap;
+
+    private static FlowRunMove GoTo(Flow flow, FlowRunPosition position, string target) =>
+        SpawnCapped(flow, position.Spawns, target)
             ? new FlowRunMove.Pause(
                 $"Flow '{flow.Name}' reached its spawn cap of {flow.SpawnCap}; going to agent step '{target}' would spawn another agent.")
             : new FlowRunMove.GoTo(target);
-    }
 
     private static FlowStep Current(Flow flow, FlowRunPosition position) =>
         flow.Step(position.Step)
