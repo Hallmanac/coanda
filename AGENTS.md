@@ -44,7 +44,8 @@ code, and `decisions.md` in its worktree carries the binding rules.
   agents), the interpreter, the registry. No store dependency.
 - `src/Coanda.Daemon`: the store (Fisher on SQLite), loops, adapters, transport, the loopback API,
   and the bare clone of each project's repo, which the core makes at registration and at start under
-  `projects/<project>/repos/<repo>/` (`Projects/RepoClones.cs`).
+  `projects/<project>/repos/<repo>/` (`Projects/RepoClones.cs`). It references Core and the SDK and
+  no module: it hosts the modules the executable composes and hands it (`Modules/ComposedModule.cs`).
 - `src/Coanda.Sdk`: the module SDK, referencing no other Coanda project: the module API's
   contract types, the interface an in-process module answers the module API's calls through, a
   client for the core's loopback API, the command runner and git wrapper, which the daemon uses
@@ -56,7 +57,10 @@ code, and `decisions.md` in its worktree carries the binding rules.
   run's end or stop, and sweeps what is left at its start. It references the SDK and no other Coanda project, and the daemon hosts
   it in process until phase 5.
   Its `module.json` and its `definitions` folder (one JSON file per type, flow, and agent) are copied
-  to `modules/software/` beside the daemon, which imports the definitions in module scope at start.
+  to `modules/software/` beside `coa`, from where the daemon imports the definitions in module scope at start.
 - `schemas/module/v1`: the module API's JSON schemas, with `index.json` naming each call's documents.
-- `src/Coanda.Cli`: the `coa` executable, thin; also hosts the daemon under `coa daemon`.
+- `src/Coanda.Cli`: the `coa` executable, thin; also hosts the daemon under `coa daemon`, and is the
+  only project that references a module: `ModuleComposition.cs` builds the software module, gives it
+  its options, and hands it to the daemon with the modules a new project is switched on for.
+  `tests/Coanda.Tests/ProjectReferenceTests.cs` holds every project to its allowed references.
 - `tests/Coanda.Tests`: unit tests. No test creates a branch or touches GitHub.
