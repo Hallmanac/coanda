@@ -28,7 +28,7 @@ public sealed class ParcelBindingTests
     public async Task On_a_fresh_node_home_the_daemon_resolves_both_shipped_types_at_the_versions_carrying_their_bindings()
     {
         using var temp = new TemporaryHome();
-        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        await using RunningDaemon daemon = await Daemons.StartOnNewHomeAsync(temp.Home, None);
         var resolver = new DefinitionResolver(daemon.Services.GetRequiredService<IDocumentStore>());
 
         ParcelType? task = await resolver.ResolveParcelTypeAsync(Project, "task", None);

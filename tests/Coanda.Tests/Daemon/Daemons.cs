@@ -13,6 +13,12 @@ namespace Coanda.Tests.Daemon;
 /// removal, and with a <see cref="FakeGitHub"/> unless the software module's hosting already carries a
 /// GitHub handler, so no test reaches GitHub.
 /// </summary>
+/// <remarks>
+/// A home that exists and holds no record is first given a copy of the <see cref="StoreTemplate"/>, a record
+/// with the store's schema and no row, so the start does not create every table over again. A test whose
+/// subject is what a start does to a home with no record starts through <see cref="StartOnNewHomeAsync(NodeHome, CancellationToken)"/>,
+/// which starts over the home as it is.
+/// </remarks>
 public static class Daemons
 {
     public static Task<RunningDaemon> StartAsync(NodeHome home, CancellationToken cancellationToken) =>
@@ -24,7 +30,17 @@ public static class Daemons
     internal static Task<RunningDaemon> StartAsync(NodeHome home, SoftwareHosting software, CancellationToken cancellationToken) =>
         StartAsync(home, new DaemonOptions(), software, cancellationToken);
 
-    internal static Task<RunningDaemon> StartAsync(NodeHome home, DaemonOptions options, SoftwareHosting software, CancellationToken cancellationToken) =>
+    internal static async Task<RunningDaemon> StartAsync(NodeHome home, DaemonOptions options, SoftwareHosting software, CancellationToken cancellationToken)
+    {
+        await StoreTemplate.CopyIntoAsync(home, cancellationToken);
+        return await StartOnNewHomeAsync(home, options, software, cancellationToken);
+    }
+
+    /// <summary>Starts over <paramref name="home"/> as it is, giving a home with no record no copy of the <see cref="StoreTemplate"/>.</summary>
+    public static Task<RunningDaemon> StartOnNewHomeAsync(NodeHome home, CancellationToken cancellationToken) =>
+        StartOnNewHomeAsync(home, new DaemonOptions(), new SoftwareHosting(), cancellationToken);
+
+    private static Task<RunningDaemon> StartOnNewHomeAsync(NodeHome home, DaemonOptions options, SoftwareHosting software, CancellationToken cancellationToken) =>
         DaemonHost.StartAsync(
             home,
             0,

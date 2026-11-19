@@ -121,7 +121,7 @@ public sealed class NodeIdentityTests
         await File.WriteAllTextAsync(home.NodeIdentityPath, content, CancellationToken.None);
         byte[] before = await File.ReadAllBytesAsync(home.NodeIdentityPath, CancellationToken.None);
 
-        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => Daemons.StartAsync(home, CancellationToken.None));
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => Daemons.StartOnNewHomeAsync(home, CancellationToken.None));
 
         Assert.Contains(home.NodeIdentityPath, refused.Message, StringComparison.Ordinal);
         Assert.Contains(fault, refused.Message, StringComparison.Ordinal);
@@ -138,7 +138,7 @@ public sealed class NodeIdentityTests
 
     private static async Task<NodeIdentity> StartedIdentityAsync(NodeHome home)
     {
-        await using RunningDaemon daemon = await Daemons.StartAsync(home, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartOnNewHomeAsync(home, CancellationToken.None);
         NodeIdentity identity = daemon.Services.GetRequiredService<NodeIdentity>();
         await daemon.StopAsync(CancellationToken.None);
         return identity;

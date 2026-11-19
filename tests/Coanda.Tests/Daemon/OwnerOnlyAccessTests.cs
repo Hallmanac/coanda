@@ -31,7 +31,7 @@ public sealed class OwnerOnlyAccessTests
         using var scratch = new ScratchHome(create: false);
         NodeHome home = scratch.Home;
 
-        await using RunningDaemon daemon = await Daemons.StartAsync(home, CancellationToken.None);
+        await using RunningDaemon daemon = await Daemons.StartOnNewHomeAsync(home, CancellationToken.None);
         await RegisteredProjects.AddAsync(daemon, "coanda", CancellationToken.None);
         await WriteToStoreAsync(home);
 
