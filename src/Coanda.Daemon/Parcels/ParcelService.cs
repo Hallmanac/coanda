@@ -32,20 +32,68 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
         AddAsync(principal, project, typeName, title, stage, origin: null, cancellationToken);
 
     /// <summary>Creates a parcel recording <paramref name="origin"/>, what created it when a person's add did not.</summary>
+    public Task<Parcel> AddAsync(
+        Principal principal, string project, string typeName, string title, string? stage, string? origin, CancellationToken cancellationToken) =>
+        AddAsync(principal, project, typeName, title, stage, origin, derivedFrom: null, cancellationToken);
+
+    /// <summary>
+    /// Creates a parcel recording <paramref name="origin"/>, and, when <paramref name="derivedFrom"/> names a
+    /// parcel, a derived-from relation to it in the same save, directly after the creation on the new parcel's
+    /// stream. The relation names a parcel of the project this node holds and, when it names a flow run, one this
+    /// node holds that runs on that parcel (<see cref="ParcelDecider.DeriveFrom"/>); a relation refused creates no parcel.
+    /// </summary>
     public async Task<Parcel> AddAsync(
-        Principal principal, string project, string typeName, string title, string? stage, string? origin, CancellationToken cancellationToken)
+        Principal principal, string project, string typeName, string title, string? stage, string? origin, DerivedFrom? derivedFrom,
+        CancellationToken cancellationToken)
     {
         CommandRegistry.Require("parcel.add", principal);
         string tenant = Tenants.RequireProject(project);
         await RequireRegisteredAsync(tenant, cancellationToken);
         ParcelType type = await RequireTypeAsync(tenant, typeName, cancellationToken);
-        ParcelCreated created = ParcelDecider.Create(type, gates, tenant, title, stage, principal.Id, clock.GetUtcNow(), origin);
+        DateTimeOffset now = clock.GetUtcNow();
+        ParcelCreated created = ParcelDecider.Create(type, gates, tenant, title, stage, principal.Id, now, origin);
 
         await using IDocumentSession session = store.LightweightSession(created.Project);
-        session.Events.StartStream<Parcel>(created.ParcelId, created);
+        if (derivedFrom is null)
+        {
+            session.Events.StartStream<Parcel>(created.ParcelId, created);
+            await session.SaveChangesAsync(cancellationToken);
+            return Parcel.Create(created);
+        }
+
+        Parcel? related = await session.LoadAsync<Parcel>(derivedFrom.ParcelId, cancellationToken);
+        FlowRun? flowRun = await FlowRunOfAsync(session, derivedFrom.FlowRunId, cancellationToken);
+        ParcelRelationRecorded relation = ParcelDecider.DeriveFrom(created, derivedFrom, related, flowRun, now);
+        session.Events.StartStream<Parcel>(created.ParcelId, created, relation);
         await session.SaveChangesAsync(cancellationToken);
 
-        return Parcel.Create(created);
+        Parcel parcel = Parcel.Create(created);
+        parcel.Apply(relation);
+        return parcel;
+    }
+
+    /// <summary>
+    /// Records on the parcel a relation of <paramref name="kind"/> to <paramref name="relatedParcelId"/>, another
+    /// parcel of the project this node holds, naming <paramref name="flowRunId"/> when it is given. A derived-from
+    /// is recorded only when its parcel is created, so here it is refused (<see cref="ParcelDecider.Relate"/>).
+    /// </summary>
+    public async Task<Parcel> RelateAsync(
+        Principal principal, string project, Guid parcelId, string kind, Guid relatedParcelId, Guid? flowRunId, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("parcel.relate", principal);
+        string tenant = Tenants.RequireProject(project);
+
+        await using IDocumentSession session = store.LightweightSession(tenant);
+        var stream = await session.Events.FetchForWriting<Parcel>(parcelId, cancellationToken);
+        Parcel parcel = stream.Aggregate ?? throw NotFound(parcelId, project);
+        Parcel? related = await session.LoadAsync<Parcel>(relatedParcelId, cancellationToken);
+        FlowRun? flowRun = await FlowRunOfAsync(session, flowRunId, cancellationToken);
+        ParcelRelationRecorded relation = ParcelDecider.Relate(parcel, kind, relatedParcelId, related, flowRunId, flowRun, principal.Id, clock.GetUtcNow());
+        stream.AppendOne(relation);
+        await SaveGuardedAsync(session, parcelId, cancellationToken);
+
+        parcel.Apply(relation);
+        return parcel;
     }
 
     /// <summary>A move made on nobody's flow run's behalf, as a person's move through the API is.</summary>
@@ -295,6 +343,12 @@ public sealed class ParcelService(IDocumentStore store, TimeProvider clock, Gate
                 $"Dispatch {Ids.Short(dispatch.DispatchId)} is flow run {Ids.Short(flowRun.Id)}'s, which runs on parcel {Ids.Short(flowRun.ParcelId)}, not parcel {Ids.Short(parcel.Id)}; a write under a dispatch is made on its flow run's parcel only.");
         }
     }
+
+    /// <summary>The flow run <paramref name="flowRunId"/> names as the project's record holds it, or null when it names none or the record holds none.</summary>
+    private static async Task<FlowRun?> FlowRunOfAsync(IQuerySession session, Guid? flowRunId, CancellationToken cancellationToken) =>
+        flowRunId is Guid id
+            ? await session.LoadAsync<FlowRun>(id, cancellationToken)
+            : null;
 
     /// <summary>
     /// Saves a write to an existing parcel, turning a failed version check (another write, a flow run's

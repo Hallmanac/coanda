@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Coanda.Cli;
 using Coanda.Core.Agents;
 using Coanda.Core.Definitions;
@@ -209,6 +211,42 @@ public sealed class StoreRebuiltTests
         // Created under the task type main had, before the repos field, which it still reads.
         Assert.Equal(SoftwareTypes.UnownedTask.Hash, parcel.TypeHash);
         Assert.Equal(SoftwareTypes.UnownedTask.Hash, createdUnder?.Hash);
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task Every_parcel_main_recorded_reads_with_the_members_and_values_it_had_an_empty_list_of_relations_and_its_type_by_its_hash()
+    {
+        IReadOnlyList<(string Tenant, string Id, string Data)> stored;
+        using (var restored = new TemporaryHome())
+        {
+            RecordHomes.Restore(restored.Home, RecordHomes.RebuiltByEe75e50);
+            stored = RecordHomes.Documents(restored.Home.DatabasePath, "fi_doc_parcel");
+        }
+
+        Assert.NotEmpty(stored);
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await StartAsync(temp);
+        ParcelService parcels = daemon.Services.GetRequiredService<ParcelService>();
+        var resolver = new DefinitionResolver(daemon.Services.GetRequiredService<IDocumentStore>());
+        var written = new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+        foreach ((string tenant, string id, string data) in stored)
+        {
+            Parcel read = await parcels.ShowAsync(Principal.LocalOwner, tenant, Guid.Parse(id), None)
+                ?? throw new InvalidOperationException($"Parcel {id} does not read.");
+            Assert.Empty(read.Relations);
+
+            // What the parcel reads as now is what main stored, member for member, with an empty list of relations beside it.
+            JsonObject now = JsonSerializer.SerializeToNode(read, written)?.AsObject() ?? throw new InvalidOperationException("No parcel JSON.");
+            Assert.Equal("[]", now["relations"]?.ToJsonString());
+            Assert.True(now.Remove("relations"));
+            Assert.Equal(JsonNode.Parse(data)?.ToJsonString(), now.ToJsonString());
+
+            ParcelType? createdUnder = await resolver.ResolveParcelTypeByHashAsync(tenant, read.TypeHash, None);
+            Assert.Equal(read.TypeHash, createdUnder?.Hash);
+        }
+
         await daemon.StopAsync(None);
     }
 
