@@ -4,7 +4,8 @@ namespace Coanda.Daemon.Triggers;
 /// The follows the trigger loop could not start yet because their parcel already had a live flow run,
 /// most often another follower of the same end. One document per parcel in the parcel's project, so
 /// it survives a restart; each release of the parcel's live flow run starts the oldest pending follow,
-/// and a follow still waiting keeps its place until a later release.
+/// and a follow still waiting keeps its place until a later release. The daemon's start does the same for
+/// a parcel with no live flow run, so a queue no release is left to start does not wait forever.
 /// </summary>
 public sealed class DeferredFollows
 {

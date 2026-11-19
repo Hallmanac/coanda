@@ -16,7 +16,7 @@ namespace Coanda.Tests.Daemon.Triggers;
 
 /// <summary>
 /// A parcel's follow queue: a follow whose start fails for a reason other than a refusal is passed over, a stop
-/// leaves it waiting.
+/// leaves it waiting, and a queue whose parcel is free when the daemon starts proceeds then.
 /// </summary>
 public sealed class FollowQueueTests
 {
@@ -124,9 +124,90 @@ public sealed class FollowQueueTests
             Assert.True(await PositionAsync(stopped) < heldReleased, "The loop's position passed the release whose handling the stop interrupted.");
         }
 
-        // The next start handles the release again, and each follower starts once.
+        // The next start handles the release again before it resumes the queues, and each follower starts once.
         await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
         using var client = new DaemonClient(temp.Home);
+        await FlowRunDriver.MergedAsync(client, Project, parcelId, buildId);
+        await AssertEachFollowerOnceAsync(client, parcelId, buildId);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_queue_on_a_free_parcel_proceeds_when_the_daemon_starts_and_passes_over_a_follow_already_started()
+    {
+        using var temp = new TemporaryHome();
+        (Guid parcelId, Guid buildId, long _) = await StrandAsync(temp);
+
+        // The loop has handled every entry, so no release is left to start the queue, and the queue still
+        // names the follower of the build that already started and ended.
+        await using (IDocumentStore stopped = StoreConfiguration.Open(temp.Home.DatabasePath))
+        {
+            long head = await stopped.Database.FetchHighestEventSequenceNumber(None);
+            await using IDocumentSession node = stopped.LightweightSession(Tenants.Node);
+            node.Store(new TriggerPosition { Sequence = head });
+            await node.SaveChangesAsync(None);
+
+            await using IDocumentSession session = stopped.LightweightSession(Project);
+            session.Store(new DeferredFollows
+            {
+                Id = parcelId,
+                Pending =
+                [
+                    new PendingFollow(buildId, HeldAfterBuild.Name),
+                    new PendingFollow(buildId, AlsoAfterBuild.Name),
+                    new PendingFollow(buildId, Merge, Closes: true),
+                ],
+            });
+            await session.SaveChangesAsync(None);
+        }
+
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor() }, None);
+        using var client = new DaemonClient(temp.Home);
+        await FlowRunDriver.MergedAsync(client, Project, parcelId, buildId);
+        await AssertEachFollowerOnceAsync(client, parcelId, buildId);
+        Assert.Equal("closed", (await client.GetAsync<ParcelView>($"/parcels/{parcelId}?project={Project}", None)).Stage);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_queue_whose_parcel_has_a_live_flow_run_at_start_starts_nothing_and_waits_for_its_release()
+    {
+        using var temp = new TemporaryHome();
+        Guid parcelId;
+        Guid buildId;
+        Guid heldId;
+        await using (Chain chain = await Chain.StartAsync(temp, null, holdForever: true, None))
+        {
+            parcelId = chain.ParcelId;
+            buildId = chain.Build.Id;
+            heldId = (await FlowRunDriver.FollowerAsync(chain.Client, Project, parcelId, buildId, HeldAfterBuild.Name)).Id;
+            IDocumentStore store = chain.Daemon.Services.GetRequiredService<IDocumentStore>();
+            long buildReleased = await ReleaseSequenceAsync(store, parcelId, buildId);
+            await FlowRunDriver.UntilAsync(async () => await PositionAsync(store) >= buildReleased, $"the trigger loop handles the release of flow run {buildId}");
+            await chain.Daemon.StopAsync(None);
+        }
+
+        var held = new RunningSystemStep();
+        await using RunningDaemon second = await Daemons.StartAsync(
+            temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), SystemSteps = [held] }, None);
+        using var client = new DaemonClient(temp.Home);
+        IDocumentStore running = second.Services.GetRequiredService<IDocumentStore>();
+
+        // An entry recorded after the start: once the loop is past it, it has resumed the queues.
+        ParcelView later = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest(Project, "task", "Recorded after the start", null), None);
+        long laterCreated = await FirstSequenceAsync(running, later.Id);
+        await FlowRunDriver.UntilAsync(async () => await PositionAsync(running) >= laterCreated, "the trigger loop handles an entry recorded after its start");
+
+        Assert.Equal("running", (await FlowRunDriver.ShowAsync(client, Project, heldId)).Status);
+        Assert.DoesNotContain(await FlowRunDriver.OfParcelAsync(client, Project, parcelId), f => f.FlowName == AlsoAfterBuild.Name);
+        DeferredFollows? queue = await QueueAsync(running, parcelId);
+        Assert.NotNull(queue);
+        Assert.Equal([AlsoAfterBuild.Name, Merge], queue.Pending.Select(p => p.Flow));
+
+        // The held flow run's release starts the queue.
+        await FlowRunDriver.StopAsync(client, Project, heldId, "release the parcel");
         await FlowRunDriver.MergedAsync(client, Project, parcelId, buildId);
         await AssertEachFollowerOnceAsync(client, parcelId, buildId);
 
@@ -183,6 +264,13 @@ public sealed class FollowQueueTests
         await using IQuerySession session = store.QuerySession(Project);
         IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: None);
         return events.Single(e => e.Data is ParcelFlowRunReleased released && released.FlowRunId == flowRunId).Sequence;
+    }
+
+    private static async Task<long> FirstSequenceAsync(IDocumentStore store, Guid parcelId)
+    {
+        await using IQuerySession session = store.QuerySession(Project);
+        IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: None);
+        return events[0].Sequence;
     }
 
     /// <summary>
