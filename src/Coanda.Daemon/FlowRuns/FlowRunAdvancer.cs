@@ -744,7 +744,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
 
             // Issued once the launch is recorded and before the agent starts, since the session's
             // environment is fixed when its process starts; it resolves only while this launch runs.
-            string token = await sessionTokens.IssueAsync(new SessionBinding(project.Trim(), flowRun.Id, launch.Value), cancellationToken);
+            string token = await sessionTokens.MintAsync(new SessionBinding(project.Trim(), flowRun.Id, launch.Value), cancellationToken);
             request = request with { Access = new SessionAccess(token, home.Path, project.Trim()) };
             var launched = new Launched(step.Name, agentName, published.ContentHash, agent.Model, budget.Ceiling);
 
@@ -830,7 +830,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             // launch; the token the launch was spawned with is still stored and resolves beside it.
             SessionAccess? access = launch is Guid issuedFor
                 ? new SessionAccess(
-                    await sessionTokens.IssueAsync(new SessionBinding(project.Trim(), flowRun.Id, issuedFor), cancellationToken), home.Path, project.Trim())
+                    await sessionTokens.MintAsync(new SessionBinding(project.Trim(), flowRun.Id, issuedFor), cancellationToken), home.Path, project.Trim())
                 : null;
             Reattachment? found = null;
             bool settled = false;

@@ -92,7 +92,7 @@ public sealed class ModuleCompositionTests
 
         InvalidOperationException refused = await Assert.ThrowsAsync<InvalidOperationException>(() => DaemonHost.StartAsync(temp.Home, 0, options, None));
 
-        Assert.Equal("The module 'cms' is composed as a FeedModule, and another composed module already is; the daemon builds one module of each type.", refused.Message);
+        Assert.Equal("The module 'cms' is composed as a FeedModule, and another composed module already is; the daemon hosts one module of each type.", refused.Message);
         Assert.False(File.Exists(temp.Home.DaemonInfoPath));
     }
 

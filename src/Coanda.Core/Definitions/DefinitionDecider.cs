@@ -51,7 +51,7 @@ public static class DefinitionDecider
         }
 
         Definition? forkedFrom = ForkedFrom(kind, name, forkBase, moduleVersions ?? []);
-        return Build(
+        return Draft(
             kind, name, scope, project, latestVersion, content, contentHash, forkBase,
             type => RequireOwnersFromForkBase(type, forkBase, forkedFrom),
             knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, stepArguments, draftedBy, now, null, null);
@@ -131,14 +131,14 @@ public static class DefinitionDecider
             return null;
         }
 
-        DefinitionDrafted drafted = Build(
+        DefinitionDrafted drafted = Draft(
             definition.Kind, definition.Name, DefinitionScope.Module, null, versions.Select(d => d.VersionNumber).DefaultIfEmpty(0).Max(),
             definition.Content, definition.ContentHash, null, type => RequireOwnModuleOnly(type, module),
             knownGates ?? GateSet.Shipped.Names, knownSystemSteps ?? FrozenSet<string>.Empty, stepArguments, importedBy, now, module, moduleVersion.Trim());
         return (drafted, new DefinitionPublished(drafted.DefinitionId, importedBy, now));
     }
 
-    private static DefinitionDrafted Build(
+    private static DefinitionDrafted Draft(
         DefinitionKind kind,
         string name,
         DefinitionScope scope,

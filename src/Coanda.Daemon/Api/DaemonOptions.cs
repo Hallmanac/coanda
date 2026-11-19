@@ -114,7 +114,7 @@ public sealed record DaemonOptions
     /// What the trigger loop awaits after each follower of a flow run's end is decided and before the
     /// next one; null, as <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it.
     /// </summary>
-    internal Func<FollowDecision, CancellationToken, Task>? FollowDecided { get; init; }
+    internal Func<FollowChoice, CancellationToken, Task>? FollowDecided { get; init; }
 
     /// <summary>
     /// What the trigger loop awaits just before it starts a follow from a parcel's follow queue; null, as

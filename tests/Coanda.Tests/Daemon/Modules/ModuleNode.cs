@@ -83,7 +83,7 @@ internal sealed class ModuleNode : IAsyncDisposable
         return node;
     }
 
-    public Task<string> TokenAsync(string module) => Services.GetRequiredService<ModuleTokens>().IssueAsync(module, None);
+    public Task<string> TokenAsync(string module) => Services.GetRequiredService<ModuleTokens>().MintAsync(module, None);
 
     public Task SwitchOnAsync(string project, params string[] modules) =>
         Services.GetRequiredService<ProjectService>().SetModulesAsync(Principal.LocalOwner, project, modules, None);

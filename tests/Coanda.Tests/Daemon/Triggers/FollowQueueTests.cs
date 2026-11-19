@@ -308,7 +308,7 @@ public sealed class FollowQueueTests
 
             // The held follower ends only once the second follower waits in the queue, so the second one never
             // starts straight from the build's end, ahead of the queue.
-            Task SignalSecondWaits(FollowDecision decision, CancellationToken token)
+            Task SignalSecondWaits(FollowChoice decision, CancellationToken token)
             {
                 if (decision.Flow == AlsoAfterBuild.Name && decision.Waits)
                 {

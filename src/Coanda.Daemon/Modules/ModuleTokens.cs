@@ -23,7 +23,7 @@ public sealed class ModuleTokens(IDocumentStore store)
     /// (<see cref="ModuleNames.IsModuleName"/>), stores its hash, and returns its plain value, which is
     /// kept nowhere here. Any other name is refused and nothing is stored.
     /// </summary>
-    public async Task<string> IssueAsync(string module, CancellationToken cancellationToken)
+    public async Task<string> MintAsync(string module, CancellationToken cancellationToken)
     {
         string name = ModuleNames.Require(module);
         string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(TokenBytes))
@@ -36,7 +36,7 @@ public sealed class ModuleTokens(IDocumentStore store)
     }
 
     /// <summary>
-    /// Issues a fresh token for the module <paramref name="module"/> as <see cref="IssueAsync"/> does,
+    /// Issues a fresh token for the module <paramref name="module"/> as <see cref="MintAsync"/> does,
     /// first forgetting every token issued for it before, so only the one returned resolves. The host of
     /// an in-process module calls it at each start, when the token an earlier start handed it is gone
     /// with that start's process.
@@ -50,7 +50,7 @@ public sealed class ModuleTokens(IDocumentStore store)
             await session.SaveChangesAsync(cancellationToken);
         }
 
-        return await IssueAsync(name, cancellationToken);
+        return await MintAsync(name, cancellationToken);
     }
 
     /// <summary>The module principal <paramref name="presented"/> resolves to, or null when no daemon on this node issued it.</summary>
