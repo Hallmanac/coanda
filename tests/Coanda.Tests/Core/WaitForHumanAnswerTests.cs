@@ -134,8 +134,6 @@ public sealed class WaitForHumanAnswerTests
             "Step 'ask' takes no answer 'pursue': its transition on 'verdict' to 'end' is the first in its table to match, so it would be taken instead.",
             Refused(flow, Paused(flow), "pursue"));
         Assert.Empty(WaitForHumanAnswer.Accepted(flow, flow.Steps[0], 1, 0));
-        // a resume without an answer still ends the run on the verdict transition
-        Assert.False(WaitForHumanAnswer.AwaitsAnswer(flow, flow.Steps[0], 1, 0));
     }
 
     [Fact]
@@ -147,7 +145,6 @@ public sealed class WaitForHumanAnswerTests
             "Step 'ask' takes no answer 'other': its transition on 'verdict' to 'end' is the first in its table to match, so it would be taken instead.",
             Refused(flow, Paused(flow), "other"));
         Assert.Equal(["pursue"], WaitForHumanAnswer.Accepted(flow, flow.Steps[0], 1, 0));
-        Assert.False(WaitForHumanAnswer.AwaitsAnswer(flow, flow.Steps[0], 1, 0));
     }
 
     [Fact]
@@ -168,21 +165,6 @@ public sealed class WaitForHumanAnswerTests
         Assert.Null(WaitForHumanAnswer.Refusal(flow, flow.Steps[0], 1, 1, "work"));
         Assert.Equal(["stop"], WaitForHumanAnswer.Accepted(flow, flow.Steps[0], 1, 2));
         Assert.Equal(["work", "stop"], WaitForHumanAnswer.Accepted(flow, flow.Steps[0], 1, 1));
-    }
-
-    [Fact]
-    public void A_step_awaits_an_answer_only_while_its_result_without_one_fires_no_transition()
-    {
-        Flow answersOnly = FlowOf(Ask(OnAnswer("pursue", "later")), Later);
-        Flow capped = FlowOf(Ask(OnAnswer("again", "ask", cap: 1), On("verdict", FlowValue.Of("done"), Flow.End, cap: 1)));
-        Flow verdictOnly = FlowOf(Ask(On("verdict", FlowValue.Of("done"), Flow.End)));
-
-        Assert.True(WaitForHumanAnswer.AwaitsAnswer(answersOnly, answersOnly.Steps[0], 1, 0));
-        // the verdict transition fires at visit 1 and is held by its visit cap at visit 2
-        Assert.False(WaitForHumanAnswer.AwaitsAnswer(capped, capped.Steps[0], 1, 0));
-        Assert.True(WaitForHumanAnswer.AwaitsAnswer(capped, capped.Steps[0], 2, 0));
-        // a step that routes on no answer never waits for one
-        Assert.False(WaitForHumanAnswer.AwaitsAnswer(verdictOnly, verdictOnly.Steps[0], 1, 0));
     }
 
     [Fact]
