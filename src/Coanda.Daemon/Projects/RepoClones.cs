@@ -51,10 +51,9 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
     /// <summary>
     /// What the start does, before any module starts: moves each clone an earlier build kept under
     /// <see cref="NodeHome.EarlierClonesPath"/> to the per-repo layout (<see cref="MoveEarlierAsync"/>), then
-    /// makes sure every repo of every registered project has its clone (<see cref="EnsureAsync"/>), and
-    /// repairs every linked worktree each clone lists whose directory exists. The repair is a no-op for a
-    /// worktree whose links are sound, and running it at every start means a move whose repairs were cut
-    /// short, by a stopped start or a repair that failed, is finished by the next one.
+    /// makes sure every repo of every registered project has its clone (<see cref="EnsureAsync"/>). It runs
+    /// no worktree command: the software module, whose worktrees they are, repairs them from each clone's
+    /// current path at its own start sweep, which runs after this and before any flow run is advanced.
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -67,16 +66,17 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
         await MoveEarlierAsync(projects, cancellationToken);
         foreach (Project project in projects.OrderBy(p => p.Name, StringComparer.Ordinal))
         {
-            await EnsureAsync(project, repairWorktrees: true, cancellationToken);
+            await EnsureAsync(project, cancellationToken);
         }
     }
 
     /// <summary>
     /// Moves each <c>clones/&lt;project&gt;/repo.git</c> under the home to the clone path of the project's
-    /// one repo. Its worktrees are listed before the move, and a clone whose worktrees cannot be listed is
-    /// not moved. The worktrees are repaired from the clone at its new path after it, by the start's
-    /// <see cref="EnsureAsync"/>, which repairs every clone's worktrees at every start, so git works inside
-    /// them again even when this start stops before it gets that far. A clone that cannot be placed is left where it is and the reason logged. A project's directory under
+    /// one repo. Before the move git must answer <c>true</c> to <c>rev-parse --is-bare-repository</c> for
+    /// the clone; one it cannot account for that way is not moved. Any linked worktree of a moved clone is
+    /// repaired from the clone's new path by the software module's start sweep, which runs at every start,
+    /// so git works inside it again even when this start stops before it gets that far. A clone that cannot
+    /// be placed is left where it is and the reason logged. A project's directory under
     /// <c>clones/</c>, and <c>clones/</c> itself, is removed once nothing is left in it.
     /// </summary>
     public async Task MoveEarlierAsync(IReadOnlyList<Project> projects, CancellationToken cancellationToken)
@@ -117,10 +117,7 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
     /// left and logged. A project whose name is not a plain directory name has no clones. A failure is
     /// logged, never thrown.
     /// </summary>
-    public Task EnsureAsync(Project project, CancellationToken cancellationToken) =>
-        EnsureAsync(project, repairWorktrees: false, cancellationToken);
-
-    private async Task EnsureAsync(Project project, bool repairWorktrees, CancellationToken cancellationToken)
+    public async Task EnsureAsync(Project project, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(project);
         if (!RepoLayout.IsPlain(project.Name))
@@ -139,7 +136,7 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
 
             try
             {
-                await EnsureCloneAsync(project.Name, repo, repairWorktrees, cancellationToken);
+                await EnsureCloneAsync(project.Name, repo, cancellationToken);
             }
             catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
             {
@@ -180,11 +177,13 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
             return;
         }
 
-        CommandLine list = Git.Against(clone, "worktree", "list", "--porcelain");
-        CommandResult listed = await git.TryRunAsync(list, cancellationToken);
-        if (listed is not { Succeeded: true, Truncated: false })
+        CommandLine check = Git.Against(clone, "rev-parse", "--is-bare-repository");
+        CommandResult checkedBare = await git.TryRunAsync(check, cancellationToken);
+        if (!IsBare(checkedBare))
         {
-            logger.LogWarning("The clone at {Clone} is left where it is: its worktrees could not be listed, so moving it could strand them. {Reason}", clone, new GitCommandException(list, listed).Message);
+            logger.LogWarning(
+                "The clone at {Clone} is left where it is: git does not answer that it is a bare clone, so moving it could strand what depends on it. {Reason}",
+                clone, checkedBare.Succeeded ? $"git answered '{checkedBare.StandardOutput.Trim()}'." : new GitCommandException(check, checkedBare).Message);
             return;
         }
 
@@ -193,44 +192,12 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
         logger.LogInformation("Moved the clone of repo '{Repo}' of project '{Project}' from {Clone} to {Destination}.", repo.Name, project.Name, clone, destination);
     }
 
-    /// <summary>
-    /// Repairs each linked worktree the clone at <paramref name="clone"/> lists whose directory exists, so
-    /// the worktree and the clone point at each other wherever the clone now is. A listing or a repair that
-    /// fails is logged, and the next start tries again.
-    /// </summary>
-    private async Task RepairWorktreesAsync(string clone, CancellationToken cancellationToken)
-    {
-        CommandLine list = Git.Against(clone, "worktree", "list", "--porcelain");
-        CommandResult listed = await git.TryRunAsync(list, cancellationToken);
-        if (listed is not { Succeeded: true, Truncated: false })
-        {
-            logger.LogError("The worktrees of the clone at {Clone} could not be listed, so none was repaired; the next start tries again. {Reason}", clone, new GitCommandException(list, listed).Message);
-            return;
-        }
-
-        foreach (string worktree in LinkedWorktrees(listed.StandardOutput).Where(Directory.Exists))
-        {
-            await RepairAsync(clone, worktree, cancellationToken);
-        }
-    }
-
-    /// <summary>Points the worktree at <paramref name="worktree"/> and the clone at <paramref name="clone"/> back at each other; a failure is logged naming the worktree.</summary>
-    private async Task RepairAsync(string clone, string worktree, CancellationToken cancellationToken)
-    {
-        CommandLine repair = Git.Against(clone, "worktree", "repair", worktree);
-        CommandResult repaired = await git.TryRunAsync(repair, cancellationToken);
-        if (!repaired.Succeeded)
-        {
-            logger.LogError("The worktree at {Worktree} could not be repaired from its clone at {Clone}; the next start tries again. {Reason}", worktree, clone, new GitCommandException(repair, repaired).Message);
-        }
-    }
-
-    private async Task EnsureCloneAsync(string project, ProjectRepo repo, bool repairWorktrees, CancellationToken cancellationToken)
+    private async Task EnsureCloneAsync(string project, ProjectRepo repo, CancellationToken cancellationToken)
     {
         string clone = home.RepoClonePath(project, repo.Name);
         if (Directory.Exists(clone) || File.Exists(clone))
         {
-            await CheckAsync(project, repo, clone, repairWorktrees, cancellationToken);
+            await CheckAsync(project, repo, clone, cancellationToken);
             return;
         }
 
@@ -262,24 +229,18 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
     }
 
     /// <summary>
-    /// Checks an existing clone: one that is bare has its worktrees repaired when <paramref name="repairWorktrees"/>
-    /// says so, whatever its origin, and with the recorded origin gains any refspec it lacks; anything else
-    /// is logged and left.
+    /// Checks an existing clone: one that is bare and has the recorded origin gains any refspec it lacks;
+    /// anything else is logged and left.
     /// </summary>
-    private async Task CheckAsync(string project, ProjectRepo repo, string clone, bool repairWorktrees, CancellationToken cancellationToken)
+    private async Task CheckAsync(string project, ProjectRepo repo, string clone, CancellationToken cancellationToken)
     {
         CommandResult bare = await git.TryRunAsync(Git.Against(clone, "rev-parse", "--is-bare-repository"), cancellationToken);
-        if (!bare.Succeeded || bare.StandardOutput.Trim() != "true")
+        if (!IsBare(bare))
         {
             logger.LogWarning(
                 "{Clone} is where the node keeps its clone of repo '{Repo}' of project '{Project}', and what is there is not a bare clone, so it is left as it is; move it aside and the next start makes the clone.",
                 clone, repo.Name, project);
             return;
-        }
-
-        if (repairWorktrees)
-        {
-            await RepairWorktreesAsync(clone, cancellationToken);
         }
 
         IReadOnlyList<string> origin = await ValuesAsync(clone, $"remote.{Git.Remote}.url", cancellationToken);
@@ -312,21 +273,9 @@ public sealed class RepoClones(IDocumentStore store, NodeHome home, ICommandRunn
         };
     }
 
-    /// <summary>The paths of the linked worktrees a porcelain listing names: every entry but the bare clone's own.</summary>
-    private static IReadOnlyList<string> LinkedWorktrees(string porcelain)
-    {
-        List<string> paths = [];
-        foreach (string entry in porcelain.ReplaceLineEndings("\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
-        {
-            string[] lines = entry.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            if (lines is [string first, ..] && first.StartsWith("worktree ", StringComparison.Ordinal) && !lines.Contains("bare", StringComparer.Ordinal))
-            {
-                paths.Add(first["worktree ".Length..]);
-            }
-        }
-
-        return paths;
-    }
+    /// <summary>Whether git answered <c>true</c> to <c>rev-parse --is-bare-repository</c>.</summary>
+    private static bool IsBare(CommandResult result) =>
+        result is { Succeeded: true, Truncated: false } && result.StandardOutput.Trim() == "true";
 
     private static IEnumerable<string> Lines(string text) =>
         text.ReplaceLineEndings("\n").Split('\n').Where(l => l.Length > 0);
