@@ -43,7 +43,7 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     {
         node = await SoftwareNode.StartAsync(runner, github);
         parcels = node.Parcels;
-        core = new FlowSystemSteps(FlowSystemSteps.Core(parcels, clock));
+        core = new FlowSystemSteps(FlowSystemSteps.Core(parcels, new FlowRunService(node.Store, clock), clock));
         systemSteps = node.Services.GetRequiredService<FlowSystemSteps>();
     }
 
@@ -74,8 +74,8 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [Fact]
     public void Registering_two_implementations_of_one_name_is_refused()
     {
-        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new FlowSystemSteps([new PlaceholderSystemStep("gates"), new PlaceholderSystemStep("gates")]));
-        Assert.Contains("'gates' is registered twice", exception.Message, StringComparison.Ordinal);
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new FlowSystemSteps([new EmitOutcomeSystemStep(), new EmitOutcomeSystemStep()]));
+        Assert.Contains($"'{CoreSystemSteps.EmitOutcome}' is registered twice", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -200,17 +200,6 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(CoreSystemSteps.DeriveParcels)]
-    public async Task A_placeholder_answers_done_naming_itself_as_a_placeholder(string systemStep)
-    {
-        SystemStepAnswer outcome = await DispatchAsync(Step(systemStep), Ids.New());
-
-        JsonElement result = DoneResult(outcome);
-        Assert.Equal(systemStep, result.GetProperty("systemStep").GetString());
-        Assert.True(result.GetProperty("placeholder").GetBoolean());
-    }
-
-    [Theory]
     [InlineData(CoreSystemSteps.MoveParcel, "stage", null)]
     [InlineData(CoreSystemSteps.MoveParcel, "stage", 3.0)]
     [InlineData(CoreSystemSteps.Timer, "seconds", null)]
@@ -220,6 +209,9 @@ public sealed class FlowSystemStepsTests : IAsyncLifetime
     [InlineData(CoreSystemSteps.WaitForHuman, "lever", true)]
     [InlineData(CoreSystemSteps.WaitForExternalEvent, "event", null)]
     [InlineData(CoreSystemSteps.WaitForExternalEvent, "event", 1.0)]
+    [InlineData(CoreSystemSteps.DeriveParcels, "from", null)]
+    [InlineData(CoreSystemSteps.DeriveParcels, "from", 1.0)]
+    [InlineData(CoreSystemSteps.DeriveParcels, "from", "  ")]
     public async Task A_missing_or_ill_kinded_argument_pauses_naming_the_step_and_the_argument(string systemStep, string argument, object? value)
     {
         FlowStep step = value is null ? Step(systemStep) : Step(systemStep, (argument, JsonSerializer.SerializeToElement(value)));

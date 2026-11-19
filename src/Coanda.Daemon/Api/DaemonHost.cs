@@ -160,7 +160,12 @@ public sealed class DaemonHost
             options.ModuleSettingsSchemas));
         builder.Services.AddSingleton(services => new FlowSystemSteps(
             [
-                .. FlowSystemSteps.Core(services.GetRequiredService<ParcelService>(), services.GetRequiredService<TimeProvider>()),
+                .. FlowSystemSteps.Core(
+                    services.GetRequiredService<ParcelService>(),
+                    // The registered flow run service takes the advancer, which takes these steps, so the
+                    // derive-parcels step reads flow runs through one of its own with no advancer.
+                    new FlowRunService(services.GetRequiredService<IDocumentStore>(), services.GetRequiredService<TimeProvider>()),
+                    services.GetRequiredService<TimeProvider>()),
                 .. options.SystemSteps,
             ],
             services.GetRequiredService<HostedModules>(),

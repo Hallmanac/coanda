@@ -21,4 +21,11 @@ public static class FlowRunLevers
     /// <summary>Names the way out of a flow run whose budget, or its chain's, is spent: a resume pauses it again.</summary>
     public static string BudgetReached() =>
         "Stop the flow run; its budget is spent, so a resume pauses it again before any agent step.";
+
+    /// <summary>
+    /// Names the way out of a flow run whose step <paramref name="step"/> refused the answer step <paramref name="from"/>
+    /// recorded: a resume performs the step again on that same answer, so it pauses again while what refused it stands.
+    /// </summary>
+    public static string AnswerReadAgain(string step, string from) =>
+        $"Stop the flow run, or change what refused the answer; a resume performs step '{step}' again on the same answer of step '{from}', so it pauses again while that refuses it.";
 }
