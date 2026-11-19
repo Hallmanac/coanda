@@ -979,7 +979,12 @@ from that module; an owner who must repair a module's record does it through the
 node, so a module must not report everything it sees. The core compiles the user's triggers (event
 kind plus equality filters, the user's data, shippable by a module) into watch requests and hands
 them to the module at start and whenever a trigger changes; describe declares, per event kind, the
-fields a watch may filter on. The filter runs inside the module and it is the user's filter.
+fields a watch may filter on. The filter runs inside the module and it is the user's filter. Only a
+node whose configuration watches a project (`watchedProjects` in `node.json`, which watches every
+project when it is left out) sends its modules that project's watches and accepts their external
+events for it; any other node sends them an empty set for the project and refuses their events there,
+so of the nodes holding one project, the one that watches it is the one that records its outside
+events.
 
 **Untrusted text.** The fields of an event a module records are untrusted text under the rule
 section 9 states: read only in an agent step with a narrow tool set, never allowed to steer a step

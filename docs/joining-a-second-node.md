@@ -63,6 +63,13 @@ refused command, and is slower to find there.
    profile in `node.json` in the node home (`%USERPROFILE%\.coanda\node.json`), as
    [node configuration](node-configuration.md) describes, and name it for the project after the join
    (step 7 below).
+7. **Leave the project out of what the Windows machine watches.** The owner's node already watches
+   the project, so the Windows machine must not: two watching nodes each record the same outside
+   event, and each one creates work from it. In the same `node.json`, set `watchedProjects` to a list
+   that leaves the project out. For a machine that holds no other project, that is
+   `"watchedProjects": []`; one that also holds projects it should watch lists those. Leaving the
+   member out watches every project, this one included. [Node configuration](node-configuration.md)
+   describes the setting, and the daemon reads it when it starts.
 
 ## The run
 
