@@ -10,10 +10,10 @@ namespace Coanda.Daemon.Modules;
 /// <summary>
 /// What a module's directory brings the store: the module's name and version, from its
 /// <c>module.json</c>, and the definitions in its definitions folder, each with the file it was read
-/// from. The folder holds a <c>types</c>, a <c>flows</c>, and an <c>agents</c> folder, any of which may
-/// be absent, each holding one JSON file per definition named for it; an entry whose name starts with a
-/// dot is passed over. Install will read the same
-/// layout from the module's artifact; until it exists the daemon reads it at start.
+/// from. The folder holds a <c>types</c>, a <c>flows</c>, an <c>agents</c>, and a <c>triggers</c> folder,
+/// any of which may be absent, each holding one JSON file per definition named for it; an entry whose
+/// name starts with a dot is passed over. Install will read the same layout from the module's
+/// artifact; until it exists the daemon reads it at start.
 /// </summary>
 public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList<ModuleArtifactDefinition> Definitions)
 {
@@ -27,6 +27,7 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
         ("types", DefinitionKind.ParcelType),
         ("flows", DefinitionKind.Flow),
         ("agents", DefinitionKind.Agent),
+        ("triggers", DefinitionKind.Trigger),
     ];
 
     private static readonly Lazy<Task<JsonSchema>> ManifestSchema = new(ReadManifestSchemaAsync);
@@ -56,7 +57,7 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
         if (!Directory.Exists(definitionsPath))
         {
             throw new DomainException(
-                $"No definitions folder at '{definitionsPath}'; module '{manifest.Name}' keeps its types, flows, and agents there, even when it brings none.");
+                $"No definitions folder at '{definitionsPath}'; module '{manifest.Name}' keeps its types, flows, agents, and triggers there, even when it brings none.");
         }
 
         RefuseStrayEntries(definitionsPath);
@@ -101,7 +102,7 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
     /// <summary>A refusal of <paramref name="definition"/>'s import, naming the file it came from when it came from one.</summary>
     public DomainException Refusal(ModuleArtifactDefinition definition, DomainException broken) =>
         new(definition.File is null
-            ? $"Module '{Module}' version {Version} cannot be imported: its {definition.Definition.Kind} '{definition.Definition.Name}' breaks a rule: {broken.Message}"
+            ? $"Module '{Module}' version {Version} cannot be imported: its {DefinitionDecider.Describe(definition.Definition.Kind)} '{definition.Definition.Name}' breaks a rule: {broken.Message}"
             : $"Module '{Module}' version {Version} cannot be imported: the definition file '{definition.File}' breaks a rule: {broken.Message}");
 
     private static async Task<ModuleManifest> ReadManifestAsync(string path, CancellationToken cancellationToken)
@@ -181,7 +182,7 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
         entries.Where(entry => !Path.GetFileName(entry).StartsWith('.'));
 
     private static DomainException NotADefinitionFile(string path) =>
-        new($"'{path}' is not a definition file; a module's {DefinitionsFolder} folder holds a types, a flows, and an agents folder of JSON files, one definition per file.");
+        new($"'{path}' is not a definition file; a module's {DefinitionsFolder} folder holds a types, a flows, an agents, and a triggers folder of JSON files, one definition per file.");
 
     private static string FilesOf(IEnumerable<ModuleArtifactDefinition> definitions)
     {

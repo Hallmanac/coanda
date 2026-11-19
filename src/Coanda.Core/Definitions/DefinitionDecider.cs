@@ -4,6 +4,7 @@ using Coanda.Core.Definitions.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
+using Coanda.Core.Triggers;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Definitions;
@@ -187,6 +188,11 @@ public static class DefinitionDecider
             case DefinitionKind.Agent:
                 RequireAgent(trimmedName, content, contentHash);
                 break;
+            case DefinitionKind.Trigger:
+                RequireTrigger(trimmedName, content, contentHash);
+                break;
+            default:
+                throw new DomainException($"'{kind}' is not a kind of definition.");
         }
 
         return new DefinitionDrafted(
@@ -321,12 +327,32 @@ public static class DefinitionDecider
         }
     }
 
-    private static string Describe(DefinitionKind kind) => kind switch
+    /// <summary>The kind of a definition as a refusal names it.</summary>
+    public static string Describe(DefinitionKind kind) => kind switch
     {
         DefinitionKind.ParcelType => "parcel type",
         DefinitionKind.Flow => "flow",
-        _ => "agent",
+        DefinitionKind.Agent => "agent",
+        DefinitionKind.Trigger => "trigger",
+        _ => throw new DomainException($"'{kind}' is not a kind of definition."),
     };
+
+    private static void RequireTrigger(string name, string content, string contentHash)
+    {
+        TriggerDefinition trigger = TriggerDefinition.FromJson(content);
+        trigger.Validate();
+
+        if (!string.Equals(trigger.Name, name, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainException($"A trigger definition is named for its trigger; '{name}' holds the trigger '{trigger.Name}'.");
+        }
+
+        if (!string.Equals(trigger.Hash, contentHash, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"The content hash '{contentHash}' differs from the trigger's hash '{trigger.Hash}'.");
+        }
+    }
 
     private static string Describe(DefinitionStatus status) => status switch
     {

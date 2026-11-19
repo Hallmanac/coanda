@@ -1,5 +1,6 @@
 using Coanda.Core.Agents;
 using Coanda.Core.Flows;
+using Coanda.Core.Triggers;
 using Coanda.Core.Types;
 
 namespace Coanda.Core.Definitions;
@@ -7,7 +8,7 @@ namespace Coanda.Core.Definitions;
 /// <summary>
 /// One definition a module brings, ready to import into module scope: its kind, its name, its
 /// canonical content, and that content's hash. Import is generic over <see cref="DefinitionKind"/>:
-/// a parcel type, a flow, and an agent arrive through the same shape.
+/// a parcel type, a flow, an agent, and a trigger arrive through the same shape.
 /// </summary>
 public sealed record ModuleDefinition(DefinitionKind Kind, string Name, string Content, string ContentHash)
 {
@@ -20,6 +21,9 @@ public sealed record ModuleDefinition(DefinitionKind Kind, string Name, string C
     public static ModuleDefinition FromAgent(AgentDefinition agent) =>
         new(DefinitionKind.Agent, agent.Name, AgentDefinition.CanonicalJson(agent), agent.Hash);
 
+    public static ModuleDefinition FromTrigger(TriggerDefinition trigger) =>
+        new(DefinitionKind.Trigger, trigger.Name, TriggerDefinition.CanonicalJson(trigger), trigger.Hash);
+
     /// <summary>
     /// Reads <paramref name="json"/> as a definition of <paramref name="kind"/> through that kind's
     /// canonical read, which refuses anything else, and carries it as the kind's canonical JSON with
@@ -30,6 +34,7 @@ public sealed record ModuleDefinition(DefinitionKind Kind, string Name, string C
         DefinitionKind.ParcelType => FromParcelType(ParcelType.FromJson(json)),
         DefinitionKind.Flow => FromFlow(Flow.FromJson(json)),
         DefinitionKind.Agent => FromAgent(AgentDefinition.FromJson(json)),
+        DefinitionKind.Trigger => FromTrigger(TriggerDefinition.FromJson(json)),
         _ => throw new DomainException($"'{kind}' is not a kind of definition."),
     };
 }
