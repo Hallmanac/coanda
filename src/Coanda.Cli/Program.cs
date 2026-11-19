@@ -97,7 +97,7 @@ app.Configure(config =>
         parcel.AddCommand<ParcelSetCommand>("set").WithDescription("Set one of a parcel's fields, replacing its value.")
             .WithExample("parcel", "set", "0192a3b4", "objective", "--text", "\"Teach the daemon fields\"")
             .WithExample("parcel", "set", "0192a3b4", "criteria", "--item", "\"It starts\"", "--item", "\"It answers\"")
-            .WithExample("parcel", "set", "0192a3b4", "source", "--ref", "42", "--url", "https://example.com/items/42");
+            .WithExample("parcel", "set", "0192a3b4", "<field>", "--ref", "42", "--url", "https://example.com/items/42");
         parcel.AddCommand<ParcelClaimCommand>("claim").WithDescription("Claim a parcel for this node, publish its ledger, and fetch its peers'.").WithExample("parcel", "claim", "0192a3b4");
         parcel.AddCommand<ParcelCloseCommand>("close").WithDescription("Close a parcel with a resolution and a reason.").WithExample("parcel", "close", "0192a3b4", "-r", "completed", "--reason", "\"Merged\"");
     });
