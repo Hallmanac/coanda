@@ -8,15 +8,15 @@ marked **(person at Windows)** needs someone sitting at the Windows machine; not
 runbook can do it for them.
 
 The commands below write `coa` for the build of `coa` this runbook asks for. On Windows that is
-`src\Coanda.Cli\bin\Release\net10.0\coa.exe` in the checkout you build; on the Mac it is
-`src/Coanda.Cli/bin/Release/net10.0/coa`. The project is written `coanda`; use your project's name.
+`src\Coanda.Cli\bin\Release\net11.0\coa.exe` in the checkout you build; on the Mac it is
+`src/Coanda.Cli/bin/Release/net11.0/coa`. The project is written `coanda`; use your project's name.
 
 ## Before the run
 
 Install and configure each of these first. A missing one shows up later as a paused flow run or a
 refused command, and is slower to find there.
 
-1. **The .NET SDK** (version 10) on the Windows machine and on the owner's node.
+1. **The .NET SDK** (version 11) on the Windows machine and on the owner's node.
 2. **A build of `coa` at the pull request's commit, on both machines.** `coa node vouch` and
    `coa join` exist only from that commit on, so the owner's node must run that build for the gate
    too. On each machine, from a clone of the repository:

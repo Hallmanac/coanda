@@ -7,7 +7,7 @@ Canonical guidance for anyone, human or agent, working in this repository.
 ```bash
 dotnet build
 dotnet test
-./src/Coanda.Cli/bin/Debug/net10.0/coa --help
+./src/Coanda.Cli/bin/Debug/net11.0/coa --help
 ```
 
 CI builds and tests on ubuntu and windows for every push and pull request to main.
