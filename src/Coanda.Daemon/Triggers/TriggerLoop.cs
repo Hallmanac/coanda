@@ -567,7 +567,11 @@ public sealed class TriggerLoop(
     /// close the parcel, and the waiting one's start would then be refused, and a later follower
     /// started ahead of an earlier one would break the name order. A closing follower also waits
     /// whenever follows of an earlier end are already waiting on the parcel, behind every one of them
-    /// that does not close. Each refusal is logged and the other followers still start.
+    /// that does not close. A follower whose decision is refused, or fails for any other reason, is logged
+    /// and passed over: it neither starts nor waits, and every later follower is decided as though it had
+    /// not matched, so the follows already set to wait are still written to the parcel's follow queue. A
+    /// stop is no failure of the follower: it leaves the end unhandled, and the next start handles it again,
+    /// where a follower that already started is not started twice.
     /// </summary>
     private async Task EndedAsync(string project, FlowRunEnded ended, bool own, long sequence, CancellationToken cancellationToken)
     {
@@ -614,6 +618,13 @@ public sealed class TriggerLoop(
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
             {
                 LogFollowRefused(follower.Name, parent.Id, refused);
+            }
+            catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogError(
+                    failure,
+                    "Flow '{Flow}' follows the end of flow run {FlowRun}, but deciding it failed, so it neither starts nor waits and the next follower goes on.",
+                    follower.Name, Ids.Short(parent.Id));
             }
 
             if (FollowDecided is { } decided)
