@@ -228,6 +228,38 @@ public sealed class ExternalEventTriggerTests
     }
 
     [Fact]
+    public async Task A_subscription_that_fails_on_an_event_leaves_the_events_trigger_to_create_its_parcel()
+    {
+        using var temp = new TemporaryHome();
+        Guid eventId = Guid.Empty;
+        await SeedAsync(temp, async seeded =>
+        {
+            await StoredSubscriptions.RecordAsync(
+                seeded.Store, Project, new Principal("teammate", Role.Member), new Trigger("opened", Fields()), "task", "title", Hold.Name, None);
+            await TriggerAsync(seeded.Store, Creating("opened", "opened", Fields(), titleField: "summary"));
+            eventId = (await seeded.RecordAsync("opened", Fields(("title", "By the subscription"), ("summary", "By the trigger")))).Id;
+            await MarkAsync(seeded.Store, "Marker");
+        });
+
+        int failed = 0;
+        Task Fail(Subscription subscription, CancellationToken token)
+        {
+            Interlocked.Increment(ref failed);
+            throw new InvalidOperationException("The store refused the subscription's write.");
+        }
+
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { SubscriptionFiring = Fail }, None);
+        using var client = new DaemonClient(temp.Home);
+        await ParcelTitledAsync(client, "Marker");
+
+        Assert.Equal(1, Volatile.Read(ref failed));
+        ParcelView created = Assert.Single(await CreatedAsync(client));
+        Assert.Equal(("By the trigger", $"trigger:project:alpha/opened:event:{eventId}"), (created.Title, created.CreatedBy));
+        Assert.Single(await FlowRunDriver.OfParcelAsync(client, Project, created.Id));
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task An_event_whose_parcel_another_node_already_created_for_the_trigger_creates_nothing_here()
     {
         using var temp = new TemporaryHome();

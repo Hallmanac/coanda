@@ -144,6 +144,19 @@ public sealed class TriggerLoop(
     internal Func<DirectFollowStart, CancellationToken, Task>? DirectFollowStarting { get; set; }
 
     /// <summary>
+    /// Awaited just before the follows of a flow run's end that wait are written to its parcel's follow queue, given
+    /// that parcel's id. Null, as it is in a running daemon, awaits nothing; a test supplies it through
+    /// <see cref="Api.DaemonOptions"/> to make that write fail.
+    /// </summary>
+    internal Func<Guid, CancellationToken, Task>? FollowsDeferring { get; set; }
+
+    /// <summary>
+    /// Awaited just before a subscription fires on an external event. Null, as it is in a running daemon, awaits
+    /// nothing; a test supplies it through <see cref="Api.DaemonOptions"/> to make that firing fail.
+    /// </summary>
+    internal Func<Subscription, CancellationToken, Task>? SubscriptionFiring { get; set; }
+
+    /// <summary>
     /// Reads the loop's position, or on a node where it has never run, writes the end of the existing
     /// record as its position. The daemon calls this before it writes its address file.
     /// </summary>
@@ -648,12 +661,24 @@ public sealed class TriggerLoop(
             }
         }
 
-        if (waiting.Count > 0)
+        // The triggers on the end run even when writing the waiting follows fails, since what they create is a new
+        // parcel no follow waits on; the failure still leaves the loop, which logs it and passes over the entry.
+        try
         {
-            await DeferFollowsAsync(project, parent.ParcelId, waiting, cancellationToken);
-        }
+            if (waiting.Count > 0)
+            {
+                if (FollowsDeferring is { } deferring)
+                {
+                    await deferring(parent.ParcelId, cancellationToken);
+                }
 
-        await EndTriggersAsync(project, parent, parcel, candidate, cancellationToken);
+                await DeferFollowsAsync(project, parent.ParcelId, waiting, cancellationToken);
+            }
+        }
+        finally
+        {
+            await EndTriggersAsync(project, parent, parcel, candidate, cancellationToken);
+        }
     }
 
     /// <summary>
@@ -914,16 +939,22 @@ public sealed class TriggerLoop(
     /// parcel here. Whichever node recorded it, every trigger that matches it and acts on the event's parcel starts its
     /// flow there where the parcel's claims let this node, weighed once for the event (<see cref="EventParcelAsync"/>).
     /// An event handled again because it was held back on its parcel's claim creates nothing: its creations were
-    /// decided when it was first read, and only its starts on the parcel waited.
+    /// decided when it was first read, and only its starts on the parcel waited. Subscriptions fire before the triggers
+    /// are resolved, and a subscription that fails for any reason is logged, so neither keeps the other from acting.
     /// </summary>
     private async Task ExternalAsync(ExternalEventRecorded external, bool own, long sequence, CancellationToken cancellationToken)
     {
         string project = external.Project;
         bool heldBackBefore = replaying is Guid parcel && parcel == external.ParcelId;
-        IReadOnlyList<ResolvedTrigger> matching = await MatchingTriggersAsync(project, new TriggerEvent(external.Kind, external.Fields), cancellationToken);
-        if (own && !heldBackBefore)
+        bool creates = own && !heldBackBefore;
+        if (creates)
         {
             await SubscriptionsAsync(external, cancellationToken);
+        }
+
+        IReadOnlyList<ResolvedTrigger> matching = await MatchingTriggersAsync(project, new TriggerEvent(external.Kind, external.Fields), cancellationToken);
+        if (creates)
+        {
             string cause = $"external event {Ids.Short(external.EventId)}";
             foreach (ResolvedTrigger trigger in matching)
             {
@@ -1207,15 +1238,37 @@ public sealed class TriggerLoop(
     private void LogTriggerFailed(ResolvedTrigger trigger, string cause, Exception failure) =>
         logger.LogError(failure, "Trigger {Trigger} on {Cause} failed, and the next trigger goes on.", trigger.Key, cause);
 
-    /// <summary>Every subscription of the event's project that matches it creates its parcel and starts its flow.</summary>
+    /// <summary>
+    /// Every subscription of the event's project that matches it creates its parcel and starts its flow. A subscription
+    /// refused, or failing for any other reason, is logged and the next one goes on, and a failure to list the
+    /// subscriptions is logged too, so none of it keeps the event's triggers from acting.
+    /// </summary>
     private async Task SubscriptionsAsync(ExternalEventRecorded external, CancellationToken cancellationToken)
     {
         TriggerEvent candidate = new(external.Kind, external.Fields);
-        IReadOnlyList<Subscription> subscriptions = await triggers.ListSubscriptionsAsync(LoopPrincipal, external.Project, cancellationToken);
+        IReadOnlyList<Subscription> subscriptions;
+        try
+        {
+            subscriptions = await triggers.ListSubscriptionsAsync(LoopPrincipal, external.Project, cancellationToken);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(
+                failure,
+                "Listing the subscriptions of project {Project} for event {Event} failed, so no subscription fires on it and its triggers go on.",
+                external.Project, Ids.Short(external.EventId));
+            return;
+        }
+
         foreach (Subscription subscription in subscriptions.Where(s => s.Trigger.Matches(candidate)))
         {
             try
             {
+                if (SubscriptionFiring is { } firing)
+                {
+                    await firing(subscription, cancellationToken);
+                }
+
                 await FireAsync(subscription, external, cancellationToken);
             }
             catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
@@ -1223,6 +1276,13 @@ public sealed class TriggerLoop(
                 logger.LogWarning(
                     "Subscription {Subscription} on event {Event} was refused: {Rule}",
                     Ids.Short(subscription.Id), Ids.Short(external.EventId), refused.Message);
+            }
+            catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogError(
+                    failure,
+                    "Subscription {Subscription} on event {Event} failed, and the next subscription goes on.",
+                    Ids.Short(subscription.Id), Ids.Short(external.EventId));
             }
         }
     }

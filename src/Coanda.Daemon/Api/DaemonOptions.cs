@@ -1,4 +1,5 @@
 using Coanda.Core.Parcels;
+using Coanda.Core.Triggers;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
@@ -127,4 +128,16 @@ public sealed record DaemonOptions
     /// <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail or hold open that start.
     /// </summary>
     internal Func<DirectFollowStart, CancellationToken, Task>? DirectFollowStarting { get; init; }
+
+    /// <summary>
+    /// What the trigger loop awaits just before it writes the waiting follows of a flow run's end, given their parcel's
+    /// id; null, as <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail that write.
+    /// </summary>
+    internal Func<Guid, CancellationToken, Task>? FollowsDeferring { get; init; }
+
+    /// <summary>
+    /// What the trigger loop awaits just before a subscription fires on an external event; null, as
+    /// <c>coa daemon run</c> leaves it, awaits nothing. Only a test supplies it, to fail that firing.
+    /// </summary>
+    internal Func<Subscription, CancellationToken, Task>? SubscriptionFiring { get; init; }
 }

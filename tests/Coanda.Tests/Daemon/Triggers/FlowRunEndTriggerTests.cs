@@ -212,6 +212,38 @@ public sealed class FlowRunEndTriggerTests
     }
 
     [Fact]
+    public async Task A_failure_writing_the_ends_waiting_follows_leaves_the_trigger_on_the_end_to_create_its_parcel()
+    {
+        using var temp = new TemporaryHome();
+        Guid parcelId = Guid.Empty;
+        Guid ended = Guid.Empty;
+        await SeedAsync(temp, async seeded =>
+        {
+            // A second follower of the same end, which waits behind the first and so has to be written to the follow queue.
+            await FlowAsync(seeded.Store, AfterSource with { Name = "after-source-too" });
+            await TriggerAsync(seeded.Store, Evaluate);
+            parcelId = await TaskAsync(seeded.Store, "Followed twice");
+            ended = await seeded.EndedAsync(parcelId, Source);
+            await MarkAsync(seeded.Store, "Marker");
+        });
+
+        int failed = 0;
+        Task Fail(Guid parcel, CancellationToken token)
+        {
+            Interlocked.Increment(ref failed);
+            throw new InvalidOperationException("The store refused the follow queue's write.");
+        }
+
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { FollowsDeferring = Fail }, None);
+        using var client = new DaemonClient(temp.Home);
+        await ParcelTitledAsync(client, "Marker");
+
+        Assert.Equal(1, Volatile.Read(ref failed));
+        await AssertCreatedAsync(daemon, client, parcelId, ended, "Followed twice");
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task An_end_handled_again_after_its_parcel_was_created_here_starts_the_flow_on_that_parcel_once()
     {
         using var temp = new TemporaryHome();
