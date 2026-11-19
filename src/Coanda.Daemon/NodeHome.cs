@@ -108,9 +108,10 @@ public sealed record NodeHome(string Path)
     public string EarlierClonesPath => System.IO.Path.Combine(Path, "clones");
 
     /// <summary>
-    /// Where the transcripts of a flow run's sessions are kept: <c>transcripts/&lt;project&gt;/&lt;flow run id&gt;</c>
-    /// under the home, outside the flow run's work directory, so a session never finds them among its
-    /// files. The project must be a plain directory name, as for <see cref="FlowRunWorkPath"/>.
+    /// Where the transcripts of a flow run's sessions, and the prompts they were given, are kept:
+    /// <c>transcripts/&lt;project&gt;/&lt;flow run id&gt;</c> under the home, outside the flow run's work
+    /// directory, so a session never finds them among its files. The project must be a plain directory
+    /// name, as for <see cref="FlowRunWorkPath"/>.
     /// </summary>
     public string FlowRunTranscriptPath(string project, Guid flowRunId) =>
         System.IO.Path.Combine(Path, "transcripts", RequirePlain(project, "transcript directory"), flowRunId.ToString());

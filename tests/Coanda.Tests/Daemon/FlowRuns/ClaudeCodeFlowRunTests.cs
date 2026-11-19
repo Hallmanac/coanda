@@ -1,8 +1,11 @@
+using System.IO.Compression;
+using System.Text;
 using Coanda.Cli;
 using Coanda.Core.Agents;
 using Coanda.Core.Flows;
 using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
+using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
@@ -10,6 +13,8 @@ using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.Executors;
+using Fisher;
+using JasperFx.Events;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon.FlowRuns;
@@ -23,7 +28,7 @@ public sealed class ClaudeCodeFlowRunTests
     private static readonly CancellationToken None = CancellationToken.None;
 
     [Fact]
-    public async Task An_agent_step_with_no_valid_answer_after_its_retry_pauses_on_its_transcript_in_the_flow_runs_transcript_directory_and_a_resume_writes_the_record_again()
+    public async Task An_agent_step_with_no_valid_answer_after_its_retry_pauses_on_its_kept_transcript_in_the_flow_runs_transcript_directory_and_a_resume_writes_the_record_again()
     {
         using var temp = new TemporaryHome();
         using var fake = new FakeClaude(
@@ -39,10 +44,22 @@ public sealed class ClaudeCodeFlowRunTests
 
         string work = temp.Home.FlowRunWorkPath(Project, started.Id);
         string transcripts = temp.Home.FlowRunTranscriptPath(Project, started.Id);
-        string transcript = Assert.Single(Directory.GetFiles(transcripts));
+        string session = fake.Starts[0].After("--session-id") ?? throw new InvalidOperationException("The spawn named no session.");
+        string transcript = Path.Combine(transcripts, $"{session}.jsonl.gz");
+        string prompt = Path.Combine(transcripts, $"{session}.prompt.gz");
         Assert.StartsWith("Agent 'build' gave no valid 'build' answer after one retry", paused.PauseReason, StringComparison.Ordinal);
         Assert.Equal(transcript, paused.Lever);
-        Assert.Equal(fake.Starts[0].After("--session-id"), Path.GetFileNameWithoutExtension(transcript));
+        // the session is stopped once the pause is recorded, and only then are its files compressed
+        await FlowRunDriver.UntilAsync(() => KeptOnlyCompressed(transcripts, session), "the paused session's files are kept only compressed");
+        Assert.Equal([transcript, prompt], Directory.GetFiles(transcripts).Order(StringComparer.Ordinal));
+        Assert.Contains("Still not sure.", Encoding.UTF8.GetString(Decompressed(transcript)), StringComparison.Ordinal);
+        // the kept prompt holds the first prompt and the retry message, in the order they were sent
+        Assert.Equal(Utf8(fake.Starts[0].Input + fake.Starts[1].Input), Decompressed(prompt));
+        FlowRunService flowRuns = daemon.Services.GetRequiredService<FlowRunService>();
+        FlowRun pausedRun = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None) ?? throw new InvalidOperationException("The flow run is gone.");
+        FlowRunPaused pause = Assert.Single(await EventsAsync<FlowRunPaused>(daemon, started.Id));
+        Assert.Equal((FileHash.Of(Decompressed(prompt)), FileHash.Of(Decompressed(transcript))), (pause.PromptHash, pause.TranscriptHash));
+        Assert.Equal((pause.PromptHash, pause.TranscriptHash), (pausedRun.PausePromptHash, pausedRun.PauseTranscriptHash));
         foreach (string input in new[] { "parcel.md", "prompt.md", "persona.md" })
         {
             Assert.True(File.Exists(Path.Combine(work, ".coanda", input)));
@@ -54,12 +71,22 @@ public sealed class ClaudeCodeFlowRunTests
 
         await FlowRunDriver.ResumeAsync(client, Project, started.Id, "Once more.");
         Assert.Equal("built", (await FlowRunDriver.UntilAsync(client, Project, started.Id, "ended")).Outcome);
+        string answeredSession = fake.Starts[2].After("--session-id") ?? throw new InvalidOperationException("The spawn named no session.");
+        string answeredTranscript = Path.Combine(transcripts, $"{answeredSession}.jsonl.gz");
+        string answeredPrompt = Path.Combine(transcripts, $"{answeredSession}.prompt.gz");
+        await FlowRunDriver.UntilAsync(() => KeptOnlyCompressed(transcripts, answeredSession), "the answered session's files are kept only compressed");
+        AgentStepAnswered answered = Assert.Single(await EventsAsync<AgentStepAnswered>(daemon, started.Id));
+        Assert.Equal(Utf8(fake.Starts[2].Input), Decompressed(answeredPrompt));
+        Assert.Equal((FileHash.Of(Decompressed(answeredPrompt)), FileHash.Of(Decompressed(answeredTranscript))), (answered.PromptHash, answered.TranscriptHash));
+        FlowRun ended = await flowRuns.ShowAsync(Principal.LocalOwner, Project, started.Id, None) ?? throw new InvalidOperationException("The flow run is gone.");
+        Assert.Equal((answered.PromptHash, answered.TranscriptHash), (ended.Steps[^1].PromptHash, ended.Steps[^1].TranscriptHash));
+        Assert.Equal((null, null), (ended.PausePromptHash, ended.PauseTranscriptHash));
         string actual = File.ReadAllText(Path.Combine(work, ".coanda", "parcel.md"));
         Assert.StartsWith($"{Fences.Framing}\n\n# `Try twice`", actual, StringComparison.Ordinal);
         Assert.Contains($"- Parcel: {parcel.Id}", actual, StringComparison.Ordinal);
         Assert.Equal(ContextOf(fake.Starts[2].Input), File.ReadAllText(Path.Combine(work, ".coanda", "prompt.md")));
-        // the resume's new spawn writes a transcript of its own
-        Assert.Equal(2, Directory.GetFiles(transcripts).Length);
+        // the resume's new spawn writes a transcript and a prompt of its own
+        Assert.Equal(4, Directory.GetFiles(transcripts).Length);
 
         await daemon.StopAsync(None);
     }
@@ -91,6 +118,9 @@ public sealed class ClaudeCodeFlowRunTests
         Assert.Equal("Step 'build' got no answer from agent 'build': The claude CLI ended the session's process with an error result (error_max_budget_usd): Reached maximum budget ($3)", paused.PauseReason);
         Assert.Equal(FlowRunLevers.PerformAgain("build"), paused.Lever);
         Assert.Equal(new Measurement(10, 3.1m, 5, TimeSpan.FromSeconds(20)), paused.PauseUsage);
+        // only a pause after the retry carries the hashes of the session's files, though they are kept all the same
+        FlowRunPaused pause = Assert.Single(await EventsAsync<FlowRunPaused>(daemon, started.Id));
+        Assert.Equal((null, null), (pause.PromptHash, pause.TranscriptHash));
         Assert.Equal(3.1m, paused.Cost);
         // an error result is not retried
         Assert.Single(fake.Starts);
@@ -288,6 +318,35 @@ public sealed class ClaudeCodeFlowRunTests
 
         await daemon.StopAsync(None);
     }
+
+    private static async Task<IReadOnlyList<T>> EventsAsync<T>(RunningDaemon daemon, Guid flowRunId)
+    {
+        await using IQuerySession session = daemon.Services.GetRequiredService<IDocumentStore>().QuerySession(Project);
+        IReadOnlyList<IEvent> stream = await session.Events.FetchStreamAsync(flowRunId, token: None);
+        return [.. stream.Select(e => e.Data).OfType<T>()];
+    }
+
+    /// <summary>
+    /// Whether the session's prompt and transcript are kept compressed and their uncompressed files are
+    /// gone: the stop writes each compressed file before it removes the one it replaces.
+    /// </summary>
+    private static bool KeptOnlyCompressed(string transcripts, string session) =>
+        File.Exists(Path.Combine(transcripts, $"{session}.jsonl.gz"))
+        && File.Exists(Path.Combine(transcripts, $"{session}.prompt.gz"))
+        && !File.Exists(Path.Combine(transcripts, $"{session}.jsonl"))
+        && !File.Exists(Path.Combine(transcripts, $"{session}.prompt"));
+
+    /// <summary>The bytes of the gzip-compressed file at <paramref name="path"/>, decompressed.</summary>
+    private static byte[] Decompressed(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var gzip = new GZipStream(file, CompressionMode.Decompress);
+        using var bytes = new MemoryStream();
+        gzip.CopyTo(bytes);
+        return bytes.ToArray();
+    }
+
+    private static byte[] Utf8(string text) => new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(text);
 
     private static object Answer(string reply, decimal cost = 0.1m, object? rewrite = null, string? waitFor = null) => new
     {
