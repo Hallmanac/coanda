@@ -4,6 +4,8 @@ using Coanda.Cli.Commands;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
+using Coanda.Core.Triggers;
+using Coanda.Tests.Core;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
@@ -16,9 +18,10 @@ namespace Coanda.Tests.Daemon.FlowRuns;
 /// <summary>
 /// The shipped discovery flow on the scripted executor, for an idea created on this build and moved into its
 /// discovery stage: a <c>derive</c> answer listing tasks pauses the flow run at its gate, where an answer of
-/// <c>pursue</c> ends it with one task parcel per entry, each derived from the idea by that flow run, and an
-/// answer of <c>stop</c> ends it with none; a <c>derive</c> answer with no list pauses at derive-parcels once
-/// pursued, and a <c>carry-forward</c> answer ends the flow run with no gate and no parcel.
+/// <c>pursue</c> ends it with the outcome <c>parcels-derived</c> and one task parcel per entry, each derived
+/// from the idea by that flow run, and an answer of <c>stop</c> ends it with the outcome <c>stopped</c> and
+/// none; a <c>derive</c> answer with no list pauses at derive-parcels once pursued, and a
+/// <c>carry-forward</c> answer ends the flow run with the outcome <c>carried-forward</c>, no gate, and no parcel.
 /// </summary>
 public sealed class DiscoveryFlowRunTests
 {
@@ -76,6 +79,32 @@ public sealed class DiscoveryFlowRunTests
         Assert.Equal(idea.Id, only.Id);
     }
 
+    /// <summary>
+    /// Runs a discovery flow run to its gate on a daemon of its own, answers it <paramref name="answer"/>, and
+    /// returns the ended flow run's view and the idea it ran for.
+    /// </summary>
+    private static async Task<(FlowRunView Ended, Parcel Idea)> EndedAtGateAsync(string answer)
+    {
+        using var temp = new TemporaryHome();
+        (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(temp, TwoTasks);
+        await using (daemon)
+        using (client)
+        {
+            await AtGateAsync(daemon, client, idea, flowRunId);
+            await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null, answer);
+            FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
+            await daemon.StopAsync(None);
+            return (ended, idea);
+        }
+    }
+
+    /// <summary>The flow-run-ended event the trigger loop builds for <paramref name="ended"/>, from the outcome it recorded.</summary>
+    private static TriggerEvent EndedEvent(FlowRunView ended, Parcel idea) => TriggerEvent.FlowRunEnded(
+        ended.FlowName,
+        ended.Outcome ?? throw new InvalidOperationException("The ended flow run recorded no outcome."),
+        idea.TypeName,
+        idea.Title);
+
     private static void AssertAnswered(FlowRunStepView gate, string answer)
     {
         Assert.Equal("gate", gate.Step);
@@ -84,7 +113,7 @@ public sealed class DiscoveryFlowRunTests
     }
 
     [Fact]
-    public async Task A_derive_answer_listing_two_tasks_waits_at_the_gate_and_an_answer_of_pursue_ends_the_flow_run_with_two_task_parcels_derived_from_the_idea()
+    public async Task A_derive_answer_listing_two_tasks_waits_at_the_gate_and_an_answer_of_pursue_ends_the_flow_run_with_parcels_derived_and_two_task_parcels_derived_from_the_idea()
     {
         using var temp = new TemporaryHome();
         (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(temp, TwoTasks);
@@ -122,7 +151,7 @@ public sealed class DiscoveryFlowRunTests
     }
 
     [Fact]
-    public async Task A_derive_answer_listing_two_tasks_waits_at_the_gate_and_an_answer_of_stop_ends_the_flow_run_with_nothing_derived()
+    public async Task A_derive_answer_listing_two_tasks_waits_at_the_gate_and_an_answer_of_stop_ends_the_flow_run_with_stopped_and_nothing_derived()
     {
         using var temp = new TemporaryHome();
         (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(temp, TwoTasks);
@@ -134,6 +163,8 @@ public sealed class DiscoveryFlowRunTests
             await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null, "stop");
             FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
 
+            Assert.Equal("stopped", ended.Outcome);
+            Assert.Contains($"{"Outcome",-8}stopped", FlowRunRendering.Show(ended));
             Assert.Equal(["discover", "gate"], ended.Steps.Select(s => s.Step));
             AssertAnswered(ended.Steps[1], "stop");
             Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
@@ -175,7 +206,7 @@ public sealed class DiscoveryFlowRunTests
     }
 
     [Fact]
-    public async Task A_carry_forward_answer_ends_the_flow_run_without_visiting_derive_parcels_or_creating_a_parcel()
+    public async Task A_carry_forward_answer_ends_the_flow_run_with_carried_forward_without_visiting_derive_parcels_or_creating_a_parcel()
     {
         using var temp = new TemporaryHome();
         (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(
@@ -185,11 +216,30 @@ public sealed class DiscoveryFlowRunTests
         {
             FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
 
+            Assert.Equal("carried-forward", ended.Outcome);
+            Assert.Contains($"{"Outcome",-8}carried-forward", FlowRunRendering.Show(ended));
             Assert.Equal(["discover"], ended.Steps.Select(s => s.Step));
             Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
             Assert.Equal(idea.Id, only.Id);
 
             await daemon.StopAsync(None);
         }
+    }
+
+    [Fact]
+    public async Task A_trigger_on_the_discovery_flows_end_filtered_on_stopped_matches_the_stopped_flow_runs_end_and_not_the_pursued_one()
+    {
+        TriggerDefinition onStop = SampleTriggers.EvaluateBuild with
+        {
+            Name = "on-discovery-stopped",
+            Filters = SampleTriggers.Filters((TriggerEvent.FlowField, SoftwareFlows.Discovery.Name), (TriggerEvent.OutcomeField, "stopped")),
+        };
+        Trigger matcher = Trigger.ForDefinition(onStop);
+
+        (FlowRunView stopped, Parcel stoppedIdea) = await EndedAtGateAsync("stop");
+        (FlowRunView pursued, Parcel pursuedIdea) = await EndedAtGateAsync("pursue");
+
+        Assert.True(matcher.Matches(EndedEvent(stopped, stoppedIdea)));
+        Assert.False(matcher.Matches(EndedEvent(pursued, pursuedIdea)));
     }
 }

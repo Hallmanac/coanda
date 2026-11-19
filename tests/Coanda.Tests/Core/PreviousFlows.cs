@@ -51,14 +51,30 @@ public static class PreviousFlows
     }
 
     /// <summary>
-    /// The discovery flow as main shipped it before its gate: today's, with the gate taken out and the
-    /// transitions into it going straight on to the step its pursue answer targets.
+    /// The discovery flow as main shipped it before its transitions to end named the outcomes its
+    /// endings record: today's, with every transition's outcome taken out, so each ending records the
+    /// flow's declared outcome.
+    /// </summary>
+    public static Flow DiscoveryBeforeOutcomes => SoftwareFlows.Discovery with
+    {
+        Steps =
+        [
+            .. SoftwareFlows.Discovery.Steps.Select(s => s with
+            {
+                Transitions = [.. s.Transitions.Select(t => t with { Outcome = null })],
+            }),
+        ],
+    };
+
+    /// <summary>
+    /// The discovery flow as main shipped it before its gate: <see cref="DiscoveryBeforeOutcomes"/>, with
+    /// the gate taken out and the transitions into it going straight on to the step its pursue answer targets.
     /// </summary>
     public static Flow DiscoveryBeforeGate
     {
         get
         {
-            Flow discovery = SoftwareFlows.Discovery;
+            Flow discovery = DiscoveryBeforeOutcomes;
             FlowStep gate = discovery.Step("gate") ?? throw new InvalidOperationException("The discovery flow has no gate step.");
             string onward = gate.Transitions.Single(t => t.Value.GetString() == "pursue").Target;
             return discovery with

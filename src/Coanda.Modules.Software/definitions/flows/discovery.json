@@ -24,7 +24,8 @@
           "Field": "verdict",
           "Value": "carry-forward",
           "VisitCap": 5,
-          "Target": "end"
+          "Target": "end",
+          "Outcome": "carried-forward"
         }
       ],
       "Fields": [],
@@ -49,7 +50,8 @@
           "Field": "answer",
           "Value": "stop",
           "VisitCap": 5,
-          "Target": "end"
+          "Target": "end",
+          "Outcome": "stopped"
         }
       ],
       "Fields": [],
