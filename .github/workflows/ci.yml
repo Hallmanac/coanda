@@ -23,5 +23,8 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release
       - name: Test
-        timeout-minutes: 15
+        # The windows Test step measured about 13 minutes on a green main run on 2026-11-19, and a main run
+        # the same day was still passing tests when the 15-minute limit stopped it. The limit is there to
+        # catch a hang, not to bound a normal run.
+        timeout-minutes: 25
         run: dotnet test --configuration Release --no-build --verbosity normal
