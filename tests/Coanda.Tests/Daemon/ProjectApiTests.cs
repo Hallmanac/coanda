@@ -9,6 +9,8 @@ using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.FlowRuns;
+using Coanda.Tests.Daemon.Triggers;
+using Fisher;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon;
@@ -168,9 +170,10 @@ public sealed class ProjectApiTests
         var fields = new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "Review my PR" };
         await RegisteredProjects.AddAsync(daemon, "alpha", None);
 
-        // Neither recording the subscription nor recording the event checks for the record.
-        await triggers.SubscribeAsync(Principal.LocalOwner, "unregistered", trigger, "task", "title", "review-on-assignment", None);
-        await triggers.SubscribeAsync(Principal.LocalOwner, "alpha", trigger, "task", "title", "review-on-assignment", None);
+        // Neither a subscription already in the store nor recording the event checks for the record.
+        IDocumentStore store = daemon.Services.GetRequiredService<IDocumentStore>();
+        await StoredSubscriptions.RecordAsync(store, "unregistered", Principal.LocalOwner, trigger, "task", "title", "review-on-assignment", None);
+        await StoredSubscriptions.RecordAsync(store, "alpha", Principal.LocalOwner, trigger, "task", "title", "review-on-assignment", None);
         await triggers.RecordEventAsync(Principal.LocalOwner, "unregistered", "pr-assigned", "delivery-1", null, fields, None);
         await triggers.RecordEventAsync(Principal.LocalOwner, "alpha", "pr-assigned", "delivery-1", null, fields, None);
 

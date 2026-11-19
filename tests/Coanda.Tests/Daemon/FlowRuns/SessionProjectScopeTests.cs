@@ -15,6 +15,7 @@ using Coanda.Daemon.Projects;
 using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.Modules;
 using Coanda.Tests.Daemon.SystemSteps;
+using Coanda.Tests.Daemon.Triggers;
 using Fisher;
 using JasperFx.Events.Documents;
 using Microsoft.Extensions.DependencyInjection;
@@ -178,11 +179,11 @@ public sealed class SessionProjectScopeTests
         try
         {
             await node.SwitchOnAsync(Elsewhere, ModuleNode.Module);
-            TriggerService triggers = node.Services.GetRequiredService<TriggerService>();
+            IDocumentStore store = node.Services.GetRequiredService<IDocumentStore>();
             foreach (string project in new[] { Bound, Elsewhere })
             {
-                await triggers.SubscribeAsync(
-                    Owner, project, new Trigger("test/pr-opened", new Dictionary<string, string>()), "task", "number", RunningSystemStep.FlowNamed().Name, None);
+                await StoredSubscriptions.RecordAsync(
+                    store, project, Owner, new Trigger("test/pr-opened", new Dictionary<string, string>()), "task", "number", RunningSystemStep.FlowNamed().Name, None);
             }
         }
         catch

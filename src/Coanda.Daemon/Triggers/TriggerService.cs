@@ -10,10 +10,12 @@ using JasperFx.Events.Documents;
 namespace Coanda.Daemon.Triggers;
 
 /// <summary>
-/// The daemon's side of recording external events and subscriptions: pass the registry, ask
+/// The daemon's side of recording external events and listing subscriptions: pass the registry, ask
 /// <see cref="TriggerDecider"/>, append, save; an external event already recorded under the same
-/// project, kind, and external id is given back instead of appended. Both live in their project's tenant. An external
-/// event is recorded through the loopback API's <c>/events</c> route, a module's chiefly. A Module principal records only in a
+/// project, kind, and external id is given back instead of appended. Both live in their project's tenant.
+/// No new subscription is recorded, since a trigger is a definition now; the subscriptions already in the
+/// store are still listed and still fire. An external event is recorded through the loopback API's
+/// <c>/events</c> route, a module's chiefly. A Module principal records only in a
 /// project its module is switched on for, and only kinds prefixed with its own module's name; a kind
 /// prefixed with a module's name is recorded by that module alone.
 /// </summary>
@@ -67,25 +69,6 @@ public sealed class TriggerService(IDocumentStore store, TimeProvider clock)
         {
             writes.Release();
         }
-    }
-
-    public async Task<Subscription> SubscribeAsync(
-        Principal principal,
-        string project,
-        Trigger trigger,
-        string parcelType,
-        string titleField,
-        string flow,
-        CancellationToken cancellationToken)
-    {
-        CommandRegistry.Require("subscription.add", principal);
-        string tenant = Tenants.RequireProject(project);
-        SubscriptionRecorded recorded = TriggerDecider.RecordSubscription(tenant, trigger, parcelType, titleField, flow, principal, clock.GetUtcNow());
-
-        await using IDocumentSession session = store.LightweightSession(tenant);
-        session.Events.StartStream<Subscription>(recorded.SubscriptionId, recorded);
-        await session.SaveChangesAsync(cancellationToken);
-        return Subscription.Create(recorded);
     }
 
     /// <summary>The project's subscriptions, oldest first.</summary>

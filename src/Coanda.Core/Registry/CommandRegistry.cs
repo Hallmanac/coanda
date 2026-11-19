@@ -53,7 +53,6 @@ public static class CommandRegistry
         new("flow-run.stop", EntryKind.Command, "Stop a live flow run before its end.", People),
         new("flow-run.yield", EntryKind.Command, "Stop a live flow run this node started on a parcel another node's claim wins; the daemon's own.", AgentOnly),
         new("event.record", EntryKind.Command, "Record an external event in a project: a kind and named string fields.", PeopleAndModules),
-        new("subscription.add", EntryKind.Command, "Subscribe, in a project, to external events that create a parcel and start a flow.", People),
         new("subscription.list", EntryKind.Query, "List the subscriptions of a project.", EveryoneAndModules),
         new("definition.draft", EntryKind.Command, "Record a draft of a parcel type, flow, or agent; a draft governs nothing.", Everyone),
         new("definition.publish", EntryKind.Command, "Publish a draft so that it governs work.", OwnerOnly),

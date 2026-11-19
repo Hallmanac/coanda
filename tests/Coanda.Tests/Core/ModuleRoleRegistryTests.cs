@@ -65,7 +65,6 @@ public sealed class ModuleRoleRegistryTests
         ["flow-run.stop"] = People,
         ["flow-run.yield"] = [Role.Agent],
         ["event.record"] = People,
-        ["subscription.add"] = People,
         ["subscription.list"] = Everyone,
         ["definition.draft"] = Everyone,
         ["definition.publish"] = Owner,
