@@ -118,6 +118,10 @@ public sealed class FlowRunResumeSettings : FlowRunIdSettings
     [CommandOption("--note <NOTE>")]
     [Description("What changed since the pause, for the flow run's record.")]
     public string? Note { get; init; }
+
+    [CommandOption("--answer <ANSWER>")]
+    [Description("A one-line answer, at most 200 characters, recorded on the step the resume lands on.")]
+    public string? Answer { get; init; }
 }
 
 public sealed class FlowRunResumeCommand : AsyncCommand<FlowRunResumeSettings>
@@ -128,7 +132,7 @@ public sealed class FlowRunResumeCommand : AsyncCommand<FlowRunResumeSettings>
         string project = settings.ResolveProject();
         FlowRunView found = await FlowRunLookup.FindAsync(client, project, settings.Id, cancellationToken);
         FlowRunView flowRun = await client.PostAsync<FlowRunView>(
-            $"/flow-runs/{found.Id}/resume", new FlowRunResumeRequest(project, settings.Note), cancellationToken);
+            $"/flow-runs/{found.Id}/resume", new FlowRunResumeRequest(project, settings.Note, settings.Answer), cancellationToken);
         AnsiConsole.MarkupLineInterpolated($"Flow run {Ids.Short(flowRun.Id)} is {flowRun.Status} at {flowRun.CurrentStep}; the daemon advances it from there.");
         return 0;
     }

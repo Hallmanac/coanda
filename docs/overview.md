@@ -79,12 +79,15 @@ Phase 0: build from source with the .NET 11 SDK (`dotnet build`), then run
   the steps.
 - `coa flow list`, `coa flow start <flow> --parcel <id>`
 - `coa flow-run list --parcel <id>`, `coa flow-run show <id>`, `coa flow-run pause <id> --reason <why>`,
-  `coa flow-run stop <id> --reason <why>`, `coa flow-run resume <id>`
+  `coa flow-run stop <id> --reason <why>`, `coa flow-run resume <id> [--note <text>] [--answer <text>]`
 
 A parcel with a live flow run, whether that flow run is running or paused, is closed by nobody and moved
 only by that flow run's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow run
 that holds it; the flow run has to end or be stopped first. `coa flow-run stop <id> --reason <why>` stops
 it and frees the parcel, and `coa flow-run resume <id>` sets a paused one going again instead. A
+resume's `--answer` is one line of at most 200 characters, recorded trimmed on the visit the resume
+lands on and shown as that step's `resumeAnswer` in the loopback API's flow run view; it is refused on a visit
+that has already recorded, since the resume performs that step again as a new visit. A
 flow that declares `closes` is the one way a flow run closes its parcel: when a flow run of it ends, the
 flow run's end, the release of the parcel, and its close with that resolution are recorded together.
 The shipped merge flow declares `closes` as completed, and so does any flow a project
