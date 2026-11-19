@@ -5,6 +5,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.FlowRuns;
+using Coanda.Daemon.Projects;
 using Coanda.Tests.Daemon.Commands;
 using Microsoft.Extensions.DependencyInjection;
 using Coanda.Modules.Software;
@@ -380,6 +381,49 @@ public sealed class WorktreeFlowRunTests
         Assert.Equivalent(new[] { temp.Home.FlowRunWorkPath(Project, pausedId), notAFlowRun, unknownFlowRun }, runner.Worktrees(clone), strict: true);
         Assert.Contains($"worktree remove --force --force {temp.Home.FlowRunWorkPath(Project, endedId)}", runner.GitCalls);
         Assert.Contains($"worktree remove --force --force {temp.Home.FlowRunWorkPath(Project, stoppedId)}", runner.GitCalls);
+
+        await second.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task The_start_up_sweep_repairs_the_worktree_of_an_ended_flow_run_whose_clone_the_same_start_moved_and_then_removes_it()
+    {
+        using var temp = new TemporaryHome();
+        var runner = new ScriptedCommandRunner();
+        bool removalsFail = true;
+        runner.On(c => c.IsGit("worktree", "remove") && Volatile.Read(ref removalsFail), ScriptedCommandRunner.Fails(1, "fatal: busy"));
+        string clone = temp.Home.ProjectClonePath(Project);
+        string earlier = Path.Combine(temp.Home.EarlierClonesPath, Project, RepoClones.EarlierCloneName);
+        string workPath;
+        await using (RunningDaemon first = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), CommandRunner = runner }, None))
+        {
+            await RegisteredProjects.AddAsync(first, Project, None);
+            using var client = new DaemonClient(temp.Home);
+            Guid endedId = (await FlowRunDriver.UntilAsync(client, Project, await BoundIdAsync(client, "Ends before the upgrade"), "ended")).Id;
+            workPath = temp.Home.FlowRunWorkPath(Project, endedId);
+            await FlowRunDriver.UntilAsync(() => runner.GitCalls.Contains($"worktree remove --force --force {workPath}"), "the end's removal is tried");
+            await first.StopAsync(None);
+        }
+
+        // The node goes back to the earlier layout, with the ended flow run's worktree still on disk.
+        Directory.CreateDirectory(workPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(earlier) ?? earlier);
+        Directory.Move(clone, earlier);
+        Volatile.Write(ref removalsFail, false);
+        runner.ForgetCommands();
+
+        await using RunningDaemon second = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = Scripts.CleanBuildExecutor(), CommandRunner = runner }, None);
+
+        Assert.True(Directory.Exists(clone));
+        Assert.False(Directory.Exists(earlier));
+        Assert.Empty(runner.Worktrees(clone));
+        List<string> calls = [.. runner.Commands.Where(c => c.Program == "git").Select(c => $"{c.GitDirectory() ?? c.WorkingDirectory}: {string.Join(' ', c.GitArguments())}")];
+        int repaired = calls.IndexOf($"{clone}: worktree repair {workPath}");
+        int status = calls.IndexOf($"{workPath}: status --porcelain --untracked-files=all");
+        int removed = calls.IndexOf($"{clone}: worktree remove --force --force {workPath}");
+        Assert.True(repaired >= 0, "the worktree is repaired from the clone at its new path");
+        Assert.True(repaired < status, "the repair runs before git status in the worktree");
+        Assert.True(status < removed, "git status runs before the removal");
 
         await second.StopAsync(None);
     }

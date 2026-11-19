@@ -246,17 +246,19 @@ public sealed class DaemonHost
             // of its live flow runs reaches a module's step and before a module's start reads it.
             await app.Services.GetRequiredService<ProjectService>().SwitchOnDefaultsAsync(cancellationToken);
 
-            // Each clone an earlier build kept under clones/ moves to the per-repo layout with its
-            // worktrees, and every repo of every project gets its clone, once each project has its repos
-            // and before any module starts or any live flow run is advanced, so no module's git command
-            // runs against a clone while the core moves or makes it.
+            // Each clone an earlier build kept under clones/ moves to the per-repo layout, and every repo
+            // of every project gets its clone, once each project has its repos and before any module starts
+            // or any live flow run is advanced, so no module's git command runs against a clone while the
+            // core moves or makes it. The core runs no worktree command: the software module repairs a
+            // moved clone's worktrees at its start sweep, below.
             await app.Services.GetRequiredService<RepoClones>().StartAsync(cancellationToken);
 
             // Each hosted module is waited on for health and asked to describe itself once the API it
             // calls is listening, and before anything is advertised: flows are validated against its
             // answer and module settings are read through it. A module answers health only once its own
             // start is done, so whatever a module's start sweeps of flow runs that ended or were stopped
-            // while no daemon ran is done before any live flow run is advanced.
+            // while no daemon ran is done before any live flow run is advanced; the software module's
+            // sweep repairs every clone's linked worktrees first, so one whose clone moved works again.
             await app.Services.GetRequiredService<HostedModules>().StartAsync(cancellationToken);
 
             // Types come from the store, so the modules' ones are in it before anything is served
