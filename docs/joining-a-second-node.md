@@ -246,8 +246,12 @@ the vouch are records of the project, and the root key record is the owner's own
 A node stops importing a peer's records at the first line in a shape its own build does not write.
 That is a line whose event type is one this build does not have, or a line whose data is not what
 this build writes, member for member. The import stores nothing from that line on, so the origin's
-later lines wait behind it until this node runs a build that writes that shape. `coa join` shows
-it as a `stopped:` reason on that origin's line, naming the line as an earlier or a later shape.
+later lines wait behind it until this node runs a build that writes that shape. During a node's
+first join, `coa join` shows it as a `stopped:` reason on that origin's line, naming the line as an
+earlier or a later shape. Once a node holds the project, `coa join` changes nothing and reports no
+import, so the stop shows only in the daemon's log (`coanda.log` in the node home, or the console of
+a foreground `coa daemon run`), as a warning that the import of that origin stopped at a line,
+repeated each round the import tries again.
 
 So after any change that adds, removes, or renames an event type, or adds, removes, or alters an
 event's members, both nodes are rebuilt together from the same commit: stop each node's daemon,
