@@ -178,7 +178,8 @@ public sealed class WatchRequestStartTests
             new DaemonOptions { Modules = new Dictionary<string, IModule> { [Failing] = failing, [Later] = later }, LoggerProvider = log },
             None);
 
-        Assert.Equal([Alpha, Beta], failing.WatchRequests.Select(r => r.Project));
+        // The request that threw is sent again a second later; the start sent one for each project first.
+        Assert.Equal([Alpha, Beta], failing.WatchRequests.Take(2).Select(r => r.Project));
         Assert.Equal(Alpha, Assert.Single(later.WatchRequests).Project);
         Assert.True(laterAfterThrow);
         Assert.All(failing.WatchRequests.Concat(later.WatchRequests), r => Assert.Empty(r.Watches));

@@ -201,8 +201,10 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<LedgerImport>();
         builder.Services.AddHostedService(services => services.GetRequiredService<LedgerImport>());
 
-        // Sends each hosted module the watches its projects' triggers compile to, once, at the start.
+        // Sends each hosted module the watches its projects' triggers compile to, at the start and again
+        // whenever what compiles changes, retrying a request the module failed to accept.
         builder.Services.AddSingleton<ModuleWatches>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<ModuleWatches>());
 
         // Registered last, so it stops first: a delivery a stop interrupts is not counted as handled and comes again.
         builder.Services.AddSingleton<ModuleFeed>();
@@ -274,9 +276,11 @@ public sealed class DaemonHost
             await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
 
             // Each hosted module is handed the watches its projects' triggers compile to, once the triggers
-            // its own definitions ship are imported and before the address is advertised. Only this start
-            // sends them: a trigger published or a module configured later reaches the module at the next.
-            await app.Services.GetRequiredService<ModuleWatches>().SendAllAsync(cancellationToken);
+            // its own definitions ship are imported and before the address is advertised. The position the
+            // watches read changes from is fixed before the first request compiles, since the API is already
+            // listening; a request that fails here is sent again by the loop, which never holds the start.
+            ModuleWatches watches = app.Services.GetRequiredService<ModuleWatches>();
+            await watches.SendAllAsync(cancellationToken);
 
             // A flow version recorded before its module's argument schema refused its arguments still
             // reads, resolves, and runs; the start says which ones its module now refuses.
@@ -309,6 +313,7 @@ public sealed class DaemonHost
             await triggers.SettlePositionAsync(cancellationToken);
             triggers.Begin();
             feed.Begin();
+            watches.Begin();
             if (options.ExportInterval is { } interval)
             {
                 app.Services.GetRequiredService<LedgerExport>().Begin(interval);
