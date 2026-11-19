@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Coanda.Cli;
+using Coanda.Cli.Commands;
+using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
 using Coanda.Daemon.Api;
@@ -13,9 +15,10 @@ namespace Coanda.Tests.Daemon.FlowRuns;
 
 /// <summary>
 /// The shipped discovery flow on the scripted executor, for an idea created on this build and moved into its
-/// discovery stage: a <c>derive</c> answer listing tasks ends the flow run with one task parcel per entry, each
-/// derived from the idea by that flow run, a <c>derive</c> answer with no list pauses at derive-parcels, and a
-/// <c>carry-forward</c> answer ends it with none.
+/// discovery stage: a <c>derive</c> answer listing tasks pauses the flow run at its gate, where an answer of
+/// <c>pursue</c> ends it with one task parcel per entry, each derived from the idea by that flow run, and an
+/// answer of <c>stop</c> ends it with none; a <c>derive</c> answer with no list pauses at derive-parcels once
+/// pursued, and a <c>carry-forward</c> answer ends the flow run with no gate and no parcel.
 /// </summary>
 public sealed class DiscoveryFlowRunTests
 {
@@ -45,20 +48,52 @@ public sealed class DiscoveryFlowRunTests
         return (daemon, client, created, flowRun.Id);
     }
 
+    private const string TwoTasks =
+        """{"verdict":"derive","summary":"Two bounded tasks.","parcels":[{"type":"task","title":"Write the parser"},{"type":"task","title":"Wire the parser in"}]}""";
+
+    /// <summary>
+    /// Waits for the flow run to pause at the gate, and holds it to the gate's lever on the loopback view and in
+    /// what <c>coa flow-run show</c> prints, with no parcel but the idea created yet.
+    /// </summary>
+    private static async Task AtGateAsync(RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId)
+    {
+        FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
+
+        Assert.Equal("gate", paused.CurrentStep);
+        Assert.Equal(["discover", "gate"], paused.Steps.Select(s => s.Step));
+        Assert.Equal("Step 'gate' waits for a person.", paused.PauseReason);
+        Assert.Equal(SoftwareFlows.DiscoveryGateLever, paused.Lever);
+        IReadOnlyList<string> shown = FlowRunRendering.Show(paused);
+        Assert.Contains($"{"Lever",-8}{SoftwareFlows.DiscoveryGateLever}", shown);
+        Assert.Contains(shown, line => line.Contains("verdict=derive", StringComparison.Ordinal) && line.Contains("summary=Two bounded tasks.", StringComparison.Ordinal));
+
+        Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
+        Assert.Equal(idea.Id, only.Id);
+    }
+
+    private static void AssertAnswered(FlowRunStepView gate, string answer)
+    {
+        Assert.Equal("gate", gate.Step);
+        JsonElement result = gate.Result ?? throw new InvalidOperationException("The gate recorded no result.");
+        Assert.Equal(answer, result.GetProperty(WaitForHumanAnswer.Field).GetString());
+    }
+
     [Fact]
-    public async Task A_derive_answer_listing_two_tasks_ends_the_flow_run_with_two_task_parcels_derived_from_the_idea()
+    public async Task A_derive_answer_listing_two_tasks_waits_at_the_gate_and_an_answer_of_pursue_ends_the_flow_run_with_two_task_parcels_derived_from_the_idea()
     {
         using var temp = new TemporaryHome();
-        (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(
-            temp,
-            """{"verdict":"derive","summary":"Two bounded tasks.","parcels":[{"type":"task","title":"Write the parser"},{"type":"task","title":"Wire the parser in"}]}""");
+        (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(temp, TwoTasks);
         await using (daemon)
         using (client)
         {
+            await AtGateAsync(daemon, client, idea, flowRunId);
+
+            await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null, "pursue");
             FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
 
             Assert.Equal("parcels-derived", ended.Outcome);
-            Assert.Equal(["discover", "derive-parcels"], ended.Steps.Select(s => s.Step));
+            Assert.Equal(["discover", "gate", "derive-parcels"], ended.Steps.Select(s => s.Step));
+            AssertAnswered(ended.Steps[1], "pursue");
             JsonElement result = ended.Steps[^1].Result ?? throw new InvalidOperationException("The derive-parcels step recorded no result.");
             Assert.Equal(SystemStepAnswer.DoneVerdict, result.GetProperty(SystemStepAnswer.Verdict).GetString());
             List<Guid> ids = [.. result.GetProperty(DeriveParcelsSystemStep.ParcelIdsMember).EnumerateArray().Select(id => Guid.Parse(id.GetString() ?? string.Empty))];
@@ -82,7 +117,29 @@ public sealed class DiscoveryFlowRunTests
     }
 
     [Fact]
-    public async Task A_derive_answer_with_no_parcels_list_passes_the_answer_schema_and_pauses_at_derive_parcels_creating_nothing()
+    public async Task A_derive_answer_listing_two_tasks_waits_at_the_gate_and_an_answer_of_stop_ends_the_flow_run_with_nothing_derived()
+    {
+        using var temp = new TemporaryHome();
+        (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(temp, TwoTasks);
+        await using (daemon)
+        using (client)
+        {
+            await AtGateAsync(daemon, client, idea, flowRunId);
+
+            await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null, "stop");
+            FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
+
+            Assert.Equal(["discover", "gate"], ended.Steps.Select(s => s.Step));
+            AssertAnswered(ended.Steps[1], "stop");
+            Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
+            Assert.Equal(idea.Id, only.Id);
+
+            await daemon.StopAsync(None);
+        }
+    }
+
+    [Fact]
+    public async Task A_derive_answer_with_no_parcels_list_passes_the_answer_schema_and_once_pursued_pauses_at_derive_parcels_creating_nothing()
     {
         using var temp = new TemporaryHome();
         (RunningDaemon daemon, DaemonClient client, Parcel idea, Guid flowRunId) = await DiscoveringAsync(
@@ -90,9 +147,20 @@ public sealed class DiscoveryFlowRunTests
         await using (daemon)
         using (client)
         {
-            FlowRunView paused = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
+            FlowRunView atGate = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
+            Assert.Equal("gate", atGate.CurrentStep);
 
-            Assert.Equal("derive-parcels", paused.CurrentStep);
+            await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null, "pursue");
+            FlowRunView? paused = null;
+            await FlowRunDriver.UntilAsync(
+                async () =>
+                {
+                    paused = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
+                    return paused is { Status: "paused", CurrentStep: "derive-parcels" };
+                },
+                "the flow run pauses at derive-parcels");
+
+            Assert.NotNull(paused);
             Assert.Equal("Step 'derive-parcels' could not derive parcels: the answer of step 'discover' has no 'parcels' array.", paused.PauseReason);
             Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
             Assert.Equal(idea.Id, only.Id);

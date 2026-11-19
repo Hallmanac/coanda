@@ -18,11 +18,36 @@
           "Field": "verdict",
           "Value": "derive",
           "VisitCap": 5,
-          "Target": "derive-parcels"
+          "Target": "gate"
         },
         {
           "Field": "verdict",
           "Value": "carry-forward",
+          "VisitCap": 5,
+          "Target": "end"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "gate",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "wait-for-human",
+      "Arguments": {
+        "lever": "Read the discovery step's answer with coa flow-run show first. Then run coa flow-run resume with --answer pursue to derive the tasks that answer lists, or with --answer stop to end the flow run with nothing derived."
+      },
+      "Transitions": [
+        {
+          "Field": "answer",
+          "Value": "pursue",
+          "VisitCap": 5,
+          "Target": "derive-parcels"
+        },
+        {
+          "Field": "answer",
+          "Value": "stop",
           "VisitCap": 5,
           "Target": "end"
         }
