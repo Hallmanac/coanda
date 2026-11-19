@@ -52,13 +52,16 @@ Phase 0: build from source with the .NET 11 SDK (`dotnet build`), then run
   `coa daemon stop` work against a daemon of any version, and `coa daemon start` refuses to start
   beside one from another build.
 
-- `coa project add <name> --repo <url> --branch <name> [--build <command>] [--test <command>]`,
+- `coa project add <name> --repo <url> [--setting <module>/<name>=<value>]...`,
   `coa project show <name>`,
   `coa project list`, `coa project set-profile <name> <profile>`
 
-  `coa project add` registers a project with one repo and records `--branch`, `--build`, and
-  `--test` as the software module's settings for it. Every later change to a module's settings,
-  the required checks included, goes through `coa project module`.
+  `coa project add` registers a project with one repo, switched on for the node's default modules,
+  and records each `--setting` as that module's setting, by the name the module declares, such as
+  `--setting "software/build=make build"`. The value is read as JSON when it is JSON and as text
+  otherwise. A repo whose `primary-branch` setting names no branch is worked on the branch its remote
+  reports as its default. Every later change to a module's settings, the required checks included,
+  goes through `coa project module`.
 - `coa project module set <project> <module> <name> <value>`,
   `coa project module select-profile <project> <module> <profile>`,
   `coa project module show <project> <module>`

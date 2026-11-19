@@ -683,10 +683,11 @@ The CLI, `coa`: noun-first (parcel, flow, flow run, agent, project, node, and mo
 and starts it when needed; verbs follow the registry. Beside that noun-first rule the CLI has one
 top-level verb, `coa join`, a first-run act like `coa project add`. Sessions talk back through it,
 with their principal in a token the adapter places in the environment. A core verb may take the
-settings of the node's default modules as a convenience: `coa project add` takes the software module's branch,
-build, and test settings, so registering a project is one command. Otherwise a module's settings are
-set through generic module commands rendered from the registry, never through module-specific verbs
-(section 14.6).
+settings of the node's default modules as a convenience: `coa project add` takes any switched-on
+module's settings by the names the module's describe answer declares (`--setting <module>/<name>=<value>`),
+so registering a project is one command, and it compiles in no module's option. Otherwise a module's
+settings are set through generic module commands rendered from the registry, never through
+module-specific verbs (section 14.6).
 
 Rendered files (parcel.md, prompt.md, decisions.md, lessons.md) are projections written at spawn,
 never truth, never edited.
