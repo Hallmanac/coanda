@@ -180,10 +180,14 @@ public sealed class ModuleWatches(
         {
             try
             {
-                if (await ChangedAsync(cancellationToken))
+                (bool changed, long head) = await ChangedAsync(cancellationToken);
+                if (changed)
                 {
                     await MarkAllDueAsync(cancellationToken);
                 }
+
+                // Only once the pairs are marked due, so a failure before this reads the same events again.
+                position = head;
 
                 StartDue(cancellationToken);
                 await Task.Delay(PollInterval, clock, cancellationToken);
@@ -194,22 +198,26 @@ public sealed class ModuleWatches(
             }
             catch (Exception failure)
             {
-                // Reading the record failed; the position did not move, so the next poll reads it again.
-                logger.LogError(failure, "The module watches could not read the record past sequence {Sequence}.", position);
+                // Reading the record or marking the pairs due failed; the position did not move, so the next
+                // poll reads the same events again.
+                logger.LogError(failure, "The module watches could not act on the record past sequence {Sequence}.", position);
                 await Task.Delay(PollInterval, clock, CancellationToken.None);
             }
         }
     }
 
-    /// <summary>Whether the record past the position holds an event that can change what compiles; moves the position to the head it read.</summary>
-    private async Task<bool> ChangedAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Whether the record past the position holds an event that can change what compiles, with the head it
+    /// read; it leaves the position where it is, for the caller to move once it has acted on the answer.
+    /// </summary>
+    private async Task<(bool Changed, long Head)> ChangedAsync(CancellationToken cancellationToken)
     {
         // The head is read before the projects are, so every event at or below it was committed with its
         // project's documents already in place: a project registered past the position is read with it.
         long head = await store.Database.FetchHighestEventSequenceNumber(cancellationToken);
         if (head <= position)
         {
-            return false;
+            return (false, position);
         }
 
         string[] names = [.. ChangeEvents.Select(t => store.Options.EventGraph.EventMappingFor(t).EventTypeName)];
@@ -232,8 +240,7 @@ public sealed class ModuleWatches(
             }
         }
 
-        position = head;
-        return changed;
+        return (changed, head);
     }
 
     /// <summary>
