@@ -14,8 +14,10 @@ public sealed class ParcelTypeFieldTests
     public void The_shipped_idea_declares_no_field_and_hashes_to_a_literal()
     {
         Assert.Empty(SoftwareTypes.Idea.Fields);
-        // the idea declares no field, so its hash covers its stages, transitions, and flow bindings alone
-        Assert.Equal("e6c4447a6bc6586d", SoftwareTypes.Idea.Hash);
+        // the idea declares no field, so its hash covers its stages, transitions, flow bindings, and derive list alone
+        Assert.Equal("ba8ba31be0a921be", SoftwareTypes.Idea.Hash);
+        // the idea as main shipped it before its derive list
+        Assert.Equal("e6c4447a6bc6586d", PreviousTypes.IdeaBeforeDerive.Hash);
     }
 
     [Fact]

@@ -15,24 +15,27 @@ public sealed class ParcelTypeDeriveTests
     private static readonly IReadOnlySet<string> Gates = GateSet.Shipped.Names;
 
     [Fact]
-    public void The_shipped_types_declare_none_and_keep_the_hashes_they_had_before_the_list()
+    public void The_shipped_idea_derives_tasks_alone_and_the_task_declares_none_and_keeps_the_hash_it_had_before_the_list()
     {
-        Assert.All(SoftwareTypes.All, t => Assert.Empty(t.Derives));
-        Assert.Equal("e6c4447a6bc6586d", SoftwareTypes.Idea.Hash);
+        Assert.Equal(["task"], SoftwareTypes.Idea.Derives);
+        Assert.Empty(SoftwareTypes.Task.Derives);
+        Assert.Equal("ba8ba31be0a921be", SoftwareTypes.Idea.Hash);
+        Assert.Equal("e6c4447a6bc6586d", PreviousTypes.IdeaBeforeDerive.Hash);
         Assert.Equal("3e16509d2543dbb9", SoftwareTypes.Task.Hash);
     }
 
     [Fact]
     public void A_type_that_declares_some_hashes_by_the_list_and_its_order()
     {
-        ParcelType one = SoftwareTypes.Idea with { Derives = ["task"] };
-        ParcelType two = SoftwareTypes.Idea with { Derives = ["task", "idea"] };
-        ParcelType reordered = SoftwareTypes.Idea with { Derives = ["idea", "task"] };
+        ParcelType none = PreviousTypes.IdeaBeforeDerive;
+        ParcelType one = none with { Derives = ["task"] };
+        ParcelType two = none with { Derives = ["task", "idea"] };
+        ParcelType reordered = none with { Derives = ["idea", "task"] };
 
-        Assert.NotEqual(SoftwareTypes.Idea.Hash, one.Hash);
+        Assert.NotEqual(none.Hash, one.Hash);
         Assert.NotEqual(one.Hash, two.Hash);
         Assert.NotEqual(two.Hash, reordered.Hash);
-        Assert.Equal(one.Hash, (SoftwareTypes.Idea with { Derives = ["task"] }).Hash);
+        Assert.Equal(one.Hash, (none with { Derives = ["task"] }).Hash);
         one.Validate(Gates);
         two.Validate(Gates);
     }
@@ -40,7 +43,7 @@ public sealed class ParcelTypeDeriveTests
     [Fact]
     public void A_list_read_from_content_round_trips_and_content_without_one_reads_as_none()
     {
-        ParcelType derives = SoftwareTypes.Idea with { Derives = ["task"] };
+        ParcelType derives = SoftwareTypes.Idea;
         ParcelType read = ParcelType.FromJson(ParcelType.CanonicalJson(derives));
         Assert.Equal(["task"], read.Derives);
         Assert.Equal(derives.Hash, read.Hash);
@@ -49,7 +52,7 @@ public sealed class ParcelTypeDeriveTests
         Assert.True(node.AsObject().Remove("Derives"));
         ParcelType earlier = ParcelType.FromJson(node.ToJsonString());
         Assert.Empty(earlier.Derives);
-        Assert.Equal(SoftwareTypes.Idea.Hash, earlier.Hash);
+        Assert.Equal(PreviousTypes.IdeaBeforeDerive.Hash, earlier.Hash);
     }
 
     [Theory]

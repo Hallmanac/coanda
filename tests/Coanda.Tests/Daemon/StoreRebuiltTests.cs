@@ -142,10 +142,13 @@ public sealed class StoreRebuiltTests
 
         // The fixture's fifteen definitions, the task type a start imports as its next version, since it
         // has gained the repos field since main wrote the home, the five agents it imports as their
-        // next versions, since they have come to carry their answer schema content, and the build flow
-        // it imports as its next version, since it has gained the review diff step.
+        // next versions, since they have come to carry their answer schema content (the discovery agent's
+        // listing the parcels it derives), the build flow it imports as its next version, since it has
+        // gained the review diff step, and the idea type and the discovery flow it imports as their next
+        // versions, since the idea has come to derive tasks and the discovery flow's derive-parcels step
+        // to name the step it derives from.
         List<Definition> held = await HeldAsync(store);
-        Assert.Equal(22, held.Count);
+        Assert.Equal(24, held.Count);
         Definition task = held.Where(d => d.Kind == DefinitionKind.ParcelType && d.Name == "task").MaxBy(d => d.VersionNumber)
             ?? throw new InvalidOperationException("No task type.");
         Assert.Equal((DefinitionScope.Module, SoftwareTypes.Task.Hash, DefinitionStatus.Published), (task.Scope, task.ContentHash, task.Status));
@@ -156,7 +159,16 @@ public sealed class StoreRebuiltTests
         Definition build = held.Where(d => d.Kind == DefinitionKind.Flow && d.Name == "build" && d.Scope == DefinitionScope.Module).MaxBy(d => d.VersionNumber)
             ?? throw new InvalidOperationException("No build flow.");
         Assert.Equal((3, SoftwareFlows.Build.Hash, DefinitionStatus.Published), (build.VersionNumber, build.ContentHash, build.Status));
-        Definition[] started = [task, build, .. agents.Where(d => d.VersionNumber == 2)];
+        List<Definition> ideas = [.. held.Where(d => d.Kind == DefinitionKind.ParcelType && d.Name == "idea").OrderBy(d => d.VersionNumber)];
+        Assert.Equal(
+            [(1, PreviousTypes.IdeaBeforeDerive.Hash, DefinitionStatus.Published), (2, SoftwareTypes.Idea.Hash, DefinitionStatus.Published)],
+            ideas.Select(d => (d.VersionNumber, d.ContentHash, d.Status)));
+        List<Definition> discoveries = [.. held.Where(d => d.Kind == DefinitionKind.Flow && d.Name == "discovery").OrderBy(d => d.VersionNumber)];
+        Assert.Equal(
+            [(1, PreviousFlows.DiscoveryBeforeDerive.Hash, DefinitionStatus.Published), (2, SoftwareFlows.Discovery.Hash, DefinitionStatus.Published)],
+            discoveries.Select(d => (d.VersionNumber, d.ContentHash, d.Status)));
+        Assert.All([.. ideas, .. discoveries], d => Assert.Equal(DefinitionScope.Module, d.Scope));
+        Definition[] started = [task, build, ideas[1], discoveries[1], .. agents.Where(d => d.VersionNumber == 2)];
 
         // What main recorded in shipped scope the rebuild wrote as the software module's, at version 0.1.0, with the content and hash it was stored with.
         List<Definition> recorded = [.. held.Where(d => !started.Contains(d) && d.Scope == DefinitionScope.Module)];
