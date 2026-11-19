@@ -1035,11 +1035,14 @@ no value there: a replicated setting with no value and no default, or a credenti
 selected profile and no default. A profile selected for the project that this node no longer holds
 counts as unconfigured, and the default does not stand in for it, because an explicit choice of
 identity is never silently replaced by another. While a module is unconfigured, its steps pause with
-a lever naming the setting, it issues no watch requests, and it skips feed reactions with a log
-line.
+a lever naming the setting, it is sent an empty watch set for the project, so it reports nothing
+there, and it skips feed reactions with a log line.
 
 Part of that is built. The feed skips a delivery to a module that is unconfigured for the event's
-project, and logs it. The daemon does not yet hold back a dispatch to such a module. Of the software
+project, and logs it. The watch request is built, and the empty set goes to a module that is
+unconfigured for a project, but the daemon sends watch requests only when it starts, so a change
+after the start, such as a trigger published or a module becoming configured, reaches the module at
+the next start. The daemon does not yet hold back a dispatch to such a module. Of the software
 module's steps, only open-pr and gated-merge read the credential profile, and they pause with the
 lever naming that setting when the profile selected for the project yields no GitHub token or is
 one this node no longer holds.
