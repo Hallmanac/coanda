@@ -17,6 +17,7 @@ using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.FlowRuns;
 using Coanda.Tests.Daemon.SystemSteps;
+using Coanda.Tests.Daemon.Triggers;
 using Fisher;
 using JasperFx.Events;
 using JasperFx.Events.Documents;
@@ -72,8 +73,8 @@ public sealed class ModulePrincipalServiceTests
     {
         await using ModuleNode node = await ModuleNode.StartAsync();
         TriggerService triggers = node.Services.GetRequiredService<TriggerService>();
-        await triggers.SubscribeAsync(
-            Principal.LocalOwner, On, new Trigger("test/pr-opened", new Dictionary<string, string>()), "task", "number",
+        await StoredSubscriptions.RecordAsync(
+            node.Services.GetRequiredService<IDocumentStore>(), On, Principal.LocalOwner, new Trigger("test/pr-opened", new Dictionary<string, string>()), "task", "number",
             RunningSystemStep.FlowNamed().Name, None);
 
         Assert.Equal("test/pr-opened", Assert.Single(await triggers.ListSubscriptionsAsync(Module, On, None)).EventKind);
@@ -154,7 +155,6 @@ public sealed class ModulePrincipalServiceTests
         (_, Guid flowRunId, _) = await node.DispatchedAsync(On);
         FlowRunService flowRuns = node.Services.GetRequiredService<FlowRunService>();
         DefinitionService definitions = node.Services.GetRequiredService<DefinitionService>();
-        TriggerService triggers = node.Services.GetRequiredService<TriggerService>();
         ProjectService projects = node.Services.GetRequiredService<ProjectService>();
         Flow flow = RunningSystemStep.FlowNamed("from-a-module");
         JsonElement result = JsonSerializer.SerializeToElement(new { verdict = "done" });
@@ -167,8 +167,6 @@ public sealed class ModulePrincipalServiceTests
             ("definition.draft", () => definitions.DraftAsync(
                 Module, DefinitionKind.Flow, DefinitionScope.Project, On, flow.Name, Flow.CanonicalJson(flow), flow.Hash, null, None)),
             ("definition.publish", () => definitions.PublishAsync(Module, On, Ids.New(), None)),
-            ("subscription.add", () => triggers.SubscribeAsync(
-                Module, On, new Trigger("test/pr-opened", new Dictionary<string, string>()), "task", "number", flow.Name, None)),
             ("project.set-modules", () => projects.SetModulesAsync(Module, On, [ModuleNode.Module, ModuleNode.Other], None)),
         ];
         foreach ((string entry, Func<Task> call) in calls)

@@ -15,15 +15,6 @@ public sealed class TriggerDeciderTests
     private static ExternalEventRecorded Record(string kind, Dictionary<string, string>? fields = null, Principal? recordedBy = null) =>
         TriggerDecider.RecordExternalEvent("alpha", kind, "delivery-1", null, fields ?? NoFields, recordedBy ?? Owner, Now);
 
-    private static SubscriptionRecorded Subscribe(
-        string kind = "pr-assigned",
-        Dictionary<string, string>? filters = null,
-        string parcelType = "task",
-        string titleField = "title",
-        string flow = "review-on-assignment") =>
-        TriggerDecider.RecordSubscription(
-            "alpha", new Trigger(kind, filters ?? new Dictionary<string, string> { ["assignee"] = "brian" }), parcelType, titleField, flow, Member, Now);
-
     [Fact]
     public void An_external_event_records_its_kind_and_fields()
     {
@@ -161,9 +152,13 @@ public sealed class TriggerDeciderTests
     }
 
     [Fact]
-    public void A_subscription_records_its_trigger_what_it_creates_and_the_principal_that_added_it()
+    public void A_subscription_recorded_before_triggers_were_definitions_folds_its_trigger_what_it_creates_and_the_principal_that_added_it()
     {
-        Subscription subscription = Subscription.Create(Subscribe());
+        // No decider records a subscription any more, so the record is written as one already in the store reads.
+        var recorded = new SubscriptionRecorded(
+            Ids.New(), "alpha", "pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" },
+            "task", "title", "review-on-assignment", Member.Id, Member.Role, Now);
+        Subscription subscription = Subscription.Create(recorded);
 
         Assert.Equal("alpha", subscription.Project);
         Assert.Equal("pr-assigned", subscription.Trigger.EventKind);
@@ -172,54 +167,15 @@ public sealed class TriggerDeciderTests
         Assert.Equal("title", subscription.TitleField);
         Assert.Equal("review-on-assignment", subscription.Flow);
         Assert.Equal(Member, subscription.Principal);
+        Guid eventId = Ids.New();
+        Assert.Equal($"subscription:{recorded.SubscriptionId}:event:{eventId}", subscription.OriginFor(eventId));
     }
 
     [Fact]
-    public void A_subscription_with_an_empty_event_kind_is_refused()
+    public void No_decision_records_a_new_subscription()
     {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(kind: " "));
-        Assert.Equal("A subscription's trigger needs an event kind.", exception.Message);
-    }
-
-    [Fact]
-    public void A_subscription_on_the_parcel_entered_kind_is_refused()
-    {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(kind: "parcel-entered"));
-        Assert.Equal("A subscription sees external events only; it cannot trigger on 'parcel-entered', which a parcel's own creation and moves read as.", exception.Message);
-    }
-
-    [Fact]
-    public void A_subscription_on_the_flow_run_ended_kind_is_refused()
-    {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(kind: "flow-run-ended", filters: new Dictionary<string, string> { ["outcome"] = "pr-opened" }));
-        Assert.Equal("A subscription sees external events only; it cannot trigger on 'flow-run-ended', which a flow run's own end reads as.", exception.Message);
-    }
-
-    [Fact]
-    public void A_subscription_with_a_filter_name_that_is_not_plain_is_refused()
-    {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(filters: new Dictionary<string, string> { ["assignee.login"] = "brian" }));
-        Assert.Equal("A subscription's filters name event fields, which are plain names (letters, digits, hyphens, and underscores); 'assignee.login' is not.", exception.Message);
-    }
-
-    [Fact]
-    public void A_subscription_with_no_parcel_type_is_refused()
-    {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(parcelType: ""));
-        Assert.Equal("A subscription names the parcel type it creates; none was given.", exception.Message);
-    }
-
-    [Fact]
-    public void A_subscription_with_no_title_field_is_refused()
-    {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(titleField: ""));
-        Assert.Equal("A subscription names the event field whose value titles the parcel it creates; none was given.", exception.Message);
-    }
-
-    [Fact]
-    public void A_subscription_with_no_flow_is_refused()
-    {
-        DomainException exception = Assert.Throws<DomainException>(() => Subscribe(flow: ""));
-        Assert.Equal("A subscription names the flow it starts on the parcel it creates; none was given.", exception.Message);
+        Assert.DoesNotContain(
+            typeof(TriggerDecider).GetMethods(),
+            method => method.ReturnType == typeof(SubscriptionRecorded));
     }
 }

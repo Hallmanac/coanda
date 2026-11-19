@@ -17,6 +17,7 @@ using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.FlowRuns;
+using Coanda.Tests.Daemon.Triggers;
 using Fisher;
 using JasperFx.Events;
 using Microsoft.Extensions.DependencyInjection;
@@ -120,13 +121,13 @@ public sealed class ImportedEventsTests
             await ClaimAsync(store, peer, entered[1], ended[1]);
 
             // An external event the peer recorded, which a subscription here matches.
-            await triggers.SubscribeAsync(
-                Principal.LocalOwner, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
+            Subscription subscription = await StoredSubscriptions.RecordAsync(
+                store, Project, Principal.LocalOwner, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
                 "task", "title", "review-on-assignment", None);
             ExternalEvent external = await triggers.RecordEventAsync(
                 Principal.LocalOwner, Project, "pr-assigned", "delivery-1", null, new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "A peer's review" }, None);
             streams.Add(external.Id);
-            origin = (await triggers.ListSubscriptionsAsync(Principal.LocalOwner, Project, None)).Single().OriginFor(external.Id);
+            origin = subscription.OriginFor(external.Id);
             await RecordLinesAsync(store, peer, [.. streams]);
         }
 

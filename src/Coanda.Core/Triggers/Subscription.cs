@@ -5,11 +5,12 @@ using Coanda.Core.Triggers.Events;
 namespace Coanda.Core.Triggers;
 
 /// <summary>
-/// A person's trigger in a project: the external events it matches, the parcel it creates for each,
-/// and the flow it starts there. A record a person holds, not a definition: it has no draft,
-/// publish, scope, or fork. State changes only through <c>Apply</c>; the rules live in
-/// <see cref="TriggerDecider"/>. The store snapshots this class inline, so it is also the document
-/// the trigger loop reads.
+/// A person's trigger in a project as it was recorded before triggers were definitions: the external
+/// events it matches, the parcel it creates for each, and the flow it starts there. A record a person
+/// holds, not a definition: it has no draft, publish, scope, or fork. No new subscription is recorded;
+/// one already in the store, recorded here or imported, stays in force, and a trigger definition is
+/// what new work uses. State changes only through <c>Apply</c>. The store snapshots this class inline,
+/// so it is also the document the trigger loop reads.
 /// </summary>
 public sealed class Subscription
 {

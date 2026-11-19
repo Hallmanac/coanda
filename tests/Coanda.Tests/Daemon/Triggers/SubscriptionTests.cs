@@ -6,9 +6,11 @@ using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Store;
+using Coanda.Daemon.Transport;
 using Coanda.Daemon.Triggers;
 using Coanda.Tests.Daemon.FlowRuns;
 using Fisher;
+using JasperFx.Events;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Coanda.Tests.Daemon.Triggers;
@@ -54,9 +56,9 @@ public sealed class SubscriptionTests
         {
             await RegisteredProjects.AddAsync(daemon, Project, None);
             using var client = new DaemonClient(temp.Home);
-            await daemon.Services.GetRequiredService<TriggerService>().SubscribeAsync(
-                Teammate, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
-                "task", "title", "review-on-assignment", None);
+            await StoredSubscriptions.RecordAsync(
+                daemon.Services.GetRequiredService<IDocumentStore>(), Project, Teammate,
+                new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }), "task", "title", "review-on-assignment", None);
 
             // Recorded before the match, so the loop, which reads in order, has handled both by the time the match has its parcel.
             await RecordAsync(daemon, Project, "someone-else", "Not mine");
@@ -107,9 +109,9 @@ public sealed class SubscriptionTests
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();
-        await triggers.SubscribeAsync(
-            Teammate, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
-            "task", "title", "review-on-assignment", None);
+        await StoredSubscriptions.RecordAsync(
+            daemon.Services.GetRequiredService<IDocumentStore>(), Project, Teammate,
+            new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }), "task", "title", "review-on-assignment", None);
 
         ExternalEvent first = await triggers.RecordEventAsync(
             Principal.LocalOwner, Project, "pr-assigned", "delivery-1", null, new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "Review my PR" }, None);
@@ -137,9 +139,9 @@ public sealed class SubscriptionTests
         await RegisteredProjects.AddAsync(daemon, Project, None);
         using var client = new DaemonClient(temp.Home);
         TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();
-        await triggers.SubscribeAsync(
-            Teammate, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
-            "task", "title", "review-on-assignment", None);
+        await StoredSubscriptions.RecordAsync(
+            daemon.Services.GetRequiredService<IDocumentStore>(), Project, Teammate,
+            new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }), "task", "title", "review-on-assignment", None);
 
         await triggers.RecordEventAsync(Principal.LocalOwner, Project, "pr-assigned", "untitled", null, new Dictionary<string, string> { ["assignee"] = "brian" }, None);
         await RecordAsync(daemon, Project, "brian", "Titled this time");
@@ -151,7 +153,46 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
-    public async Task Recording_an_event_or_a_subscription_is_open_to_people_and_refused_to_an_agent()
+    public async Task A_subscription_another_node_recorded_is_listed_and_fires_on_an_event_this_node_recorded()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = CleanReview() }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        IDocumentStore store = daemon.Services.GetRequiredService<IDocumentStore>();
+
+        // The subscription's record, imported from a peer's line, as the import keeps it beside the event.
+        Subscription imported = await StoredSubscriptions.RecordAsync(
+            store, Project, Teammate, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }), "task", "title", "review-on-assignment", None);
+        await using (IDocumentSession session = store.LightweightSession(Project))
+        {
+            IEvent recorded = Assert.Single(await session.Events.FetchStreamAsync(imported.Id, token: None));
+            session.Store(new LedgerLine { Id = recorded.Id, Origin = Ids.New(), Sequence = 1, Hash = $"sha256:{new string('a', 64)}" });
+            await session.SaveChangesAsync(None);
+        }
+
+        TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();
+        Assert.Equal(imported.Id, Assert.Single(await triggers.ListSubscriptionsAsync(Teammate, Project, None)).Id);
+
+        await RecordAsync(daemon, Project, "brian", "Review the imported way");
+        ParcelView parcel = await ParcelTitledAsync(client, "Review the imported way");
+        Assert.Equal(Teammate.Id, parcel.CreatedBy);
+        FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        Assert.Equal("review-on-assignment", bound.FlowName);
+        Assert.Equal("report-produced", (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome);
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public void No_registry_entry_records_a_new_subscription_and_the_list_stays()
+    {
+        Assert.DoesNotContain(CommandRegistry.Entries, entry => entry.Name == "subscription.add");
+        Assert.Contains(CommandRegistry.Entries, entry => entry.Name == "subscription.list");
+        Assert.DoesNotContain(typeof(TriggerService).GetMethods(), method => method.ReturnType == typeof(Task<Subscription>));
+    }
+
+    [Fact]
+    public async Task Recording_an_event_is_open_to_people_and_refused_to_an_agent_who_still_lists_the_subscriptions()
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
@@ -161,12 +202,11 @@ public sealed class SubscriptionTests
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => triggers.RecordEventAsync(agent, Project, "pr-assigned", "delivery-1", null, fields, None));
         Assert.Equal("'event.record' is not open to the Agent role.", exception.Message);
-        DomainException exception2 = await Assert.ThrowsAsync<DomainException>(() => triggers.SubscribeAsync(agent, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None));
-        Assert.Equal("'subscription.add' is not open to the Agent role.", exception2.Message);
 
         ExternalEvent recorded = await triggers.RecordEventAsync(Teammate, Project, "pr-assigned", "delivery-1", null, fields, None);
         Assert.Equal(Teammate.Id, recorded.RecordedBy);
-        Subscription subscription = await triggers.SubscribeAsync(Principal.LocalOwner, Project, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None);
+        Subscription subscription = await StoredSubscriptions.RecordAsync(
+            store, Project, Principal.LocalOwner, new Trigger("pr-assigned", fields), "task", "title", "review-on-assignment", None);
         Assert.Single(await triggers.ListSubscriptionsAsync(agent, Project, None), s => s.Id == subscription.Id);
         Assert.Empty(await triggers.ListSubscriptionsAsync(agent, Other, None));
 
