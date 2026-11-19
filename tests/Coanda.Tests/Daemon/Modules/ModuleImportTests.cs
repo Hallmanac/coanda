@@ -225,6 +225,7 @@ public sealed class ModuleImportTests
         { "types/review.json", ParcelType.CanonicalJson(Article() with { Name = "review", GateBindings = [new GateBinding("refine", "build", "has-an-editor")] }), "which is not a gate this daemon runs" },
         { "agents/editor.json", "{ not json", "The content cannot be read as an agent" },
         { "agents/writer.json", AgentDefinition.CanonicalJson(SoftwareAgents.Build with { Name = "editor" }), "a definition file is named for the definition it holds, 'editor.json'" },
+        { "agents/editor.json", AgentDefinition.CanonicalJson(SoftwareAgents.Build with { Name = "editor", McpServers = ["cms-api"] }), "Agent 'editor' names the MCP servers 'cms-api'; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty." },
         { "triggers/review-requested.json", "{}", "is not a definition file" },
     };
 
