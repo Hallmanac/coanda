@@ -162,8 +162,11 @@ public sealed class ProjectService(
             string module = ModuleNames.Require(named.Key);
             if (!project.IsSwitchedOn(module))
             {
+                string switchedOn = project.Modules.Count == 0
+                    ? "and this one switches on no module"
+                    : string.Join(", ", project.Modules.Select(m => $"'{m}'"));
                 throw new DomainException(
-                    $"Project '{project.Name}' was given a setting of module '{module}', which its registration does not switch on; a registration records the settings of the modules it switches on, {string.Join(", ", project.Modules.Select(m => $"'{m}'"))}.");
+                    $"Project '{project.Name}' was given a setting of module '{module}', which its registration does not switch on; a registration records the settings of the modules it switches on, {switchedOn}.");
             }
 
             SettingsSchema schema = schemas.Find(module)

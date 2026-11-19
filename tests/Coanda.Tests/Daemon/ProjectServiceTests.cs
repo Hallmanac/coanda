@@ -213,6 +213,25 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task A_setting_given_to_a_registration_that_switches_on_no_module_is_refused_saying_so()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        ProjectService projects = ProjectServices.Software(store, TimeProvider.System, DefaultModules.None);
+
+        DomainException exception = await Assert.ThrowsAsync<DomainException>(
+            () => projects.AddAsync(Owner, "coanda", Remote, RegisteredProjects.BranchOnly, None));
+
+        Assert.Equal(
+            "Project 'coanda' was given a setting of module 'software', which its registration does not switch on; a registration records the settings of the modules it switches on, and this one switches on no module.",
+            exception.Message);
+        Assert.Empty(await projects.ListAsync(Owner, None));
+
+        Project added = await projects.AddAsync(Owner, "coanda", Remote, [], None);
+        Assert.Empty(added.Modules);
+    }
+
+    [Fact]
     public async Task Adding_a_project_is_refused_to_an_agent_and_showing_or_listing_is_open_to_one()
     {
         using var temp = new TemporaryHome();
