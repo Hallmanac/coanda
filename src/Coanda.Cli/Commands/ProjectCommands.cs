@@ -1,10 +1,8 @@
 using System.ComponentModel;
 using System.Text.Json;
-using Coanda.Core.Projects;
 using Coanda.Daemon;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Modules;
-using Coanda.Modules.Software;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -23,45 +21,62 @@ public sealed class ProjectAddSettings : ProjectNameSettings
     [Description("The remote of the project's first repo, recorded exactly as given. The repo is named after the remote's last path segment.")]
     public string? Repo { get; init; }
 
-    [CommandOption("--branch <NAME>")]
-    [Description("The repo's primary branch, recorded as the software module's primary-branch setting for the project.")]
-    public string? Branch { get; init; }
-
-    [CommandOption("--build <COMMAND>")]
-    [Description("The command line the gates run first, in the flow run's worktree, through the platform's shell, recorded as the software module's build setting. Defaults to dotnet build.")]
-    public string? Build { get; init; }
-
-    [CommandOption("--test <COMMAND>")]
-    [Description("The command line the gates run once the build passes, in the same way, recorded as the software module's test setting. Defaults to dotnet test.")]
-    public string? Test { get; init; }
+    [CommandOption("--setting <MODULE/NAME=VALUE>")]
+    [Description("One of a switched-on module's replicated settings, recorded with the registration: the module's name, a slash, the setting's name as the module declares it, an equals sign, and the value, read as JSON when it is JSON and as text otherwise. Repeat it for each setting.")]
+    public string[]? Settings { get; init; }
 
     public override ValidationResult Validate() =>
-        (Repo, Branch) switch
+        (Repo, (Settings ?? []).FirstOrDefault(s => ModuleSettingOption.Parse(s) is null)) switch
         {
             (var repo, _) when string.IsNullOrWhiteSpace(repo) => ValidationResult.Error("Name the remote of the project's repo with --repo <url>."),
-            (_, var branch) when string.IsNullOrWhiteSpace(branch) => ValidationResult.Error("Name the repo's primary branch with --branch <name>."),
+            (_, { } malformed) => ValidationResult.Error($"Give each setting as --setting <module>/<name>=<value>; '{malformed}' is not in that form."),
             _ => ValidationResult.Success(),
         };
 
     /// <summary>
-    /// The request this registration sends: the project and its repo's remote, and as the software
-    /// module's settings, the repo's primary branch and the build and test commands given. An option
-    /// left out is not sent, so the module's default stands.
+    /// The request this registration sends: the project, its repo's remote, and each <c>--setting</c> as the
+    /// named module's setting. The daemon decides each against the settings the module's describe answer
+    /// declares, so a setting left out keeps the module's default.
     /// </summary>
-    public ProjectAddRequest ToRequest()
+    public ProjectAddRequest ToRequest() =>
+        new(Name, Repo ?? string.Empty, [.. (Settings ?? []).Select(s => ModuleSettingOption.Parse(s)
+            ?? throw new InvalidOperationException($"The setting '{s}' was not checked before the request was built."))]);
+}
+
+/// <summary>
+/// How a command reads a module setting given as text: <c>&lt;module&gt;/&lt;name&gt;=&lt;value&gt;</c>, split at
+/// the first <c>=</c> and the module and name at the first <c>/</c>, with the value read by <see cref="ValueOf"/>.
+/// </summary>
+public static class ModuleSettingOption
+{
+    /// <summary>The setting <paramref name="option"/> gives, or null when it has no module, no setting name, or no <c>=</c>.</summary>
+    public static ModuleSettingValue? Parse(string? option)
     {
-        string remote = Repo ?? string.Empty;
-        List<ModuleSettingValue> settings =
-        [
-            Setting(SoftwareSettings.PrimaryBranch, new Dictionary<string, string?> { [ProjectRepo.NameOf(remote)] = Branch }),
-            .. Build is null ? Array.Empty<ModuleSettingValue>() : [Setting(SoftwareSettings.Build, Build)],
-            .. Test is null ? Array.Empty<ModuleSettingValue>() : [Setting(SoftwareSettings.Test, Test)],
-        ];
-        return new ProjectAddRequest(Name, remote, settings);
+        int equals = option?.IndexOf('=', StringComparison.Ordinal) ?? -1;
+        if (option is null || equals < 0)
+        {
+            return null;
+        }
+
+        string[] named = option[..equals].Split('/', 2);
+        return named is [string module, string name] && !string.IsNullOrWhiteSpace(module) && !string.IsNullOrWhiteSpace(name)
+            ? new ModuleSettingValue(module, name, ValueOf(option[(equals + 1)..]))
+            : null;
     }
 
-    private static ModuleSettingValue Setting(string name, object value) =>
-        new(SoftwareSteps.Module, name, JsonSerializer.SerializeToElement(value));
+    /// <summary>The value as JSON when it parses as JSON, and as a JSON string holding it otherwise.</summary>
+    public static JsonElement ValueOf(string value)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(value);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.SerializeToElement(value);
+        }
+    }
 }
 
 public sealed class ProjectSetProfileSettings : ProjectNameSettings
@@ -78,9 +93,21 @@ public sealed class ProjectAddCommand : AsyncCommand<ProjectAddSettings>
         using var client = new DaemonClient(NodeHome.Resolve());
         ProjectView project = await client.PostAsync<ProjectView>(
             "/projects", settings.ToRequest(), cancellationToken);
-        AnsiConsole.MarkupLineInterpolated(
-            $"Registered project {project.Name} with repo {string.Join(", ", project.Repos.Select(r => $"{r.Name} ({r.Remote})"))}; coa project module show {project.Name} {SoftwareSteps.Module} shows the software module's settings for it.");
+        AnsiConsole.WriteLine(RegisteredLine(project));
         return 0;
+    }
+
+    /// <summary>
+    /// The line a registration prints: the project and its repos, then each module its record switches on
+    /// with the <c>coa project module show</c> command that shows that module's settings, or that it
+    /// switches on none.
+    /// </summary>
+    public static string RegisteredLine(ProjectView project)
+    {
+        string registered = $"Registered project {project.Name} with repo {string.Join(", ", project.Repos.Select(r => $"{r.Name} ({r.Remote})"))}";
+        return project.Modules.Count == 0
+            ? $"{registered}; no module is switched on for it."
+            : $"{registered}; switched on for it: {string.Join("; ", project.Modules.Select(m => $"module {m}, whose settings coa project module show {project.Name} {m} shows"))}.";
     }
 }
 

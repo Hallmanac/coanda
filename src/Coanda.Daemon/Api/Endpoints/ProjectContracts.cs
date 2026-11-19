@@ -20,17 +20,19 @@ public sealed record ProjectRepoView(string Name, string Remote)
 }
 
 /// <summary>
-/// A registered project: its name, its repos, who registered it and when, and <see cref="Profile"/>, the
-/// credential profile its agent steps spawn with on this node, or null when it names none. A module's
-/// settings for the project are shown by the module settings call, never here.
+/// A registered project: its name, its repos, who registered it and when, <see cref="Profile"/>, the
+/// credential profile its agent steps spawn with on this node, or null when it names none, and
+/// <see cref="Modules"/>, the modules its record switches on, by name. A module's settings for the
+/// project are shown by the module settings call, never here.
 /// </summary>
 public sealed record ProjectView(
     string Name,
     IReadOnlyList<ProjectRepoView> Repos,
     string RegisteredBy,
     DateTimeOffset RegisteredAt,
-    string? Profile)
+    string? Profile,
+    IReadOnlyList<string> Modules)
 {
     public static ProjectView From(Project project, string? profile) =>
-        new(project.Name, [.. project.Repos.Select(ProjectRepoView.From)], project.RegisteredBy, project.RegisteredAt, profile);
+        new(project.Name, [.. project.Repos.Select(ProjectRepoView.From)], project.RegisteredBy, project.RegisteredAt, profile, [.. project.Modules]);
 }

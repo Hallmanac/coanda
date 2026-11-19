@@ -16,10 +16,7 @@ public sealed class ProjectReferenceTests
     /// <summary>The one file in the executable's project that composes the modules the daemon hosts.</summary>
     private const string CompositionFile = "src/Coanda.Cli/ModuleComposition.cs";
 
-    /// <summary>
-    /// The other file in the executable's project that may name a module's types, until <c>coa project add</c>
-    /// renders a module's settings from its describe answer.
-    /// </summary>
+    /// <summary>The file holding <c>coa project add</c>'s settings and command, which take a module's settings by the names its describe answer declares.</summary>
     private const string ProjectCommandsFile = "src/Coanda.Cli/Commands/ProjectCommands.cs";
 
     /// <summary>Each project under <c>src/</c>, by its folder's name, with the names of the folders of the projects it references.</summary>
@@ -61,7 +58,7 @@ public sealed class ProjectReferenceTests
     }
 
     [Fact]
-    public void In_the_executables_project_only_the_composition_and_the_project_commands_name_a_module()
+    public void In_the_executables_project_only_the_composition_names_a_module()
     {
         string cli = RepositoryFiles.PathOf("src/Coanda.Cli");
         string[] naming =
@@ -72,7 +69,18 @@ public sealed class ProjectReferenceTests
                 .Order(StringComparer.Ordinal),
         ];
 
-        Assert.Equal([ProjectCommandsFile, CompositionFile], naming);
+        Assert.Equal([CompositionFile], naming);
+    }
+
+    [Fact]
+    public void The_project_commands_name_no_module_and_no_module_setting()
+    {
+        string commands = File.ReadAllText(RepositoryFiles.PathOf(ProjectCommandsFile));
+
+        foreach (string named in new[] { "software", "Software", "primary-branch", "PrimaryBranch", "required-checks", "--branch", "--build", "--test" })
+        {
+            Assert.DoesNotContain(named, commands, StringComparison.Ordinal);
+        }
     }
 
     private static string[] ReferencesOf(string project) =>

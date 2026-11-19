@@ -29,19 +29,8 @@ public sealed class ProjectModuleSetSettings : ProjectModuleSettings
     [Description("The setting's value: read as JSON when it is JSON, such as true, 3, or [\"a\"], and as text otherwise.")]
     public required string Value { get; init; }
 
-    /// <summary>The value as JSON when it parses as JSON, and as a JSON string holding it otherwise.</summary>
-    public JsonElement ToValue()
-    {
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(Value);
-            return document.RootElement.Clone();
-        }
-        catch (JsonException)
-        {
-            return JsonSerializer.SerializeToElement(Value);
-        }
-    }
+    /// <summary>The value as <see cref="ModuleSettingOption.ValueOf"/> reads it: as JSON when it parses as JSON, and as text otherwise.</summary>
+    public JsonElement ToValue() => ModuleSettingOption.ValueOf(Value);
 }
 
 public sealed class ProjectModuleSelectProfileSettings : ProjectModuleSettings

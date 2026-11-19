@@ -9,8 +9,8 @@ namespace Coanda.Cli;
 /// The one place the executable composes the modules its daemon hosts: it builds the software module,
 /// gives it its options, and hands it to the daemon with the modules a new project is switched on for
 /// when the node configuration names none.
-/// The daemon names no module, so this is the only file outside <c>coa project add</c>'s command that
-/// names a module's types. <c>coa daemon run</c> starts its daemon through it, and so does every test
+/// The daemon names no module, and neither does any command, so this is the only file in the executable
+/// that names a module's types. <c>coa daemon run</c> starts its daemon through it, and so does every test
 /// that starts one.
 /// </summary>
 internal static class ModuleComposition

@@ -17,9 +17,9 @@ public sealed class ProjectApiTests
 {
     private static readonly CancellationToken None = CancellationToken.None;
 
-    /// <summary>The request <c>coa project add</c> sends for the project <paramref name="name"/> with its repo at <paramref name="remote"/> on main.</summary>
+    /// <summary>The request <c>coa project add</c> sends for the project <paramref name="name"/> with its repo at <paramref name="remote"/>.</summary>
     private static ProjectAddRequest Add(string name, string remote) =>
-        new ProjectAddSettings { Name = name, Repo = remote, Branch = "main" }.ToRequest();
+        new ProjectAddSettings { Name = name, Repo = remote }.ToRequest();
 
     [Fact]
     public async Task The_cli_client_adds_shows_and_lists_projects_through_the_running_daemon()
@@ -63,7 +63,11 @@ public sealed class ProjectApiTests
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
         using var client = new DaemonClient(temp.Home);
         await client.PostAsync<ProjectView>(
-            "/projects", new ProjectAddSettings { Name = "coanda", Repo = "git@github.com:you/coanda.git", Branch = "main", Build = "make", Test = "make test" }.ToRequest(), None);
+            "/projects", new ProjectAddSettings
+            {
+                Name = "coanda", Repo = "git@github.com:you/coanda.git",
+                Settings = ["software/primary-branch={\"coanda\":\"main\"}", "software/build=make", "software/test=make test"],
+            }.ToRequest(), None);
 
         using var http = new HttpClient();
         foreach (string path in new[] { "/projects/coanda", "/projects" })
@@ -74,7 +78,8 @@ public sealed class ProjectApiTests
             using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(None));
             JsonElement project = document.RootElement.ValueKind == JsonValueKind.Array ? document.RootElement[0] : document.RootElement;
 
-            Assert.Equal(["name", "repos", "registeredBy", "registeredAt", "profile"], project.EnumerateObject().Select(p => p.Name));
+            Assert.Equal(["name", "repos", "registeredBy", "registeredAt", "profile", "modules"], project.EnumerateObject().Select(p => p.Name));
+            Assert.Equal("""["software"]""", project.GetProperty("modules").GetRawText());
             Assert.Equal("""[{"name":"coanda","remote":"git@github.com:you/coanda.git"}]""", project.GetProperty("repos").GetRawText());
             Assert.DoesNotContain("main", project.GetRawText(), StringComparison.Ordinal);
             Assert.DoesNotContain("make", project.GetRawText(), StringComparison.Ordinal);
@@ -91,7 +96,7 @@ public sealed class ProjectApiTests
         using var client = new DaemonClient(temp.Home);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<ProjectView>("/projects/nowhere", None));
-        Assert.StartsWith("Project 'nowhere' is not registered; register it with coa project add nowhere", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("Project 'nowhere' is not registered; register it with coa project add nowhere --repo <url>.", exception.Message);
 
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{daemon.Info.BaseAddress}/projects/nowhere");
@@ -110,7 +115,7 @@ public sealed class ProjectApiTests
         using var client = new DaemonClient(temp.Home);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Lost", null), None));
-        Assert.StartsWith("Project 'nowhere' is not registered; register it with coa project add nowhere", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("Project 'nowhere' is not registered; register it with coa project add nowhere --repo <url>.", exception.Message);
         Assert.Empty(await client.GetAsync<List<ParcelView>>("/parcels?project=nowhere", None));
 
         await client.PostAsync<ProjectView>("/projects", Add("nowhere", "https://example.invalid/nowhere.git"), None);
