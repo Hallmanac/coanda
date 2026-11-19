@@ -86,8 +86,14 @@ Before each spawn the daemon writes `.coanda/parcel.md` (the parcel record) and 
 `.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the
 retry resumes the session, and never reads any of them back. Each session's
 stream output is kept as a transcript in `transcripts/<project>/<flow run id>/` under the node home,
-outside the work directory; an agent step that gives no valid answer after its one retry pauses with
-that transcript's path as its lever.
+outside the work directory, and beside it the session keeps its prompt: everything its processes
+were given on standard input, the first prompt and then the retry message when there was one, in
+the order they were sent. Once the session has been stopped, both files are kept only
+gzip-compressed (`<session>.jsonl.gz` and `<session>.prompt.gz`), readable by you alone. The
+event that records an agent step's answer carries the SHA-256 hash of each file's uncompressed
+bytes (`sha256:` and 64 lowercase hexadecimal characters), so either file can be checked against
+it. An agent step that gives no valid answer after its one retry pauses with the compressed
+transcript's path as its lever, and its pause carries the same two hashes.
 
 Each session runs under a spend cap: what is left of the flow run's budget, or of its chain's budget
 when that is smaller. Claude Code checks the cap between turns, so one turn can go past it. A

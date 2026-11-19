@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Coanda.Core;
@@ -474,8 +476,15 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         AgentStepOutcome outcome = await AgentStep.RunAsync(executor, Request(), None);
 
         AgentStepOutcome.Paused paused = Assert.IsType<AgentStepOutcome.Paused>(outcome);
-        Assert.Equal(Path.Combine(TranscriptDirectory, $"{paused.Session.Id}.jsonl"), paused.Lever);
-        string[] lines = await File.ReadAllLinesAsync(paused.Lever);
+        // the lever names where the transcript is kept once the session has stopped
+        Assert.Equal(Path.Combine(TranscriptDirectory, $"{paused.Session.Id}.jsonl.gz"), paused.Lever);
+        // the pause carries the hashes of both files as the retry left them
+        string live = Path.Combine(TranscriptDirectory, $"{paused.Session.Id}.jsonl");
+        Assert.Equal(new SessionFileHashes(HashWhileWritten(Path.ChangeExtension(live, ".prompt")), HashWhileWritten(live)), paused.Hashes);
+        await executor.StopAsync(paused.Session, None);
+        Assert.False(File.Exists(live), "a stopped session's transcript is kept only compressed");
+        Assert.Equal(paused.Hashes?.Transcript, FileHash.Of(Decompressed(paused.Lever)));
+        string[] lines = Encoding.UTF8.GetString(Decompressed(paused.Lever)).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         // a resume appends its output to the session's transcript
         Assert.Equal(2, lines.Count(l => l.Contains("\"subtype\":\"init\"", StringComparison.Ordinal)));
         Assert.Contains(lines, l => l.Contains("rate_limit_event", StringComparison.Ordinal));
@@ -484,9 +493,39 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         fake.Script(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
         AgentStepOutcome later = await AgentStep.RunAsync(executor, Request(), None);
-        Assert.Equal(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl"), Assert.IsType<AgentStepOutcome.Answered>(later).TranscriptPath);
-        // a later spawn on the same flow run writes a transcript of its own
-        Assert.Equal(2, Directory.GetFiles(TranscriptDirectory).Length);
+        Assert.Equal(Path.Combine(TranscriptDirectory, $"{later.Session.Id}.jsonl.gz"), Assert.IsType<AgentStepOutcome.Answered>(later).TranscriptPath);
+        // a later spawn on the same flow run writes a transcript and a prompt of its own, uncompressed until it stops
+        Assert.Equal(
+            [$"{paused.Session.Id}.jsonl.gz", $"{paused.Session.Id}.prompt.gz", $"{later.Session.Id}.jsonl", $"{later.Session.Id}.prompt"],
+            Directory.GetFiles(TranscriptDirectory).Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_answer_after_the_retry_carries_the_hashes_of_a_prompt_holding_both_inputs_in_order_and_of_the_transcript_and_both_are_kept_compressed_at_the_stop()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering("Nope.", 0.1m, 0.1m), FakeClaude.Answering(ValidBuild, 0.1m, 0.2m));
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home);
+
+        AgentStepOutcome.Answered answered = Assert.IsType<AgentStepOutcome.Answered>(await AgentStep.RunAsync(executor, Request(), None));
+
+        string transcript = Path.Combine(TranscriptDirectory, $"{answered.Session.Id}.jsonl");
+        string prompt = Path.Combine(TranscriptDirectory, $"{answered.Session.Id}.prompt");
+        Assert.Equal(2, fake.Starts.Count);
+        byte[] sent = Utf8(fake.Starts[0].Input + fake.Starts[1].Input);
+        Assert.Equal(sent, File.ReadAllBytes(prompt));
+        SessionFileHashes hashes = answered.Hashes ?? throw new InvalidOperationException("The answer carried no hashes.");
+        Assert.Matches("^sha256:[0-9a-f]{64}$", hashes.Prompt);
+        Assert.Equal(FileHash.Of(sent), hashes.Prompt);
+        Assert.Equal(HashWhileWritten(transcript), hashes.Transcript);
+
+        Assert.Null(await executor.StopAsync(answered.Session, None));
+
+        Assert.False(File.Exists(transcript), "a stopped session's transcript is kept only compressed");
+        Assert.False(File.Exists(prompt), "a stopped session's prompt is kept only compressed");
+        Assert.Equal(hashes.Transcript, FileHash.Of(Decompressed(answered.TranscriptPath)));
+        Assert.Equal(sent, Decompressed(prompt + ".gz"));
+        // the inputs the processes read are scratch, removed with the session's record
+        Assert.Empty(Directory.GetFiles(temp.Home.SessionsPath));
     }
 
     [Fact]
@@ -634,11 +673,14 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
 
         Assert.Equal(ValidBuild, collected.Answer);
         Assert.Equal(new Measurement(7 + 8 + 9 + 10, 0.4m, 3, TimeSpan.FromMilliseconds(2500)), collected.Usage);
-        Assert.Equal(Path.Combine(TranscriptDirectory, $"{handle.Id}.jsonl"), collected.TranscriptPath);
+        Assert.Equal(Path.Combine(TranscriptDirectory, $"{handle.Id}.jsonl.gz"), collected.TranscriptPath);
         // the reattach starts no process of its own
         Assert.Single(fake.Starts, s => s.After("--session-id") == handle.Id.ToString() || s.After("--resume") == handle.Id.ToString());
         Assert.Null(await restarted.StopAsync(handle, None));
         Assert.False(File.Exists(temp.Home.SessionRecordPath(handle.Id)), "a stopped session's record is removed");
+        // the executor that let the session go keeps its files as the one that spawned it would have
+        Assert.Equal(collected.Hashes?.Transcript, FileHash.Of(Decompressed(collected.TranscriptPath)));
+        Assert.Equal(Utf8(fake.Starts[0].Input), Decompressed(Path.Combine(TranscriptDirectory, $"{handle.Id}.prompt.gz")));
     }
 
     [Fact]
@@ -826,6 +868,11 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         Assert.Empty(await restarted.ListAsync(None));
         Assert.Null(await restarted.ReattachAsync(handle, access: null, None));
         Assert.False(File.Exists(temp.Home.SessionRecordPath(handle.Id)), "a session that cannot answer is let go");
+        // what it was given and what it printed are kept compressed all the same
+        Assert.Equal(
+            [$"{handle.Id}.jsonl.gz", $"{handle.Id}.prompt.gz"],
+            Directory.GetFiles(TranscriptDirectory).Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal));
+        Assert.Equal(Utf8(fake.Starts[0].Input), Decompressed(Path.Combine(TranscriptDirectory, $"{handle.Id}.prompt.gz")));
     }
 
     [Fact]
@@ -1024,11 +1071,21 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         CollectedAnswer collected = await executor.CollectAsync(handle, None);
 
         Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path.Combine(WorkDirectory, ".coanda", "persona.md")));
-        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(collected.TranscriptPath));
+        string[] kept = Directory.GetFiles(TranscriptDirectory);
+        // the session's transcript and its prompt
+        Assert.Equal(2, kept.Length);
         string[] recorded = Directory.GetFiles(temp.Home.SessionsPath);
         // the session's record, and its process's input and error files
         Assert.Equal(3, recorded.Length);
-        foreach (string file in recorded)
+        foreach (string file in kept.Concat(recorded))
+        {
+            Assert.True(File.GetUnixFileMode(file) == (UnixFileMode.UserRead | UnixFileMode.UserWrite), $"{file} has mode {File.GetUnixFileMode(file)}, not owner read and write.");
+        }
+
+        await executor.StopAsync(handle, None);
+        string[] compressed = Directory.GetFiles(TranscriptDirectory);
+        Assert.Equal([collected.TranscriptPath, Path.Combine(TranscriptDirectory, $"{handle.Id}.prompt.gz")], compressed.Order(StringComparer.Ordinal));
+        foreach (string file in compressed)
         {
             Assert.True(File.GetUnixFileMode(file) == (UnixFileMode.UserRead | UnixFileMode.UserWrite), $"{file} has mode {File.GetUnixFileMode(file)}, not owner read and write.");
         }
@@ -1161,7 +1218,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         AgentStepOutcome.Answered answered = Assert.IsType<AgentStepOutcome.Answered>(outcome);
         Assert.Equal(ValidBuild, answered.Answer);
         Assert.Equal(2, fake.Starts.Count);
-        List<JsonElement> events = [.. (await File.ReadAllLinesAsync(answered.TranscriptPath)).Select(l => JsonDocument.Parse(l).RootElement)];
+        List<JsonElement> events = [.. (await File.ReadAllLinesAsync(Path.Combine(TranscriptDirectory, $"{answered.Session.Id}.jsonl"))).Select(l => JsonDocument.Parse(l).RootElement)];
         List<string> sequence = [.. events
             .Where(e => e.GetProperty("type").GetString() == "system")
             .Select(e => e.GetProperty("subtype").GetString() == "hook_response"
@@ -1379,6 +1436,25 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
             .GetProperty("hooks").GetProperty("PreToolUse")[0].GetProperty("hooks")[0];
         List<string> arguments = [.. hook.GetProperty("args").EnumerateArray().Select(a => a.GetString() ?? string.Empty)];
         return ToolGuardRules.Parse(arguments, out _) ?? throw new InvalidOperationException("The hook's arguments do not parse.");
+    }
+
+    /// <summary>The bytes of the gzip-compressed file at <paramref name="path"/>, decompressed.</summary>
+    private static byte[] Decompressed(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var gzip = new GZipStream(file, CompressionMode.Decompress);
+        using var bytes = new MemoryStream();
+        gzip.CopyTo(bytes);
+        return bytes.ToArray();
+    }
+
+    private static byte[] Utf8(string text) => new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(text);
+
+    /// <summary>The hash of the file at <paramref name="path"/>, read while a process may still hold it open.</summary>
+    private static string HashWhileWritten(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        return FileHash.Of(stream);
     }
 
     private AgentStepRequest Request(CredentialProfile? profile = null) =>

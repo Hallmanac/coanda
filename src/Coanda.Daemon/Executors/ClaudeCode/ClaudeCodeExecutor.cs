@@ -1,6 +1,7 @@
 using System.Collections;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using Coanda.Core;
@@ -40,6 +41,11 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// record is let go. A recorded process id that now names another process means the recorded
 /// process has exited, and the process holding the id is never signalled. A stopped session's
 /// record is removed and only its id is kept, so a second stop of it still succeeds.
+/// Beside the transcript, each session keeps its prompt (<see cref="PromptPathOf"/>): what every one
+/// of its processes was given on standard input, appended in the order sent. A collect returns the
+/// <see cref="FileHash"/> of both files as they stand once its process has ended, and once the
+/// executor has stopped a session or let it go, both are kept gzip-compressed and owner-only at
+/// <see cref="KeptPathOf"/>, the uncompressed files removed.
 /// </remarks>
 public sealed class ClaudeCodeExecutor : IAgentExecutor
 {
@@ -99,6 +105,15 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     }
 
     public string Executable { get; }
+
+    /// <summary>
+    /// Where a session whose transcript is at <paramref name="transcriptPath"/> keeps its prompt
+    /// while it runs: beside the transcript, named for the session with the extension <c>.prompt</c>.
+    /// </summary>
+    public static string PromptPathOf(string transcriptPath) => Path.ChangeExtension(transcriptPath, ".prompt");
+
+    /// <summary>Where a session's file at <paramref name="path"/> is kept, gzip-compressed, once the session has ended.</summary>
+    public static string KeptPathOf(string path) => path + ".gz";
 
     /// <summary>The absolute path of the <c>coa</c> executable in <paramref name="directory"/>, which runs the tool guard.</summary>
     public static string CoaExecutable(string directory) =>
@@ -168,7 +183,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         }
         catch
         {
-            Forget(handle.Id);
+            Forget(handle.Id, session.TranscriptPath);
             throw;
         }
 
@@ -182,7 +197,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             // A process no record names could never be found again, so it does not outlive the failure.
             first.Process.KillTree();
             first.Process.Dispose();
-            Forget(handle.Id);
+            Forget(handle.Id, session.TranscriptPath);
             throw;
         }
 
@@ -206,6 +221,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         await RequireSettingsAppliedAsync(session, attempt, cancellationToken);
         await attempt.Process.WaitForExitAsync(cancellationToken);
         ClaudeStream stream = ReadStream(session, attempt);
+
+        // Read before the gate is taken, and only for a result that answers: the process has ended, so both files are whole.
+        SessionFileHashes? hashes = stream.Result is { IsError: false } ? HashFiles(session) : null;
         CollectedAnswer answer;
         lock (gate)
         {
@@ -233,7 +251,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                 attempt.Counted = true;
             }
 
-            answer = new CollectedAnswer(ClaudeAnswer.Trailing(result.Text), session.TranscriptPath, usage);
+            answer = new CollectedAnswer(ClaudeAnswer.Trailing(result.Text), KeptPathOf(session.TranscriptPath), usage, hashes);
             attempt.Collected = answer;
         }
 
@@ -426,7 +444,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         finally
         {
             attempt?.Process.Dispose();
-            Forget(handle.Id);
+            Forget(handle.Id, session.TranscriptPath);
         }
     }
 
@@ -552,7 +570,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         if (record is not { Attempt: { } recorded } || record.Id != id || string.IsNullOrEmpty(recorded.Identity))
         {
-            Forget(id);
+            // Whether a process still writes the transcript this record names is not known, so it is left as it is.
+            Forget(id, transcriptPath: null);
             return null;
         }
 
@@ -601,7 +620,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                 }
             }
 
-            Forget(id);
+            Forget(id, record.TranscriptPath);
             return null;
         }
 
@@ -610,8 +629,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     /// <summary>
     /// Starts one claude process for the session: its prompt written to a file it reads as its
-    /// standard input, its output appended to the session's transcript, and its error output to a
-    /// file of the attempt's own.
+    /// standard input and appended to the session's kept prompt, its output appended to the session's
+    /// transcript, and its error output to a file of the attempt's own. A process that could not be
+    /// started leaves the kept prompt as it was before, since nothing was given that prompt.
     /// </summary>
     private Attempt Start(Session session, int ordinal, IReadOnlyList<string> arguments, string prompt)
     {
@@ -619,9 +639,10 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         string stem = Path.Combine(home.SessionsPath, $"{session.Handle.Id}.{ordinal.ToString(CultureInfo.InvariantCulture)}");
         string inputPath = stem + ".in";
         string errorPath = stem + ".err";
+        byte[] bytes = Utf8.GetBytes(prompt);
         using (FileStream written = OwnerOnly.Open(inputPath, FileMode.Create, FileAccess.Write, FileShare.Read))
         {
-            written.Write(Utf8.GetBytes(prompt));
+            written.Write(bytes);
         }
 
         string? directory = Path.GetDirectoryName(session.TranscriptPath);
@@ -630,6 +651,28 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             OwnerOnly.EnsureDirectory(directory);
         }
 
+        string promptPath = PromptPathOf(session.TranscriptPath);
+        long promptLength;
+        using (FileStream kept = OwnerOnly.Open(promptPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+        {
+            promptLength = kept.Length;
+            kept.Write(bytes);
+        }
+
+        try
+        {
+            return StartProcess(session, ordinal, arguments, inputPath, errorPath);
+        }
+        catch
+        {
+            Truncate(promptPath, promptLength);
+            throw;
+        }
+    }
+
+    /// <summary>Starts the attempt's process on the input file already written, with its output and error files opened for it.</summary>
+    private static Attempt StartProcess(Session session, int ordinal, IReadOnlyList<string> arguments, string inputPath, string errorPath)
+    {
         using FileStream transcript = OwnerOnly.Open(session.TranscriptPath, FileMode.Append, FileAccess.Write, Inherited(FileShare.ReadWrite | FileShare.Delete));
         using var input = new FileStream(inputPath, FileMode.Open, FileAccess.Read, Inherited(FileShare.Read | FileShare.Delete));
         using FileStream errors = OwnerOnly.Open(errorPath, FileMode.Create, FileAccess.Write, Inherited(FileShare.ReadWrite | FileShare.Delete));
@@ -646,6 +689,42 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         }
 
         return new Attempt(ordinal, process, offset, errorPath, DateTimeOffset.UtcNow, session.ReportedTotalCostUsd);
+    }
+
+    /// <summary>Cuts the file at <paramref name="path"/> back to <paramref name="length"/> bytes, leaving it as it is when that fails.</summary>
+    private static void Truncate(string path, long length)
+    {
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            file.SetLength(length);
+        }
+        catch (Exception kept) when (kept is IOException or UnauthorizedAccessException)
+        {
+            // The failure to start is what the caller reports; a prompt left longer only says more than was sent.
+        }
+    }
+
+    /// <summary>
+    /// The hashes of the session's kept prompt and its transcript as they stand, or null when either
+    /// is missing or cannot be read, as for a session a daemon before kept prompts spawned.
+    /// </summary>
+    private static SessionFileHashes? HashFiles(Session session)
+    {
+        try
+        {
+            return new SessionFileHashes(HashOf(PromptPathOf(session.TranscriptPath)), HashOf(session.TranscriptPath));
+        }
+        catch (Exception unreadable) when (unreadable is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string HashOf(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return FileHash.Of(file);
     }
 
     /// <summary>A handle a process is started with must be inheritable on Windows; elsewhere the spawn hands it over itself.</summary>
@@ -694,9 +773,19 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         File.Move(written, path, overwrite: true);
     }
 
-    /// <summary>Removes the session's record and the input and error files of its processes; its transcript stays.</summary>
-    private void Forget(Guid id)
+    /// <summary>
+    /// Removes the session's record and the input and error files of its processes, and keeps its
+    /// prompt and its transcript, when <paramref name="transcriptPath"/> names it, compressed in
+    /// their place. A transcript whose path is not known is left where it is.
+    /// </summary>
+    private void Forget(Guid id, string? transcriptPath)
     {
+        if (transcriptPath is not null)
+        {
+            Compress(PromptPathOf(transcriptPath));
+            Compress(transcriptPath);
+        }
+
         if (!Directory.Exists(home.SessionsPath))
         {
             return;
@@ -711,6 +800,46 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             catch (Exception kept) when (kept is IOException or UnauthorizedAccessException)
             {
                 // A file a process still holds open on Windows; it is only left behind.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replaces the file at <paramref name="path"/> with its gzip-compressed copy at
+    /// <see cref="KeptPathOf"/>, owner-only, written whole before it takes that name. A file that is
+    /// absent, as one already compressed is, is left alone; one that cannot be read or removed, as a
+    /// file a process still holds open on Windows cannot, is left uncompressed beside whatever was written.
+    /// </summary>
+    private static void Compress(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        string kept = KeptPathOf(path);
+        string written = kept + ".tmp";
+        try
+        {
+            using (var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (FileStream target = OwnerOnly.Open(written, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var gzip = new GZipStream(target, CompressionLevel.Optimal))
+            {
+                source.CopyTo(gzip);
+            }
+
+            File.Move(written, kept, overwrite: true);
+            File.Delete(path);
+        }
+        catch (Exception left) when (left is IOException or UnauthorizedAccessException)
+        {
+            // The uncompressed file stays as it was; only a partly written copy is cleared.
+            try
+            {
+                File.Delete(written);
+            }
+            catch (Exception stuck) when (stuck is IOException or UnauthorizedAccessException)
+            {
             }
         }
     }
