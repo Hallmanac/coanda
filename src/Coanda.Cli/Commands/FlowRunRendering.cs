@@ -53,7 +53,12 @@ internal static class FlowRunRendering
         }
 
         lines.Add("Steps");
-        lines.AddRange(flowRun.Steps.Select(Step));
+        foreach (FlowRunStepView step in flowRun.Steps)
+        {
+            lines.Add(Step(step));
+            lines.AddRange(Entries(step));
+        }
+
         return lines;
     }
 
@@ -77,6 +82,19 @@ internal static class FlowRunRendering
         return "  " + string.Join("  ", parts);
     }
 
+    /// <summary>
+    /// One line under the step for each entry of each top-level list in what it recorded, numbered from one,
+    /// so a list the step line leaves out, such as the tasks a discovery answer would derive, can be read
+    /// before a person answers the gate that acts on it. An object entry prints its fields as name=value.
+    /// </summary>
+    public static IEnumerable<string> Entries(FlowRunStepView step) =>
+        (step.Answer ?? step.Result) is { ValueKind: JsonValueKind.Object } document
+            ? document.EnumerateObject()
+                .Where(field => field.Value.ValueKind == JsonValueKind.Array)
+                .SelectMany(field => field.Value.EnumerateArray().Select((entry, index) =>
+                    "    " + string.Join("  ", [$"{field.Name}[{index + 1}]", .. Entry(entry)])))
+            : [];
+
     /// <summary>The top-level string, number, and boolean fields of a document, as name=value.</summary>
     public static IEnumerable<string> Fields(JsonElement document) =>
         document.ValueKind != JsonValueKind.Object
@@ -84,6 +102,13 @@ internal static class FlowRunRendering
             : document.EnumerateObject()
                 .Where(field => field.Value.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
                 .Select(field => $"{field.Name}={(field.Value.ValueKind == JsonValueKind.String ? field.Value.GetString() : field.Value.GetRawText())}");
+
+    private static IEnumerable<string> Entry(JsonElement entry) => entry.ValueKind switch
+    {
+        JsonValueKind.Object => Fields(entry),
+        JsonValueKind.String => [entry.GetString() ?? string.Empty],
+        _ => [entry.GetRawText()],
+    };
 
     private static string Pair(string key, string value) => $"{key,-8}{value}";
 }

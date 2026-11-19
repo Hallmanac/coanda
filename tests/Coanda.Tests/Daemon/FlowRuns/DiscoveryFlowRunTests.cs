@@ -66,6 +66,11 @@ public sealed class DiscoveryFlowRunTests
         IReadOnlyList<string> shown = FlowRunRendering.Show(paused);
         Assert.Contains($"{"Lever",-8}{SoftwareFlows.DiscoveryGateLever}", shown);
         Assert.Contains(shown, line => line.Contains("verdict=derive", StringComparison.Ordinal) && line.Contains("summary=Two bounded tasks.", StringComparison.Ordinal));
+        // the tasks a pursue would derive, which the lever sends the person to read here first
+        int discover = shown.ToList().FindIndex(line => line.StartsWith("  discover  ", StringComparison.Ordinal));
+        Assert.Equal(
+            ["    parcels[1]  type=task  title=Write the parser", "    parcels[2]  type=task  title=Wire the parser in"],
+            shown.Skip(discover + 1).Take(2));
 
         Parcel only = Assert.Single(await daemon.Services.GetRequiredService<ParcelService>().ListAsync(Principal.LocalOwner, Project, None));
         Assert.Equal(idea.Id, only.Id);
