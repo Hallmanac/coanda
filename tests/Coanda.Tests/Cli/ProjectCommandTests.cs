@@ -1,11 +1,13 @@
 using System.Text.RegularExpressions;
 using Coanda.Cli;
 using Coanda.Cli.Commands;
+using Coanda.Core;
 using Coanda.Core.Registry;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Modules;
+using Coanda.Daemon.Parcels;
 using Coanda.Modules.Software;
 using Coanda.Tests.Daemon;
 using Microsoft.Extensions.DependencyInjection;
@@ -78,7 +80,88 @@ public sealed partial class ProjectCommandTests
     {
         Assert.Null(ModuleSettingOption.Parse(option));
         Assert.False(new ProjectAddSettings { Name = "bad", Repo = "git@example.invalid:x.git", Settings = ["mod/fine=1", option] }.Validate().Successful);
-        Assert.False(new ProjectAddSettings { Name = "norepo" }.Validate().Successful);
+    }
+
+    [Fact]
+    public void Leaving_the_repo_out_is_valid_and_sends_no_remote()
+    {
+        var settings = new ProjectAddSettings { Name = "norepo" };
+
+        Assert.True(settings.Validate().Successful);
+        Assert.Null(settings.ToRequest().Remote);
+    }
+
+    [Fact]
+    public void A_project_with_no_repos_is_registered_shown_and_listed_as_having_none()
+    {
+        var none = new ProjectView("bare", [], "owner", DateTimeOffset.UnixEpoch, null, ["software"]);
+        var other = new ProjectView("alpha-project", [new("a", "git@example.invalid:a.git")], "owner", DateTimeOffset.UnixEpoch, null, []);
+
+        Assert.Equal(
+            "Registered project bare with no repos; switched on for it: module software, whose settings coa project module show bare software shows.",
+            ProjectAddCommand.RegisteredLine(none));
+        Assert.Equal(
+            "Registered project bare with no repos; no module is switched on for it.",
+            ProjectAddCommand.RegisteredLine(none with { Modules = [] }));
+
+        IReadOnlyList<(string Key, string Value)> rows = ProjectShowCommand.ShowRows(none);
+        Assert.Equal(["Name", "Repo", "Profile", "Registered"], rows.Select(r => r.Key));
+        Assert.Equal(("Repo", "none; with no repo to carry its ledger, its parcels cannot be claimed"), rows[1]);
+
+        Assert.Equal(["bare  no repos"], ProjectListCommand.ListLines([none]));
+        Assert.Equal(["bare  no repos", "zed   no repos"], ProjectListCommand.ListLines([none, none with { Name = "zed" }]));
+        Assert.Equal(
+            [
+                "alpha-project  a  git@example.invalid:a.git",
+                "bare           no repos",
+            ],
+            ProjectListCommand.ListLines([other, none]));
+    }
+
+    [Fact]
+    public async Task The_add_command_given_no_repo_registers_the_project_with_no_repos()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+
+        Ran added = await RunAsync(temp.Home, "project", "add", "bare");
+        Ran listed = await RunAsync(temp.Home, "project", "list");
+        Ran again = await RunAsync(temp.Home, "project", "add", "bare");
+
+        Assert.True(added.ExitCode == 0, added.Output + added.Error);
+        Assert.Equal(
+            Squashed("Registered project bare with no repos; switched on for it: module software, whose settings coa project module show bare software shows."),
+            Squashed(added.Output));
+        Assert.True(listed.ExitCode == 0, listed.Output + listed.Error);
+        Assert.Equal(Squashed("bare  no repos"), Squashed(listed.Output));
+        Assert.NotEqual(0, again.ExitCode);
+        Assert.Contains(Squashed("Project 'bare' is already registered, with no repos."), Squashed(again.Output + again.Error), StringComparison.Ordinal);
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_claim_on_a_parcel_of_a_project_with_no_repos_is_refused_by_the_api_and_the_claim_command()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        using var client = new DaemonClient(temp.Home);
+        await client.PostAsync<ProjectView>("/projects", new ProjectAddSettings { Name = "bare" }.ToRequest(), None);
+        ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("bare", "task", "Unclaimable", null), None);
+        string rule = $"Parcel {Ids.Short(parcel.Id)} is not claimed: project 'bare' has no repo to carry its ledger, so a claim on its parcels can never be held.";
+
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(
+            () => client.PostAsync<ParcelClaimResult>("/parcels/claim", new ParcelClaimRequest("bare", parcel.Id), None));
+        Ran claimed = await RunAsync(temp.Home, "parcel", "claim", parcel.Id.ToString(), "--project", "bare");
+
+        Assert.Equal(rule, refused.Message);
+        Assert.NotEqual(0, claimed.ExitCode);
+        Assert.Contains(Squashed(rule), Squashed(claimed.Output + claimed.Error), StringComparison.Ordinal);
+        Coanda.Core.Parcels.Parcel stored = await daemon.Services.GetRequiredService<ParcelService>().ShowAsync(Principal.LocalOwner, "bare", parcel.Id, None)
+            ?? throw new InvalidOperationException("The parcel was not stored.");
+        Assert.Empty(stored.Claimants);
+
+        await daemon.StopAsync(None);
     }
 
     [Fact]
