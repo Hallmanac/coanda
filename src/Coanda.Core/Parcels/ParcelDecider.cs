@@ -1,3 +1,4 @@
+using Coanda.Core.FlowRuns;
 using Coanda.Core.Parcels.Events;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
@@ -157,6 +158,95 @@ public static class ParcelDecider
             ? value with { Reference = reference with { Url = null } }
             : value;
         return new ParcelFieldSet(parcel.Id, declared.Name, recorded, setBy, now);
+    }
+
+    /// <summary>
+    /// The derived-from relation a parcel being created records, in the same save as <paramref name="created"/>,
+    /// to <paramref name="derivedFrom"/>'s parcel. <paramref name="related"/> is that parcel as this node's record
+    /// holds it in the project, or null when it holds none, and <paramref name="flowRun"/> the flow run the
+    /// relation names as this node's record holds it, or null when it names none or the record holds none.
+    /// The relation is held to the rules <see cref="Relate"/> holds any relation to.
+    /// </summary>
+    public static ParcelRelationRecorded DeriveFrom(
+        ParcelCreated created, DerivedFrom derivedFrom, Parcel? related, FlowRun? flowRun, DateTimeOffset now) =>
+        Record(Parcel.Create(created), RelationKinds.DerivedFrom, derivedFrom.ParcelId, related, derivedFrom.FlowRunId, flowRun, creating: true, created.CreatedBy, now);
+
+    /// <summary>
+    /// A relation of <paramref name="kind"/> that an existing parcel records to <paramref name="relatedParcelId"/>.
+    /// <paramref name="related"/> is that parcel as this node's record holds it in the project, or null when it
+    /// holds none; <paramref name="flowRun"/> is the flow run <paramref name="flowRunId"/> names as the record
+    /// holds it, or null. A derived-from relation is recorded only when its parcel is created
+    /// (<see cref="DeriveFrom"/>), so it is refused here.
+    /// </summary>
+    public static ParcelRelationRecorded Relate(
+        Parcel parcel, string? kind, Guid relatedParcelId, Parcel? related, Guid? flowRunId, FlowRun? flowRun, string recordedBy, DateTimeOffset now) =>
+        Record(parcel, kind, relatedParcelId, related, flowRunId, flowRun, creating: false, recordedBy, now);
+
+    /// <summary>
+    /// The rules every relation is recorded under: a known kind, another parcel than the parcel itself, a
+    /// recording parcel that is open, another parcel this node's record holds in the same project, and no
+    /// relation of the kind to that parcel already recorded. A derived-from is recorded only at creation and
+    /// may name a flow run whose parcel is the parcel derived from; a blocked-by names none. The type's list
+    /// of the types it may derive is not read: a module may derive a parcel of its own type from another
+    /// module's, and the step that derives parcels is what holds a derived type to the list.
+    /// </summary>
+    private static ParcelRelationRecorded Record(
+        Parcel parcel, string? kind, Guid relatedParcelId, Parcel? related, Guid? flowRunId, FlowRun? flowRun, bool creating, string recordedBy, DateTimeOffset now)
+    {
+        if (!RelationKinds.IsKnown(kind))
+        {
+            throw new DomainException(
+                $"A relation's kind is one of {string.Join(", ", RelationKinds.All)}, not '{kind}'.");
+        }
+
+        if (relatedParcelId == parcel.Id)
+        {
+            throw new DomainException($"Parcel {Ids.Short(parcel.Id)} cannot record a {kind} relation to itself; a relation names another parcel.");
+        }
+
+        switch (kind)
+        {
+            case RelationKinds.BlockedBy when flowRunId is Guid named:
+                throw new DomainException(
+                    $"A {RelationKinds.BlockedBy} relation names no flow run, and this one names flow run {Ids.Short(named)}; only a {RelationKinds.DerivedFrom} relation names the flow run that caused it.");
+            case RelationKinds.DerivedFrom when !creating:
+                throw new DomainException(
+                    $"Parcel {Ids.Short(parcel.Id)} already exists, and a {RelationKinds.DerivedFrom} relation is recorded only in the save that creates its parcel.");
+        }
+
+        if (parcel.IsClosed)
+        {
+            throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is closed ({parcel.Resolution}); a closed parcel records no relation.");
+        }
+
+        if (related is null || !string.Equals(related.Project, parcel.Project, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"No parcel {Ids.Short(relatedParcelId)} in project '{parcel.Project}' on this node; a relation names a parcel of the same project that this node holds.");
+        }
+
+        if (parcel.Relations.Any(r => string.Equals(r.Kind, kind, StringComparison.Ordinal) && r.RelatedParcelId == relatedParcelId))
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcel.Id)} already records a {kind} relation to parcel {Ids.Short(relatedParcelId)}.");
+        }
+
+        if (flowRunId is Guid causing)
+        {
+            if (flowRun is null || flowRun.Id != causing)
+            {
+                throw new DomainException(
+                    $"No flow run {Ids.Short(causing)} in project '{parcel.Project}' on this node; a {RelationKinds.DerivedFrom} relation names a flow run this node holds.");
+            }
+
+            if (flowRun.ParcelId != relatedParcelId)
+            {
+                throw new DomainException(
+                    $"Flow run {Ids.Short(causing)} runs on parcel {Ids.Short(flowRun.ParcelId)}, not parcel {Ids.Short(relatedParcelId)}; a {RelationKinds.DerivedFrom} relation names a flow run of the parcel derived from.");
+            }
+        }
+
+        return new ParcelRelationRecorded(parcel.Id, kind, relatedParcelId, flowRunId, recordedBy, now);
     }
 
     /// <summary>

@@ -60,6 +60,14 @@ public sealed class Parcel
     [JsonInclude]
     public IReadOnlyDictionary<string, FieldValue> Fields { get; private set; } = new Dictionary<string, FieldValue>(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The relations the parcel's stream records, in stream order. Every one is folded, an imported one this
+    /// node would have refused to record included, so a node lists what the recording node recorded; a
+    /// parcel recorded before relations existed reads with none.
+    /// </summary>
+    [JsonInclude]
+    public IReadOnlyList<ParcelRelation> Relations { get; private set; } = [];
+
     public bool IsClosed => Resolution is not null;
 
     /// <summary>The value the field holds, or null when it has never been set.</summary>
@@ -132,5 +140,11 @@ public sealed class Parcel
         }
 
         UpdatedAt = claimed.ClaimedAt;
+    }
+
+    public void Apply(ParcelRelationRecorded recorded)
+    {
+        Relations = [.. Relations, new ParcelRelation(recorded.Kind, recorded.RelatedParcelId, recorded.FlowRunId)];
+        UpdatedAt = recorded.RecordedAt;
     }
 }
