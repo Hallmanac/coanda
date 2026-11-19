@@ -12,8 +12,8 @@ namespace Coanda.Cli.Commands;
 public sealed class ParcelAddSettings : ProjectSettings
 {
     [CommandOption("-t|--type <TYPE>")]
-    [Description("The parcel type: task (default) or idea, or any installed type.")]
-    public string Type { get; init; } = "task";
+    [Description("The parcel's type, one of the types the project holds (coa type list shows them).")]
+    public string? Type { get; init; }
 
     [CommandOption("--title <TITLE>")]
     [Description("What the parcel is, in a line.")]
@@ -29,11 +29,27 @@ public sealed class ParcelAddCommand : AsyncCommand<ParcelAddSettings>
     protected override async Task<int> ExecuteAsync(CommandContext context, ParcelAddSettings settings, CancellationToken cancellationToken)
     {
         using var client = new DaemonClient(NodeHome.Resolve());
-        var request = new ParcelAddRequest(settings.ResolveProject(), settings.Type, settings.Title, settings.Stage);
+        string project = settings.ResolveProject();
+        if (string.IsNullOrWhiteSpace(settings.Type))
+        {
+            List<TypeView> types = await client.GetAsync<List<TypeView>>($"/types?project={Uri.EscapeDataString(project)}", cancellationToken);
+            throw new DomainException(NoTypeRefusal(project, [.. types.Select(type => type.Name)]));
+        }
+
+        var request = new ParcelAddRequest(project, settings.Type, settings.Title, settings.Stage);
         ParcelView parcel = await client.PostAsync<ParcelView>("/parcels", request, cancellationToken);
         AnsiConsole.MarkupLineInterpolated($"Created {parcel.Type} parcel {Ids.Short(parcel.Id)} in {parcel.Project} at {parcel.Stage}: {parcel.Title}");
         return 0;
     }
+
+    /// <summary>
+    /// What <c>coa parcel add</c> says when it is given no <c>--type</c>: no type is compiled in as a default,
+    /// so it names the types <paramref name="project"/> holds, <paramref name="types"/>, for the person to pick one.
+    /// </summary>
+    public static string NoTypeRefusal(string project, IReadOnlyList<string> types) =>
+        types.Count == 0
+            ? $"Name the parcel's type with --type. The project {project} holds no parcel type yet, so no parcel was created."
+            : $"Name the parcel's type with --type. The project {project} holds {string.Join(", ", types)}. No parcel was created.";
 }
 
 public sealed class ParcelListSettings : ProjectSettings
@@ -194,7 +210,7 @@ public sealed class ParcelSetCommand : AsyncCommand<ParcelSetSettings>
 public sealed class ParcelCloseSettings : ParcelIdSettings
 {
     [CommandOption("-r|--resolution <RESOLUTION>")]
-    [Description("How it ended, from the type's resolutions (a task: completed, abandoned, superseded, duplicate).")]
+    [Description("How it ended: one of the resolutions its type defines, which coa type list shows.")]
     public required string Resolution { get; init; }
 
     [CommandOption("--reason <REASON>")]

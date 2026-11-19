@@ -49,7 +49,7 @@ app.Configure(config =>
 
     config.AddBranch("record", record =>
     {
-        record.SetDescription("The node's record: export it in this build's current shapes, and rebuild it from such an export. Both refuse while a daemon runs on the home.");
+        record.SetDescription("The node's record: export it in the shapes this version of coa writes, and rebuild it from such an export. Both refuse while a daemon runs on the home.");
         record.AddCommand<RecordExportCommand>("export").WithDescription("Write a full export of the record to an owner-only file under the node home.").WithExample("record", "export");
         record.AddCommand<RecordRebuildCommand>("rebuild").WithDescription("Rebuild the record from an export, moving the existing database aside.")
             .WithExample("record", "rebuild", "~/.coanda/exports/record-20261105T120000000Z.json");
@@ -64,13 +64,13 @@ app.Configure(config =>
     });
 
     config.AddCommand<JoinCommand>("join").WithDescription("Join a project from its remote and the fingerprint of its owner's root key, and import it.")
-        .WithExample("join", "git@github.com:you/coanda.git", "--root", "sha256:<64 hex digits>");
+        .WithExample("join", "git@example.com:you/coanda.git", "--root", "sha256:<64 hex digits>");
 
     config.AddBranch("project", project =>
     {
         project.SetDescription("A project is a name and the repos its work acts on, each a git remote; a module's settings for it are set with coa project module.");
         project.AddCommand<ProjectAddCommand>("add").WithDescription("Register a project with its first repo's remote, switching on the node's default modules, and any of their settings given with --setting.")
-            .WithExample("project", "add", "coanda", "--repo", "git@github.com:you/coanda.git");
+            .WithExample("project", "add", "coanda", "--repo", "git@example.com:you/coanda.git");
         project.AddCommand<ProjectSetProfileCommand>("set-profile").WithDescription("Name the credential profile this node spawns the project's agent steps with.")
             .WithExample("project", "set-profile", "coanda", "work");
         project.AddCommand<ProjectShowCommand>("show").WithDescription("Show one registered project.").WithExample("project", "show", "coanda");
@@ -79,7 +79,7 @@ app.Configure(config =>
         {
             module.SetDescription("A module's settings in a project: replicated settings the project agrees on, and the credential profile this node selects.");
             module.AddCommand<ProjectModuleSetCommand>("set").WithDescription("Give one of a module's replicated settings in a project a value.")
-                .WithExample("project", "module", "set", "coanda", "software", "required-checks", "'[\"build-test (ubuntu-latest)\"]'");
+                .WithExample("project", "module", "set", "coanda", "software", "required-checks", "'[\"ci (ubuntu-latest)\"]'");
             module.AddCommand<ProjectModuleSelectProfileCommand>("select-profile").WithDescription("Select one of this node's credential profiles for a module in a project.")
                 .WithExample("project", "module", "select-profile", "coanda", "software", "work");
             module.AddCommand<ProjectModuleShowCommand>("show").WithDescription("Show a module's settings in a project and whether it is configured on this node.")
@@ -90,35 +90,35 @@ app.Configure(config =>
     config.AddBranch("parcel", parcel =>
     {
         parcel.SetDescription("A parcel is the unit of work: one type, one lifecycle stage, moved by flow runs.");
-        parcel.AddCommand<ParcelAddCommand>("add").WithDescription("Create a parcel at an entry stage of its type.").WithExample("parcel", "add", "--title", "\"Try Coanda\"");
+        parcel.AddCommand<ParcelAddCommand>("add").WithDescription("Create a parcel at an entry stage of its type.").WithExample("parcel", "add", "--type", "<type>", "--title", "\"Try Coanda\"");
         parcel.AddCommand<ParcelListCommand>("list").WithDescription("List the project's open parcels.").WithExample("parcel", "list");
         parcel.AddCommand<ParcelShowCommand>("show").WithDescription("Show one parcel.").WithExample("parcel", "show", "0192a3b4");
-        parcel.AddCommand<ParcelMoveCommand>("move").WithDescription("Move a parcel to a stage its type allows.").WithExample("parcel", "move", "0192a3b4", "build");
+        parcel.AddCommand<ParcelMoveCommand>("move").WithDescription("Move a parcel to a stage its type allows.").WithExample("parcel", "move", "0192a3b4", "<stage>");
         parcel.AddCommand<ParcelSetCommand>("set").WithDescription("Set one of a parcel's fields, replacing its value.")
             .WithExample("parcel", "set", "0192a3b4", "objective", "--text", "\"Teach the daemon fields\"")
-            .WithExample("parcel", "set", "0192a3b4", "criteria", "--item", "\"It builds\"", "--item", "\"It tests\"")
-            .WithExample("parcel", "set", "0192a3b4", "pull-request", "--ref", "42", "--url", "https://github.com/o/r/pull/42");
+            .WithExample("parcel", "set", "0192a3b4", "criteria", "--item", "\"It starts\"", "--item", "\"It answers\"")
+            .WithExample("parcel", "set", "0192a3b4", "source", "--ref", "42", "--url", "https://example.com/items/42");
         parcel.AddCommand<ParcelClaimCommand>("claim").WithDescription("Claim a parcel for this node, publish its ledger, and fetch its peers'.").WithExample("parcel", "claim", "0192a3b4");
         parcel.AddCommand<ParcelCloseCommand>("close").WithDescription("Close a parcel with a resolution and a reason.").WithExample("parcel", "close", "0192a3b4", "-r", "completed", "--reason", "\"Merged\"");
     });
 
     config.AddBranch("agent", agent =>
     {
-        agent.SetDescription("Agents are configured AI workers that the daemon spawns in an agent step; the software module brings five.");
+        agent.SetDescription("Agents are configured AI workers that the daemon spawns in an agent step; the modules a project switches on bring them.");
         agent.AddCommand<AgentListCommand>("list").WithDescription("List the agents that govern a project.").WithExample("agent", "list");
     });
 
     config.AddBranch("type", type =>
     {
-        type.SetDescription("Parcel types define a lifecycle; the software module brings idea and task.");
+        type.SetDescription("Parcel types define a lifecycle; the modules a project switches on bring them.");
         type.AddCommand<TypeListCommand>("list").WithDescription("List the installed parcel types.").WithExample("type", "list");
     });
 
     config.AddBranch("flow", flow =>
     {
-        flow.SetDescription("Flows are the loops a flow run follows to move a parcel; the software module brings build, merge, discovery, and review-on-assignment.");
+        flow.SetDescription("Flows are the loops a flow run follows to move a parcel; the modules a project switches on bring them.");
         flow.AddCommand<FlowListCommand>("list").WithDescription("List the flows that govern the project.").WithExample("flow", "list");
-        flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flow run of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "build", "--parcel", "0192a3b4");
+        flow.AddCommand<FlowStartCommand>("start").WithDescription("Start a flow run of a flow on a parcel; the daemon advances it from there.").WithExample("flow", "start", "<flow>", "--parcel", "0192a3b4");
     });
 
     config.AddBranch("flow-run", flowRun =>
