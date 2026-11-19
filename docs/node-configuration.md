@@ -144,8 +144,10 @@ running. Pointed at any other node home (a session that sets `COANDA_HOME` to a 
 a test suite that starts its own daemon on a throwaway one), `coa` never sends the session token and
 works as it does outside a session, so the token only ever reaches the daemon that issued it.
 
-The token makes the call an Agent-role principal bound to its flow run and its launch. Queries, parcel
-moves, and drafting a definition are open to it in any project, as they are to any agent. The flow run
+The token makes the call an Agent-role principal bound to its flow run and its launch. A session reads,
+moves parcels, sets fields, and drafts project definitions only in the project its session is bound
+to: the same call naming any other project is refused, and listing projects answers only that one. The
+daemon's own Agent-role principals carry no session and act in every project. The flow run
 recording entries (a step, a launch, the session a launch returned, an answer, the usage a session
 reported, a result, a pause, an end) are open to it only on its own flow run, and only while its launch
 is the one the flow run expects. It can never start or follow a flow run directly. A parcel move it makes
