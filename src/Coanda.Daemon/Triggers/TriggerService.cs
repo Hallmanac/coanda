@@ -12,8 +12,8 @@ namespace Coanda.Daemon.Triggers;
 /// <summary>
 /// The daemon's side of recording external events and subscriptions: pass the registry, ask
 /// <see cref="TriggerDecider"/>, append, save; an external event already recorded under the same
-/// project, kind, and external id is given back instead of appended. Both live in their project's tenant. Nothing records
-/// an external event yet except tests; adapters arrive later. A Module principal records only in a
+/// project, kind, and external id is given back instead of appended. Both live in their project's tenant. An external
+/// event is recorded through the loopback API's <c>/events</c> route, a module's chiefly. A Module principal records only in a
 /// project its module is switched on for, and only kinds prefixed with its own module's name; a kind
 /// prefixed with a module's name is recorded by that module alone.
 /// </summary>
