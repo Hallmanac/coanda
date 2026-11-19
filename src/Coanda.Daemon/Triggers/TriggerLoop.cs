@@ -45,6 +45,10 @@ namespace Coanda.Daemon.Triggers;
 /// a live flow run, as when a flow run's own step moves its parcel into a bound stage, is refused and
 /// starts nothing, then or later; whether the parcel had one is read from the parcel as it stood at
 /// the entry, never as it stands when the loop gets to it, so the outcome does not depend on timing.
+/// A bound flow's start also waits until every parcel blocking the parcel at its entry is closed
+/// (<see cref="WaitingEntries"/>), and only a node whose claims let it start the flow judges this: the
+/// blockers are judged once the claims below let the start go ahead, a blocker missing from this node's
+/// record counts as open, and when the last one closes the claims are weighed again before the flow starts.
 /// A follow is not a stage entry: when several flows follow the same end, a parcel holds one live
 /// flow run at a time, so its followers start one after another, each on the release of the flow run
 /// before it.
@@ -148,6 +152,13 @@ public sealed class TriggerLoop(
     /// start fail, or to hold it open.
     /// </summary>
     internal Func<DirectFollowStart, CancellationToken, Task>? DirectFollowStarting { get; set; }
+
+    /// <summary>
+    /// Awaited just before a bound flow starts on a parcel because the last parcel blocking its entry closed. Null, as
+    /// it is in a running daemon, awaits nothing; a test supplies it through <see cref="Api.DaemonOptions"/> to make
+    /// that start fail.
+    /// </summary>
+    internal Func<WaitedEntryStart, CancellationToken, Task>? WaitedEntryStarting { get; set; }
 
     /// <summary>
     /// Awaited just before the follows of a flow run's end that wait are written to its parcel's follow queue, given
@@ -274,7 +285,7 @@ public sealed class TriggerLoop(
         long to = Math.Min(position + PageSize, head);
         foreach ((IEvent entry, bool own, Guid originalId) in await ReadAsync(position, to, cancellationToken))
         {
-            if (entry.Data is ParcelCreated or ParcelMoved or ParcelFlowRunReleased or FlowRunEnded or ExternalEventRecorded)
+            if (entry.Data is ParcelCreated or ParcelMoved or ParcelClosed or ParcelFlowRunReleased or FlowRunEnded or ExternalEventRecorded)
             {
                 await HandleAsync(entry, own, originalId, cancellationToken);
                 await SavePositionAsync(entry.Sequence, cancellationToken);
@@ -453,11 +464,17 @@ public sealed class TriggerLoop(
             switch (entry.Data)
             {
                 case ParcelCreated created:
-                    // A parcel being created has had no flow run yet, so nothing was live at this entry.
-                    await EnteredAsync(created.Project, created.ParcelId, created.TypeName, created.Stage, originalId, null, own, entry.Sequence, cancellationToken);
+                    // A parcel being created has had no flow run yet, so nothing was live at this entry, and the parcel its
+                    // creation folds to lists no relation, so nothing blocks it.
+                    await EnteredAsync(
+                        new StageEntry(created.Project, created.ParcelId, created.TypeName, created.Stage, originalId, entry.Version, null, [], own, entry.Sequence),
+                        cancellationToken);
                     break;
                 case ParcelMoved moved:
                     await MovedAsync(entry.TenantId, moved, entry, originalId, own, cancellationToken);
+                    break;
+                case ParcelClosed closed:
+                    await ClosedAsync(entry.TenantId, closed.ParcelId, cancellationToken);
                     break;
                 case ParcelFlowRunReleased released:
                     // A release starts the follows waiting on it and never a stage entry.
@@ -488,26 +505,40 @@ public sealed class TriggerLoop(
     /// <summary>
     /// A parcel moved: the entry is weighed against the parcel as it stood just before the move,
     /// folded from its stream up to the move's version, so a flow run live then refuses the entry
-    /// even if it has ended by the time the loop reads the move.
+    /// even if it has ended by the time the loop reads the move, and only a blocked-by the parcel
+    /// listed then holds the entry's start back. A move changes no relation, so the parcel lists the
+    /// same relations just before the move as at it.
     /// </summary>
     private async Task MovedAsync(string project, ParcelMoved moved, IEvent entry, Guid entryId, bool own, CancellationToken cancellationToken)
     {
         Parcel before = await parcels.ShowAtAsync(LoopPrincipal, project, moved.ParcelId, entry.Version - 1, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(moved.ParcelId)} in project '{project}'.");
+        Guid[] blockedBy = [.. before.Relations
+            .Where(r => string.Equals(r.Kind, RelationKinds.BlockedBy, StringComparison.Ordinal))
+            .Select(r => r.RelatedParcelId)
+            .Distinct()];
 
-        await EnteredAsync(project, before.Id, before.TypeName, moved.ToStage, entryId, before.LiveFlowRunId, own, entry.Sequence, cancellationToken);
+        await EnteredAsync(
+            new StageEntry(project, before.Id, before.TypeName, moved.ToStage, entryId, entry.Version, before.LiveFlowRunId, blockedBy, own, entry.Sequence),
+            cancellationToken);
     }
 
     /// <summary>
     /// A parcel entered a stage: start the flow its type, as resolution returns it by name, binds
-    /// there. An entry made while the parcel had a live flow run, <paramref name="liveAtEntry"/>, is
-    /// refused with a rule naming that flow run; a start the flow run service refuses throws its rule.
-    /// Either refusal reaches the loop's warning log, and nothing is kept to start it later.
+    /// there. An entry made while the parcel had a live flow run is refused with a rule naming that
+    /// flow run; a start the flow run service refuses throws its rule. Either refusal reaches the
+    /// loop's warning log, and nothing is kept to start it later. Once the claims let this node start
+    /// the flow and the entry is not refused, the parcels that blocked the parcel at the entry are
+    /// judged: while any of them is not closed in this node's record, one this node has not imported
+    /// included, the entry waits (<see cref="WaitingEntries"/>) and is handled again when one of them
+    /// closes (<see cref="ClosedAsync"/>). An entry handled again once its last blocker is closed
+    /// starts the flow, as the same principal a start at the entry would have used, unless the parcel
+    /// is closed, holds a live flow run, or has moved since the entry; it no longer waits either way.
     /// </summary>
-    private async Task EnteredAsync(
-        string project, Guid parcelId, string typeName, string stage, Guid entryId, Guid? liveAtEntry, bool own, long sequence, CancellationToken cancellationToken)
+    private async Task EnteredAsync(StageEntry entry, CancellationToken cancellationToken)
     {
-        ParcelType? type = await parcels.ResolveTypeAsync(LoopPrincipal, project, typeName, cancellationToken);
+        (string project, Guid parcelId, string stage) = (entry.Project, entry.ParcelId, entry.Stage);
+        ParcelType? type = await parcels.ResolveTypeAsync(LoopPrincipal, project, entry.TypeName, cancellationToken);
         if (type is null)
         {
             return;
@@ -515,25 +546,211 @@ public sealed class TriggerLoop(
 
         TriggerEvent entered = TriggerEvent.ParcelEntered(type.Name, stage);
         FlowBinding? binding = type.FlowBindings.FirstOrDefault(b => Trigger.ForBinding(type, b).Matches(entered));
-        if (binding is null || !await TriggersAsync(project, parcelId, own, sequence, $"its entry into '{stage}'", cancellationToken))
+        if (binding is null)
         {
             return;
         }
 
-        Principal principal = PrincipalFor(type.Name, binding, entryId);
+        switch (await GateAsync(project, parcelId, entry.Own, entry.Sequence, $"its entry into '{stage}'", cancellationToken))
+        {
+            case Gate.HeldBack:
+                return;
+            case Gate.Denied:
+                // A wait whose end the claims no longer let this node judge starts nothing here, then or later.
+                await StopWaitingAsync(project, parcelId, entry.Version, cancellationToken);
+                return;
+        }
+
+        Principal principal = PrincipalFor(type.Name, binding, entry.EntryId);
         IReadOnlyList<FlowRun> existing = await flowRuns.ListAsync(LoopPrincipal, project, parcelId, cancellationToken);
         if (existing.Any(f => string.Equals(f.StartedBy, principal.Id, StringComparison.Ordinal)))
         {
+            await StopWaitingAsync(project, parcelId, entry.Version, cancellationToken);
             return;
         }
 
-        if (liveAtEntry is Guid live)
+        if (entry.LiveAtEntry is Guid live)
         {
             throw new DomainException(
                 $"A parcel has at most one live flow run; parcel {Ids.Short(parcelId)} had flow run {Ids.Short(live)} live when it entered '{stage}', so binding {type.Name}/{binding.Stage} starts nothing for that entry.");
         }
 
-        await StartAsync(principal, project, parcelId, binding.Flow, $"binding {type.Name}/{binding.Stage}", cancellationToken);
+        IReadOnlyList<Guid> open = await OpenBlockersAsync(project, entry.BlockedBy, cancellationToken);
+        if (open.Count > 0)
+        {
+            await WaitAsync(project, parcelId, new WaitingEntry(entry.Version, entry.BlockedBy), cancellationToken);
+            logger.LogInformation(
+                "Parcel {Parcel} in project {Project} entered '{Stage}', which binds flow '{Flow}', while parcel(s) {Blockers} blocking it are not closed, so the flow starts only once every one of them is.",
+                Ids.Short(parcelId), project, stage, binding.Flow, string.Join(", ", open.Select(Ids.Short)));
+            return;
+        }
+
+        string cause = $"binding {type.Name}/{binding.Stage}";
+        if (!await IsWaitingAsync(project, parcelId, entry.Version, cancellationToken))
+        {
+            await StartAsync(principal, project, parcelId, binding.Flow, cause, cancellationToken);
+            return;
+        }
+
+        if (await WhyNothingStartsAsync(project, parcelId, entry.Version, cancellationToken) is { } why)
+        {
+            await StopWaitingAsync(project, parcelId, entry.Version, cancellationToken);
+            logger.LogInformation(
+                "Every parcel blocking parcel {Parcel} in project {Project} at its entry into '{Stage}' is closed, but flow '{Flow}' starts nothing for that entry, since {Why}; the entry no longer waits.",
+                Ids.Short(parcelId), project, stage, binding.Flow, why);
+            return;
+        }
+
+        try
+        {
+            if (WaitedEntryStarting is { } starting)
+            {
+                await starting(new WaitedEntryStart(project, parcelId, binding.Flow), cancellationToken);
+            }
+
+            await StartAsync(principal, project, parcelId, binding.Flow, cause, cancellationToken);
+        }
+        catch (DomainException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The refusal reaches the loop's warning log; the entry it refused no longer waits.
+            await StopWaitingAsync(project, parcelId, entry.Version, cancellationToken);
+            throw;
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            await StopWaitingAsync(project, parcelId, entry.Version, cancellationToken);
+            logger.LogError(
+                failure,
+                "Starting flow '{Flow}' on parcel {Parcel} in project {Project}, whose blockers at its entry into '{Stage}' are all closed, failed; the entry no longer waits.",
+                binding.Flow, Ids.Short(parcelId), project, stage);
+            return;
+        }
+
+        await StopWaitingAsync(project, parcelId, entry.Version, cancellationToken);
+    }
+
+    /// <summary>
+    /// A parcel closed: every entry waiting on it is handled again, each on its own, as the record holds that entry
+    /// and with whether this node recorded it, so one entry's refusal or failure leaves the others to be handled. A
+    /// stop leaves the close unhandled, and the next start handles it again.
+    /// </summary>
+    private async Task ClosedAsync(string project, Guid closedId, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<WaitingEntries> waiting;
+        await using (IQuerySession session = store.QuerySession(project))
+        {
+            waiting = await session.Query<WaitingEntries>().ToListAsync(cancellationToken);
+        }
+
+        foreach (WaitingEntries parcel in waiting)
+        {
+            foreach (WaitingEntry waits in parcel.Entries.Where(e => e.Blockers.Contains(closedId)).OrderBy(e => e.Version))
+            {
+                (IEvent Entry, bool Own, Guid OriginalId)? entry;
+                await using (IQuerySession session = store.QuerySession(project))
+                {
+                    IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcel.Id, waits.Version, token: cancellationToken);
+                    IEvent[] at = [.. events.Where(e => e.Version == waits.Version)];
+                    entry = at.Length == 0 ? null : (await TaggedAsync(session, at, cancellationToken)).First();
+                }
+
+                if (entry is not { } found)
+                {
+                    await StopWaitingAsync(project, parcel.Id, waits.Version, cancellationToken);
+                    logger.LogWarning(
+                        "Parcel {Parcel} in project {Project} has no entry at version {Version} of its stream, so that entry no longer waits.",
+                        Ids.Short(parcel.Id), project, waits.Version);
+                    continue;
+                }
+
+                await HandleAsync(found.Entry, found.Own, found.OriginalId, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>The parcels of <paramref name="blockers"/> that are not closed in this node's record, a parcel it does not hold among them.</summary>
+    private async Task<IReadOnlyList<Guid>> OpenBlockersAsync(string project, IReadOnlyList<Guid> blockers, CancellationToken cancellationToken)
+    {
+        if (blockers.Count == 0)
+        {
+            return [];
+        }
+
+        await using IQuerySession session = store.QuerySession(project);
+        List<Guid> open = [];
+        foreach (Guid blocker in blockers)
+        {
+            if (await session.LoadAsync<Parcel>(blocker, cancellationToken) is not { IsClosed: true })
+            {
+                open.Add(blocker);
+            }
+        }
+
+        return open;
+    }
+
+    /// <summary>
+    /// Why nothing starts for the parcel's entry at <paramref name="version"/> once its blockers are all closed, as the
+    /// parcel stands now, or null when the flow starts: the parcel is closed, holds a live flow run, or has moved since.
+    /// </summary>
+    private async Task<string?> WhyNothingStartsAsync(string project, Guid parcelId, long version, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        Parcel? parcel = await session.LoadAsync<Parcel>(parcelId, cancellationToken);
+        IReadOnlyList<IEvent> events = await session.Events.FetchStreamAsync(parcelId, token: cancellationToken);
+        return parcel switch
+        {
+            null => "the parcel is no longer in this node's record",
+            { IsClosed: true } => $"the parcel is closed ({parcel.Resolution})",
+            { LiveFlowRunId: Guid live } => $"the parcel holds flow run {Ids.Short(live)} live",
+            _ when events.Any(e => e.Version > version && e.Data is ParcelMoved) => "the parcel has moved since that entry",
+            _ => null,
+        };
+    }
+
+    /// <summary>Keeps the parcel's entry waiting for its blockers, unless it already waits.</summary>
+    private async Task WaitAsync(string project, Guid parcelId, WaitingEntry entry, CancellationToken cancellationToken)
+    {
+        await using IDocumentSession session = store.LightweightSession(project);
+        WaitingEntries waiting = await session.LoadAsync<WaitingEntries>(parcelId, cancellationToken)
+            ?? new WaitingEntries { Id = parcelId };
+        if (waiting.Entries.Any(e => e.Version == entry.Version))
+        {
+            return;
+        }
+
+        waiting.Entries.Add(entry);
+        session.Store(waiting);
+        await session.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<bool> IsWaitingAsync(string project, Guid parcelId, long version, CancellationToken cancellationToken)
+    {
+        await using IQuerySession session = store.QuerySession(project);
+        WaitingEntries? waiting = await session.LoadAsync<WaitingEntries>(parcelId, cancellationToken);
+        return waiting?.Entries.Any(e => e.Version == version) == true;
+    }
+
+    /// <summary>Takes the parcel's entry at <paramref name="version"/> out of the entries that wait, if it is among them.</summary>
+    private async Task StopWaitingAsync(string project, Guid parcelId, long version, CancellationToken cancellationToken)
+    {
+        await using IDocumentSession session = store.LightweightSession(project);
+        WaitingEntries? waiting = await session.LoadAsync<WaitingEntries>(parcelId, cancellationToken);
+        if (waiting is null || waiting.Entries.RemoveAll(e => e.Version == version) == 0)
+        {
+            return;
+        }
+
+        if (waiting.Entries.Count == 0)
+        {
+            session.Delete<WaitingEntries>(parcelId);
+        }
+        else
+        {
+            session.Store(waiting);
+        }
+
+        await session.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -543,7 +760,19 @@ public sealed class TriggerLoop(
     /// parcel is not yet held, the entry at <paramref name="sequence"/> is held back to be handled again, and so is
     /// any entry on a parcel that already has entries held back, so they are handled in the order they were read.
     /// </summary>
-    private async Task<bool> TriggersAsync(string project, Guid parcelId, bool own, long sequence, string cause, CancellationToken cancellationToken)
+    private async Task<bool> TriggersAsync(string project, Guid parcelId, bool own, long sequence, string cause, CancellationToken cancellationToken) =>
+        await GateAsync(project, parcelId, own, sequence, cause, cancellationToken) is Gate.Starts;
+
+    /// <summary>What the parcel's claims let this node do for an event: start, hold the entry back, or start nothing (<see cref="TriggersAsync"/>).</summary>
+    private enum Gate
+    {
+        Starts,
+        HeldBack,
+        Denied,
+    }
+
+    /// <summary>As <see cref="TriggersAsync"/>, saying also whether an entry the claims do not let start yet was held back.</summary>
+    private async Task<Gate> GateAsync(string project, Guid parcelId, bool own, long sequence, string cause, CancellationToken cancellationToken)
     {
         if (parcelId != replaying && await HasHeldBackAsync(project, parcelId, cancellationToken))
         {
@@ -551,14 +780,14 @@ public sealed class TriggerLoop(
             logger.LogInformation(
                 "Parcel {Parcel} in project {Project} holds back {Cause} behind the entries it already holds back.",
                 Ids.Short(parcelId), project, cause);
-            return false;
+            return Gate.HeldBack;
         }
 
         ClaimStanding? standing = await StandingAsync(project, parcelId, cancellationToken);
         if (standing is null || ClaimDecider.Triggers(standing, own))
         {
             // With no such parcel, the start that follows says so.
-            return true;
+            return Gate.Starts;
         }
 
         if (standing is ClaimStanding.NotYetHeld held)
@@ -567,7 +796,7 @@ public sealed class TriggerLoop(
             logger.LogInformation(
                 "Parcel {Parcel} in project {Project} holds back {Cause} until this node's claim on it is held or lost, since it is not yet held: {Why}.",
                 Ids.Short(parcelId), project, cause, held.Reason);
-            return false;
+            return Gate.HeldBack;
         }
 
         string why = standing switch
@@ -579,7 +808,7 @@ public sealed class TriggerLoop(
         logger.LogInformation(
             "Parcel {Parcel} in project {Project} starts nothing here for {Cause}, since {Why}.",
             Ids.Short(parcelId), project, cause, why);
-        return false;
+        return Gate.Denied;
     }
 
     private async Task<bool> HasLiveFlowRunAsync(string project, Guid parcelId, CancellationToken cancellationToken)
@@ -1417,6 +1646,23 @@ public sealed class TriggerLoop(
 
         await StartAsync(subscription.Principal, project, parcel.Id, subscription.Flow, $"subscription {Ids.Short(subscription.Id)}", cancellationToken);
     }
+
+    /// <summary>
+    /// A parcel's entry into a stage as the loop weighs it: the entry's project, parcel, the parcel's type and the stage it
+    /// entered, the id the entry's origin gave it, its version in the parcel's stream, the flow run live on the parcel at
+    /// the entry, the parcels the parcel listed as blocking it then, whether this node recorded it, and its global sequence.
+    /// </summary>
+    private sealed record StageEntry(
+        string Project,
+        Guid ParcelId,
+        string TypeName,
+        string Stage,
+        Guid EntryId,
+        long Version,
+        Guid? LiveAtEntry,
+        IReadOnlyList<Guid> BlockedBy,
+        bool Own,
+        long Sequence);
 
     /// <summary>Starts the flow run through the flow run service and hands it to the runner, as the start endpoint does.</summary>
     private async Task StartAsync(Principal principal, string project, Guid parcelId, string flow, string cause, CancellationToken cancellationToken)

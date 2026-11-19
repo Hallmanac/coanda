@@ -191,6 +191,7 @@ public sealed class DaemonHost
             loop.FollowDecided = options.FollowDecided;
             loop.DeferredFollowStarting = options.DeferredFollowStarting;
             loop.DirectFollowStarting = options.DirectFollowStarting;
+            loop.WaitedEntryStarting = options.WaitedEntryStarting;
             loop.FollowsDeferring = options.FollowsDeferring;
             loop.SubscriptionFiring = options.SubscriptionFiring;
             return loop;
