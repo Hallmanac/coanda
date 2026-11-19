@@ -339,15 +339,19 @@ with a lower hash still wins.
 A parcel with no stored claim is unclaimed; any other is claimed, and on a claimed parcel only the holder
 starts a flow run. The trigger loop reads every event, imported ones too, and weighs the parcel's claims as
 they stand when it handles the start, not as they stood at the triggering event: on a parcel this node
-holds, it starts flow runs from bound stage entries, follows, and deferred follows whichever node recorded
-the triggering event; on an unclaimed parcel, only from an event this node recorded; on a parcel another
-node's claim wins, nothing. An entry on a parcel where this node's own claim is not yet held is held back,
+holds, it starts flow runs from bound stage entries, follows, deferred follows, and triggers that act on the
+parcel an external event names, and fires the triggers on a flow run's end, whichever node recorded the
+triggering event; on an unclaimed parcel, only from an event this node recorded; on a parcel another node's
+claim wins, nothing. A trigger on a flow run's end follows the claims on the ended flow run's parcel exactly
+as a follow of the same end does, though the parcel it creates is a new one, so it fires whether or not the
+ended flow run's parcel is closed or holds another live flow run. An entry on a parcel where this node's own claim is not yet held is held back,
 in a node-local document per parcel that never reaches the ledger (a record export carries it, each
 sequence renumbered to its event's place in the export), and is handled again in the order it was read
 once the claim is held or lost, so a claim waiting on its push and fetch does not drop the starts it was
 made to protect; while any entry is held back on a parcel, later entries on it wait behind it. A follow
 waiting for a release starts on any node's release, since it waits only once this node's claims let it
-start. An external event another node recorded creates no parcel and starts nothing. The
+start. An external event another node recorded creates no parcel here, neither a trigger's nor a
+subscription's, and starts an act-on-parcel trigger's flow only on a parcel this node holds. The
 flow run service refuses a start or a follow on a claimed parcel this node does not hold, whether a person
 or the trigger loop asks for it, with a rule naming the winning node or saying that this node's own claim is
 not yet held. When an import makes another node's claim the winner on a parcel where a flow run this node
@@ -523,7 +527,15 @@ enforces that number; one that acts on the event's parcel carries none. A trigge
 names the flow whose end it follows with a filter on the event's `flow` field, and may name the outcome
 with one on its `outcome` field; it creates a parcel of the type it names, starting a flow other than
 the one it follows, and never acts on the parcel whose flow run ended, since starting a flow on that
-parcel is a flow's follow, below. If matching needs judgment, the flow starts with an agent step that
+parcel is a flow's follow, below. The parcel a trigger creates and the flow run it starts are created
+by a principal of the Member role whose id names the trigger by its scope (its module, its project, or the
+word owner) and its name, and the cause by the external event's id or the ended flow run's id, which every
+node gives them alike; a parcel a trigger creates records the same name as its origin, so the same cause
+creates it once on any node, and one created on a flow run's end also records a derived-from relation to
+the ended flow run's parcel and flow run. Subscriptions, the per-project records that created a parcel from
+an external event before triggers were definitions, stay in force: one already in the store, recorded on
+this node or imported, is still listed and still fires on an external event this node recorded, but no new
+subscription can be recorded. If matching needs judgment, the flow starts with an agent step that
 may answer "not for me".
 
 Flows compose: a flow declares a typed outcome (PR opened, report produced, parcels
