@@ -304,6 +304,35 @@ the daemon runs.
 }
 ```
 
+### What a confined session may reach
+
+An agent definition may declare itself confined (`"Confined": true`). A confined agent's session
+gets a narrower version of everything above, at its spawn, at every retry, and at a resume after a
+daemon restart, which reads the confinement back from the session's record:
+
+- It is offered Read, Glob, Grep, Edit, and Write, and only those of them its tools name. It never
+  gets Bash, WebFetch, or WebSearch, in its tool list or its pre-approvals, even if a stored
+  definition names `shell` or `web`.
+- Its tool guard is registered for every tool call, not only the six above, and refuses a call to
+  any tool other than those five.
+- Every path a Read, Edit, Write, Glob, or Grep call names, once links are resolved as above, must
+  lie inside the session's work directory or inside its own conversation's directory. Anything
+  else is refused, wherever it is, not only the node home and the config directories.
+- Its environment holds only the inherited variables on a short allowed list (the Claude Code
+  adapter's `ConfinedEnvironmentVariables`): the path, the home directory, the user's name, the
+  temporary directory, the locale, `CLAUDE_CONFIG_DIR`, the credential variables, the proxy
+  variables and `NODE_EXTRA_CA_CERTS` that Claude Code's own calls to its API need behind a proxy,
+  `DOTNET_ROOT` and its architecture-specific forms that `coa` needs to find its runtime, the
+  Windows system variables a process needs, and `CLAUDE_CODE_GIT_BASH_PATH`. A token such as
+  `GH_TOKEN` in the daemon's environment does not reach it, and neither does a variable that
+  chooses another API provider or endpoint, such as `ANTHROPIC_BASE_URL`. The spawn still sets a
+  profile's config directory and puts the directory holding `coa` first on the path. It sets no
+  session token, node home, or project, since a confined session has no shell to run `coa` in.
+
+A Glob or Grep walk does not follow symbolic links in Claude Code 2.1.328, the version this was
+confirmed against: a link inside the work directory to a directory outside it is not searched
+through. A Read through such a link is judged where the link leads, and refused.
+
 ## Credential profiles
 
 `profiles` is optional. It holds named credential profiles per vendor, and the only vendor a profile
@@ -324,7 +353,9 @@ may be held under is `claude-code`. Each profile has a `name` and exactly one of
 When a spawn runs under a profile, its environment holds none of the credential variables Claude
 Code would prefer to the profile (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `CLAUDE_CODE_OAUTH_TOKEN`, and the like), even if the daemon inherited them. A spawn with no profile
-runs with the daemon's environment and whatever login the `claude` executable already has.
+runs with the daemon's environment and whatever login the `claude` executable already has, except
+that a confined session runs with only the variables on its allowed list (see what a confined
+session may reach, above), which carries the credential variables it inherited.
 
 Profile names are compared exactly, after surrounding spaces are trimmed, so `work` and `Work` are
 two profiles, and two entries named `work` and ` work` under one vendor are a duplicate.
