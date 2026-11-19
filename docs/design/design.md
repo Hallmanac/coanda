@@ -829,11 +829,12 @@ generic" is how a thing that belongs in a module gets into the engine.
 1. **The vocabulary test** is a test in the test project. It searches the engine's projects (Core,
    Daemon, Cli, and the Sdk's contract) for the domain noun list and passes only when every hit is
    in the exception list. A hit is a listed noun as a whole word in an identifier those projects
-   declare, split at its case boundaries, or in a string literal; comments are not searched, and
-   neither is a name the engine only uses from .NET, such as `Task`. Build and test also have an
-   engine sense, build as a verb or as the running executable ("this build") and test as one of this
-   rule's own checks; each such use is matched by a pattern in a senses list the test keeps apart from
-   the exception list, so it is not counted as a domain noun and does not grow the exception list.
+   declare, split at its case boundaries, or in a string literal; comments and generated files are
+   not searched, and neither is a name the engine only uses from .NET, such as `Task`. Build and test
+   also have engine senses: build as a verb or as the running executable ("this build"), and test as
+   the shell's builtin, the test project's name, or one of this rule's own checks. Each such use is
+   matched by a pattern in a senses list the test keeps apart from the exception list, so it is not
+   counted as a domain noun and does not grow the exception list.
    The exception list starts with two entries: the daemon's map of the software module's earlier
    step names and Core's four name-only answer schemas, each ending when no stored flow run or agent
    in a live home names the earlier form. The phase 3 sweep ran this search by hand for Core.
