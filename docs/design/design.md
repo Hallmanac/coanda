@@ -516,8 +516,14 @@ attached while none was live, and only its own release clears it. An external ev
 carries an external id, so recording it is idempotent on project, kind, and external id, and the
 core compiles the triggers on a module's event kinds into the watch requests it
 hands that module (decision d97f5f86). A matching event also resumes a step waiting for it (section
-14.12). A person may own a trigger (a subscription), which is what hall9k's personas become. If
-matching needs judgment, the flow starts with an agent step that may answer "not for me".
+14.12). A person's trigger is a trigger definition in project or owner scope, which is what hall9k's
+personas become. A trigger that creates parcels carries the most it creates in an hour, and the engine
+enforces that number; one that acts on the event's parcel carries none. A trigger on a flow run's end
+names the flow whose end it follows with a filter on the event's `flow` field, and may name the outcome
+with one on its `outcome` field; it creates a parcel of the type it names, starting a flow other than
+the one it follows, and never acts on the parcel whose flow run ended, since starting a flow on that
+parcel is a flow's follow, below. If matching needs judgment, the flow starts with an agent step that
+may answer "not for me".
 
 Flows compose: a flow declares a typed outcome (PR opened, report produced, parcels
 derived), and the next flow follows it, so a flow run ending with that outcome starts a flow run of the

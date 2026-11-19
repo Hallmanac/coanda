@@ -57,7 +57,7 @@ built, its entry says so.
   emit-outcome, and it ends with a result document the flow routes on or pauses the flow run.
 - trigger: A trigger is what starts a flow run of a flow: an event kind plus equality filters, which
   a parcel entering a stage its type binds a flow to, a flow run ending with an outcome another flow
-  follows, or an external event a person's subscription matches can satisfy.
+  follows, or, for a trigger definition, an external event or a flow run's end can satisfy.
 - paused: Paused is the condition of work set aside, always with a reason and who paused it; a
   paused flow run records both and is resumed or stopped, while a parcel is paused today by moving
   it to its type's paused stage, which records who moved it but no reason, and the parcel's paused
