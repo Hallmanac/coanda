@@ -199,6 +199,9 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<LedgerImport>();
         builder.Services.AddHostedService(services => services.GetRequiredService<LedgerImport>());
 
+        // Sends each hosted module the watches its projects' triggers compile to, once, at the start.
+        builder.Services.AddSingleton<ModuleWatches>();
+
         // Registered last, so it stops first: a delivery a stop interrupts is not counted as handled and comes again.
         builder.Services.AddSingleton<ModuleFeed>();
         builder.Services.AddHostedService(services => services.GetRequiredService<ModuleFeed>());
@@ -266,6 +269,11 @@ public sealed class DaemonHost
             // or advertised: the address file is written only after this returns. Until install exists,
             // the start stands in for it, reading each module's definitions folder from its directory.
             await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
+
+            // Each hosted module is handed the watches its projects' triggers compile to, once the triggers
+            // its own definitions ship are imported and before the address is advertised. Only this start
+            // sends them: a trigger published or a module configured later reaches the module at the next.
+            await app.Services.GetRequiredService<ModuleWatches>().SendAllAsync(cancellationToken);
 
             // A flow version recorded before its module's argument schema refused its arguments still
             // reads, resolves, and runs; the start says which ones its module now refuses.
