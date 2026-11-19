@@ -58,6 +58,16 @@ public sealed class FakeClaude : IDisposable
         return environment;
     }
 
+    /// <summary>
+    /// Points a fake started in <paramref name="workDirectory"/> at this control directory through a
+    /// file there, for a confined session's environment, which carries no variable naming it.
+    /// </summary>
+    public void ControlFrom(string workDirectory)
+    {
+        Directory.CreateDirectory(workDirectory);
+        File.WriteAllText(Path.Combine(workDirectory, Coanda.Testing.FakeClaude.Program.ControlFile), Control);
+    }
+
     public ClaudeCodeExecutor Executor(NodeHome home, IReadOnlyDictionary<string, string>? environment = null, string? coaDirectory = null) =>
         new(Executable, home, environment ?? Environment(), coaDirectory);
 
