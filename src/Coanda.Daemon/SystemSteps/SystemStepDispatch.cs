@@ -15,7 +15,9 @@ namespace Coanda.Daemon.SystemSteps;
 /// wait step waits for; and <paramref name="WorkPath"/> is the flow run's work path
 /// (<see cref="NodeHome.FlowRunWorkPath"/>), which a step that prepares a workspace populates. The
 /// <paramref name="Principal"/> the step acts as and the <paramref name="Flow"/> ride along for the
-/// daemon's own steps; a module never sees either (<see cref="ToContract"/>).
+/// daemon's own steps, as does <paramref name="Answer"/>, the answer a person gave on the resume this
+/// visit holds (<see cref="Coanda.Core.FlowRuns.FlowRunStepEntry.ResumeAnswer"/>), which only the
+/// wait-for-human step reads; a module sees none of them (<see cref="ToContract"/>).
 /// </summary>
 public sealed record SystemStepDispatch(
     Principal Principal,
@@ -27,7 +29,8 @@ public sealed record SystemStepDispatch(
     bool Resumed,
     int Visit,
     Guid DispatchId,
-    string WorkPath)
+    string WorkPath,
+    string? Answer = null)
 {
     /// <summary>The name of the system step dispatched.</summary>
     public string SystemStep => Step.SystemStep ?? string.Empty;
