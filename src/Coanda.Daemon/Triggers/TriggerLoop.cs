@@ -57,7 +57,9 @@ namespace Coanda.Daemon.Triggers;
 /// claims as a follow does: the first on the parcel the event names, the second on the ended flow run's parcel,
 /// whether or not that parcel is closed or holds another live flow run, since the parcel it creates is a new one.
 /// An external event another node recorded creates no parcel, neither a trigger's nor a subscription's, and starts an
-/// act-on-parcel trigger's flow only on a parcel this node holds.
+/// act-on-parcel trigger's flow only on a parcel this node holds. An external event naming a parcel whose live flow run
+/// its own wait-for-external-event step paused, waiting for the event's kind, before the event's entry, resumes that
+/// flow run under the same claims, as the event's resumer (<see cref="ResumerFor"/>), and only on the node that started it.
 /// </summary>
 /// <remarks>
 /// The position is a document in the node tenant, written after each entry is handled, and fixed
@@ -72,7 +74,9 @@ namespace Coanda.Daemon.Triggers;
 /// the external event or the ended flow run, and is not created again when the project holds a parcel of that origin
 /// from any node, while one this node created with no flow run, as after a stop between the creation and the start,
 /// is given its flow run then; an act-on-parcel trigger's start acts as a principal naming the trigger and the event,
-/// and is skipped when the parcel already has a flow run that principal started, live or ended, on any node; a
+/// and is skipped when the parcel already has a flow run that principal started, live or ended, on any node; a resume
+/// for an external event writes nothing once the flow run's latest pause is no longer its waiting step's own from before
+/// the event, or a resume already names the event; a
 /// follow's start acts as a principal whose id
 /// names the ended flow run, and is skipped when that flow run already has a follower of the flow. A
 /// replayed entry that was refused is refused again, since the parcel's stage at the entry does not
@@ -941,8 +945,9 @@ public sealed class TriggerLoop(
     /// parcel here. Whichever node recorded it, every trigger that matches it and acts on the event's parcel starts its
     /// flow there where the parcel's claims let this node, weighed once for the event (<see cref="EventParcelAsync"/>).
     /// An event handled again because it was held back on its parcel's claim creates nothing: its creations were
-    /// decided when it was first read, and only its starts on the parcel waited. Subscriptions fire before the triggers
-    /// are resolved, and a subscription that fails for any reason is logged, so neither keeps the other from acting.
+    /// decided when it was first read, and only its starts on the parcel waited, with its resume of a flow run waiting
+    /// for it on the parcel (<see cref="AwaitingAsync"/>), which is weighed under the same claims. Subscriptions fire
+    /// before the triggers are resolved, and a subscription that fails for any reason is logged, so neither keeps the other from acting.
     /// </summary>
     private async Task ExternalAsync(ExternalEventRecorded external, bool own, long sequence, CancellationToken cancellationToken)
     {
@@ -988,14 +993,80 @@ public sealed class TriggerLoop(
         }
 
         ResolvedTrigger[] onParcel = [.. matching.Where(t => t.Content.Target.EventParcel is not null)];
-        if (onParcel.Length > 0)
+        Guid? awaiting = await AwaitingAsync(external, sequence, cancellationToken);
+        if (onParcel.Length > 0 || awaiting is not null)
         {
-            await EventParcelAsync(external, onParcel, own, sequence, cancellationToken);
+            await EventParcelAsync(external, onParcel, awaiting, own, sequence, cancellationToken);
         }
     }
 
     /// <summary>
-    /// The triggers among <paramref name="triggers"/>, each acting on the event's parcel, start their flows on it. The
+    /// The principal a resume for the external event <paramref name="eventId"/> acts as: the Agent role, named for the
+    /// event by the id every node gives it, so the flow run's record names the event that resumed it, not a person.
+    /// </summary>
+    public static Principal ResumerFor(Guid eventId) => new($"external-event:{eventId}", Role.Agent);
+
+    /// <summary>
+    /// The live flow run on the parcel <paramref name="external"/> names that its own wait-for-external-event step
+    /// paused, waiting for an event of this kind, before the event's entry at <paramref name="sequence"/>; null when
+    /// the event names no parcel or none awaits it. A failure to read it is logged and read as none, so it never keeps
+    /// the event's triggers from acting.
+    /// </summary>
+    private async Task<Guid?> AwaitingAsync(ExternalEventRecorded external, long sequence, CancellationToken cancellationToken)
+    {
+        if (external.ParcelId is not Guid parcelId)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await flowRuns.AwaitingEventAsync(
+                LoopPrincipal, external.Project, parcelId, external.Kind, sequence, ResumerFor(external.EventId).Id, cancellationToken);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(
+                failure, "Reading whether a flow run on parcel {Parcel} awaits external event {Event} failed, so the event resumes nothing.",
+                Ids.Short(parcelId), Ids.Short(external.EventId));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resumes <paramref name="flowRunId"/> for <paramref name="external"/>, once the parcel's claims let this node, as the
+    /// event's resumer (<see cref="ResumerFor"/>). The flow run service decides again inside the write whether the event is
+    /// the one the step awaits, so a handling again, a pause since, or a resume since writes nothing. A refusal or a failure
+    /// is logged, and the event's triggers on the parcel go on.
+    /// </summary>
+    private async Task ResumeAwaitingAsync(ExternalEventRecorded external, Guid flowRunId, long sequence, CancellationToken cancellationToken)
+    {
+        try
+        {
+            FlowRun? resumed = await flowRuns.ResumeOnEventAsync(
+                ResumerFor(external.EventId), external.Project, flowRunId, external.EventId, external.Kind, sequence, cancellationToken);
+            if (resumed is not null)
+            {
+                logger.LogInformation(
+                    "External event {Event} of kind '{Kind}' resumed flow run {FlowRun} on parcel {Parcel} in project {Project}, whose step waits for it.",
+                    Ids.Short(external.EventId), external.Kind, Ids.Short(flowRunId), Ids.Short(resumed.ParcelId), external.Project);
+            }
+        }
+        catch (DomainException refused) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "External event {Event} did not resume flow run {FlowRun}: {Rule}", Ids.Short(external.EventId), Ids.Short(flowRunId), refused.Message);
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(
+                failure, "Resuming flow run {FlowRun} for external event {Event} failed.", Ids.Short(flowRunId), Ids.Short(external.EventId));
+        }
+    }
+
+    /// <summary>
+    /// The flow run <paramref name="awaiting"/>, when given, is resumed for the event, and then the triggers among
+    /// <paramref name="triggers"/>, each acting on the event's parcel, start their flows on it. The
     /// parcel's claims are weighed first, once for the event, as a binding's are (<see cref="TriggersAsync"/>): on a parcel
     /// this node holds, whichever node recorded the event; on an unclaimed one, only for an event this node recorded; on
     /// one another node's claim wins, never; and while this node's own claim is not yet held, the event is held back and
@@ -1003,7 +1074,7 @@ public sealed class TriggerLoop(
     /// and keeps nothing to start later.
     /// </summary>
     private async Task EventParcelAsync(
-        ExternalEventRecorded external, IReadOnlyList<ResolvedTrigger> triggers, bool own, long sequence, CancellationToken cancellationToken)
+        ExternalEventRecorded external, IReadOnlyList<ResolvedTrigger> triggers, Guid? awaiting, bool own, long sequence, CancellationToken cancellationToken)
     {
         string project = external.Project;
         string cause = $"external event {Ids.Short(external.EventId)}";
@@ -1021,6 +1092,11 @@ public sealed class TriggerLoop(
         if (!await TriggersAsync(project, parcelId, own, sequence, cause, cancellationToken))
         {
             return;
+        }
+
+        if (awaiting is Guid flowRunId)
+        {
+            await ResumeAwaitingAsync(external, flowRunId, sequence, cancellationToken);
         }
 
         foreach (ResolvedTrigger trigger in triggers)

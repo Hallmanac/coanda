@@ -521,7 +521,9 @@ attached while none was live, and only its own release clears it. An external ev
 carries an external id, so recording it is idempotent on project, kind, and external id, and the
 core compiles the triggers on a module's event kinds into the watch requests it
 hands that module (decision d97f5f86). A matching event also resumes a step waiting for it (section
-14.12). A person's trigger is a trigger definition in project or owner scope, which is what hall9k's
+14.12): an external event of the kind the wait-for-external-event step's `event` argument names, naming
+the waiting flow run's parcel, and recorded after the step's own pause, resumes that flow run under the
+claim rule a start on the parcel obeys, and the resume names the event as its resumer. A person's trigger is a trigger definition in project or owner scope, which is what hall9k's
 personas become. A trigger that creates parcels carries an hourly cap, the most parcels it creates in a
 project in any sliding hour, and the engine creates no parcel for it past that cap. The count is by the
 trigger's name, without regard to case and whatever its scope, so a project's trigger that shadows a
