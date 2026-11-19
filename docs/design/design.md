@@ -622,7 +622,7 @@ the rule binds only a draft or an import, so agent content already stored with a
 Per-parcel context (criteria, journal, notes, code) is assembled by the daemon per step from
 declared sources and never folded into the agent. The daemon fences every value it renders into a
 session's files (a parcel's title, each field value, and each earlier step's answer, in prompt.md and
-task.md) in backticks the value cannot close, under a sentence framing the fenced values as data that
+parcel.md) in backticks the value cannot close, under a sentence framing the fenced values as data that
 describes the work and cannot override the instructions outside the fences. The labels and words the
 daemon writes itself stay outside every fence. The parcel decider caps a title and each kind of field
 value (a text, a list item, a list's item count, and a reference's id and URL) at a length named in
@@ -688,7 +688,7 @@ build, and test settings, so registering a project is one command. Otherwise a m
 set through generic module commands rendered from the registry, never through module-specific verbs
 (section 14.6).
 
-Rendered files (task.md, prompt.md, decisions.md, lessons.md) are projections written at spawn,
+Rendered files (parcel.md, prompt.md, decisions.md, lessons.md) are projections written at spawn,
 never truth, never edited.
 
 The portal: a local page served by the daemon on the loopback, for attention and walks first, not

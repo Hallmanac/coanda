@@ -81,7 +81,7 @@ settings for the session turn both off (Claude Code's `attribution` setting, wit
 `commit` and `pr`), and your own Claude Code settings cannot turn them back on, because none of
 them are loaded. Only a managed settings file can, since managed settings outrank the daemon's.
 
-Before each spawn the daemon writes `.coanda/task.md` (the parcel record) and `.coanda/prompt.md`
+Before each spawn the daemon writes `.coanda/parcel.md` (the parcel record) and `.coanda/prompt.md`
 (the context the step carries) at the root of the work directory, and the session's persona as
 `.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the
 retry resumes the session, and never reads any of them back. Each session's
