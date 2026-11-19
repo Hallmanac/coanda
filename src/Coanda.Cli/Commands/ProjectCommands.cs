@@ -18,7 +18,7 @@ public class ProjectNameSettings : CommandSettings
 public sealed class ProjectAddSettings : ProjectNameSettings
 {
     [CommandOption("--repo <URL>")]
-    [Description("The remote of the project's first repo, recorded exactly as given. The repo is named after the remote's last path segment.")]
+    [Description("The remote of the project's repo, recorded exactly as given. The repo is named after the remote's last path segment. Leaving it out registers the project with no repos, and a parcel of a project with no repos cannot be claimed.")]
     public string? Repo { get; init; }
 
     [CommandOption("--setting <MODULE/NAME=VALUE>")]
@@ -26,20 +26,17 @@ public sealed class ProjectAddSettings : ProjectNameSettings
     public string[]? Settings { get; init; }
 
     public override ValidationResult Validate() =>
-        (Repo, (Settings ?? []).FirstOrDefault(s => ModuleSettingOption.Parse(s) is null)) switch
-        {
-            (var repo, _) when string.IsNullOrWhiteSpace(repo) => ValidationResult.Error("Name the remote of the project's repo with --repo <url>."),
-            (_, { } malformed) => ValidationResult.Error($"Give each setting as --setting <module>/<name>=<value>; '{malformed}' is not in that form."),
-            _ => ValidationResult.Success(),
-        };
+        (Settings ?? []).FirstOrDefault(s => ModuleSettingOption.Parse(s) is null) is { } malformed
+            ? ValidationResult.Error($"Give each setting as --setting <module>/<name>=<value>; '{malformed}' is not in that form.")
+            : ValidationResult.Success();
 
     /// <summary>
-    /// The request this registration sends: the project, its repo's remote, and each <c>--setting</c> as the
+    /// The request this registration sends: the project, its repo's remote, or none when <c>--repo</c> was left out, and each <c>--setting</c> as the
     /// named module's setting. The daemon decides each against the settings the module's describe answer
     /// declares, so a setting left out keeps the module's default.
     /// </summary>
     public ProjectAddRequest ToRequest() =>
-        new(Name, Repo ?? string.Empty, [.. (Settings ?? []).Select(s => ModuleSettingOption.Parse(s)
+        new(Name, Repo, [.. (Settings ?? []).Select(s => ModuleSettingOption.Parse(s)
             ?? throw new InvalidOperationException($"The setting '{s}' was not checked before the request was built."))]);
 }
 
@@ -98,13 +95,15 @@ public sealed class ProjectAddCommand : AsyncCommand<ProjectAddSettings>
     }
 
     /// <summary>
-    /// The line a registration prints: the project and its repos, then each module its record switches on
+    /// The line a registration prints: the project and its repos, or that it has none, then each module its record switches on
     /// with the <c>coa project module show</c> command that shows that module's settings, or that it
     /// switches on none.
     /// </summary>
     public static string RegisteredLine(ProjectView project)
     {
-        string registered = $"Registered project {project.Name} with repo {string.Join(", ", project.Repos.Select(r => $"{r.Name} ({r.Remote})"))}";
+        string registered = project.Repos.Count == 0
+            ? $"Registered project {project.Name} with no repos"
+            : $"Registered project {project.Name} with repo {string.Join(", ", project.Repos.Select(r => $"{r.Name} ({r.Remote})"))}";
         return project.Modules.Count == 0
             ? $"{registered}; no module is switched on for it."
             : $"{registered}; switched on for it: {string.Join("; ", project.Modules.Select(m => $"module {m}, whose settings coa project module show {project.Name} {m} shows"))}.";
@@ -142,13 +141,15 @@ public sealed class ProjectShowCommand : AsyncCommand<ProjectNameSettings>
 
     /// <summary>
     /// The rows <c>coa project show</c> prints, as markup with the project's own text escaped: its name,
-    /// each repo's name and remote, the agent-step profile it names, and its registration. A module's
+    /// each repo's name and remote, or a row saying it has none, the agent-step profile it names, and its registration. A module's
     /// settings for it are <c>coa project module show</c>'s.
     /// </summary>
     public static IReadOnlyList<(string Key, string Value)> ShowRows(ProjectView project) =>
     [
         ("Name", Markup.Escape(project.Name)),
-        .. project.Repos.Select(r => ("Repo", $"{Markup.Escape(r.Name)}  {Markup.Escape(r.Remote)}")),
+        .. project.Repos.Count == 0
+            ? [("Repo", "none; with no repo to carry its ledger, its parcels cannot be claimed")]
+            : project.Repos.Select(r => ("Repo", $"{Markup.Escape(r.Name)}  {Markup.Escape(r.Remote)}")),
         ("Profile", project.Profile is null
             ? "none set; coa project set-profile names one"
             : Markup.Escape(project.Profile)),
@@ -178,7 +179,8 @@ public sealed class ProjectListCommand : AsyncCommand
 
     /// <summary>
     /// The lines <c>coa project list</c> prints: each project's name, then for each of its repos the
-    /// repo's name and remote, in aligned columns, a project's later repos on lines of their own.
+    /// repo's name and remote, in aligned columns, a project's later repos on lines of their own; a project
+    /// with no repos gets one line, its name and that it has no repos.
     /// </summary>
     public static IReadOnlyList<string> ListLines(IReadOnlyList<ProjectView> projects)
     {
@@ -187,6 +189,12 @@ public sealed class ProjectListCommand : AsyncCommand
         List<string> lines = [];
         foreach (ProjectView project in projects)
         {
+            if (project.Repos.Count == 0)
+            {
+                lines.Add($"{project.Name.PadRight(nameWidth)}  no repos");
+                continue;
+            }
+
             string name = project.Name;
             foreach (ProjectRepoView repo in project.Repos)
             {
