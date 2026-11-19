@@ -4,7 +4,7 @@ using Coanda.Core.Definitions.Events;
 namespace Coanda.Core.Definitions;
 
 /// <summary>
-/// A parcel type, flow, or agent held in the store, in project, owner, or module scope. State changes only through <c>Apply</c>; the
+/// A parcel type, flow, agent, or trigger held in the store, in project, owner, or module scope. State changes only through <c>Apply</c>; the
 /// rules live in <see cref="DefinitionDecider"/>. The store snapshots this class inline, so it is
 /// also the document a resolution query reads.
 /// </summary>

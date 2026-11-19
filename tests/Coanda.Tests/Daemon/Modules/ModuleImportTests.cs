@@ -6,6 +6,7 @@ using Coanda.Core.Definitions;
 using Coanda.Core.Definitions.Events;
 using Coanda.Core.Flows;
 using Coanda.Core.Registry;
+using Coanda.Core.Triggers;
 using Coanda.Core.Types;
 using Coanda.Daemon;
 using Coanda.Daemon.Api;
@@ -233,7 +234,8 @@ public sealed class ModuleImportTests
         { "agents/editor.json", "{ not json", "The content cannot be read as an agent" },
         { "agents/writer.json", AgentDefinition.CanonicalJson(SoftwareAgents.Build with { Name = "editor" }), "a definition file is named for the definition it holds, 'editor.json'" },
         { "agents/editor.json", AgentDefinition.CanonicalJson(SoftwareAgents.Build with { Name = "editor", McpServers = ["cms-api"] }), "Agent 'editor' names the MCP servers 'cms-api'; agent sessions load no MCP server yet, so an agent's MCP servers list must be empty." },
-        { "triggers/review-requested.json", "{}", "is not a definition file" },
+        { "triggers/review-requested.json", "{}", "The content cannot be read as a trigger definition" },
+        { "schedules/nightly.json", "{}", "is not a definition file" },
     };
 
     [Theory]
@@ -243,7 +245,7 @@ public sealed class ModuleImportTests
         using var temp = new TemporaryHome();
         using StandInModuleDirectory cms = StandInModuleDirectory.Write("cms", "1.0.0", ModuleDefinition.FromParcelType(Article()));
         string path = cms.WriteFile(file, text);
-        string named = file.StartsWith("triggers/", StringComparison.Ordinal) ? Path.GetDirectoryName(path) ?? path : path;
+        string named = file.StartsWith("schedules/", StringComparison.Ordinal) ? Path.GetDirectoryName(path) ?? path : path;
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => StartAndStopAsync(temp.Home, new DaemonOptions { ModulePaths = [cms.Path] }));
 
@@ -311,6 +313,37 @@ public sealed class ModuleImportTests
         Definition article = Assert.Single(held, d => d.Module == "cms");
         Assert.Equal(("article", 1, "1.0.0", DefinitionScope.Module), (article.Name, article.VersionNumber, article.ModuleVersion, article.Scope));
         Assert.Equal(12, held.Count);
+    }
+
+    [Fact]
+    public async Task A_modules_triggers_folder_is_imported_into_module_scope_and_a_second_start_records_nothing()
+    {
+        using var temp = new TemporaryHome();
+        using StandInModuleDirectory tracker = StandInModuleDirectory.Write(
+            "tracker", "2.1.0", ModuleDefinition.FromTrigger(SampleTriggers.IssueOpened), ModuleDefinition.FromTrigger(SampleTriggers.ReviewRequested));
+        string file = Path.Combine(tracker.DefinitionsPath, "triggers", "issue-opened.json");
+        Assert.True(File.Exists(file));
+
+        // The file is laid out otherwise than the canonical form, which changes neither what is stored nor its hash.
+        File.WriteAllText(file, JsonNode.Parse(TriggerDefinition.CanonicalJson(SampleTriggers.IssueOpened))?.ToJsonString() ?? string.Empty);
+        var options = new DaemonOptions { ModulePaths = [tracker.Path] };
+
+        await StartAndStopAsync(temp.Home, options);
+        await StartAndStopAsync(temp.Home, options);
+
+        List<Definition> held = await InNodeAsync(temp.Home);
+        Assert.Equivalent(
+            new[]
+            {
+                (DefinitionKind.Trigger, "issue-opened", SampleTriggers.IssueOpened.Hash, TriggerDefinition.CanonicalJson(SampleTriggers.IssueOpened)),
+                (DefinitionKind.Trigger, "review-requested", SampleTriggers.ReviewRequested.Hash, TriggerDefinition.CanonicalJson(SampleTriggers.ReviewRequested)),
+            },
+            held.Where(d => d.Module == "tracker").Select(d => (d.Kind, d.Name, d.ContentHash, d.Content)),
+            strict: true);
+        Assert.All(
+            held.Where(d => d.Module == "tracker"),
+            d => Assert.Equal((DefinitionScope.Module, DefinitionStatus.Published, 1, "2.1.0"), (d.Scope, d.Status, d.VersionNumber, d.ModuleVersion)));
+        Assert.Equal(HashesOnMain().Count + 2, held.Count);
     }
 
     [Fact]
