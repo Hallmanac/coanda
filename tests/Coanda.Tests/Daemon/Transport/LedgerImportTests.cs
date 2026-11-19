@@ -11,6 +11,8 @@ using Coanda.Core.Parcels.Events;
 using Coanda.Core.Projects;
 using Coanda.Core.Parcels;
 using Coanda.Core.Registry;
+using Coanda.Core.Triggers;
+using Coanda.Core.Triggers.Events;
 using Coanda.Daemon.Api;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Parcels;
@@ -18,6 +20,7 @@ using Coanda.Daemon.Projects;
 using Coanda.Daemon.Signing;
 using Coanda.Daemon.Store;
 using Coanda.Daemon.Transport;
+using Coanda.Daemon.Triggers;
 using Coanda.Sdk.Commands;
 using Fisher;
 using JasperFx.Events;
@@ -513,6 +516,50 @@ public sealed class LedgerImportTests
         Assert.Contains("\"systemStep\":\"worktree\"", Assert.IsType<DefinitionDrafted>(Assert.Single(events, e => e.StreamId == definition).Data).Content, StringComparison.Ordinal);
         AgentStepSpawned spawned = Assert.IsType<AgentStepSpawned>(Assert.Single(events, e => e.EventTypeName == "agent_step_spawned").Data);
         Assert.Equal((null, null, null), (spawned.AgentHash, spawned.Model, spawned.LaunchId));
+    }
+
+    [Fact]
+    public async Task An_external_event_imported_from_a_peer_is_the_event_a_later_recording_of_its_kind_and_external_id_returns()
+    {
+        await using Peers peers = await Peers.StartAsync();
+        PeerChain peer = peers.Vouched();
+        Guid eventId = Ids.New();
+        Guid parcel = Ids.New();
+        var fields = new Dictionary<string, string> { ["assignee"] = "brian" };
+        peer.Add(new ExternalEventRecorded(eventId, Alpha, "pr-assigned", fields, "peer", At, "delivery-1", parcel), eventId);
+        await peers.PushAsync(peers.Root, peer);
+        Assert.Equal(new OriginImport(peer.Origin, 1, 1, null), Of(await peers.Node.Import.ImportAsync(Alpha, None), peer));
+
+        var triggers = new TriggerService(peers.Node.Store, TimeProvider.System);
+        ExternalEvent returned = await triggers.RecordEventAsync(
+            Principal.LocalOwner, Alpha, "pr-assigned", "delivery-1", null, new Dictionary<string, string> { ["assignee"] = "someone-else" }, None);
+
+        Assert.Equal((eventId, "peer", At, (Guid?)parcel), (returned.Id, returned.RecordedBy, returned.RecordedAt, returned.ParcelId));
+        Assert.Equivalent(fields, returned.Fields, strict: true);
+        Assert.Single(await peers.Node.EventsAsync(Alpha), e => e.EventTypeName == "external_event_recorded");
+    }
+
+    [Fact]
+    public async Task A_peers_external_event_written_before_external_ids_is_current_reads_with_neither_member_and_matches_no_later_recording()
+    {
+        await using Peers peers = await Peers.StartAsync();
+        PeerChain peer = peers.Vouched();
+        Guid eventId = Ids.New();
+        StoredEvent current = peer.Stored(new ExternalEventRecorded(eventId, Alpha, "pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }, "peer", At));
+        JsonObject earlier = JsonNode.Parse(current.Data)?.AsObject() ?? throw new InvalidOperationException("The event is not a JSON object.");
+        earlier.Remove("externalId");
+        earlier.Remove("parcelId");
+        peer.Add(new StoredEvent(current.Type, earlier.ToJsonString()), eventId);
+        await peers.PushAsync(peers.Root, peer);
+
+        Assert.Equal(new OriginImport(peer.Origin, 1, 1, null), Of(await peers.Node.Import.ImportAsync(Alpha, None), peer));
+        ExternalEventRecorded imported = Assert.IsType<ExternalEventRecorded>(Assert.Single(await peers.Node.EventsAsync(Alpha), e => e.StreamId == eventId).Data);
+        Assert.Equal(((string?)null, (Guid?)null), (imported.ExternalId, imported.ParcelId));
+
+        var triggers = new TriggerService(peers.Node.Store, TimeProvider.System);
+        ExternalEvent later = await triggers.RecordEventAsync(Principal.LocalOwner, Alpha, "pr-assigned", "delivery-1", null, new Dictionary<string, string>(), None);
+        Assert.NotEqual(eventId, later.Id);
+        Assert.Equal(2, (await peers.Node.EventsAsync(Alpha)).Count(e => e.EventTypeName == "external_event_recorded"));
     }
 
     [Fact]

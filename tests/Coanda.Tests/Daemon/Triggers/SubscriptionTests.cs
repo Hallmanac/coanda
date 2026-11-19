@@ -95,6 +95,41 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
+    public async Task Recording_a_matching_event_twice_creates_one_parcel_and_starts_one_flow_run()
+    {
+        using var temp = new TemporaryHome();
+        // Two parcels each start a review, and either may ask the reviewer first, so the script answers both.
+        var executor = new ScriptedExecutor(new Dictionary<string, IReadOnlyList<ScriptEntry>>
+        {
+            ["reviewer-adversarial"] = [Scripts.Answer("clean", 1), Scripts.Answer("clean", 2)],
+        });
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, new DaemonOptions { Executor = executor }, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        TriggerService triggers = daemon.Services.GetRequiredService<TriggerService>();
+        await triggers.SubscribeAsync(
+            Teammate, Project, new Trigger("pr-assigned", new Dictionary<string, string> { ["assignee"] = "brian" }),
+            "task", "title", "review-on-assignment", None);
+
+        ExternalEvent first = await triggers.RecordEventAsync(
+            Principal.LocalOwner, Project, "pr-assigned", "delivery-1", null, new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "Review my PR" }, None);
+        ExternalEvent again = await triggers.RecordEventAsync(
+            Principal.LocalOwner, Project, "pr-assigned", "delivery-1", null, new Dictionary<string, string> { ["assignee"] = "brian", ["title"] = "Review my PR again" }, None);
+        Assert.Equal(first.Id, again.Id);
+
+        // The loop handles events in order, so once a later event has its parcel, anything the second recording appended was read.
+        await RecordAsync(daemon, Project, "brian", "Recorded after");
+        ParcelView parcel = await ParcelTitledAsync(client, "Review my PR");
+        await ParcelTitledAsync(client, "Recorded after");
+
+        Assert.Equivalent(new[] { "Review my PR", "Recorded after" }, (await ParcelsAsync(client, Project)).Select(p => p.Title), strict: true);
+        FlowRunView bound = await FlowRunDriver.BoundAsync(client, Project, parcel.Id);
+        Assert.Equal("report-produced", (await FlowRunDriver.UntilAsync(client, Project, bound.Id, "ended")).Outcome);
+        Assert.Single(await FlowRunDriver.OfParcelAsync(client, Project, parcel.Id));
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task A_matching_event_without_the_title_field_creates_nothing_and_the_loop_goes_on()
     {
         using var temp = new TemporaryHome();
