@@ -189,6 +189,37 @@ public sealed class ParcelClaimTests
     }
 
     [Fact]
+    public async Task A_claim_on_a_parcel_of_a_project_with_no_repos_is_refused_and_stores_nothing()
+    {
+        await using LedgerNode node = await LedgerNode.StartAsync();
+        Project project = await ProjectServices.Software(node.Store, TimeProvider.System).AddAsync(Owner, Alpha, null, [], None);
+        Assert.Empty(project.Repos);
+        Parcel parcel = await AtBuildAsync(node);
+        int events = await StreamLengthAsync(node.Store, parcel.Id);
+
+        DomainException refused = await Assert.ThrowsAsync<DomainException>(() => node.Claimant.ClaimAsync(Owner, Alpha, parcel.Id, None));
+
+        Assert.Equal(
+            $"Parcel {Ids.Short(parcel.Id)} is not claimed: project '{Alpha}' has no repo to carry its ledger, so a claim on its parcels can never be held.",
+            refused.Message);
+        Assert.Equal(events, await StreamLengthAsync(node.Store, parcel.Id));
+        Assert.DoesNotContain(await node.EventsAsync(Alpha), e => e.Data is ParcelClaimed);
+        Assert.Empty(await node.RecordsAsync(Alpha));
+        await using (IQuerySession session = node.Store.QuerySession(Alpha))
+        {
+            Assert.Null(await session.LoadAsync<LedgerProgress>(LedgerProgress.PushedId, None));
+            Assert.Null(await session.LoadAsync<LedgerProgress>(LedgerProgress.FetchedId, None));
+        }
+
+        Assert.Empty(node.ExportGit.Calls);
+        Assert.Empty(node.ImportGit.Calls);
+
+        // The parcel stays unclaimed, so this node still starts a flow run on it.
+        Assert.IsType<ClaimStanding.Unclaimed>(await StandingAsync(node, parcel.Id));
+        Assert.Equal(FlowRunStatus.Running, (await Runs(node).StartAsync(Owner, Alpha, parcel.Id, SoftwareFlows.Build.Name, None)).Status);
+    }
+
+    [Fact]
     public async Task A_claim_is_not_held_while_this_node_trusts_no_peer_line_and_is_held_once_it_does()
     {
         await using LedgerNode first = await LedgerNode.StartAsync(Alpha);

@@ -89,6 +89,39 @@ public sealed class ProjectApiTests
     }
 
     [Fact]
+    public async Task A_registration_request_with_no_remote_member_a_null_one_or_a_blank_one_registers_the_project_with_no_repos()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        using var client = new DaemonClient(temp.Home);
+        using var http = new HttpClient();
+        (string Name, string Body)[] requests =
+        [
+            ("omitted", """{"name":"omitted"}"""),
+            ("nulled", """{"name":"nulled","remote":null}"""),
+            ("empty", """{"name":"empty","remote":""}"""),
+            ("spaces", """{"name":"spaces","remote":"   "}"""),
+        ];
+
+        foreach ((string name, string body) in requests)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{daemon.Info.BaseAddress}/projects")
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Add(DaemonHost.TokenHeader, daemon.Info.Token);
+            using HttpResponseMessage response = await http.SendAsync(request, None);
+            Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync(None));
+
+            ProjectView shown = await client.GetAsync<ProjectView>(ProjectEndpoints.PathOf(name), None);
+            Assert.Empty(shown.Repos);
+            Assert.Equal(["software"], shown.Modules);
+        }
+
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
     public async Task Showing_a_project_with_no_record_answers_404_with_a_rule_naming_coa_project_add()
     {
         using var temp = new TemporaryHome();
@@ -96,7 +129,7 @@ public sealed class ProjectApiTests
         using var client = new DaemonClient(temp.Home);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<ProjectView>("/projects/nowhere", None));
-        Assert.Equal("Project 'nowhere' is not registered; register it with coa project add nowhere --repo <url>.", exception.Message);
+        Assert.Equal("Project 'nowhere' is not registered; register it with coa project add nowhere [--repo <url>].", exception.Message);
 
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{daemon.Info.BaseAddress}/projects/nowhere");
@@ -115,7 +148,7 @@ public sealed class ProjectApiTests
         using var client = new DaemonClient(temp.Home);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.PostAsync<ParcelView>("/parcels", new ParcelAddRequest("nowhere", "task", "Lost", null), None));
-        Assert.Equal("Project 'nowhere' is not registered; register it with coa project add nowhere --repo <url>.", exception.Message);
+        Assert.Equal("Project 'nowhere' is not registered; register it with coa project add nowhere [--repo <url>].", exception.Message);
         Assert.Empty(await client.GetAsync<List<ParcelView>>("/parcels?project=nowhere", None));
 
         await client.PostAsync<ProjectView>("/projects", Add("nowhere", "https://example.invalid/nowhere.git"), None);

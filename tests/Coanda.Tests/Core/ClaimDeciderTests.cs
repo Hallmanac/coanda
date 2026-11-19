@@ -3,6 +3,7 @@ using System.Text;
 using Coanda.Core;
 using Coanda.Core.Parcels;
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Projects;
 
 namespace Coanda.Tests.Core;
 
@@ -16,6 +17,7 @@ public sealed class ClaimDeciderTests
     private static readonly DateTimeOffset Now = new(2026, 11, 5, 12, 0, 0, TimeSpan.Zero);
     private static readonly Guid Self = Guid.Parse("01a1ad07-0000-7000-8000-000000000001");
     private static readonly Guid Peer = Guid.Parse("01a1ad07-0000-7000-8000-000000000002");
+    private static readonly Project WithRepo = Project.Create(ProjectDecider.Register("coanda", "https://example.invalid/coanda.git", null, "brian", Now));
 
     [Fact]
     public void The_winner_is_the_lowest_line_hash_as_unsigned_bytes_for_every_order_of_the_claims()
@@ -72,7 +74,7 @@ public sealed class ClaimDeciderTests
         Parcel parcel = Parcel.Create(ParcelDecider.Create(SoftwareTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now));
 
         DateTimeOffset later = Now.AddMinutes(5);
-        ParcelClaimed claimed = ClaimDecider.Claim(parcel, [], Self, "brian", later) ?? throw new InvalidOperationException("The claim was not recorded.");
+        ParcelClaimed claimed = ClaimDecider.Claim(WithRepo, parcel, [], Self, "brian", later) ?? throw new InvalidOperationException("The claim was not recorded.");
         Assert.Equal((parcel.Id, Self, "brian", later), (claimed.ParcelId, claimed.NodeId, claimed.ClaimedBy, claimed.ClaimedAt));
         parcel.Apply(claimed);
         Assert.Equal([Self], parcel.Claimants);
@@ -80,15 +82,29 @@ public sealed class ClaimDeciderTests
 
         StoredClaim mine = new(Self, null, IsOwn: true, IsPublished: false);
         StoredClaim theirs = Claim(Peer, HashOf("theirs"));
-        Assert.Null(ClaimDecider.Claim(parcel, [mine], Self, "brian", Now));
-        Assert.Null(ClaimDecider.Claim(parcel, [theirs, mine], Self, "brian", Now));
+        Assert.Null(ClaimDecider.Claim(WithRepo, parcel, [mine], Self, "brian", Now));
+        Assert.Null(ClaimDecider.Claim(WithRepo, parcel, [theirs, mine], Self, "brian", Now));
 
-        DomainException seen = Assert.Throws<DomainException>(() => ClaimDecider.Claim(parcel, [theirs], Self, "brian", Now));
+        DomainException seen = Assert.Throws<DomainException>(() => ClaimDecider.Claim(WithRepo, parcel, [theirs], Self, "brian", Now));
         Assert.Contains($"already claimed by node {Peer}", seen.Message, StringComparison.Ordinal);
 
         parcel.Apply(new ParcelClosed(parcel.Id, parcel.Stage, "closed", "abandoned", "Not needed.", "brian", Now));
-        DomainException closed = Assert.Throws<DomainException>(() => ClaimDecider.Claim(parcel, [], Self, "brian", Now));
+        DomainException closed = Assert.Throws<DomainException>(() => ClaimDecider.Claim(WithRepo, parcel, [], Self, "brian", Now));
         Assert.Contains("a closed parcel is claimed by nobody", closed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_claim_on_a_parcel_of_a_project_with_no_repos_is_refused_whatever_the_parcel_holds()
+    {
+        Project withNoRepos = Project.Create(ProjectDecider.Register("coanda", null, null, "brian", Now));
+        Parcel parcel = Parcel.Create(ParcelDecider.Create(SoftwareTypes.Task, GateSet.Shipped, "coanda", "x", null, "brian", Now));
+        string expected = $"Parcel {Ids.Short(parcel.Id)} is not claimed: project 'coanda' has no repo to carry its ledger, so a claim on its parcels can never be held.";
+
+        Assert.Equal(expected, Assert.Throws<DomainException>(() => ClaimDecider.Claim(withNoRepos, parcel, [], Self, "brian", Now)).Message);
+        Assert.Equal(
+            expected,
+            Assert.Throws<DomainException>(() => ClaimDecider.Claim(withNoRepos, parcel, [new StoredClaim(Self, null, IsOwn: true, IsPublished: false)], Self, "brian", Now)).Message);
+        Assert.Equal(expected, Assert.Throws<DomainException>(() => ClaimDecider.Claim(withNoRepos, parcel, [Claim(Peer, HashOf("theirs"))], Self, "brian", Now)).Message);
     }
 
     [Fact]

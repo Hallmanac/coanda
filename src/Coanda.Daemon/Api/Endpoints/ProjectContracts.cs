@@ -4,11 +4,12 @@ using Coanda.Daemon.Modules;
 namespace Coanda.Daemon.Api.Endpoints;
 
 /// <summary>
-/// Registers a project with one repo, at <see cref="Remote"/>, and records <see cref="Settings"/>, each a
-/// replicated setting of a module the registration switches on, in the same save. Every setting is
-/// checked against its module's settings schema, and one that fails registers nothing.
+/// Registers a project with one repo, at <see cref="Remote"/>, or with no repos when it is absent, null, empty,
+/// or only whitespace, and records <see cref="Settings"/>, each a replicated setting of a module the
+/// registration switches on, in the same save. Every setting is checked against its module's settings
+/// schema, and one that fails registers nothing.
 /// </summary>
-public sealed record ProjectAddRequest(string Name, string Remote, IReadOnlyList<ModuleSettingValue>? Settings = null);
+public sealed record ProjectAddRequest(string Name, string? Remote = null, IReadOnlyList<ModuleSettingValue>? Settings = null);
 
 /// <summary>Names the credential profile of the running daemon's configuration that a project's agent steps spawn with.</summary>
 public sealed record ProjectSetProfileRequest(string Project, string Profile);

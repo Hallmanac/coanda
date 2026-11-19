@@ -15,9 +15,11 @@ using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Coanda.Modules.Software;
 using Coanda.Sdk.Contract;
+using Coanda.Tests.Daemon.Commands;
 using Fisher;
 using JasperFx.Events.Documents;
 using JasperFx.Events;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Coanda.Tests.Daemon;
 
@@ -51,6 +53,37 @@ public sealed class ProjectServiceTests
         // no case folding is applied
         Assert.Null(await projects.ShowAsync(Owner, "Coanda", None));
         Assert.Null(await projects.ShowAsync(Owner, "other", None));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task A_project_added_with_no_remote_is_recorded_with_no_repos_and_the_default_modules_and_no_clone_is_made(string? remote)
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
+        var runner = new ScriptedCommandRunner();
+        var projects = new ProjectService(
+            store,
+            TimeProvider.System,
+            new CredentialProfiles([]),
+            ModuleSettingsSchemas.None,
+            ProjectServices.Defaults,
+            new RepoClones(store, temp.Home, runner, NullLogger<RepoClones>.Instance));
+
+        Project added = await projects.AddAsync(Owner, "coanda", remote, [], None);
+
+        Assert.Empty(added.Repos);
+        Assert.Equal(ProjectServices.Defaults.Names, added.Modules);
+        Project shown = await projects.ShowAsync(Owner, "coanda", None) ?? throw new InvalidOperationException("The project was not recorded.");
+        Assert.Empty(shown.Repos);
+        Assert.Equal(ProjectServices.Defaults.Names, shown.Modules);
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.GetDirectoryName(temp.Home.RepoClonePath("coanda", "coanda"))));
+
+        DomainException again = await Assert.ThrowsAsync<DomainException>(() => projects.AddAsync(Owner, "coanda", Remote, [], None));
+        Assert.Equal("Project 'coanda' is already registered, with no repos.", again.Message);
     }
 
     [Fact]
@@ -120,8 +153,7 @@ public sealed class ProjectServiceTests
     [InlineData("", Remote, "A project name is required*")]
     [InlineData("_node", Remote, "*reserved for node-level records*")]
     [InlineData("_NODE", Remote, "*reserved for node-level records*")]
-    [InlineData("coanda", " ", "*needs the remote of a repo*")]
-    public async Task A_blank_name_the_reserved_name_or_a_blank_remote_is_refused(string name, string remote, string rule)
+    public async Task A_blank_name_or_the_reserved_name_is_refused(string name, string remote, string rule)
     {
         using var temp = new TemporaryHome();
         await using IDocumentStore store = await SeededStore.OpenAsync(temp.Home.DatabasePath);
@@ -261,7 +293,7 @@ public sealed class ProjectServiceTests
         await RegisteredProjects.AddAsync(store, "alpha", None);
 
         DomainException exception = await Assert.ThrowsAsync<DomainException>(() => parcels.AddAsync(Owner, " beta ", type, "Nowhere to go", null, None));
-        Assert.Equal("Project 'beta' is not registered; register it with coa project add beta --repo <url>.", exception.Message);
+        Assert.Equal("Project 'beta' is not registered; register it with coa project add beta [--repo <url>].", exception.Message);
         Assert.Empty(await parcels.ListAsync(Owner, "beta", None));
 
         Assert.Equal("alpha", (await parcels.AddAsync(Owner, "alpha", "task", "Somewhere to go", null, None)).Project);

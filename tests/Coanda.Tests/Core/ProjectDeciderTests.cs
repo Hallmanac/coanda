@@ -48,12 +48,39 @@ public sealed class ProjectDeciderTests
     }
 
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void A_blank_remote_is_refused(string remote)
+    public void Registering_with_no_remote_records_the_project_with_no_repos_in_the_same_members(string? remote)
     {
-        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register("coanda", remote, null, "brian", Now));
-        Assert.Equal("Project 'coanda' needs the remote of a repo; none was given.", exception.Message);
+        ProjectRegistered registered = ProjectDecider.Register(" coanda ", remote, null, "brian", Now);
+
+        Assert.Equal("coanda", registered.Name);
+        Assert.Equal([], registered.Repos ?? throw new InvalidOperationException("The registration recorded no repo list."));
+        Assert.Empty(Project.Create(registered).Repos);
+
+        using var written = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(registered, System.Text.Json.JsonSerializerOptions.Web));
+        Assert.Equal(
+            ["projectId", "name", "repos", "registeredBy", "registeredAt"],
+            [.. written.RootElement.EnumerateObject().Select(p => p.Name)]);
+        Assert.Equal(0, written.RootElement.GetProperty("repos").GetArrayLength());
+    }
+
+    [Fact]
+    public void A_name_that_already_has_a_record_with_no_repos_is_refused_saying_it_has_none()
+    {
+        Project existing = Project.Create(ProjectDecider.Register("coanda", null, null, "brian", Now));
+
+        DomainException exception = Assert.Throws<DomainException>(() => ProjectDecider.Register("coanda", "https://example.invalid/b.git", existing, "brian", Now));
+        Assert.Equal("Project 'coanda' is already registered, with no repos.", exception.Message);
+    }
+
+    [Fact]
+    public void The_rule_for_an_unregistered_project_shows_the_add_command_with_its_repo_optional()
+    {
+        Assert.Equal(
+            "Project 'beta' is not registered; register it with coa project add beta [--repo <url>].",
+            ProjectDecider.Unregistered("beta"));
     }
 
     [Fact]

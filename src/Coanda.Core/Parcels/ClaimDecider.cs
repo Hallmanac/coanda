@@ -1,4 +1,5 @@
 using Coanda.Core.Parcels.Events;
+using Coanda.Core.Projects;
 
 namespace Coanda.Core.Parcels;
 
@@ -19,9 +20,18 @@ public static class ClaimDecider
     /// stores on it, or null when this node has already claimed it, so a claim made again records nothing.
     /// A closed parcel is claimed by nobody, and a node that has seen another node's claim before making one
     /// of its own makes none, so any two claims stored on one parcel were made by nodes that had not seen each other's.
+    /// A parcel of a <paramref name="project"/> with no repos is claimed by nobody: the project has no carrier, so no
+    /// push could carry the claim and it could never be held, and a claim recorded anyway would hold back every flow run on the parcel.
     /// </summary>
-    public static ParcelClaimed? Claim(Parcel parcel, IReadOnlyCollection<StoredClaim> stored, Guid nodeId, string claimedBy, DateTimeOffset now)
+    public static ParcelClaimed? Claim(
+        Project project, Parcel parcel, IReadOnlyCollection<StoredClaim> stored, Guid nodeId, string claimedBy, DateTimeOffset now)
     {
+        if (project.Repos.Count == 0)
+        {
+            throw new DomainException(
+                $"Parcel {Ids.Short(parcel.Id)} is not claimed: project '{project.Name}' has no repo to carry its ledger, so a claim on its parcels can never be held.");
+        }
+
         if (parcel.IsClosed)
         {
             throw new DomainException($"Parcel {Ids.Short(parcel.Id)} is closed ({parcel.Resolution}); a closed parcel is claimed by nobody.");
