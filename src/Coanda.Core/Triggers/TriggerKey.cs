@@ -14,6 +14,11 @@ namespace Coanda.Core.Triggers;
 /// </summary>
 public static class TriggerKey
 {
+    /// <summary>What every trigger's name in what it records begins with.</summary>
+    public const string Prefix = "trigger:";
+
+    private static readonly string[] Causes = [":event:", ":flow-run:"];
+
     /// <summary>The trigger's own name: <c>trigger:project:&lt;project&gt;/&lt;name&gt;</c>, <c>trigger:owner/&lt;name&gt;</c>, or <c>trigger:module:&lt;module&gt;/&lt;name&gt;</c>.</summary>
     public static string Of(Definition definition) => definition.Scope switch
     {
@@ -28,6 +33,46 @@ public static class TriggerKey
 
     /// <summary>The trigger's firing on the end of the flow run <paramref name="flowRunId"/>.</summary>
     public static string ForFlowRunEnd(string trigger, Guid flowRunId) => $"{trigger}:flow-run:{flowRunId}";
+
+    /// <summary>
+    /// The trigger name in <paramref name="origin"/>, a parcel's origin in <paramref name="project"/>, when a trigger's
+    /// firing created it, whatever the trigger's scope; null for any other origin. A project-scope trigger's name follows
+    /// the project's own, which the project's parcels all carry, so a name holding a slash is read whole.
+    /// </summary>
+    public static string? NameOf(string origin, string project)
+    {
+        if (!origin.StartsWith(Prefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? named = Causes.Select(cause => CutCause(origin, cause)).FirstOrDefault(cut => cut is not null);
+        if (named is null)
+        {
+            return null;
+        }
+
+        string scoped = named[Prefix.Length..];
+        string projectScope = $"project:{project}/";
+        if (scoped.StartsWith(projectScope, StringComparison.Ordinal))
+        {
+            return scoped[projectScope.Length..];
+        }
+
+        int slash = scoped.IndexOf('/', StringComparison.Ordinal);
+        return slash > 0 && (scoped.StartsWith("owner/", StringComparison.Ordinal) || scoped.StartsWith("module:", StringComparison.Ordinal))
+            ? scoped[(slash + 1)..]
+            : null;
+    }
+
+    /// <summary><paramref name="origin"/> without the cause that ends it, <paramref name="cause"/> and a flow run's or an event's id, or null when it does not end so.</summary>
+    private static string? CutCause(string origin, string cause)
+    {
+        int at = origin.LastIndexOf(cause, StringComparison.Ordinal);
+        return at > 0 && Guid.TryParse(origin.AsSpan(at + cause.Length), out _)
+            ? origin[..at]
+            : null;
+    }
 
     private static string Folded(string name) => name.ToLowerInvariant();
 }
