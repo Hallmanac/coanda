@@ -129,7 +129,7 @@ public sealed class WaitForHumanAnswerFlowTests
     }
 
     [Fact]
-    public async Task A_resume_without_an_answer_of_a_step_whose_verdict_transition_comes_first_ends_the_flow_run()
+    public async Task A_resume_without_an_answer_of_a_step_whose_verdict_transition_comes_first_pauses_again_until_stopped()
     {
         using var temp = new TemporaryHome();
         await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
@@ -140,12 +140,22 @@ public sealed class WaitForHumanAnswerFlowTests
             Steps = [Hold("ask", On("verdict", "done", Flow.End), On("answer", "approve", "later")), Hold("later", On("verdict", "done", Flow.End))],
         };
         Guid flowRunId = await FlowRunResumeAnswerApiTests.StartedAsync(daemon, client, flow);
-        await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
+        FlowRunView first = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "paused");
 
         await FlowRunDriver.ResumeAsync(client, Project, flowRunId, null);
-        FlowRunView ended = await FlowRunDriver.UntilAsync(client, Project, flowRunId, "ended");
+        FlowRunView again = await UntilViewAsync(
+            client, flowRunId, view => view.Status == "paused" && view.UpdatedAt != first.UpdatedAt, "the step pauses again");
 
-        AssertResult(Assert.Single(ended.Steps).Result, null);
+        Assert.Equal(
+            "Step 'ask' waits for a person's answer, and none of its transitions on 'answer' can take one at this visit; stop the flow run with 'coa flow-run stop'.",
+            again.PauseReason);
+        FlowRunStepView visit = Assert.Single(again.Steps);
+        Assert.Null(visit.RecordedAt);
+        Assert.Null(visit.Result);
+
+        await FlowRunDriver.StopAsync(client, Project, flowRunId, "Nothing to answer.");
+        FlowRunView stopped = await FlowRunDriver.ShowAsync(client, Project, flowRunId);
+        Assert.Equal("stopped", stopped.Status);
 
         await daemon.StopAsync(None);
     }

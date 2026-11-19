@@ -73,22 +73,28 @@ public sealed class WaitForHumanSystemStepTests
 
         Assert.Equal("Step 'ask' waits for a person's answer; resume with one of: 'done'.", second.Reason);
         Assert.Equal(
-            "Step 'ask' waits for a person's answer, and none of its transitions on 'answer' can take one at this visit.",
+            "Step 'ask' waits for a person's answer, and none of its transitions on 'answer' can take one at this visit; stop the flow run with 'coa flow-run stop'.",
             spent.Reason);
     }
 
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    public async Task A_resumed_dispatch_without_an_answer_records_the_result_its_verdict_transition_still_routes_on(int visit)
+    public async Task A_resumed_dispatch_without_an_answer_pauses_again_even_when_a_verdict_transition_would_fire(int visit)
     {
-        // the verdict transition fires whether it comes before or after the answer transitions, and
-        // whatever answer transitions the visit has spent
+        // a verdict transition before or after the answer transitions does not make the step record
+        // without an answer; the run waits on the same visit, and stopping it is the way out
         FlowStep before = Hold(On("verdict", FlowValue.Of("done"), Flow.End, cap: 5), On("answer", FlowValue.Of("approve"), Flow.End, cap: 5));
-        FlowStep after = Hold(On("answer", FlowValue.Of("again"), "ask", cap: 1), On("verdict", FlowValue.Of("done"), Flow.End, cap: 5));
+        FlowStep after = Hold(On("answer", FlowValue.Of("approve"), Flow.End, cap: 5), On("verdict", FlowValue.Of("done"), Flow.End, cap: 5));
 
-        Assert.Equal("""{"verdict":"done","systemStep":"wait-for-human"}""", Done(await DispatchAsync(before, resumed: true, null, visit)).GetRawText());
-        Assert.Equal("""{"verdict":"done","systemStep":"wait-for-human"}""", Done(await DispatchAsync(after, resumed: true, null, visit)).GetRawText());
+        SystemStepAnswer.Paused shadowed = Assert.IsType<SystemStepAnswer.Paused>(await DispatchAsync(before, resumed: true, null, visit));
+        SystemStepAnswer.Paused listed = Assert.IsType<SystemStepAnswer.Paused>(await DispatchAsync(after, resumed: true, null, visit));
+
+        Assert.Equal(
+            "Step 'ask' waits for a person's answer, and none of its transitions on 'answer' can take one at this visit; stop the flow run with 'coa flow-run stop'.",
+            shadowed.Reason);
+        Assert.Equal("Step 'ask' waits for a person's answer; resume with one of: 'approve'.", listed.Reason);
+        Assert.Equal(("Answer it.", "Answer it."), (shadowed.Lever, listed.Lever));
     }
 
     [Fact]

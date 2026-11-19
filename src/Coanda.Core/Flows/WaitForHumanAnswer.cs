@@ -66,45 +66,14 @@ public static class WaitForHumanAnswer
             .Where(answer => Refusal(flow, step, visits, spawns, answer) is null),
     ];
 
-    /// <summary>
-    /// Whether a resume that gave no answer leaves <paramref name="step"/> waiting for one: its
-    /// transitions route on <see cref="Field"/>, and the result it records without an answer would
-    /// fire no transition at the visit, because none matches it or the one that does is held by its
-    /// visit cap or the spawn cap. A step whose result without an answer still fires a transition,
-    /// a <c>verdict</c> transition among them, records that result and routes on it.
-    /// </summary>
-    public static bool AwaitsAnswer(Flow flow, FlowStep step, int visits, int spawns)
-    {
-        if (!RoutesOnAnswer(step))
-        {
-            return false;
-        }
-
-        using JsonDocument result = Result(null);
-        FlowTransition? considered = Interpreter.Considered(step, result.RootElement);
-        return considered is null
-            || !Interpreter.Allows(considered, visits)
-            || Interpreter.SpawnCapped(flow, spawns, considered.Target);
-    }
-
-    /// <summary>
-    /// The result a wait-for-human step records for <paramref name="answer"/>, or with no
-    /// <see cref="Field"/> when there is none, which the check routes as the interpreter would.
-    /// </summary>
-    private static JsonDocument Result(string? answer)
-    {
-        var result = new JsonObject
+    /// <summary>The result a wait-for-human step records for <paramref name="answer"/>, which the check routes as the interpreter would.</summary>
+    private static JsonDocument Result(string answer) =>
+        JsonSerializer.SerializeToDocument(new JsonObject
         {
             ["verdict"] = "done",
             ["systemStep"] = CoreSystemSteps.WaitForHuman,
-        };
-        if (answer is not null)
-        {
-            result[Field] = answer;
-        }
-
-        return JsonSerializer.SerializeToDocument(result);
-    }
+            [Field] = answer,
+        });
 
     private static bool OnAnswer(FlowTransition transition) =>
         string.Equals(transition.Field, Field, StringComparison.Ordinal);

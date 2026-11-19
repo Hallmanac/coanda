@@ -92,9 +92,9 @@ routes on it. An answer is refused at any other step, on a visit that has alread
 performs that step again as a new visit), and when the transition the step would take on it is not a
 transition on `answer` that can fire at that visit, whether because no transition on `answer` matches it,
 another transition matches first, or a visit cap or the flow's spawn cap holds it. Resumed without an
-answer, a `wait-for-human` step whose transitions route on one records its result without it when a
-transition, such as one on `verdict`, still fires on that; otherwise it pauses again, naming the answers
-it takes. A
+answer, a `wait-for-human` step whose transitions route on one records nothing and pauses again on the
+same visit, naming the answers it takes, even when a transition on another field such as `verdict` would
+fire without one; when it takes none at that visit, `coa flow-run stop` is the way out. A
 flow that declares `closes` is the one way a flow run closes its parcel: when a flow run of it ends, the
 flow run's end, the release of the parcel, and its close with that resolution are recorded together.
 The shipped merge flow declares `closes` as completed, and so does any flow a project
