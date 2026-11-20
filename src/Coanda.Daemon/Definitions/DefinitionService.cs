@@ -7,6 +7,7 @@ using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.FlowRuns;
 using Coanda.Daemon.Modules;
+using Coanda.Daemon.Projects;
 using Coanda.Daemon.Store;
 using Fisher;
 using JasperFx.Events.Documents;
@@ -111,19 +112,29 @@ public sealed class DefinitionService(
     /// caller gives no hash. <paramref name="project"/> is read only in project scope. When
     /// <paramref name="fork"/> is set, the draft's fork base is the module-scope definition of its kind
     /// and name this node holds, the highest version of it when it holds more than one, and the draft is
-    /// refused when it holds none.
+    /// refused when it holds none. A project-scope draft is refused unless the project is registered on
+    /// this node, as every other project write is, so a mistyped or defaulted project name records nothing.
     /// </summary>
     public async Task<Definition> DraftAsync(
         Principal principal,
         DefinitionKind kind,
         DefinitionScope scope,
         string? project,
-        string json,
+        string? json,
         bool fork,
         CancellationToken cancellationToken)
     {
         CommandRegistry.Require("definition.draft", principal);
-        ModuleDefinition read = ModuleDefinition.Read(kind, json);
+        if (scope == DefinitionScope.Project)
+        {
+            string tenant = Tenants.RequireProject(project ?? string.Empty);
+            SessionScope.RequireBoundProject(principal, tenant);
+            await RequireRegisteredAsync(tenant, cancellationToken);
+        }
+
+        ModuleDefinition read = string.IsNullOrWhiteSpace(json)
+            ? throw new DomainException("A draft needs the definition's content; none was given.")
+            : ModuleDefinition.Read(kind, json);
         ForkBase? forkBase = fork ? await ForkBaseOfAsync(kind, read.Name, cancellationToken) : null;
         return await DraftAsync(
             principal, kind, scope, scope == DefinitionScope.Project ? project : null, read.Name, read.Content, read.ContentHash, forkBase, cancellationToken);
@@ -325,7 +336,17 @@ public sealed class DefinitionService(
         string tenant = Tenants.RequireProject(project);
         SessionScope.RequireBoundProject(principal, tenant);
         await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+        await RequireRegisteredAsync(tenant, cancellationToken);
         return await resolver.GoverningAsync(tenant, cancellationToken);
+    }
+
+    /// <summary>A project's definitions are read and written only in a registered project, as its parcels are.</summary>
+    private async Task RequireRegisteredAsync(string tenant, CancellationToken cancellationToken)
+    {
+        if (await ProjectService.FindAsync(store, tenant, cancellationToken) is null)
+        {
+            throw new DomainException(ProjectService.Unregistered(tenant));
+        }
     }
 
     private async Task<Definition> GoverningOneAsync(Principal principal, string project, Guid definitionId, CancellationToken cancellationToken)

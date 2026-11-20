@@ -11,6 +11,7 @@ using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Modules;
+using Coanda.Daemon.Projects;
 using Coanda.Tests.Daemon.FlowRuns;
 using Microsoft.Extensions.DependencyInjection;
 using ModuleNode = Coanda.Tests.Daemon.Modules.ModuleNode;
@@ -88,6 +89,55 @@ public sealed class DefinitionApiTests
         Assert.Equal("'workflow' is not a kind of definition; a kind is one of parcel-type, flow, agent, trigger.", unknownKind.Message);
 
         Assert.Equal(before, await ListAsync(client, Project));
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_project_that_is_not_registered_has_nothing_drafted_listed_published_or_retired_in_it()
+    {
+        const string Unregistered = "gamma";
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        string flow = SoftwareDefinitions.Read("flows", "build");
+        DefinitionView drafted = await DraftAsync(client, new DefinitionDraftRequest(Project, "flow", flow));
+        string refusal = ProjectService.Unregistered(Unregistered);
+
+        Assert.Equal(refusal, (await RefusedAsync(client, new DefinitionDraftRequest(Unregistered, "flow", flow))).Message);
+        Assert.Equal(refusal, (await Assert.ThrowsAsync<DomainException>(() => ListAsync(client, Unregistered))).Message);
+        foreach (string verb in (string[])["publish", "retire"])
+        {
+            DomainException refused = await Assert.ThrowsAsync<DomainException>(
+                () => client.PostAsync<DefinitionView>($"/definitions/{verb}", new DefinitionIdRequest(Unregistered, drafted.Id), None));
+            Assert.Equal(refusal, refused.Message);
+        }
+
+        // an owner-scope draft reads no project, so it does not need one registered
+        DefinitionView owner = await DraftAsync(client, new DefinitionDraftRequest(Unregistered, "agent", SoftwareDefinitions.Read("agents", "fix"), "owner"));
+        Assert.Equal(("owner", (string?)null), (owner.Scope, owner.Project));
+        Assert.Equal("draft", Assert.Single(await ListAsync(client, Project), d => d.Id == drafted.Id).Status);
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_request_that_leaves_out_the_content_or_the_project_is_refused_rather_than_failing()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        DefinitionView drafted = await DraftAsync(client, new DefinitionDraftRequest(Project, "flow", SoftwareDefinitions.Read("flows", "build")));
+
+        DomainException noContent = await RefusedAsync(client, new DefinitionDraftRequest(Project, "flow", null));
+        Assert.Equal("A draft needs the definition's content; none was given.", noContent.Message);
+        foreach (string verb in (string[])["publish", "retire"])
+        {
+            DomainException noProject = await Assert.ThrowsAsync<DomainException>(
+                () => client.PostAsync<DefinitionView>($"/definitions/{verb}", new DefinitionIdRequest(null, drafted.Id), None));
+            Assert.Equal("A project name is required; none was given.", noProject.Message);
+        }
+
         await daemon.StopAsync(None);
     }
 
@@ -208,6 +258,26 @@ public sealed class DefinitionApiTests
         DomainException notHere = await Assert.ThrowsAsync<DomainException>(
             () => client.GetAsync<DefinitionDetailView>($"/definitions/{elsewhere.Id}?project={Project}", None));
         Assert.Equal($"No definition {Ids.Short(elsewhere.Id)} can govern project '{Project}'.", notHere.Message);
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task The_list_keeps_the_versions_of_one_name_together_whatever_the_case_each_was_drafted_in()
+    {
+        using var temp = new TemporaryHome();
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        await RegisteredProjects.AddAsync(daemon, Project, None);
+        using var client = new DaemonClient(temp.Home);
+        foreach (string name in (string[])["Mixed", "Zeta", "apply", "mixed"])
+        {
+            await DraftAsync(client, new DefinitionDraftRequest(Project, "agent", AgentDefinition.CanonicalJson(SoftwareAgents.Fix with { Name = name })));
+        }
+
+        IReadOnlyList<DefinitionView> listed = await ListAsync(client, Project);
+
+        Assert.Equal(
+            [("apply", 1), ("Mixed", 1), ("mixed", 2), ("Zeta", 1)],
+            listed.Where(d => d is { Kind: "agent", Scope: "project" }).Select(d => (d.Name, d.Version)));
         await daemon.StopAsync(None);
     }
 

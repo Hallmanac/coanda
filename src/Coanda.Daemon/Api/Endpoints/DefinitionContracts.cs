@@ -10,10 +10,10 @@ namespace Coanda.Daemon.Api.Endpoints;
 /// read in project scope only. <see cref="Fork"/> asks for the draft to fork the module-scope
 /// definition of its kind and name this node holds. The hash is the daemon's to compute, never the caller's.
 /// </summary>
-public sealed record DefinitionDraftRequest(string? Project, string Kind, string Content, string? Scope = null, bool Fork = false);
+public sealed record DefinitionDraftRequest(string? Project, string? Kind, string? Content, string? Scope = null, bool Fork = false);
 
 /// <summary>Names one of the definitions that can govern <see cref="Project"/> by its full id.</summary>
-public sealed record DefinitionIdRequest(string Project, Guid DefinitionId);
+public sealed record DefinitionIdRequest(string? Project, Guid DefinitionId);
 
 /// <summary>
 /// One definition, as <c>coa definition list</c> shows it: its id, kind, name, scope (with the module

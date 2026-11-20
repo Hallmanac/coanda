@@ -85,7 +85,8 @@ public sealed class DefinitionResolver(IDocumentStore store)
     /// <summary>
     /// Every definition of every kind and status that can govern <paramref name="project"/>: the
     /// project's own, from its tenant, and the owner-scope and module-scope ones, from the node tenant,
-    /// drafts and retired versions included, ordered by kind, name, scope from nearest, and version.
+    /// drafts and retired versions included, ordered by kind, name (whatever its case, as names are
+    /// matched), scope from nearest, and version.
     /// </summary>
     public async Task<IReadOnlyList<Definition>> GoverningAsync(string project, CancellationToken cancellationToken)
     {
@@ -98,7 +99,7 @@ public sealed class DefinitionResolver(IDocumentStore store)
             .. fromProject.Where(d => d.Scope == DefinitionScope.Project && string.Equals(d.Project, project, StringComparison.Ordinal))
                 .Concat(fromNode.Where(d => d.Scope != DefinitionScope.Project))
                 .OrderBy(d => d.Kind)
-                .ThenBy(d => d.Name, StringComparer.Ordinal)
+                .ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(d => d.Scope)
                 .ThenBy(d => d.VersionNumber),
         ];
