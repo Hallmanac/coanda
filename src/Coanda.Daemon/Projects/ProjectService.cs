@@ -256,7 +256,7 @@ public sealed class ProjectService(
         }
 
         IReadOnlySet<string>? visible = principal.Role == Role.Module || principal.Session is not null
-            ? (await VisibleAsync(principal, cancellationToken)).Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
+            ? (await VisibleAsync(store, principal, cancellationToken)).Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
             : null;
         return settings
             .Where(s => visible is null || visible.Contains(s.Project))
@@ -281,7 +281,7 @@ public sealed class ProjectService(
     public async Task<IReadOnlyList<Project>> ListAsync(Principal principal, CancellationToken cancellationToken)
     {
         CommandRegistry.Require("project.list", principal);
-        IReadOnlyList<Project> projects = await VisibleAsync(principal, cancellationToken);
+        IReadOnlyList<Project> projects = await VisibleAsync(store, principal, cancellationToken);
         return [.. projects.OrderBy(p => p.Name, StringComparer.Ordinal)];
     }
 
@@ -416,7 +416,7 @@ public sealed class ProjectService(
     /// for a Module principal those its module is switched on for, or for a session principal its bound
     /// project. Read without a registry check.
     /// </summary>
-    private async Task<IReadOnlyList<Project>> VisibleAsync(Principal principal, CancellationToken cancellationToken)
+    internal static async Task<IReadOnlyList<Project>> VisibleAsync(IDocumentStore store, Principal principal, CancellationToken cancellationToken)
     {
         await using IQuerySession session = store.QuerySession(Tenants.Node);
         IReadOnlyList<Project> projects = await session.Query<Project>().AnyTenant().ToListAsync(cancellationToken);
