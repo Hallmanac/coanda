@@ -337,6 +337,13 @@ internal sealed class DetachedProcess : IDisposable
             _ = kill(-leader, Kill);
         }
 
+        /// <summary>The real user id the daemon runs as.</summary>
+        public static uint UserId()
+        {
+            _ = Resolver.Value;
+            return getuid();
+        }
+
         /// <summary>The process's start time as the system records it, and whether it has exited unreaped; null when there is no such process.</summary>
         public static (string Identity, bool Exited)? IdentityOf(int pid)
         {
@@ -467,6 +474,9 @@ internal sealed class DetachedProcess : IDisposable
 
         [DllImport(Libc, SetLastError = true)]
         private static extern int kill(int pid, int signal);
+
+        [DllImport(Libc)]
+        private static extern uint getuid();
 
         [DllImport(Libc, SetLastError = true)]
         private static extern int proc_pidinfo(int pid, int flavor, ulong arg, [Out] byte[] buffer, int size);
