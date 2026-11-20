@@ -1,6 +1,6 @@
 namespace Coanda.Daemon.Executors;
 
-/// <summary>A spawn the <see cref="ScriptedExecutor"/> received, with every value it was given.</summary>
+/// <summary>A spawn the <see cref="ScriptedExecutor"/> received, with every value it was given, the names of the skills it was given among them.</summary>
 public sealed record ScriptedSpawn(
     SessionHandle Handle,
     string Agent,
@@ -9,7 +9,11 @@ public sealed record ScriptedSpawn(
     SpawnCaps Caps,
     string AnswerSchema,
     CredentialProfile? CredentialProfile,
-    SessionAccess? Access = null);
+    SessionAccess? Access = null)
+{
+    /// <summary>The name of each skill the session was given, in the order given; none when it was given none.</summary>
+    public IReadOnlyList<string> Skills { get; init; } = [];
+}
 
 /// <summary>A resume or send message the <see cref="ScriptedExecutor"/> received.</summary>
 public sealed record ScriptedMessage(SessionHandle Handle, string Message);

@@ -36,6 +36,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     /// <summary>Every reattach of a session the executor held, with the access it was given.</summary>
     public IReadOnlyList<ScriptedReattach> Reattaches => Snapshot(reattaches);
 
+    /// <summary>A spawn given no skills.</summary>
     public ValueTask<SessionHandle> SpawnAsync(
         AgentDefinition agent,
         string context,
@@ -44,16 +45,33 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         AnswerSchema answerSchema,
         CredentialProfile? credentialProfile,
         SessionAccess? access,
+        CancellationToken cancellationToken) =>
+        SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, [], cancellationToken);
+
+    public ValueTask<SessionHandle> SpawnAsync(
+        AgentDefinition agent,
+        string context,
+        string workingDirectory,
+        SpawnCaps caps,
+        AnswerSchema answerSchema,
+        CredentialProfile? credentialProfile,
+        SessionAccess? access,
+        IReadOnlyList<SessionSkill> skills,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(skills);
         cancellationToken.ThrowIfCancellationRequested();
 
         var handle = new SessionHandle(Ids.New(), agent.Name);
         lock (gate)
         {
             sessions.Add(handle.Id, new Session(handle));
-            spawns.Add(new ScriptedSpawn(handle, agent.Name, context, workingDirectory, caps, answerSchema.Name, credentialProfile, access));
+            spawns.Add(new ScriptedSpawn(handle, agent.Name, context, workingDirectory, caps, answerSchema.Name, credentialProfile, access)
+            {
+                // Left as the shared empty list when none was given, so a spawn of no skill equals one built without them.
+                Skills = skills.Count == 0 ? [] : [.. skills.Select(s => s.Name)],
+            });
         }
 
         return ValueTask.FromResult(handle);

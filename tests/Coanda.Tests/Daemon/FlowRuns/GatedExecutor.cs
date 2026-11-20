@@ -89,7 +89,7 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
     public void Open() => gate.TrySetResult();
 
     public async ValueTask<SessionHandle> SpawnAsync(
-        AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, AnswerSchema answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, CancellationToken cancellationToken)
+        AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, AnswerSchema answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, IReadOnlyList<SessionSkill> skills, CancellationToken cancellationToken)
     {
         if (Interlocked.Increment(ref spawnAttempts) <= FailingSpawns)
         {
@@ -101,7 +101,7 @@ public sealed class GatedExecutor(ScriptedExecutor inner) : IAgentExecutor
             await before(access);
         }
 
-        SessionHandle handle = await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, cancellationToken);
+        SessionHandle handle = await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, skills, cancellationToken);
         spawned.TrySetResult();
         return handle;
     }

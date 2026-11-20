@@ -213,7 +213,7 @@ public sealed class SpawnInputsTests
         }
 
         public async ValueTask<SessionHandle> SpawnAsync(
-            AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, AnswerSchema answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, CancellationToken cancellationToken)
+            AgentDefinition agent, string context, string workingDirectory, SpawnCaps caps, AnswerSchema answerSchema, CredentialProfile? credentialProfile, SessionAccess? access, IReadOnlyList<SessionSkill> skills, CancellationToken cancellationToken)
         {
             string record = Path.Combine(workingDirectory, ".coanda", "parcel.md");
             string prompt = Path.Combine(workingDirectory, ".coanda", "prompt.md");
@@ -232,7 +232,7 @@ public sealed class SpawnInputsTests
                 File.SetUnixFileMode(record, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
             }
 
-            return await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, cancellationToken);
+            return await inner.SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, skills, cancellationToken);
         }
 
         public ValueTask<CollectedAnswer> CollectAsync(SessionHandle handle, CancellationToken cancellationToken) => inner.CollectAsync(handle, cancellationToken);

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Coanda.Core;
 using Coanda.Core.Agents;
 using Coanda.Core.FlowRuns;
@@ -149,6 +150,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         return variables;
     }
 
+    /// <summary>A spawn given no skills.</summary>
     public ValueTask<SessionHandle> SpawnAsync(
         AgentDefinition agent,
         string context,
@@ -157,10 +159,29 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         AnswerSchema answerSchema,
         CredentialProfile? credentialProfile,
         SessionAccess? access,
+        CancellationToken cancellationToken) =>
+        SpawnAsync(agent, context, workingDirectory, caps, answerSchema, credentialProfile, access, [], cancellationToken);
+
+    /// <summary>
+    /// Starts the session's first process. A session given <paramref name="skills"/> has each one's
+    /// whole folder written into its skills root before the process starts, its persona file naming
+    /// each, and its tool guard refusing an Edit or Write there; a skill that cannot be written starts
+    /// no process.
+    /// </summary>
+    public ValueTask<SessionHandle> SpawnAsync(
+        AgentDefinition agent,
+        string context,
+        string workingDirectory,
+        SpawnCaps caps,
+        AnswerSchema answerSchema,
+        CredentialProfile? credentialProfile,
+        SessionAccess? access,
+        IReadOnlyList<SessionSkill> skills,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(caps);
+        ArgumentNullException.ThrowIfNull(skills);
         cancellationToken.ThrowIfCancellationRequested();
         ClaudeCodeInvocation.Require(agent);
         string prompt = ClaudeCodeInvocation.Prompt(context, answerSchema);
@@ -172,8 +193,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                 $"The spawn's cost ceiling of {Dollars(caps.CostCeilingUsd)} leaves nothing to spend, so no claude process was started.");
         }
 
-        string persona = ClaudeCodeInvocation.Persona(agent.Persona);
+        string persona = ClaudeCodeInvocation.Persona(agent.Persona, skills);
         SessionFiles.Write(workingDirectory, SessionFiles.PersonaFile, persona);
+        WriteSkills(workingDirectory, skills);
         var handle = new SessionHandle(Ids.New(), agent.Name);
         var session = new Session(
             handle,
@@ -183,10 +205,11 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             ClaudeCodeInvocation.SessionArguments(
                 agent,
                 credentialProfile,
-                ClaudeCodeInvocation.Guard(home, workingDirectory, credentialProfile, environment, profileDirectories, agent.Confined),
+                ClaudeCodeInvocation.Guard(home, workingDirectory, credentialProfile, environment, profileDirectories, agent.Confined, skills: skills.Count > 0),
                 coaExecutable),
             credentialProfile,
             agent.Confined,
+            skills,
             processEnvironment,
             caps.CostCeilingUsd,
             Path.Combine(home.TranscriptDirectoryOf(workingDirectory), $"{handle.Id}.jsonl"));
@@ -361,8 +384,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         }
 
         // The resumed process reads the persona file again, so it is written fresh rather than left
-        // as the session's earlier process may have rewritten it.
+        // as the session's earlier process may have rewritten it, and its skills with it.
         SessionFiles.Write(session.WorkingDirectory, SessionFiles.PersonaFile, session.Persona);
+        WriteSkills(session.WorkingDirectory, session.Skills);
         Attempt next = Start(session, previous.Ordinal + 1, ClaudeCodeInvocation.ResumeArguments(handle.Id, session.Arguments, remaining), message);
         bool live;
         lock (gate)
@@ -627,6 +651,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             record.Arguments,
             record.Profile,
             record.Confined,
+            record.Skills ?? [],
             ClaudeCodeInvocation.Environment(environment, record.Profile, access: null, coaDirectory, record.Confined, InboxVariablesScriptPath),
             record.CeilingUsd,
             record.TranscriptPath)
@@ -972,6 +997,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         IReadOnlyList<string> arguments,
         CredentialProfile? profile,
         bool confined,
+        IReadOnlyList<SessionSkill> skills,
         IReadOnlyDictionary<string, string> environment,
         decimal ceilingUsd,
         string transcriptPath)
@@ -999,6 +1025,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
         /// <summary>Whether the spawn's agent declared itself confined, which a later daemon rebuilds the environment by too.</summary>
         public bool Confined { get; } = confined;
+
+        /// <summary>The skills the session was given, written fresh before each of its processes; a later daemon rewrites them from the record.</summary>
+        public IReadOnlyList<SessionSkill> Skills { get; } = skills;
 
         /// <summary>
         /// The environment the session's next process starts with. A session found from its record
@@ -1046,7 +1075,20 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
                     attempt.PreviousTotalCostUsd,
                     attempt.Counted)
                 : null,
-            Confined);
+            Confined,
+            Skills.Count == 0 ? null : Skills);
+    }
+
+    /// <summary>
+    /// Writes the session's skills root fresh when it is given any; a session given none has nothing
+    /// written, and a root an earlier agent step of the flow run left is left as it is.
+    /// </summary>
+    private static void WriteSkills(string workingDirectory, IReadOnlyList<SessionSkill> skills)
+    {
+        if (skills.Count > 0)
+        {
+            SessionFiles.WriteSkills(workingDirectory, skills);
+        }
     }
 
     /// <summary>One claude process of a session: where its output begins in the transcript, and whether a collect has taken it.</summary>
@@ -1125,7 +1167,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     /// <summary>
     /// A session's record under the node home: everything a later daemon needs to collect, resume, or
     /// stop it. A record written before <see cref="Confined"/> was kept reads back without it, as an
-    /// unconfined session's, which every session before it was.
+    /// unconfined session's, which every session before it was, and one written before
+    /// <see cref="Skills"/> was kept, or for a session given none, reads back as given no skill.
     /// </summary>
     private sealed record SessionRecord(
         Guid Id,
@@ -1141,7 +1184,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         decimal ReportedTotalCostUsd,
         Measurement? EarlierUsage,
         AttemptRecord? Attempt,
-        bool Confined = false);
+        bool Confined = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SessionSkill>? Skills = null);
 
     /// <summary>The record of a session's latest process.</summary>
     private sealed record AttemptRecord(
