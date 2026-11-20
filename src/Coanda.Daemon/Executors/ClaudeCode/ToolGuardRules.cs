@@ -8,6 +8,8 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// confined, which limits it to the work directory and its own conversation's directory and to the
 /// tools in <see cref="ToolGuard.ConfinedTools"/>. <see cref="InboxDirectories"/> are the directories
 /// Claude Code binds other sessions' inboxes in, which the session may not reach either.
+/// <see cref="SkillsRoot"/>, given only for a session whose agent names skills, is the folder the
+/// session's skills are written into, which no Edit or Write may reach.
 /// </summary>
 public sealed record ToolGuardRules(
     string NodeHome,
@@ -33,6 +35,11 @@ public sealed record ToolGuardRules(
     /// <summary>The option, followed by no value, that marks a confined session's rules.</summary>
     public const string ConfinedOption = "--confined";
 
+    public const string SkillsOption = "--skills";
+
+    /// <summary>The session's skills root, absolute, or null for a session whose agent names no skill.</summary>
+    public string? SkillsRoot { get; init; }
+
     /// <summary>Every config directory the guard protects: the one the session runs under and the others, each once.</summary>
     public IReadOnlyList<string> ProtectedConfigDirectories =>
         [.. new[] { SessionConfigDirectory }.Concat(ConfigDirectories).Distinct(StringComparer.Ordinal)];
@@ -46,6 +53,7 @@ public sealed record ToolGuardRules(
         SessionConfigOption, SessionConfigDirectory,
         .. ConfigDirectories.SelectMany(directory => new[] { ConfigOption, directory }),
         .. (InboxDirectories ?? []).SelectMany(directory => new[] { InboxOption, directory }),
+        .. SkillsRoot is { } skills ? new[] { SkillsOption, skills } : [],
         .. Confined ? new[] { ConfinedOption } : [],
     ];
 
@@ -53,8 +61,8 @@ public sealed record ToolGuardRules(
     /// The rules an argument list carries, or null with the <paramref name="problem"/> when it is not
     /// one <see cref="Arguments"/> renders: the subcommand first, then each option followed by an
     /// absolute path, the node home, the work directory, and the session's config directory exactly
-    /// once each, and any number of other config directories and inbox directories, with
-    /// <see cref="ConfinedOption"/>, which takes no value, at most once among them.
+    /// once each, the skills root at most once, and any number of other config directories and inbox
+    /// directories, with <see cref="ConfinedOption"/>, which takes no value, at most once among them.
     /// </summary>
     public static ToolGuardRules? Parse(IReadOnlyList<string> arguments, out string? problem)
     {
@@ -68,6 +76,7 @@ public sealed record ToolGuardRules(
         string? home = null;
         string? work = null;
         string? session = null;
+        string? skills = null;
         List<string> configs = [];
         List<string> inboxes = [];
         bool confined = false;
@@ -106,6 +115,7 @@ public sealed record ToolGuardRules(
                 NodeHomeOption => Once(ref home, value),
                 WorkOption => Once(ref work, value),
                 SessionConfigOption => Once(ref session, value),
+                SkillsOption => Once(ref skills, value),
                 ConfigOption => Add(configs, value),
                 InboxOption => Add(inboxes, value),
                 _ => $"'{option}' is not an option the guard takes",
@@ -122,7 +132,7 @@ public sealed record ToolGuardRules(
             (null, _, _) => ($"they name no {NodeHomeOption}", null),
             (_, null, _) => ($"they name no {WorkOption}", null),
             (_, _, null) => ($"they name no {SessionConfigOption}", null),
-            ({ } h, { } w, { } s) => ((string?)null, new ToolGuardRules(h, w, s, configs, confined, inboxes)),
+            ({ } h, { } w, { } s) => ((string?)null, new ToolGuardRules(h, w, s, configs, confined, inboxes) { SkillsRoot = skills }),
         };
         return rules;
 

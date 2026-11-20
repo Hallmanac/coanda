@@ -27,7 +27,11 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// directory the CLI keeps for this session's own conversation. In a confined session
 /// (<see cref="ToolGuardRules.Confined"/>) it also refuses a call to any tool but those in
 /// <see cref="ConfinedTools"/>, and a path that is neither in the work directory nor in that
-/// conversation's directory. Anything it cannot read or decide is a refusal.
+/// conversation's directory. In a session whose agent names skills
+/// (<see cref="ToolGuardRules.SkillsRoot"/>), it refuses an Edit or Write whose path is at or inside
+/// the session's skills root, judged ahead of the work directory's allowance, so a session cannot
+/// rewrite or add to the skills it is told to follow; reading them stays allowed. Anything it cannot
+/// read or decide is a refusal.
 /// </summary>
 /// <remarks>
 /// The paths a call names are the file path of a Read, Edit, or Write; the path of a Glob or a Grep
@@ -164,7 +168,7 @@ public static class ToolGuard
             return ToolGuardOutcome.Denied($"coa refused this call: it depends on {unknowable}, which the tool guard cannot know, so it cannot judge where the call reaches.");
         }
 
-        Judge judge = new(rules, work, ConversationDirectory(rules, call, cwd));
+        Judge judge = new(rules, work, ConversationDirectory(rules, call, cwd), writes: tool is "Edit" or "Write");
         foreach (Named path in named)
         {
             if (judge.Refusal(path) is { } reason)
@@ -482,9 +486,14 @@ public static class ToolGuard
     private sealed record Level(IReadOnlyList<string> Bases, IReadOnlyList<string> Unless);
 
     /// <summary>The protected and allowed directories, resolved once per call.</summary>
-    private sealed class Judge(ToolGuardRules rules, string work, string? conversation)
+    private sealed class Judge(ToolGuardRules rules, string work, string? conversation, bool writes)
     {
         private readonly string home = GuardPath.Resolve(string.Empty, rules.NodeHome);
+
+        // Only a write's paths are judged against it; the root and the paths are resolved the same way.
+        private readonly string? skills = writes && rules.SkillsRoot is { } root
+            ? GuardPath.Resolve(string.Empty, root)
+            : null;
         private readonly IReadOnlyList<string> configs = [.. rules.ProtectedConfigDirectories.Select(d => GuardPath.Resolve(string.Empty, d))];
         private readonly IReadOnlyList<string> inboxes = [.. (rules.InboxDirectories ?? []).Select(d => GuardPath.Resolve(string.Empty, d))];
         private readonly bool confined = rules.Confined;
@@ -511,6 +520,12 @@ public static class ToolGuard
 
         private string? Refusal(string path)
         {
+            // Ahead of the work directory's allowance, since the skills root is inside the work directory.
+            if (skills is not null && GuardPath.IsWithin(path, skills))
+            {
+                return $"coa refused this call: the path '{path}' is in this session's skills root ({skills}), which holds the skills it was given to read and follow, and a session may not change or add to them.";
+            }
+
             if (GuardPath.IsWithin(path, work) || (conversation is not null && GuardPath.IsWithin(path, conversation)))
             {
                 return null;

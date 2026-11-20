@@ -52,6 +52,16 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// directory the CLI binds inboxes in (<see cref="InboxDirectories"/>). A command that builds such a
 /// path at run time, which the guard cannot see, still reaches it; a confined session has no shell.
 /// </para>
+/// <para>
+/// The CLI's own skill loading is not used. As confirmed against Claude Code 2.1.329, the
+/// <c>Skill</c> tool is absent unless <c>--tools</c> names it, and <c>--tools</c> is built only from
+/// the tool catalog, so it never does: no session can invoke a skill, neither one it was given nor
+/// any of the skills the CLI bundles and loads even under <c>--setting-sources ""</c>. A skill an
+/// agent names reaches its session only as files under the session's skills root
+/// (<see cref="SessionFiles.SkillsRoot"/>), which the persona file names (<see cref="SkillLines"/>);
+/// no <c>--plugin-dir</c> is passed, since the CLI renames a plugin directory's skills, loads every
+/// folder in it, and runs the hooks a plugin directory holds.
+/// </para>
 /// </remarks>
 public static partial class ClaudeCodeInvocation
 {
@@ -392,7 +402,8 @@ public static partial class ClaudeCodeInvocation
     /// beside the default one in the home directory (<see cref="DefaultConfigFiles"/>), and each of
     /// <paramref name="profileDirectories"/>, the config directories of the node's profiles, and every
     /// directory the CLI may bind sessions' inboxes in (<see cref="InboxDirectories"/>). With
-    /// <paramref name="confined"/>, they are a confined session's rules.
+    /// <paramref name="confined"/>, they are a confined session's rules. With <paramref name="skills"/>,
+    /// they carry the session's skills root, into which no Edit or Write reaches.
     /// </summary>
     public static ToolGuardRules Guard(
         NodeHome home,
@@ -400,7 +411,8 @@ public static partial class ClaudeCodeInvocation
         CredentialProfile? profile,
         IReadOnlyDictionary<string, string> inherited,
         IEnumerable<string> profileDirectories,
-        bool confined = false)
+        bool confined = false,
+        bool skills = false)
     {
         ArgumentNullException.ThrowIfNull(home);
         ArgumentNullException.ThrowIfNull(profileDirectories);
@@ -414,7 +426,10 @@ public static partial class ClaudeCodeInvocation
             .Concat(profileDirectories.Select(d => Path.GetFullPath(d)))
             .Where(d => !string.Equals(d, session, StringComparison.Ordinal))
             .Distinct(StringComparer.Ordinal)];
-        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others, confined, InboxDirectories(inherited));
+        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others, confined, InboxDirectories(inherited))
+        {
+            SkillsRoot = skills ? SessionFiles.SkillsRootIn(work) : null,
+        };
     }
 
     /// <summary>
@@ -590,6 +605,39 @@ public static partial class ClaudeCodeInvocation
             {persona.Prohibitions}
 
             """;
+    }
+
+    /// <summary>
+    /// The persona's five parts, as <see cref="Persona(AgentPersona)"/> renders them, followed, when
+    /// <paramref name="skills"/> holds any, by <see cref="SkillLines"/>: the one block that tells the
+    /// session which skills it has. With no skills it is exactly the persona alone.
+    /// </summary>
+    public static string Persona(AgentPersona persona, IReadOnlyList<SessionSkill> skills)
+    {
+        ArgumentNullException.ThrowIfNull(skills);
+        return skills.Count == 0
+            ? Persona(persona)
+            : Persona(persona) + SkillLines(skills);
+    }
+
+    /// <summary>
+    /// The block of the persona file that names each skill the session has and the path of its
+    /// <c>SKILL.md</c> relative to the work directory, and tells the session to read a skill's
+    /// <c>SKILL.md</c> before it does work that skill covers. The skills are plain files under the
+    /// session's skills root; nothing makes the CLI load them as skills of its own.
+    /// </summary>
+    public static string SkillLines(IReadOnlyList<SessionSkill> skills)
+    {
+        ArgumentNullException.ThrowIfNull(skills);
+        var text = new StringBuilder();
+        text.Append("\n# Skills\n\n");
+        text.Append("You have the skills below, each a folder of files under your working directory. Before you do work that a skill covers, read its SKILL.md and follow it; it may point you at other files in its folder.\n\n");
+        foreach (SessionSkill skill in skills)
+        {
+            text.Append("- ").Append(skill.Name).Append(": ").Append(SessionFiles.SkillFileOf(skill.Name)).Append('\n');
+        }
+
+        return text.ToString();
     }
 
     /// <summary>

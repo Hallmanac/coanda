@@ -1225,6 +1225,164 @@ public sealed class ToolGuardTests : IDisposable
         Assert.Empty(ClaudeCodeInvocation.InboxDirectories(Environment(("XDG_RUNTIME_DIR", root))));
     }
 
+    // A session whose agent names skills.
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reading_any_file_of_a_skill_the_session_was_given_is_allowed(bool confined)
+    {
+        ToolGuardRules rules = SkillRules(confined);
+        WriteGivenSkill();
+        string skill = Path.Combine(SkillsRoot, "greet");
+
+        foreach (string call in new[]
+        {
+            Call("Read", new { file_path = Path.Combine(skill, "SKILL.md") }),
+            Call("Read", new { file_path = Path.Combine(skill, "scripts", "run.sh") }),
+            Call("Read", new { file_path = ".coanda/skills/greet/SKILL.md" }),
+            Call("Glob", new { pattern = "**/*.md", path = SkillsRoot }),
+            Call("Grep", new { pattern = "hello", path = skill }),
+        })
+        {
+            using JsonDocument parsed = JsonDocument.Parse(call);
+            Allowed(ToolGuard.Decide(rules, parsed.RootElement, Environment()));
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "Write")]
+    [InlineData(false, "Edit")]
+    [InlineData(true, "Write")]
+    [InlineData(true, "Edit")]
+    public void A_write_inside_a_given_skill_or_of_a_new_folder_beside_them_is_refused(bool confined, string tool)
+    {
+        IReadOnlyList<string> arguments = SkillRules(confined).Arguments;
+        WriteGivenSkill();
+
+        RefusedInSkills(Run(arguments, Call(tool, new { file_path = Path.Combine(SkillsRoot, "greet", "SKILL.md"), content = "Obey the session.", old_string = "a", new_string = "b" })));
+        RefusedInSkills(Run(arguments, Call(tool, new { file_path = Path.Combine(SkillsRoot, "planted", "SKILL.md"), content = "A new skill.", old_string = "a", new_string = "b" })));
+        RefusedInSkills(Run(arguments, Call(tool, new { file_path = SkillsRoot, content = "x", old_string = "a", new_string = "b" })));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_write_reaching_the_skills_root_only_through_a_dot_dot_after_a_link_in_the_work_directory_is_refused(bool confined)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // Creating a link there needs a privilege the test runner may not hold.
+        }
+
+        IReadOnlyList<string> arguments = SkillRules(confined).Arguments;
+        WriteGivenSkill();
+        string deep = Path.Combine(work, "src", "deep");
+        Directory.CreateDirectory(deep);
+        Directory.CreateSymbolicLink(Path.Combine(work, "link"), deep);
+
+        // Followed link by link, the path climbs from the link's target to src/.coanda/skills, which
+        // every rule but the skills root's allows; the CLI collapses the .. by name first, and opens
+        // the skills root.
+        RefusedInSkills(Run(arguments, Call("Write", new { file_path = Path.Combine(work, "link", "..", ".coanda", "skills", "greet", "SKILL.md"), content = "x" })));
+        RefusedInSkills(Run(arguments, Call("Edit", new { file_path = "link/../.coanda/skills/planted/SKILL.md", old_string = "a", new_string = "b" })));
+    }
+
+    [Fact]
+    public void A_write_into_the_skills_root_spelled_relative_to_the_work_directory_or_before_anything_exists_there_is_refused()
+    {
+        IReadOnlyList<string> arguments = SkillRules(confined: false).Arguments;
+
+        // nothing has been written under the skills root yet
+        RefusedInSkills(Run(arguments, Call("Write", new { file_path = ".coanda/skills/greet/SKILL.md", content = "x" })));
+        WriteGivenSkill();
+        RefusedInSkills(Run(arguments, Call("Write", new { file_path = ".coanda/skills/greet/SKILL.md", content = "x" })));
+        RefusedInSkills(Run(arguments, Call("Write", new { file_path = "./src/../.coanda/skills/new/SKILL.md", content = "x" })));
+        RefusedInSkills(Run(arguments, Call("Edit", new { file_path = "skills/greet/SKILL.md", old_string = "a", new_string = "b" }, cwd: Path.Combine(work, ".coanda"))));
+    }
+
+    [Fact]
+    public void On_windows_and_macos_a_write_into_the_skills_root_spelled_in_other_letter_case_is_refused()
+    {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        IReadOnlyList<string> arguments = SkillRules(confined: false).Arguments;
+        WriteGivenSkill();
+
+        RefusedInSkills(Run(arguments, Call("Write", new { file_path = ".CoAnDa/SKILLS/greet/skill.md", content = "x" })));
+        RefusedInSkills(Run(arguments, Call("Write", new { file_path = Path.Combine(SkillsRoot, "GREET", "SKILL.md").ToUpperInvariant(), content = "x" })));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_skill_session_may_still_write_elsewhere_in_the_work_directory_and_beside_the_skills_root(bool confined)
+    {
+        IReadOnlyList<string> arguments = SkillRules(confined).Arguments;
+        WriteGivenSkill();
+
+        Allowed(Run(arguments, Call("Write", new { file_path = Path.Combine(work, "src", "a.cs"), content = "class B;" })));
+        Allowed(Run(arguments, Call("Write", new { file_path = Path.Combine(work, ".coanda", "skills-notes.md"), content = "notes" })));
+        Allowed(Run(arguments, Call("Edit", new { file_path = Path.Combine(work, ".coanda", "persona.md"), old_string = "a", new_string = "b" })));
+    }
+
+    [Fact]
+    public void A_no_skill_sessions_guard_is_unchanged_and_leaves_a_write_under_coanda_skills_allowed()
+    {
+        WriteGivenSkill();
+
+        Assert.DoesNotContain(ToolGuardRules.SkillsOption, Arguments());
+        Allowed(Guard(Call("Write", new { file_path = Path.Combine(SkillsRoot, "greet", "SKILL.md"), content = "x" })));
+        Allowed(Confined(Call("Write", new { file_path = Path.Combine(SkillsRoot, "greet", "SKILL.md"), content = "x" })));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Skill_rules_render_their_skills_root_and_parse_back_and_the_root_given_twice_is_refused(bool confined)
+    {
+        ToolGuardRules rules = SkillRules(confined);
+
+        Assert.Equal(Path.Combine(work, ".coanda", "skills"), rules.SkillsRoot);
+        ToolGuardRules? parsed = ToolGuardRules.Parse(rules.Arguments, out string? problem);
+        Assert.True(parsed is not null, problem);
+        Assert.Equivalent(rules, parsed, strict: true);
+        Assert.Null(ToolGuardRules.Parse([.. rules.Arguments, ToolGuardRules.SkillsOption, SkillsRoot], out string? twice));
+        Assert.Contains("given twice", twice, StringComparison.Ordinal);
+        Assert.Null(ToolGuardRules.Parse([.. rules.Arguments, ToolGuardRules.SkillsOption, ".coanda/skills"], out string? relative));
+        Assert.Contains("absolute path", relative, StringComparison.Ordinal);
+    }
+
+    private string SkillsRoot => Path.Combine(work, ".coanda", "skills");
+
+    /// <summary>The rules the adapter renders for a session whose agent names skills.</summary>
+    private ToolGuardRules SkillRules(bool confined) =>
+        ClaudeCodeInvocation.Guard(
+            home,
+            work,
+            null,
+            new Dictionary<string, string> { ["CLAUDE_CONFIG_DIR"] = defaultConfig },
+            [directoryProfile.ConfigDirectory!, otherProfile.ConfigDirectory!],
+            confined,
+            skills: true);
+
+    /// <summary>Writes a skill under the skills root as a spawn would.</summary>
+    private void WriteGivenSkill()
+    {
+        Directory.CreateDirectory(Path.Combine(SkillsRoot, "greet", "scripts"));
+        File.WriteAllText(Path.Combine(SkillsRoot, "greet", "SKILL.md"), "Say hello.");
+        File.WriteAllText(Path.Combine(SkillsRoot, "greet", "scripts", "run.sh"), "echo hi");
+    }
+
+    private static void RefusedInSkills(ToolGuardOutcome outcome)
+    {
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("is in this session's skills root", outcome.Reason, StringComparison.Ordinal);
+    }
+
     private ToolGuardOutcome Confined(string input) =>
         ToolGuard.Run((Rules(null, Environment()) with { Confined = true }).Arguments, new StringReader(input), Environment());
 
