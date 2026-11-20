@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using Coanda.Core;
 using Coanda.Daemon;
 using Coanda.Daemon.Api.Endpoints;
@@ -43,15 +42,8 @@ public sealed class DefinitionShowCommand : AsyncCommand<DefinitionIdSettings>
             $"/definitions/{id}?project={Uri.EscapeDataString(project)}", cancellationToken);
         DefinitionOutput.Write(shown.Definition);
         AnsiConsole.WriteLine();
-        AnsiConsole.WriteLine(Indented(shown.Content));
+        AnsiConsole.WriteLine(shown.Content);
         return 0;
-    }
-
-    /// <summary>The content, indented for reading; what is stored and hashed is the compact form.</summary>
-    private static string Indented(string content)
-    {
-        using JsonDocument document = JsonDocument.Parse(content);
-        return JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
     }
 }
 
