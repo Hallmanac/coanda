@@ -206,11 +206,12 @@ when either reading reaches a protected place. Expanding variables is otherwise 
 reads a Bash command: it reads every word of one that looks like a path after expanding `~` and the
 session's variables as its shell would (`$PWD` is the directory the shell is in at that point, and a
 variable the session does not define is empty). A relative word in a command is judged against each
-directory a `cd` or `pushd` earlier in the command may have moved the shell to, and against the directory the call runs in as well, unless
-the word's command is joined to the `cd` by `&&`; the destination of a `cd` is judged too, and a bare
-`cd` goes to your home directory, which holds the node home. A `cd`, or zsh's `chdir`, is recognised
-behind shell keywords such as `then` or `{` and behind `builtin`, `command`, and `eval`; its options
-are read as the shell reads them, with backslashes removed, so `cd -\P` is a bare `cd`. After a `popd`, or a `pushd` that
+directory a `cd` or `pushd` earlier in the command may have moved the shell to, and against the
+directory the call runs in as well, unless the word's command is joined to the `cd` by `&&`; the
+destination of a `cd` is judged too, and a bare `cd` goes to your home directory, which holds the
+node home. A `cd`, or zsh's `chdir`, is recognised behind shell keywords such as `then` or `{` and
+behind `builtin`, `command`, and `eval`; its options are read as the shell reads them, with
+backslashes removed, so `cd -\P` is a bare `cd`. After a `popd`, or a `pushd` that
 rotates the directory stack, a relative word is judged against every directory the shell has been in
 during the command. Every word is judged both as written and with its backslashes removed, as the
 shell reads it outside quotes. The guard refuses a call that depends on `$OLDPWD`, `cd -`, or `~-`,
