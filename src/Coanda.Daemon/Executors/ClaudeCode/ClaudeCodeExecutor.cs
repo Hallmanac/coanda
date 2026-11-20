@@ -46,11 +46,19 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// <see cref="FileHash"/> of both files as they stand once its process has ended, and once the
 /// executor has stopped a session or let it go, both are kept gzip-compressed and owner-only at
 /// <see cref="KeptPathOf"/>, the uncompressed files removed.
+/// The executor sends only to an inbox handle (<see cref="SessionHandle.ForInbox"/>), which names the
+/// inbox of a live Claude Code session it did not start, such as a window a person opened, and posts
+/// the message there through <see cref="ClaudeInbox"/>. It never collects from, resumes, stops, or
+/// reattaches such a session, never lists one, and sends nothing into a session it spawned, whose
+/// settings document refuses every message another local session posts into its inbox.
 /// </remarks>
 public sealed class ClaudeCodeExecutor : IAgentExecutor
 {
     /// <summary>The executable started when the node configuration names none: <c>claude</c>, looked up on the PATH.</summary>
     public const string DefaultExecutable = "claude";
+
+    /// <summary>The executor's name in the reasons it gives.</summary>
+    private const string Name = ClaudeCodeInvocation.Vendor;
 
     /// <summary>How much of the process's error output, and of an error result's text, a failure quotes.</summary>
     public const int QuotedLength = 500;
@@ -212,6 +220,8 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     public async ValueTask<CollectedAnswer> CollectAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(handle);
+        handle.RequireSpawned(Name, "collect from");
         Session session = RequireLive(handle);
         Attempt attempt = session.Current ?? throw new InvalidOperationException($"Session {handle.Id} has no process to collect.");
         if (attempt.Collected is { } already)
@@ -318,7 +328,9 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
 
     public ValueTask ResumeAsync(SessionHandle handle, string message, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
+        handle.RequireSpawned(Name, "resume");
         Session session = RequireLive(handle);
         decimal remaining;
         Attempt previous;
@@ -378,9 +390,24 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         throw new InvalidOperationException($"Session {handle.Id} has been stopped.");
     }
 
-    /// <summary>Refuses every call: sending into a live session is not supported by this executor yet.</summary>
-    public ValueTask SendAsync(SessionHandle handle, string message, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("The claude-code executor does not support sending into a live session yet.");
+    /// <summary>
+    /// Posts the message into the inbox an inbox handle (<see cref="SessionHandle.ForInbox"/>) names,
+    /// through <see cref="ClaudeInbox"/>, and returns once it is written whole, waiting for no report of
+    /// delivery. It needs nothing this executor recorded, so any instance delivers to the same handle.
+    /// A handle of a session this executor spawned is refused, and nothing reaches its process.
+    /// </summary>
+    public async ValueTask SendAsync(SessionHandle handle, string message, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(message);
+        if (handle.Inbox is not { } inbox)
+        {
+            throw new NotSupportedException(
+                $"The claude-code executor sends only to an inbox handle, which names the inbox of a live session it did not start; session {handle.Id} is not one, so nothing was sent to it.");
+        }
+
+        await ClaudeInbox.SendAsync(inbox, message, cancellationToken);
+    }
 
     /// <summary>
     /// Kills the session's process together with every process it started, removes its record, and
@@ -395,6 +422,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     public async ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handle);
+        handle.RequireSpawned(Name, "stop");
         lock (gate)
         {
             if (stopped.Contains(handle.Id))
@@ -486,6 +514,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
+        handle.RequireSpawned(Name, "reattach");
         if (Find(handle.Id) is not { } session)
         {
             lock (gate)

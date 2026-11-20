@@ -9,7 +9,9 @@ namespace Coanda.Daemon.Executors;
 /// agent steps run without a vendor or a network. The nth answer collected for an agent, counting
 /// answers collected after a resume, is that agent's nth entry; collecting a session again before
 /// it is resumed returns the same answer without advancing the count. It records every spawn,
-/// resume, send, and stop for a test to read back, and enforces no caps.
+/// resume, send, and stop for a test to read back, and enforces no caps. It takes the same send-only
+/// handle (<see cref="SessionHandle.ForInbox"/>) as any executor, recording each send to it without
+/// any session behind it, and refuses that handle for everything but a send.
 /// </summary>
 public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<ScriptEntry>> script) : IAgentExecutor
 {
@@ -60,6 +62,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     public ValueTask<CollectedAnswer> CollectAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        RequireSpawned(handle, "collect from");
         lock (gate)
         {
             Session session = RequireLive(handle);
@@ -86,6 +89,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     public ValueTask ResumeAsync(SessionHandle handle, string message, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        RequireSpawned(handle, "resume");
         lock (gate)
         {
             Session session = RequireLive(handle);
@@ -103,12 +107,14 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>Records the message, against the inbox an inbox handle names or the live session a spawned one names.</summary>
     public ValueTask SendAsync(SessionHandle handle, string message, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
         lock (gate)
         {
-            sends.Add(new ScriptedMessage(RequireLive(handle).Handle, message));
+            sends.Add(new ScriptedMessage(handle.Inbox is null ? RequireLive(handle).Handle : handle, message));
         }
 
         return ValueTask.CompletedTask;
@@ -118,6 +124,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     public ValueTask<StopReport?> StopAsync(SessionHandle handle, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        RequireSpawned(handle, "stop");
         lock (gate)
         {
             Session session = RequireLive(handle);
@@ -146,6 +153,7 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
     {
         ArgumentNullException.ThrowIfNull(handle);
         cancellationToken.ThrowIfCancellationRequested();
+        RequireSpawned(handle, "reattach");
         lock (gate)
         {
             if (lost.Remove(handle.Id, out Measurement? earlier))
@@ -192,6 +200,12 @@ public sealed class ScriptedExecutor(IReadOnlyDictionary<string, IReadOnlyList<S
                 lost[session.Handle.Id] = session.Earlier;
             }
         }
+    }
+
+    private static void RequireSpawned(SessionHandle handle, string action)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        handle.RequireSpawned("scripted", action);
     }
 
     private Session RequireLive(SessionHandle handle)
