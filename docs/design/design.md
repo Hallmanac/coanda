@@ -676,7 +676,14 @@ a step of a named flow (`{"Flow": "<flow>", "Step": "<step>"}`), whose latest re
 parcel it reads, which may be the step's own flow and the step itself; the open parcels of a named
 type (`{"Type": "<type>"}`); and the parcel's origin (`{"Origin": true}`). Validation checks a named
 flow or type only as a plain name and consults no other definition, because an absent flow or type
-reads as empty in the context rather than refusing the flow. A source that names only a step writes
+reads as empty in the context rather than refusing the flow. The context says so: a named flow with
+no recording of the step renders one line saying no flow run of it on this parcel recorded the step,
+and a type that does not resolve for the project renders one line saying it is not present, even when
+parcels of that name remain in the record. A type source lists at most the 50 most recently created
+open parcels of its type other than the step's own, with a line counting any left out. An origin
+source reads the parcel's derived-from relation, not the key that keeps one cause from creating a
+parcel twice, and renders the parcel it came from and the flow run that caused it, each on its own
+whether or not the other is in the record. Every read stays inside the step's project. A source that names only a step writes
 and hashes as it did before the other kinds existed. The daemon fences every value it renders into a
 session's files (a parcel's title, each field value, and each earlier step's answer, in prompt.md and
 parcel.md) in backticks the value cannot close, under a sentence framing the fenced values as data that
