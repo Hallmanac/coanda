@@ -12,8 +12,8 @@ namespace Coanda.Tests.Modules.Software;
 /// <summary>
 /// The software module's describe answer: a document the describe schema accepts, listing the six
 /// steps, each with an argument schema and a result schema, and the module's settings schema, whose
-/// step names are the ones the shipped build and merge flows name and whose argument schemas accept
-/// the arguments those flows give.
+/// step names are the ones the shipped build, merge, and rebase flows name and whose argument schemas
+/// accept the arguments those flows give.
 /// </summary>
 public sealed class SoftwareDescribeTests
 {
