@@ -780,8 +780,18 @@ public sealed class ToolGuardTests : IDisposable
         string path = "deep/" + string.Concat(Enumerable.Repeat("../", depth + 1)) + "daemon.json";
         RefusedInNodeHome(Guard(Call("Read", new { file_path = path })));
 
-        // A shell's cat follows the link first, so the same path in a Bash command stays in the work directory.
-        Allowed(Guard(Call("Bash", new { command = "cat " + path })));
+        // A shell's cat follows the link first, so off Windows the same path in a Bash command stays in the
+        // work directory. Windows collapses `..` by name before it follows a link, so there the guard reads
+        // the command's path the way the CLI reads the file tool's, and refuses it too.
+        ToolGuardOutcome bash = Guard(Call("Bash", new { command = "cat " + path }));
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(ToolGuardOutcome.DenyCode, bash.ExitCode);
+        }
+        else
+        {
+            Allowed(bash);
+        }
     }
 
     [Fact]
