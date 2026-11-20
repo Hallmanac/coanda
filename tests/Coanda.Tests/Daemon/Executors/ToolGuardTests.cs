@@ -794,6 +794,64 @@ public sealed class ToolGuardTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("Read", "file_path", true)]
+    [InlineData("Edit", "file_path", true)]
+    [InlineData("Write", "file_path", true)]
+    [InlineData("Grep", "path", true)]
+    [InlineData("Glob", "pattern", true)]
+    [InlineData("Glob", "path", true)]
+    [InlineData("Read", "file_path", false)]
+    [InlineData("Edit", "file_path", false)]
+    [InlineData("Write", "file_path", false)]
+    [InlineData("Grep", "path", false)]
+    [InlineData("Glob", "pattern", false)]
+    [InlineData("Glob", "path", false)]
+    public void An_unconfined_path_climbing_back_out_of_a_symbolic_link_is_judged_as_the_cli_collapses_it_first(string tool, string field, bool nodeHome)
+    {
+        // The link leads deeper into the work directory than the climb after it, so following it first keeps
+        // the path in the work directory; collapsed first, as the CLI does, it climbs to the node home or to
+        // the test root and down into the default config directory.
+        string from = nodeHome ? home.Path : root;
+        string target = nodeHome ? string.Empty : "user/.claude/";
+        int depth = Path.GetRelativePath(from, work).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries).Length;
+        string deep = Path.Combine([work, .. Enumerable.Repeat("level", depth + 2)]);
+        Directory.CreateDirectory(deep);
+        string link = Path.Combine(work, "deep");
+        try
+        {
+            Directory.CreateSymbolicLink(link, deep);
+        }
+        catch (Exception unsupported) when (unsupported is IOException or UnauthorizedAccessException)
+        {
+            // Windows without the privilege to create links.
+            return;
+        }
+
+        string climb = string.Concat(Enumerable.Repeat("../", depth + 1)) + target;
+        ToolGuardOutcome outcome = Guard(Call(tool, Input("deep/" + climb)));
+        if (nodeHome)
+        {
+            RefusedInNodeHome(outcome);
+        }
+        else
+        {
+            RefusedInConfig(outcome);
+        }
+
+        // With the link's target written in its place the path stays in the work directory under either
+        // reading, so only the collapsed reading of the link refuses it.
+        Allowed(Guard(Call(tool, Input(deep + "/" + climb))));
+
+        object Input(string path) => (tool, field) switch
+        {
+            ("Glob", "pattern") => new { pattern = path + "*.json" },
+            ("Glob", _) => new { pattern = "*.json", path },
+            ("Grep", _) => new { pattern = "x", path },
+            _ => new { file_path = path + "settings.json" },
+        };
+    }
+
     [Fact]
     public void A_path_with_white_space_around_it_is_judged_as_the_cli_trims_it()
     {
