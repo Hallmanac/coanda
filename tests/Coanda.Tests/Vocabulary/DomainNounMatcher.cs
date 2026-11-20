@@ -21,6 +21,9 @@ public sealed record NounHit(string File, int Line, string Noun, NounSite Site, 
     }
 }
 
+/// <summary>A domain noun found in plain text: the noun as the list names it, and the word or words of the text it matched.</summary>
+public sealed record NounInText(string Noun, string Words);
+
 /// <summary>Whether a hit was in a name the file declares or in the text of a string literal.</summary>
 public enum NounSite
 {
@@ -97,16 +100,36 @@ public static partial class DomainNounMatcher
     public static IReadOnlyList<string> Words(string text) =>
         [.. LetterRuns().Matches(text).SelectMany(run => CaseWords().Matches(run.Value).Select(word => word.Value))];
 
+    /// <summary>
+    /// Every domain noun in <paramref name="text"/>, in the order its words come: the text is split into words as
+    /// <see cref="Words"/> splits it, and a noun matches in its singular or its plural, ignoring case, where pull
+    /// request is the words pull and request side by side and GitHub the word github or the words git and hub.
+    /// </summary>
+    public static IReadOnlyList<NounInText> NounsIn(string text)
+    {
+        IReadOnlyList<string> words = Words(text);
+        return [.. Matches(words).Select(match => new NounInText(match.Noun, string.Join(" ", words.Skip(match.At).Take(match.Length))))];
+    }
+
     private static void AddHits(List<NounHit> hits, SyntaxTree tree, string file, SyntaxToken token, string text, NounSite site)
     {
         IReadOnlyList<string> words = Words(text);
+        foreach ((string noun, int at, int _) in Matches(words))
+        {
+            hits.Add(new NounHit(file, LineOf(tree, token, words[at], at, words), noun, site, text));
+        }
+    }
+
+    /// <summary>Each noun that starts at a word, with the word's index and the number of words its matching form spans.</summary>
+    private static IEnumerable<(string Noun, int At, int Length)> Matches(IReadOnlyList<string> words)
+    {
         for (int at = 0; at < words.Count; at++)
         {
             foreach ((string noun, string[][] forms) in Nouns)
             {
-                if (forms.Any(form => StartsAt(words, at, form)))
+                if (forms.FirstOrDefault(form => StartsAt(words, at, form)) is { } form)
                 {
-                    hits.Add(new NounHit(file, LineOf(tree, token, words[at], at, words), noun, site, text));
+                    yield return (noun, at, form.Length);
                 }
             }
         }
