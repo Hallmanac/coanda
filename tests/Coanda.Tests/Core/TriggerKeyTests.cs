@@ -32,12 +32,13 @@ public sealed class TriggerKeyTests
     }
 
     [Fact]
-    public void A_firing_adds_the_external_events_id_or_the_ended_flow_runs_id()
+    public void A_firing_adds_the_external_events_id_the_ended_flow_runs_id_or_the_pauses_id()
     {
         Guid cause = Ids.New();
 
         Assert.Equal($"trigger:owner/x:event:{cause}", TriggerKey.ForEvent("trigger:owner/x", cause));
         Assert.Equal($"trigger:owner/x:flow-run:{cause}", TriggerKey.ForFlowRunEnd("trigger:owner/x", cause));
+        Assert.Equal($"trigger:owner/x:pause:{cause}", TriggerKey.ForPause("trigger:owner/x", cause));
     }
 
     [Fact]
@@ -48,6 +49,7 @@ public sealed class TriggerKeyTests
         Assert.Equal("review-mine", TriggerKey.NameOf(TriggerKey.ForEvent("trigger:project:alpha/review-mine", cause), "alpha"));
         Assert.Equal("review-mine", TriggerKey.NameOf(TriggerKey.ForFlowRunEnd("trigger:owner/review-mine", cause), "alpha"));
         Assert.Equal("rebase", TriggerKey.NameOf(TriggerKey.ForEvent("trigger:module:software/rebase", cause), "alpha"));
+        Assert.Equal("chase", TriggerKey.NameOf(TriggerKey.ForPause("trigger:project:alpha/chase", cause), "alpha"));
         Assert.Equal("a/b", TriggerKey.NameOf(TriggerKey.ForEvent("trigger:project:x/y/a/b", cause), "x/y"));
     }
 

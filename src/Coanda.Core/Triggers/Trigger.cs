@@ -38,13 +38,14 @@ public sealed record Trigger(string EventKind, IReadOnlyDictionary<string, strin
 
     /// <summary>
     /// The trigger a trigger definition matches by: its event kind and its filters, with a <c>flow</c>
-    /// filter on a flow run's end folded as <see cref="ForFollow"/> folds a follow's flow name, since the
-    /// definition stores it as written. Every other filter compares exactly, as written.
+    /// filter on a flow run's end or on attention folded as <see cref="ForFollow"/> folds a follow's flow
+    /// name, since the definition stores it as written. Every other filter compares exactly, as written.
     /// </summary>
     public static Trigger ForDefinition(TriggerDefinition definition)
     {
         var filters = new Dictionary<string, string>(definition.Filters, StringComparer.Ordinal);
-        if (string.Equals(definition.EventKind, TriggerEvent.FlowRunEndedKind, StringComparison.Ordinal)
+        if ((string.Equals(definition.EventKind, TriggerEvent.FlowRunEndedKind, StringComparison.Ordinal)
+                || string.Equals(definition.EventKind, TriggerEvent.AttentionKind, StringComparison.Ordinal))
             && filters.TryGetValue(TriggerEvent.FlowField, out string? flow))
         {
             filters[TriggerEvent.FlowField] = TriggerEvent.FlowKey(flow);

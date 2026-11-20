@@ -243,6 +243,23 @@ public sealed class ExternalEventRecordingTests
     }
 
     [Fact]
+    public async Task Recording_an_external_event_of_the_attention_kind_is_refused_whoever_records_it_and_nothing_is_recorded()
+    {
+        using var temp = new TemporaryHome();
+        await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
+        var triggers = new TriggerService(store, TimeProvider.System);
+
+        foreach (Principal recorder in new[] { Principal.LocalOwner, Teammate })
+        {
+            DomainException refused = await Assert.ThrowsAsync<DomainException>(
+                () => triggers.RecordEventAsync(recorder, Alpha, TriggerEvent.AttentionKind, "pause-1", null, Fields, None));
+            Assert.Equal("The kind 'attention' is what a flow run's pause reads as; an external event cannot use it.", refused.Message);
+        }
+
+        Assert.Empty(await AppendedAsync(store, Alpha));
+    }
+
+    [Fact]
     public async Task An_external_id_at_the_cap_is_recorded_and_one_a_character_over_it_is_refused()
     {
         using var temp = new TemporaryHome();

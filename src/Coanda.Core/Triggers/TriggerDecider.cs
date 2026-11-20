@@ -7,10 +7,11 @@ namespace Coanda.Core.Triggers;
 /// <summary>
 /// The rules for recording an external event, as pure decisions: the event that records the intent, or
 /// a <see cref="DomainException"/> quoting the rule. It may not use
-/// <see cref="TriggerEvent.ParcelEnteredKind"/> or <see cref="TriggerEvent.FlowRunEndedKind"/>: those
-/// are what the daemon's own record reads as, and a recorded event of either kind would pass for a
-/// parcel entry or a flow run end. No new subscription is recorded: a trigger is a definition now, and
-/// the subscriptions recorded before stay in force (<see cref="Subscription"/>).
+/// <see cref="TriggerEvent.ParcelEnteredKind"/>, <see cref="TriggerEvent.FlowRunEndedKind"/>, or
+/// <see cref="TriggerEvent.AttentionKind"/>: those are what the daemon's own record reads as, and a recorded
+/// event of any of them would pass for a parcel entry, a flow run end, or a flow run's pause. No new
+/// subscription is recorded: a trigger is a definition now, and the subscriptions recorded before stay in
+/// force (<see cref="Subscription"/>).
 /// An external event of a module-prefixed kind (<c>&lt;module&gt;/&lt;name&gt;</c>) is recorded only by
 /// the Module principal of the module the prefix names; the owner is refused too, and repairs a
 /// module's record through the module.
@@ -63,6 +64,12 @@ public static class TriggerDecider
         {
             throw new DomainException(
                 $"The kind '{TriggerEvent.FlowRunEndedKind}' is what a flow run's own end reads as; an external event cannot use it.");
+        }
+
+        if (string.Equals(kind, TriggerEvent.AttentionKind, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                $"The kind '{TriggerEvent.AttentionKind}' is what a flow run's pause reads as; an external event cannot use it.");
         }
 
         string? notPlain = fields.Keys.FirstOrDefault(name => !Flow.IsPlainName(name));

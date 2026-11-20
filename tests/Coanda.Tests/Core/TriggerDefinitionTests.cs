@@ -264,6 +264,34 @@ public sealed class TriggerDefinitionTests
             message);
     }
 
+    [Fact]
+    public void A_trigger_on_attention_that_acts_on_the_events_parcel_is_refused_since_the_parcel_holds_its_paused_flow_run()
+    {
+        string message = Refusal(new TriggerDefinition
+        {
+            Name = "chase",
+            EventKind = "attention",
+            Target = new TriggerTarget { EventParcel = new EventParcelTarget { Flow = "judge" } },
+        });
+
+        Assert.Equal(
+            "Trigger 'chase' triggers on 'attention' and acts on the paused flow run's parcel; a pause's parcel still holds its paused flow run, so no flow can start on it, and a trigger on 'attention' creates a parcel.",
+            message);
+    }
+
+    [Fact]
+    public void A_trigger_on_attention_that_creates_a_parcel_is_valid()
+    {
+        new TriggerDefinition
+        {
+            Name = "chase",
+            EventKind = "attention",
+            Filters = SampleTriggers.Filters(("flow", "build")),
+            Target = new TriggerTarget { CreateParcel = new CreateParcelTarget { ParcelType = "task", TitleField = "title", Flow = "judge" } },
+            HourlyCap = 5,
+        }.Validate();
+    }
+
     [Theory]
     [InlineData("build", "build")]
     [InlineData("Build", "build")]
