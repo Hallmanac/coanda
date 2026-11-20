@@ -1,0 +1,45 @@
+{
+  "Name": "rebase",
+  "Accepts": [
+    "task"
+  ],
+  "Outcome": "rebased",
+  "Budget": 1,
+  "SpawnCap": 1,
+  "Steps": [
+    {
+      "Name": "worktree",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/worktree",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 3,
+          "Target": "rebase"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "rebase",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "software/rebase",
+      "Arguments": {},
+      "Transitions": [
+        {
+          "Field": "verdict",
+          "Value": "done",
+          "VisitCap": 3,
+          "Target": "end"
+        }
+      ],
+      "Fields": [],
+      "Sources": []
+    }
+  ]
+}

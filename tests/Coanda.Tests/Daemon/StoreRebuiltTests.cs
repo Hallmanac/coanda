@@ -146,9 +146,9 @@ public sealed class StoreRebuiltTests
         // listing the parcels it derives), the build flow it imports as its next version, since it has
         // gained the review diff step, and the idea type and the discovery flow it imports as their next
         // versions, since the idea has come to derive tasks and the discovery flow's derive-parcels step
-        // to name the step it derives from.
+        // to name the step it derives from, and the rebase flow, which main never shipped, as its first version.
         List<Definition> held = await HeldAsync(store);
-        Assert.Equal(24, held.Count);
+        Assert.Equal(25, held.Count);
         Definition task = held.Where(d => d.Kind == DefinitionKind.ParcelType && d.Name == "task").MaxBy(d => d.VersionNumber)
             ?? throw new InvalidOperationException("No task type.");
         Assert.Equal((DefinitionScope.Module, SoftwareTypes.Task.Hash, DefinitionStatus.Published), (task.Scope, task.ContentHash, task.Status));
@@ -168,7 +168,9 @@ public sealed class StoreRebuiltTests
             [(1, PreviousFlows.DiscoveryBeforeDerive.Hash, DefinitionStatus.Published), (2, SoftwareFlows.Discovery.Hash, DefinitionStatus.Published)],
             discoveries.Select(d => (d.VersionNumber, d.ContentHash, d.Status)));
         Assert.All([.. ideas, .. discoveries], d => Assert.Equal(DefinitionScope.Module, d.Scope));
-        Definition[] started = [task, build, ideas[1], discoveries[1], .. agents.Where(d => d.VersionNumber == 2)];
+        Definition rebase = Assert.Single(held, d => d.Kind == DefinitionKind.Flow && d.Name == "rebase");
+        Assert.Equal((1, DefinitionScope.Module, SoftwareFlows.Rebase.Hash, DefinitionStatus.Published), (rebase.VersionNumber, rebase.Scope, rebase.ContentHash, rebase.Status));
+        Definition[] started = [task, build, rebase, ideas[1], discoveries[1], .. agents.Where(d => d.VersionNumber == 2)];
 
         // What main recorded in shipped scope the rebuild wrote as the software module's, at version 0.1.0, with the content and hash it was stored with.
         List<Definition> recorded = [.. held.Where(d => !started.Contains(d) && d.Scope == DefinitionScope.Module)];

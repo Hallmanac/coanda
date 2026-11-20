@@ -28,6 +28,20 @@ public static class RecordedHeads
         return Latest(onParcel.Where(f => f.RootFlowRunId == flowRun.RootFlowRunId));
     }
 
+    /// <summary>
+    /// The head recorded as pushed last among every flow run on the dispatch's parcel, whatever chain
+    /// it belongs to, with when its result was recorded, or null when none of them recorded a push or
+    /// the latest carries no head. Only the rebase reads this one, and only when its own chain recorded
+    /// no head, as a flow run a person started on its own does: it guards with it exactly as it guards
+    /// with the chain's, so a branch or remote holding a commit nobody recorded still ends in a pause.
+    /// The merge never reads it, so a merge flow run still merges only a head its own chain pushed.
+    /// </summary>
+    public static async Task<RecordedHead?> OfParcelAsync(StepContext context, CancellationToken cancellationToken)
+    {
+        CoreFlowRun flowRun = await context.FlowRunAsync(cancellationToken);
+        return Latest(await context.Core.FlowRunsAsync(context.Request.Project, flowRun.ParcelId, cancellationToken));
+    }
+
     private static RecordedHead? Latest(IEnumerable<CoreFlowRun> flowRuns)
     {
         CoreFlowRunStep? latest = flowRuns

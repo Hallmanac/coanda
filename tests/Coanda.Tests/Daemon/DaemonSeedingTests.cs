@@ -119,7 +119,7 @@ public sealed class DaemonSeedingTests
     }
 
     [Fact]
-    public async Task The_flow_list_endpoint_returns_exactly_the_four_shipped_flows_on_a_fresh_node_home()
+    public async Task The_flow_list_endpoint_returns_exactly_the_five_shipped_flows_on_a_fresh_node_home()
     {
         using var temp = new TemporaryHome();
 
@@ -128,7 +128,7 @@ public sealed class DaemonSeedingTests
             List<FlowView> flows = await FlowsAsync(client, "alpha");
 
             Assert.Equal(SoftwareFlows.All.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => (f.Name, 1, f.Hash)), flows.Select(f => (f.Name, f.Version, f.Hash)));
-            Assert.Equivalent(new[] { "build", "merge", "discovery", "review-on-assignment" }, flows.Select(f => f.Name), strict: true);
+            Assert.Equivalent(new[] { "build", "merge", "rebase", "discovery", "review-on-assignment" }, flows.Select(f => f.Name), strict: true);
 
             DomainException exception = await Assert.ThrowsAsync<DomainException>(() => client.GetAsync<List<FlowView>>("/flows?project=_node", CancellationToken.None));
             Assert.Contains("reserved for node-level records", exception.Message, StringComparison.Ordinal);

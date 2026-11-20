@@ -3,7 +3,7 @@ using Coanda.Core.Flows;
 namespace Coanda.Tests;
 
 /// <summary>
-/// The software module's flows, build, merge, discovery, and review on assignment, read from its
+/// The software module's flows, build, merge, rebase, discovery, and review on assignment, read from its
 /// definitions folder, with the merge flow's caps as that flow's transitions declare them.
 /// </summary>
 public static class SoftwareFlows
@@ -12,11 +12,13 @@ public static class SoftwareFlows
 
     public static readonly Flow Merge = Flow.FromJson(SoftwareDefinitions.Read("flows", "merge"));
 
+    public static readonly Flow Rebase = Flow.FromJson(SoftwareDefinitions.Read("flows", "rebase"));
+
     public static readonly Flow Discovery = Flow.FromJson(SoftwareDefinitions.Read("flows", "discovery"));
 
     public static readonly Flow ReviewOnAssignment = Flow.FromJson(SoftwareDefinitions.Read("flows", "review-on-assignment"));
 
-    public static readonly IReadOnlyList<Flow> All = [Build, Merge, Discovery, ReviewOnAssignment];
+    public static readonly IReadOnlyList<Flow> All = [Build, Merge, Rebase, Discovery, ReviewOnAssignment];
 
     /// <summary>The lever the discovery flow's gate pauses with, written out here so a test holds the file to this exact text.</summary>
     public const string DiscoveryGateLever =
