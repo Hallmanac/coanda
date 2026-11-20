@@ -80,6 +80,14 @@ Phase 0: build from source with the .NET 11 SDK (`dotnet build`), then run
 - `coa flow list`, `coa flow start <flow> --parcel <id>`
 - `coa flow-run list --parcel <id>`, `coa flow-run show <id>`, `coa flow-run pause <id> --reason <why>`,
   `coa flow-run stop <id> --reason <why>`, `coa flow-run resume <id> [--note <text>] [--answer <text>]`
+- `coa attention list [--project <name>]`
+
+  `coa attention list` prints every paused flow run this node started, in every project the node holds,
+  oldest pause first: its project, its id, its parcel and the parcel's title, its flow, the step it
+  paused on, the pause's reason and lever, and when the pause was recorded. `--project <name>` narrows
+  it to that one project, which must be registered on the node. With no `--project` it lists every
+  project; it does not narrow to `COANDA_PROJECT` or to the current directory's name as other commands
+  do. A paused flow run another node started is that node's to resume, so it is not listed here.
 
 A parcel with a live flow run, whether that flow run is running or paused, is closed by nobody and moved
 only by that flow run's own steps. `coa parcel move` and `coa parcel close` refuse it, naming the flow run

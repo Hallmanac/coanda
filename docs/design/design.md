@@ -742,7 +742,7 @@ to diff. The courier is a trigger on attention events bound to a deliver-to-wind
 pushing into the window's live session through the vendor's inbound channel, with the batching wait
 and the bypass list as binding parameters.
 
-The CLI, `coa`: noun-first (parcel, flow, flow run, agent, project, node, and module, with
+The CLI, `coa`: noun-first (parcel, flow, flow run, attention, agent, project, node, and module, with
 `coa module` for a node's modules and `coa project module` for a project's), thin, calls the daemon
 and starts it when needed; verbs follow the registry. Beside that noun-first rule the CLI has one
 top-level verb, `coa join`, a first-run act like `coa project add`. Sessions talk back through it,
