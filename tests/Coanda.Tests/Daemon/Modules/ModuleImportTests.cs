@@ -42,7 +42,8 @@ public sealed class ModuleImportTests
     /// carried-forward and stopped, so its three endings record three outcomes, and the discovery agent's answer lists the parcels it derives (the hashes
     /// they had before are pinned in
     /// <see cref="Coanda.Tests.Core.ParcelTypeFieldTests"/>, <see cref="Coanda.Tests.Core.SoftwareFlowsTests"/>,
-    /// and <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>).
+    /// and <see cref="Coanda.Tests.Core.SoftwareAgentsTests"/>). The rebase flow, which main did not
+    /// have, carries the hash it first shipped with.
     /// </summary>
     public static TheoryData<DefinitionKind, string, string> HashesOnMain() => new()
     {
@@ -50,6 +51,7 @@ public sealed class ModuleImportTests
         { DefinitionKind.ParcelType, "task", "3e16509d2543dbb9" },
         { DefinitionKind.Flow, "build", "96172170513f94b9" },
         { DefinitionKind.Flow, "merge", "3ea9bf7b75a6e9f4" },
+        { DefinitionKind.Flow, "rebase", "fcea4a4c035a0144" },
         { DefinitionKind.Flow, "discovery", "95e0c2cb2e8aeb43" },
         { DefinitionKind.Flow, "review-on-assignment", "fabaabb2eb82ff10" },
         { DefinitionKind.Agent, "build", "039f9385559d36aa" },
@@ -110,7 +112,7 @@ public sealed class ModuleImportTests
     }
 
     [Fact]
-    public async Task The_software_module_brings_exactly_the_eleven_definitions_and_nothing_else_is_imported()
+    public async Task The_software_module_brings_exactly_the_twelve_definitions_and_nothing_else_is_imported()
     {
         using var temp = new TemporaryHome();
         await StartAndStopAsync(temp.Home);
@@ -160,7 +162,7 @@ public sealed class ModuleImportTests
         await StartAndStopAsync(temp.Home, options);
 
         List<Definition> held = await InNodeAsync(temp.Home);
-        Assert.Equal(12, held.Count);
+        Assert.Equal(13, held.Count);
         Definition next = Assert.Single(held, d => d.Name == "review-on-assignment" && d.VersionNumber == 2);
         Assert.Equal((SoftwareFlows.ReviewOnAssignment with { Budget = 4m }).Hash, next.ContentHash);
         Assert.Equal(("software", SoftwareDefinitions.Manifest.Version), (next.Module, next.ModuleVersion));
@@ -186,7 +188,7 @@ public sealed class ModuleImportTests
         await StartAndStopAsync(temp.Home, options);
 
         List<Definition> held = await InNodeAsync(temp.Home);
-        Assert.Equal(12, held.Count);
+        Assert.Equal(13, held.Count);
         Assert.DoesNotContain(held, d => d.Name == "review-on-assignment" && d.VersionNumber == 3);
         await using IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath);
         Definition? governing = await new DefinitionResolver(store).ResolveAsync("alpha", DefinitionKind.Flow, "review-on-assignment", None);
@@ -319,7 +321,7 @@ public sealed class ModuleImportTests
         List<Definition> held = await InNodeAsync(temp.Home);
         Definition article = Assert.Single(held, d => d.Module == "cms");
         Assert.Equal(("article", 1, "1.0.0", DefinitionScope.Module), (article.Name, article.VersionNumber, article.ModuleVersion, article.Scope));
-        Assert.Equal(12, held.Count);
+        Assert.Equal(13, held.Count);
     }
 
     [Fact]

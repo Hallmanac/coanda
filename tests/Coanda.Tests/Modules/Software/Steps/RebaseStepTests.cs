@@ -57,6 +57,25 @@ public sealed class RebaseStepTests : IAsyncLifetime
         ],
     };
 
+    /// <summary>A stand-in for the build flow's last step: open-pr, ending the flow run with the build's outcome.</summary>
+    private static readonly Flow Builder = new()
+    {
+        Name = "builder",
+        Accepts = ["task"],
+        Outcome = "pr-opened",
+        Budget = 1m,
+        SpawnCap = 1,
+        Steps =
+        [
+            new FlowStep
+            {
+                Name = "open-pr",
+                SystemStep = SoftwareSteps.OpenPr,
+                Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("opened"), VisitCap = 1, Target = Flow.End }],
+            },
+        ],
+    };
+
     private readonly ScriptedCommandRunner runner = new();
     private SoftwareNode node = null!;
     private ParcelService parcels = null!;
@@ -70,6 +89,7 @@ public sealed class RebaseStepTests : IAsyncLifetime
     {
         node = await SoftwareNode.StartAsync(runner);
         await Publishing.FlowAsync(node.Daemon, Project, Recorder);
+        await Publishing.FlowAsync(node.Daemon, Project, Builder);
         parcels = node.Parcels;
         flowRuns = node.FlowRuns;
     }
@@ -440,6 +460,77 @@ public sealed class RebaseStepTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_rebase_flow_run_on_its_own_chain_rebases_from_the_head_an_earlier_ended_build_flow_runs_open_pr_recorded_and_pushes_under_its_lease()
+    {
+        (Guid parcel, Guid flowRun, string branch, _) = await ArrangeHandStartedAsync();
+
+        JsonElement result = Done(await DispatchAsync(parcel, flowRun));
+
+        Assert.Equal(Rebased, result.GetProperty("head").GetString());
+        Assert.Contains($"checkout --quiet --detach {Recorded}", runner.GitCalls);
+        Assert.Contains($"-c rebase.updateRefs=false rebase --quiet {ScriptedCommandRunner.PrimaryHead}", runner.GitCalls);
+        Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", runner.GitCalls);
+        Assert.Equal(Rebased, runner.Branch(Clone, branch));
+        Assert.Equal(Rebased, runner.RemoteBranch(Clone, branch));
+    }
+
+    [Fact]
+    public async Task A_rebase_flow_run_reads_the_head_recorded_last_by_any_flow_run_on_the_parcel()
+    {
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Rebase me", null, None);
+        await EndedBuildAsync(parcel.Id, Moved);
+        await EndedBuildAsync(parcel.Id, Recorded);
+        (Guid flowRun, string branch, _) = await HandStartedAsync(parcel.Id);
+
+        Done(await DispatchAsync(parcel.Id, flowRun));
+
+        Assert.Contains($"push --force-with-lease=refs/heads/{branch}:{Recorded} origin {Rebased}:refs/heads/{branch}", runner.GitCalls);
+    }
+
+    [Fact]
+    public async Task A_branch_tip_that_is_not_a_head_recorded_outside_the_chain_pauses_naming_it_as_last_recorded_on_the_parcel()
+    {
+        (Guid parcel, Guid flowRun, string branch, _) = await ArrangeHandStartedAsync();
+        runner.AddBranch(Clone, branch, Moved);
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
+
+        Assert.Contains($"is at {Moved}, not {Recorded}, the commit last recorded as pushed on the parcel,", paused.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("chain", paused.Reason, StringComparison.Ordinal);
+        Assert.Equal(Levers.RebaseRefused("rebase"), paused.Lever);
+        NothingFetchedRebasedOrPushed();
+    }
+
+    [Fact]
+    public async Task A_branch_tip_that_is_not_the_chains_recorded_head_still_pauses_naming_the_chain()
+    {
+        (Guid parcel, Guid flowRun, string branch, _) = await ArrangeAsync();
+        runner.AddBranch(Clone, branch, Moved);
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel, flowRun));
+
+        Assert.Contains($"not {Recorded}, the commit the flow run's chain recorded as pushed,", paused.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_parcel_on_which_no_flow_run_recorded_a_head_pauses_the_rebase_flow_run_to_perform_again_and_runs_nothing()
+    {
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Rebase me", null, None);
+        FlowRun earlier = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel.Id, Recorder.Name, None);
+        await flowRuns.StopAsync(Principal.LocalOwner, Project, earlier.Id, "Not this one.", None);
+        (Guid flowRun, _, _) = await HandStartedAsync(parcel.Id);
+
+        SystemStepAnswer.Paused paused = Paused(await DispatchAsync(parcel.Id, flowRun));
+
+        Assert.Equal(
+            "Step 'rebase' rebased nothing: no open-pr or rebase result with a head is recorded by any flow run on the parcel, so there is no pushed commit to rebase from.",
+            paused.Reason);
+        Assert.Equal(FlowRunLevers.PerformAgain("rebase"), paused.Lever);
+        // the only git the node runs is the module's removal of the stopped flow run's worktree
+        Assert.All(runner.GitCalls, c => Assert.StartsWith("worktree ", c, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_failing_git_command_pauses_to_perform_again_quoting_it()
     {
         (Guid parcel, Guid flowRun, _, _) = await ArrangeAsync();
@@ -471,6 +562,44 @@ public sealed class RebaseStepTests : IAsyncLifetime
         runner.SetRemoteBranch(Clone, branch, Recorded);
         runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Recorded);
         return (parcel.Id, started.Id, branch, workPath);
+    }
+
+    /// <summary>
+    /// A task whose earlier build flow run's open-pr recorded <see cref="Recorded"/> and then ended, and
+    /// a rebase flow run started on it as a chain of its own, sitting in its rebase step, with the clone
+    /// holding the branch at that commit, checked out in the rebase flow run's worktree, and the
+    /// remote's branch at it too.
+    /// </summary>
+    private async Task<(Guid Parcel, Guid FlowRun, string Branch, string WorkPath)> ArrangeHandStartedAsync()
+    {
+        Parcel parcel = await parcels.AddAsync(Principal.LocalOwner, Project, "task", "Rebase me", null, None);
+        await EndedBuildAsync(parcel.Id, Recorded);
+        (Guid flowRun, string branch, string workPath) = await HandStartedAsync(parcel.Id);
+        return (parcel.Id, flowRun, branch, workPath);
+    }
+
+    /// <summary>A build flow run on the parcel whose open-pr result records <paramref name="head"/>, ended with the build's outcome.</summary>
+    private async Task EndedBuildAsync(Guid parcel, string head)
+    {
+        FlowRun build = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel, Builder.Name, None);
+        JsonElement result = JsonSerializer.SerializeToElement(new { verdict = "opened", systemStep = SoftwareSteps.OpenPr, number = 17, head });
+        await flowRuns.RecordResultAsync(Principal.LocalOwner, Project, build.Id, "open-pr", SoftwareSteps.OpenPr, result, None);
+        await flowRuns.EndAsync(Principal.LocalOwner, Project, build.Id, Builder.Outcome, None);
+    }
+
+    /// <summary>A flow run of the shipped rebase flow started on the parcel by a person, moved into its rebase step, with the clone set up as <see cref="ArrangeAsync"/> sets it.</summary>
+    private async Task<(Guid FlowRun, string Branch, string WorkPath)> HandStartedAsync(Guid parcel)
+    {
+        FlowRun started = await flowRuns.StartAsync(Principal.LocalOwner, Project, parcel, SoftwareFlows.Rebase.Name, None);
+        Assert.Equal(started.Id, started.RootFlowRunId);
+        await flowRuns.StartStepAsync(Principal.LocalOwner, Project, started.Id, "rebase", None);
+        string branch = ProjectClones.BranchOf(parcel);
+        string workPath = node.Home.FlowRunWorkPath(Project, started.Id);
+        runner.AddBranch(Clone, branch, Recorded);
+        runner.AddWorktree(Clone, workPath, branch, Recorded);
+        runner.SetRemoteBranch(Clone, branch, Recorded);
+        runner.SetTrackingRef(Clone, ProjectClones.TrackingRefOf(branch), Recorded);
+        return (started.Id, branch, workPath);
     }
 
     private Task<SystemStepAnswer> DispatchAsync(Guid parcel, Guid flowRun) =>

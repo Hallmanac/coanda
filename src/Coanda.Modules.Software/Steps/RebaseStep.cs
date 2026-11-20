@@ -7,8 +7,9 @@ namespace Coanda.Modules.Software.Steps;
 
 /// <summary>
 /// Rebases the task's branch, in the flow run's own worktree, from the recorded head (the <c>head</c>
-/// of the latest open-pr or rebase result in the flow run's chain) onto the primary branch of the repo
-/// the task works in (<see cref="StepTargets.TargetAsync"/>),
+/// of the latest open-pr or rebase result in the flow run's chain, or, when the chain recorded none, as
+/// in a rebase flow run a person started, the latest of any flow run on the parcel) onto the primary
+/// branch of the repo the task works in (<see cref="StepTargets.TargetAsync"/>),
 /// pushes the result with a lease that expects the recorded head on the remote, and answers done
 /// with the <c>head</c> it pushed (<see cref="ProjectClones.RebaseAsync"/>). A conflict pauses naming
 /// the unmerged paths, with a lever that sends the resolution through build; a worktree with
@@ -40,12 +41,17 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
             return pause;
         }
 
-        if (await RecordedHeads.OfChainAsync(context, cancellationToken) is not { Head: { } head })
+        RecordedHead? chained = await RecordedHeads.OfChainAsync(context, cancellationToken);
+        if ((chained ?? await RecordedHeads.OfParcelAsync(context, cancellationToken)) is not { Head: { } head })
         {
             return await context.PerformAgainAsync(
-                "rebased nothing: no open-pr or rebase result with a head is recorded in the flow run's chain, so there is no pushed commit to rebase from.",
+                "rebased nothing: no open-pr or rebase result with a head is recorded by any flow run on the parcel, so there is no pushed commit to rebase from.",
                 cancellationToken);
         }
+
+        string recordedBy = chained is null
+            ? "the commit last recorded as pushed on the parcel"
+            : "the commit the flow run's chain recorded as pushed";
 
         string branch = ProjectClones.BranchOf(request.ParcelId);
         Rebase rebase;
@@ -69,7 +75,7 @@ public sealed class RebaseStep(ProjectClones clones) : ISoftwareStep
                 step, $"rebased nothing: the worktree of {branch} has changes that git status reports, which a rebase would carry or lose: {string.Join(", ", unclean.Changes)}."),
             Rebase.Moved moved => Refused(
                 step,
-                $"rebased nothing: branch {branch} is at {Named(moved.Tip)}, not {head}, the commit the flow run's chain recorded as pushed, and the remote's branch, at {Named(moved.Remote)}, is no commit this step noted and pushed, so a rebase would carry commits nobody recorded."),
+                $"rebased nothing: branch {branch} is at {Named(moved.Tip)}, not {head}, {recordedBy}, and the remote's branch, at {Named(moved.Remote)}, is no commit this step noted and pushed, so a rebase would carry commits nobody recorded."),
             Rebase.Conflict conflict => new DispatchAnswer.Paused(
                 $"Step '{step}' rebased nothing: rebasing {branch} from {head} onto '{target.PrimaryBranch}' stopped on a conflict{(conflict.Commit.Length > 0 ? $" at {conflict.Commit}" : string.Empty)}, where git reports these paths unmerged: {string.Join(", ", conflict.Paths)}. The rebase was aborted and the branch checked out again at {head}; nothing was pushed.",
                 Levers.RebaseConflict(clones.ClonePathOf(target), branch, target.PrimaryBranch)),

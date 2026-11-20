@@ -45,7 +45,7 @@ public sealed class SoftwareModuleDefinitionsTests
     }
 
     [Fact]
-    public async Task The_definitions_folder_holds_the_two_types_four_flows_and_five_agents_one_per_file_named_for_it()
+    public async Task The_definitions_folder_holds_the_two_types_five_flows_and_five_agents_one_per_file_named_for_it()
     {
         ModuleArtifact artifact = await ModuleArtifact.ReadAsync(SoftwareDefinitions.ProjectPath, CancellationToken.None);
 
@@ -53,7 +53,7 @@ public sealed class SoftwareModuleDefinitionsTests
         Assert.Equal(
             [
                 (DefinitionKind.ParcelType, "idea"), (DefinitionKind.ParcelType, "task"),
-                (DefinitionKind.Flow, "build"), (DefinitionKind.Flow, "discovery"), (DefinitionKind.Flow, "merge"), (DefinitionKind.Flow, "review-on-assignment"),
+                (DefinitionKind.Flow, "build"), (DefinitionKind.Flow, "discovery"), (DefinitionKind.Flow, "merge"), (DefinitionKind.Flow, "rebase"), (DefinitionKind.Flow, "review-on-assignment"),
                 (DefinitionKind.Agent, "build"), (DefinitionKind.Agent, "discovery"), (DefinitionKind.Agent, "fix"),
                 (DefinitionKind.Agent, "reviewer-adversarial"), (DefinitionKind.Agent, "reviewer-conformance"),
             ],

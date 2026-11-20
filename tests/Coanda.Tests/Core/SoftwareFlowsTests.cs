@@ -35,9 +35,9 @@ public sealed class SoftwareFlowsTests
     }
 
     [Fact]
-    public void The_four_shipped_flows_pass_validation_with_the_known_system_step_names()
+    public void The_five_shipped_flows_pass_validation_with_the_known_system_step_names()
     {
-        Assert.Equal(["build", "merge", "discovery", "review-on-assignment"], SoftwareFlows.All.Select(f => f.Name));
+        Assert.Equal(["build", "merge", "rebase", "discovery", "review-on-assignment"], SoftwareFlows.All.Select(f => f.Name));
         foreach (Flow flow in SoftwareFlows.All)
         {
             flow.Validate(ShippedSystemSteps.Names);
@@ -62,6 +62,7 @@ public sealed class SoftwareFlowsTests
         [
             ("build", "task", "pr-opened", ["pr-opened"]),
             ("merge", "task", "merged", ["merged"]),
+            ("rebase", "task", "rebased", ["rebased"]),
             ("discovery", "idea", "parcels-derived", ["carried-forward", "parcels-derived", "stopped"]),
             ("review-on-assignment", "task", "report-produced", ["report-produced"]),
         ];
@@ -400,7 +401,7 @@ public sealed class SoftwareFlowsTests
     public void Every_shipped_flow_declares_a_budget_and_a_spawn_cap_and_hashes_distinctly()
     {
         Assert.All(SoftwareFlows.All, f => Assert.True(f.Budget > 0 && f.SpawnCap > 0));
-        Assert.Equal(4, SoftwareFlows.All.Select(f => f.Hash).Distinct().Count());
+        Assert.Equal(5, SoftwareFlows.All.Select(f => f.Hash).Distinct().Count());
         Assert.Equal(SoftwareFlows.All.Select(f => f.Hash), SoftwareDefinitions.Flows.Select(d => d.ContentHash));
     }
 
