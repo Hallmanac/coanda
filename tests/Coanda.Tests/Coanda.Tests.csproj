@@ -26,6 +26,8 @@
       with no build or test command registered runs a Debug build.
     -->
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The harbor module's manifest and definitions, which the daemon reads from beside the test assembly. -->
+    <None Update="Harbor/module/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

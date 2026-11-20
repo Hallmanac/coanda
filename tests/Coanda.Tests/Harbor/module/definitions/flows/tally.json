@@ -1,0 +1,23 @@
+{
+  "Name": "tally",
+  "Accepts": ["vessel"],
+  "Outcome": "tallied",
+  "Budget": 5,
+  "SpawnCap": 1,
+  "Steps": [
+    {
+      "Name": "tally",
+      "Agent": "clerk",
+      "AnswerSchema": "count",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "end" }
+      ],
+      "Fields": [],
+      "Sources": [
+        { "Flow": "dock", "Step": "survey" }
+      ]
+    }
+  ]
+}

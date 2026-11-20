@@ -1,0 +1,72 @@
+{
+  "Name": "dock",
+  "Accepts": ["vessel"],
+  "Outcome": "docked",
+  "Budget": 5,
+  "SpawnCap": 2,
+  "Steps": [
+    {
+      "Name": "clearance",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "wait-for-external-event",
+      "Arguments": { "event": "harbor/cleared" },
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "berth" }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "berth",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "wait-for-human",
+      "Arguments": {
+        "lever": "Run coa flow-run resume with --answer unload to weigh and survey the vessel, or with --answer turn-away to end the flow run with nothing unloaded."
+      },
+      "Transitions": [
+        { "Field": "answer", "Value": "unload", "VisitCap": 1, "Target": "weigh" },
+        { "Field": "answer", "Value": "turn-away", "VisitCap": 1, "Target": "end", "Outcome": "turned-away" }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "weigh",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "harbor/weigh",
+      "Arguments": { "scale": "east" },
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "survey" }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "survey",
+      "Agent": "surveyor",
+      "AnswerSchema": "survey",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "split" }
+      ],
+      "Fields": [],
+      "Sources": []
+    },
+    {
+      "Name": "split",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "derive-parcels",
+      "Arguments": { "from": "survey" },
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "end" }
+      ],
+      "Fields": [],
+      "Sources": []
+    }
+  ]
+}

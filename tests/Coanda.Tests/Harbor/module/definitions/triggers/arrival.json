@@ -1,0 +1,9 @@
+{
+  "Name": "arrival",
+  "EventKind": "harbor/arrival",
+  "Filters": {},
+  "Target": {
+    "CreateParcel": { "ParcelType": "vessel", "TitleField": "name", "Flow": "dock" }
+  },
+  "HourlyCap": 10
+}

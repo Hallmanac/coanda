@@ -1,0 +1,13 @@
+{
+  "Name": "vessel",
+  "Stages": ["moored", "paused", "closed"],
+  "EntryStages": ["moored"],
+  "TerminalStage": "closed",
+  "Resolutions": ["departed"],
+  "PausedStage": "paused",
+  "Moves": {},
+  "FlowBindings": [],
+  "GateBindings": [],
+  "Fields": [],
+  "Derives": ["crate"]
+}
