@@ -706,7 +706,19 @@ daemon writes itself stay outside every fence. The parcel decider caps a title a
 value (a text, a list item, a list's item count, and a reference's id and URL) at a length named in
 `ParcelCaps`; the caps bind writes made on this node, and a ledger import appends a peer's values
 without measuring them.
-Skills stay vendor-native repo files referenced by name. Credentials are per node, never in the store.
+A module keeps its skills in a `skills` folder beside its `definitions` folder, one folder per
+skill, named for the skill with a plain name (ASCII letters, digits, hyphens, and underscores) and
+holding a `SKILL.md`. The daemon reads the folder at start for every module whose directory it
+reads and holds each skill under the module name the directory's manifest gives; a start is refused,
+naming the path, for a loose file in the folder, a skill folder with no `SKILL.md` or a name that is
+not plain, or a link anywhere in it. An agent names skills by name, and an agent step resolves each
+one when it launches: the skill is the folder of exactly that name in the skills folder of a module
+switched on for the parcel's project. A name is looked up only among the folders the daemon read and
+is never joined onto a path. A skill that no switched-on module ships, one that two of them ship,
+or two names that differ only in letter case pause the flow run before its launch is recorded, with
+the reason and the perform-again lever, so the spawn the visit counted stays unused, as an unknown
+credential profile does. Which modules a project switches on can change after an agent is published,
+so neither drafting nor importing an agent checks its skills. Credentials are per node, never in the store.
 
 Text from an external system is untrusted: the data an MCP server named on an agent definition
 returns, and the fields of an event a module reports (decision d97f5f86). It is read only in an
@@ -717,8 +729,11 @@ confines credentials; it does not make content safer (section 14.4).
 
 One interface: spawn, collect, resume, send into a live session, stop, list, reattach after a daemon
 restart. An adapter per vendor renders an agent definition into the vendor's invocation: persona to
-system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config, skills to
-tier paths, model spec to flags; caps passed natively where the vendor has them, with the daemon's
+system prompt, tool set to allowlist plus deny hook, MCP servers to the vendor's config, model
+spec to flags, and the skills an agent names to readable files, each skill's whole folder written
+under `.coanda/skills/` in the work directory before every process of the session and named, with
+the path of its `SKILL.md`, in the persona every process reads. The vendor's own skill loading is not
+used, so a session invokes no skill as a tool and its guard refuses its own writes into that folder; caps passed natively where the vendor has them, with the daemon's
 timer authoritative. Every agent step ends in one JSON document validated against the step's schema;
 invalid or missing is retried once by resuming the same session, then the flow run pauses with the
 transcript as the lever. The parcel keeps its stage; its live flow run is where the pause and the lever
@@ -933,6 +948,8 @@ never names a module, and the checks.
   a module scope at install (the module scope of section 9, versioned with the module). They have no
   privilege a user's definitions lack; a user forks one and the fork records its base, so a new
   module version raises a notice and a three-way diff rather than a silent replacement.
+- Skills, one folder per skill in a `skills` folder beside its definitions, each holding a
+  `SKILL.md`, which an agent step whose agent names the skill gives its session (section 9).
 - External event kinds it can report, with the fields a watch may filter on, and the core event
   kinds it subscribes to.
 - A settings schema for its per-project settings, and named credential profiles held on the node.
@@ -1140,7 +1157,8 @@ flow run reaches a step that moved. A project runs one version of a module at a 
 
 **The artifact** is a directory with `module.json` (name, a plain directory name that prefixes its
 steps and event kinds; version; module API version; start command; source URL and commit), the
-executable, and a definitions folder of JSON. The manifest does not list steps; describe is the one
+executable, a definitions folder of JSON, and, when the module ships skills, a skills folder of one
+folder per skill holding a `SKILL.md`. The manifest does not list steps; describe is the one
 source of truth about what the module does.
 
 **Install** is per node and not replicated: verify the approval against the artifact's hash; unpack

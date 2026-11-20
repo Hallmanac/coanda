@@ -84,7 +84,24 @@ them are loaded. Only a managed settings file can, since managed settings outran
 Before each spawn the daemon writes `.coanda/parcel.md` (the parcel record) and `.coanda/prompt.md`
 (the context the step carries) at the root of the work directory, and the session's persona as
 `.coanda/persona.md`. It writes them fresh at every spawn, writes the persona again before the
-retry resumes the session, and never reads any of them back. Each session's
+retry resumes the session, and never reads any of them back.
+
+When a session's agent names skills, the daemon also writes each skill's whole folder, as the
+module that ships it holds it, into `.coanda/skills/<skill>/` in the work directory, beside the
+session's other files. That folder, the session's skills root, holds the session's skills and
+nothing else: the daemon removes whatever is in it and writes it fresh before every process of the
+session (the spawn, the retry's resume, and a resume after a daemon restart, which reads the skills
+back from the session's record), removing any link the session left there rather than writing or
+deleting through it. The persona file then ends with a `# Skills` section that names each skill and
+the path of its `SKILL.md` relative to the work directory, and tells the session to read a skill's
+`SKILL.md` before it does work that skill covers. That is the only way a session gets its skills:
+Claude Code is passed no plugin directory, and the `Skill` tool is never in its tool list, so a
+session can invoke neither its own skills nor the ones Claude Code ships as skills (confirmed
+against Claude Code 2.1.329, where the tool is absent unless the tool list names it). A process
+whose skills cannot all be written is not started, and the flow run pauses naming the skill, with
+performing the step again as the lever. A skills root an earlier agent step of the same flow run
+left behind stays in place for a later step whose agent names no skill; nothing loads it, and that
+step's persona does not name it. Each session's
 stream output is kept as a transcript in `transcripts/<project>/<flow run id>/` under the node home,
 outside the work directory, and beside it the session keeps its prompt: everything its processes
 were given on standard input, the first prompt and then the retry message when there was one, in
@@ -239,6 +256,13 @@ with `.` and `..` collapsed by name before any link is followed, as Claude Code 
 macOS and Linux, with each link followed before a later `..`, as a shell hands a path to a program.
 A refused call reaches the session as an error saying why.
 
+In a session whose agent names skills, the guard also refuses an Edit or Write whose path is at or
+inside the session's skills root, `.coanda/skills/` in the work directory, whether or not anything
+exists there yet, and in either reading of the path described above, so a session cannot rewrite or
+add to the skills it is told to follow. It reads the skills as freely as any other file in the work
+directory. A Bash command that names the skills root is not refused, since a session's shell may run
+a skill's own scripts; whatever it leaves there is replaced before the session's next process.
+
 The guard also refuses a command that may change where a later `cd` goes in a way it does not
 follow:
 
@@ -332,6 +356,11 @@ daemon restart, which reads the confinement back from the session's record:
   profile's config directory and `CLAUDE_ENV_FILE` (described under messages between Claude Code
   sessions), and puts the directory holding `coa` first on the path. It sets no
   session token, node home, or project, since a confined session has no shell to run `coa` in.
+
+A confined session whose agent names skills gets them under exactly this confinement: the same
+five tools and the same path rule, since its skills root lies inside its work directory. It may read
+every file of its skills and, as any session naming skills, may not Edit or Write inside its skills
+root.
 
 A Glob or Grep walk does not follow symbolic links in Claude Code 2.1.328, the version this was
 confirmed against: a link inside the work directory to a directory outside it is not searched

@@ -46,6 +46,11 @@ code, and `decisions.md` in its worktree carries the binding rules.
   and the bare clone of each project's repo, which the core makes at registration and at start under
   `projects/<project>/repos/<repo>/` (`Projects/RepoClones.cs`). It references Core and the SDK and
   no module: it hosts the modules the executable composes and hands it (`Modules/ComposedModule.cs`).
+  It reads each module's directory at start: its `module.json`, its `definitions` folder, and its
+  `skills` folder when it has one, one folder per skill holding a `SKILL.md`
+  (`Modules/ModuleArtifact.cs`, held by module in `Modules/ModuleSkills.cs`). An agent step whose agent
+  names a skill gets that skill's folder written into `.coanda/skills/` in its work directory
+  (`Executors/SessionFiles.cs`).
 - `src/Coanda.Sdk`: the module SDK, referencing no other Coanda project: the module API's
   contract types, the interface an in-process module answers the module API's calls through, a
   client for the core's loopback API, the command runner and git wrapper, which the daemon uses

@@ -19,7 +19,10 @@ public sealed record AgentDefinition
     public required ModelSpec Model { get; init; }
     /// <summary>Names from <see cref="ToolCatalog"/>.</summary>
     public required IReadOnlyList<string> Tools { get; init; }
-    /// <summary>Vendor-native skills, referenced by name.</summary>
+    /// <summary>
+    /// Skills by name. An agent step gives its session each one, the folder of exactly that name in the
+    /// skills folder of a module switched on for the parcel's project, and pauses when one cannot be resolved.
+    /// </summary>
     public required IReadOnlyList<string> Skills { get; init; }
     /// <summary>
     /// MCP servers by name; how one is launched is node-local and never in the store. Agent sessions
