@@ -1191,6 +1191,30 @@ public sealed class ToolGuardTests : IDisposable
     }
 
     [Fact]
+    public void On_linux_the_per_user_run_time_inbox_directory_is_guarded_even_when_the_daemon_inherited_no_run_time_directory()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        IReadOnlyList<string> directories = ClaudeCodeInvocation.InboxDirectories(Environment());
+        string fallback = Assert.Single(directories, directory => directory.StartsWith("/tmp/cc-socks-", StringComparison.Ordinal));
+        string runTime = $"/run/user/{fallback["/tmp/cc-socks-".Length..]}/cc-socks";
+
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.Contains(runTime, directories);
+            ToolGuardRules rules = ClaudeCodeInvocation.Guard(home, work, null, Environment(), []);
+            RefusedInInbox(ToolGuard.Run(rules.Arguments, new StringReader(Call("Bash", new { command = $"ls {runTime}" })), Environment()));
+        }
+        else
+        {
+            Assert.DoesNotContain(runTime, directories);
+        }
+    }
+
+    [Fact]
     public void On_windows_no_inbox_directory_is_guarded_because_an_inbox_there_is_a_named_pipe()
     {
         if (!OperatingSystem.IsWindows())

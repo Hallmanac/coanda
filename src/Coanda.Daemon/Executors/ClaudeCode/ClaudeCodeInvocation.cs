@@ -423,6 +423,11 @@ public static partial class ClaudeCodeInvocation
     /// <see cref="InboxDirectoryName"/> under <c>XDG_RUNTIME_DIR</c> when it is set, under
     /// <c>CLAUDE_CODE_TMPDIR</c> when it is set, and under <c>/tmp</c>, and <c>/tmp/cc-socks-</c> followed
     /// by the daemon's user id, where the CLI binds when the first would make too long a socket path.
+    /// On Linux it also holds <see cref="InboxDirectoryName"/> under <c>/run/user/</c> and the daemon's
+    /// user id, the per-user run time directory a login session sets <c>XDG_RUNTIME_DIR</c> to, whatever
+    /// the daemon itself inherited: a session the user opened from a desktop terminal binds there even
+    /// when the daemon was started without it. A <c>CLAUDE_CODE_TMPDIR</c> set only where another session
+    /// was started cannot be known here, and stays unguarded.
     /// None on Windows, where an inbox is a named pipe and not a file.
     /// </summary>
     public static IReadOnlyList<string> InboxDirectories(IReadOnlyDictionary<string, string> inherited)
@@ -433,14 +438,18 @@ public static partial class ClaudeCodeInvocation
             return [];
         }
 
-        string fallback = $"/tmp/{InboxDirectoryName}-{DetachedProcess.Posix.UserId().ToString(CultureInfo.InvariantCulture)}";
+        string user = DetachedProcess.Posix.UserId().ToString(CultureInfo.InvariantCulture);
+        IEnumerable<string> runTime = OperatingSystem.IsLinux()
+            ? [Path.Combine("/run/user", user, InboxDirectoryName)]
+            : [];
         return [.. new[] { "XDG_RUNTIME_DIR", "CLAUDE_CODE_TMPDIR" }
             .Select(name => inherited.GetValueOrDefault(name))
             .OfType<string>()
             .Where(directory => directory.Trim().Length > 0 && Path.IsPathFullyQualified(directory))
             .Select(directory => Path.Combine(directory, InboxDirectoryName))
+            .Concat(runTime)
             .Append(Path.Combine("/tmp", InboxDirectoryName))
-            .Append(fallback)
+            .Append($"/tmp/{InboxDirectoryName}-{user}")
             .Select(directory => Path.GetFullPath(directory))
             .Distinct(StringComparer.Ordinal)];
     }

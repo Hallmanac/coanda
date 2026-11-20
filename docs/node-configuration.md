@@ -296,7 +296,11 @@ macOS and Linux. So every process of a session starts with `CLAUDE_ENV_FILE` nam
 `sessions/inbox-variables.sh` under the node home, a script Claude Code sources before each Bash
 command and which unsets both variables, and the tool guard refuses a path in each directory Claude
 Code binds inboxes in: `cc-socks` under `$XDG_RUNTIME_DIR` or `$CLAUDE_CODE_TMPDIR` when the daemon
-inherited either, `/tmp/cc-socks`, and `/tmp/cc-socks-` followed by your user id. Since the guard
+inherited either, `/tmp/cc-socks`, `/tmp/cc-socks-` followed by your user id, and on Linux
+`/run/user/` followed by your user id and `/cc-socks`, the directory a session started from a login
+session binds in, even when the daemon itself was started without `XDG_RUNTIME_DIR`. A
+`CLAUDE_CODE_TMPDIR` set only where another session was started, and not where the daemon was, is
+not known to the daemon, so that session's inbox directory is not guarded. Since the guard
 also refuses a path that contains one of them, a command naming `/tmp` itself, such as `ls /tmp`, is
 refused too. As with the rest of the guard, a command that builds such a path while it runs still
 reaches it; a confined session has no shell. All of this was confirmed against Claude Code 2.1.329.
