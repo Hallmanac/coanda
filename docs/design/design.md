@@ -1037,7 +1037,14 @@ describe declares the core event kinds the module subscribes to (parcel entered 
 ended, stopped, paused, field set), and the core delivers them in sequence order with a per-module
 position kept in the node tenant, as the trigger loop keeps its own, at least once, under the
 module's idempotency obligation, only from projects the module is switched on for and narrowed by
-its per-project settings. The feed skips a flow run ended or flow run stopped event that another node
+its per-project settings. On a node where a module's position has never been written, the feed
+starts at the head of the record, so the module is delivered nothing recorded before its feed first
+ran, unless its describe answer asks for its feed from the beginning (`feedFrom`), in which case the
+feed starts at the beginning of the record and delivers every event of a subscribed kind the record
+already held, in sequence order, before what comes after; a module that keeps a read model in its own
+workspace builds it this way. The ask counts only where the position has never been written: on a node
+that holds one, the feed reads past it whatever the module asks, and rewinding a position is not
+something a module can ask for. The feed skips a flow run ended or flow run stopped event that another node
 recorded, which the import appended from its lines: what that flow run left behind (its worktree, say) is
 on its own node, and a module here acting on its end would tidy away what is this node's. Every other
 event the import appended is delivered as this node's own are. The rule of thumb: if a person should see the effect in the parcel's

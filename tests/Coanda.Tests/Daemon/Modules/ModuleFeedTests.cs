@@ -131,6 +131,90 @@ public sealed class ModuleFeedTests
     }
 
     [Fact]
+    public async Task A_module_that_asks_from_the_beginning_on_a_node_that_never_wrote_its_position_is_delivered_the_history_in_order_and_then_what_follows()
+    {
+        using var temp = new TemporaryHome();
+        Guid first;
+        Guid ended;
+        Guid stopped;
+        Guid second;
+        await using (Node earlier = await Node.StartAsync(new Dictionary<string, IModule>(), temp))
+        {
+            Parcel parcel = await earlier.ParcelAsync(On, "Before the module");
+            first = parcel.Id;
+            await earlier.Parcels.SetFieldAsync(Principal.LocalOwner, On, parcel.Id, TaskFields.Objective, TaskFields.ObjectiveValue, None);
+            stopped = (await earlier.StartFlowRunAsync(On, parcel.Id)).Id;
+            await earlier.FlowRuns.PauseAsync(Principal.LocalOwner, On, stopped, "Look first.", "resume", None);
+            await earlier.FlowRuns.StopAsync(Principal.LocalOwner, On, stopped, "Not needed.", None);
+            ended = (await earlier.StartFlowRunAsync(On, parcel.Id)).Id;
+            await earlier.FlowRuns.EndAsync(Principal.LocalOwner, On, ended, "dispatched", None);
+            Parcel elsewhere = await earlier.ParcelAsync(Off, "Not the module's");
+            await earlier.FlowRuns.StopAsync(Principal.LocalOwner, Off, (await earlier.StartFlowRunAsync(Off, elsewhere.Id)).Id, "Not needed.", None);
+            second = (await earlier.ParcelAsync(On, "Also before the module")).Id;
+            await earlier.Daemon.StopAsync(None);
+        }
+
+        var watcher = new FeedModule(AllKinds, feedFrom: FeedStart.Beginning);
+        await using Node later = await Node.StartAsync(new() { [Watcher] = watcher }, temp, register: false);
+        Parcel after = await later.ParcelAsync(On, "After the module");
+
+        await FlowRunDriver.UntilAsync(
+            () => watcher.Events.Any(e => e is FeedEvent.ParcelEntered entered && entered.ParcelId == after.Id), "the event after the history is delivered");
+        await Task.Delay(Quiet);
+
+        IReadOnlyList<FeedEvent> events = watcher.Events;
+        Assert.Collection(
+            events,
+            e => Assert.Equal(first, Assert.IsType<FeedEvent.ParcelEntered>(e).ParcelId),
+            e => Assert.Equal(TaskFields.Objective, Assert.IsType<FeedEvent.ParcelFieldSet>(e).Field),
+            e => Assert.Equal(stopped, Assert.IsType<FeedEvent.FlowRunPaused>(e).FlowRunId),
+            e => Assert.Equal(stopped, Assert.IsType<FeedEvent.FlowRunStopped>(e).FlowRunId),
+            e => Assert.Equal(ended, Assert.IsType<FeedEvent.FlowRunEnded>(e).FlowRunId),
+            e => Assert.Equal(second, Assert.IsType<FeedEvent.ParcelEntered>(e).ParcelId),
+            e => Assert.Equal(after.Id, Assert.IsType<FeedEvent.ParcelEntered>(e).ParcelId));
+        Assert.All(events, e => Assert.Equal(On, e.Project));
+        Assert.Equal(events.Select(e => e.Sequence).Distinct().Order(), events.Select(e => e.Sequence));
+    }
+
+    [Fact]
+    public async Task A_module_that_begins_asking_from_the_beginning_once_its_position_is_written_is_delivered_nothing_at_or_below_that_position()
+    {
+        using var temp = new TemporaryHome();
+        await using (Node empty = await Node.StartAsync(new Dictionary<string, IModule>(), temp))
+        {
+            await empty.ParcelAsync(On, "Before the module's feed first ran");
+            await empty.Daemon.StopAsync(None);
+        }
+
+        var heading = new FeedModule(AllKinds);
+        await using (Node first = await Node.StartAsync(new() { [Watcher] = heading }, temp, register: false))
+        {
+            await first.ParcelAsync(On, "While the module asks from the head");
+            await FlowRunDriver.UntilAsync(() => heading.Events.Count > 0, "the event recorded while the module asks from the head is delivered");
+            await Task.Delay(Quiet);
+            await first.Daemon.StopAsync(None);
+        }
+
+        long stored;
+        await using (IDocumentStore store = Coanda.Daemon.Store.StoreConfiguration.Open(temp.Home.DatabasePath))
+        await using (IQuerySession session = store.QuerySession(Coanda.Daemon.Store.Tenants.Node))
+        {
+            stored = (await session.LoadAsync<FeedPosition>(FeedPosition.IdOf(Watcher), None) ?? throw new InvalidOperationException("No position was written.")).Sequence;
+        }
+
+        var asking = new FeedModule(AllKinds, feedFrom: FeedStart.Beginning);
+        await using Node second = await Node.StartAsync(new() { [Watcher] = asking }, temp, register: false);
+        Parcel after = await second.ParcelAsync(On, "Once the module asks from the beginning");
+
+        await FlowRunDriver.UntilAsync(() => asking.Events.Count > 0, "the event recorded on the later start is delivered");
+        await Task.Delay(Quiet);
+
+        FeedEvent only = Assert.Single(asking.Events);
+        Assert.Equal(after.Id, Assert.IsType<FeedEvent.ParcelEntered>(only).ParcelId);
+        Assert.True(only.Sequence > stored, $"The delivered sequence {only.Sequence} is not past the stored position {stored}.");
+    }
+
+    [Fact]
     public async Task On_a_feeds_first_start_the_end_of_a_live_flow_run_the_start_resumes_is_delivered()
     {
         using var temp = new TemporaryHome();

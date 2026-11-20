@@ -7,13 +7,17 @@ namespace Coanda.Tests.Daemon.Modules;
 /// <summary>
 /// A stand-in module the daemon hosts in its process, which brings no steps, subscribes to
 /// <paramref name="subscriptions"/>, declares <paramref name="settings"/> (none required when null),
-/// describes <paramref name="eventKinds"/> (none when null), and records every feed delivery and every
+/// describes <paramref name="eventKinds"/> (none when null), asks for its feed from <paramref name="feedFrom"/>
+/// (leaving the ask out when null), and records every feed delivery and every
 /// watch request it receives as the JSON the module API defines. <see cref="OnFeed"/> runs on each
 /// delivery once it is recorded, so a test can hold or fail one, and <see cref="OnWatch"/> on each watch
 /// request once it is recorded.
 /// </summary>
 internal sealed class FeedModule(
-    IReadOnlyList<CoreEventKind> subscriptions, SettingsSchema? settings = null, IReadOnlyList<EventKindDescription>? eventKinds = null) : IModule
+    IReadOnlyList<CoreEventKind> subscriptions,
+    SettingsSchema? settings = null,
+    IReadOnlyList<EventKindDescription>? eventKinds = null,
+    FeedStart? feedFrom = null) : IModule
 {
     private readonly Lock gate = new();
     private readonly List<FeedDelivery> deliveries = [];
@@ -81,7 +85,7 @@ internal sealed class FeedModule(
     public Task HealthAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public Task<DescribeAnswer> DescribeAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new DescribeAnswer(ModuleApi.Version, "1.0.0", [], eventKinds ?? [], subscriptions, settings ?? new SettingsSchema([])));
+        Task.FromResult(new DescribeAnswer(ModuleApi.Version, "1.0.0", [], eventKinds ?? [], subscriptions, settings ?? new SettingsSchema([]), feedFrom));
 
     public Task<DispatchAnswer> DispatchAsync(DispatchRequest request, CancellationToken cancellationToken) =>
         throw new InvalidOperationException("The feed module brings no steps.");
