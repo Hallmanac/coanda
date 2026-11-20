@@ -704,6 +704,93 @@ public sealed class ToolGuardTests : IDisposable
     [Fact]
     public void An_input_that_cannot_be_read_is_a_refusal() => Assert.Equal(ToolGuardOutcome.DenyCode, Run(Arguments(), new FailingReader()).ExitCode);
 
+    [Theory]
+    [InlineData("Read", "file_path", true)]
+    [InlineData("Edit", "file_path", true)]
+    [InlineData("Write", "file_path", true)]
+    [InlineData("Grep", "path", true)]
+    [InlineData("Glob", "pattern", true)]
+    [InlineData("Glob", "path", true)]
+    [InlineData("Read", "file_path", false)]
+    [InlineData("Edit", "file_path", false)]
+    [InlineData("Write", "file_path", false)]
+    [InlineData("Grep", "path", false)]
+    [InlineData("Glob", "pattern", false)]
+    [InlineData("Glob", "path", false)]
+    public void A_path_holding_a_variable_is_judged_as_the_cli_opens_it_with_the_variable_left_as_written(string tool, string field, bool nodeHome)
+    {
+        // The CLI opens "$DEEP" and "${DEEP}" as one directory of that name, so the climb after it leaves
+        // the work directory for the node home or the default config directory, while a shell's reading of
+        // $DEEP, a few levels deeper than the climb, keeps it in the work directory. The value is relative
+        // so that no reading puts a drive or a root partway through the path on Windows.
+        string from = nodeHome ? home.Path : root;
+        string target = nodeHome ? string.Empty : "user/.claude/";
+        int depth = Path.GetRelativePath(from, work).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries).Length;
+        string deep = string.Join('/', Enumerable.Repeat("level", depth + 2));
+        string climb = string.Concat(Enumerable.Repeat("../", depth + 1)) + target;
+        IReadOnlyDictionary<string, string> environment = Environment(("DEEP", deep));
+
+        ToolGuardOutcome bare = Guard(Call(tool, Input($"$DEEP/{climb}")), environment: environment);
+        ToolGuardOutcome braced = Guard(Call(tool, Input($"${{DEEP}}/{climb}")), environment: environment);
+        if (nodeHome)
+        {
+            RefusedInNodeHome(bare);
+            RefusedInNodeHome(braced);
+        }
+        else
+        {
+            RefusedInConfig(bare);
+
+            // A path holding a brace is judged by the highest directory its climb may reach, here the test
+            // root, which holds the node home as well as the config directory and gives the node home's reason.
+            Assert.Equal(ToolGuardOutcome.DenyCode, braced.ExitCode);
+        }
+
+        // With the value written in its place the path stays in the work directory, so only the CLI's reading refuses it.
+        Allowed(Guard(Call(tool, Input($"{deep}/{climb}")), environment: environment));
+
+        object Input(string path) => (tool, field) switch
+        {
+            ("Glob", "pattern") => new { pattern = path + "*.json" },
+            ("Glob", _) => new { pattern = "*.json", path },
+            ("Grep", _) => new { pattern = "x", path },
+            _ => new { file_path = path + "settings.json" },
+        };
+    }
+
+    [Fact]
+    public void A_path_climbing_back_out_of_a_symbolic_link_is_judged_as_the_cli_collapses_it_first()
+    {
+        // The link leads deeper into the work directory than the climb after it, so following it first
+        // keeps the path in the work directory; collapsed first, as the CLI does, it reaches the node home.
+        int depth = Path.GetRelativePath(home.Path, work).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries).Length;
+        string deep = Path.Combine([work, .. Enumerable.Repeat("level", depth + 2)]);
+        Directory.CreateDirectory(deep);
+        string link = Path.Combine(work, "deep");
+        try
+        {
+            Directory.CreateSymbolicLink(link, deep);
+        }
+        catch (Exception unsupported) when (unsupported is IOException or UnauthorizedAccessException)
+        {
+            // Windows without the privilege to create links.
+            return;
+        }
+
+        string path = "deep/" + string.Concat(Enumerable.Repeat("../", depth + 1)) + "daemon.json";
+        RefusedInNodeHome(Guard(Call("Read", new { file_path = path })));
+
+        // A shell's cat follows the link first, so the same path in a Bash command stays in the work directory.
+        Allowed(Guard(Call("Bash", new { command = "cat " + path })));
+    }
+
+    [Fact]
+    public void A_path_with_white_space_around_it_is_judged_as_the_cli_trims_it()
+    {
+        RefusedInNodeHome(Guard(Call("Read", new { file_path = " " + home.DaemonInfoPath + "\n" })));
+        RefusedInConfig(Guard(Call("Grep", new { pattern = "x", path = "\t~/.claude" }), environment: Environment(("HOME", Path.Combine(root, "user")))));
+    }
+
     // Allowed.
 
     [Fact]
