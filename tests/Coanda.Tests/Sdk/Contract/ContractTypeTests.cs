@@ -94,6 +94,18 @@ public sealed class ContractTypeTests
     }
 
     [Fact]
+    public void A_describe_answer_that_leaves_out_where_its_feed_starts_meets_the_schema_and_reads_as_asking_from_the_head()
+    {
+        const string Answer = """
+            { "moduleApiVersion": 1, "version": "1.0.0", "steps": [], "eventKinds": [], "subscriptions": ["parcel-entered"], "settingsSchema": { "replicated": [] } }
+            """;
+
+        Assert.Empty(ModuleSchemas.Load("describe.schema.json").Validate(Answer));
+        DescribeAnswer read = JsonSerializer.Deserialize<DescribeAnswer>(Answer, Options) ?? throw new InvalidOperationException("The answer read as null.");
+        Assert.Null(read.FeedFrom);
+    }
+
+    [Fact]
     public void A_step_result_whose_fields_hold_a_verdict_is_not_written()
     {
         var result = new StepResult("pass") { Fields = new() { ["verdict"] = JsonSerializer.SerializeToElement("x") } };

@@ -49,7 +49,8 @@ public static class ContractDocuments
                   { "name": "primary-branch", "schema": { "type": "string" }, "required": true, "default": "main" }
                 ],
                 "credentialProfile": { "required": true, "defaultsToNodeIdentity": true }
-              }
+              },
+              "feedFrom": "beginning"
             }
             """),
         ("dispatch.schema.json#/definitions/request", "dispatch request", """
