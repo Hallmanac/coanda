@@ -195,5 +195,18 @@ public sealed class DomainNounMatcherTests
         Assert.Equal(["HTTP", "Server", "build", "Test", "x"], DomainNounMatcher.Words("HTTPServer_build2Test9x"));
     }
 
+    [Fact]
+    public void In_plain_text_it_names_each_noun_with_the_words_it_matched_in_their_case()
+    {
+        Assert.Equal(
+            [
+                new NounInText("pull request", "Pull Requests"),
+                new NounInText("GitHub", "Git Hub"),
+                new NounInText("task", "tasks"),
+                new NounInText("GitHub", "github"),
+            ],
+            DomainNounMatcher.NounsIn("{\"Pull Requests\": \"Git-Hub\", \"tasks\": \"github.com\", \"tasking\": \"pullOut\"}"));
+    }
+
     private static IReadOnlyList<NounHit> Hits(string source) => DomainNounMatcher.Find(File, source);
 }
