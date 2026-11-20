@@ -17,8 +17,8 @@ public sealed record TriggerEvent(string Kind, IReadOnlyDictionary<string, strin
     public const string FlowRunEndedKind = "flow-run-ended";
 
     /// <summary>
-    /// The kind a pause of a flow run this node started reads as, other than a pause at a wait-for-external-event
-    /// step; no external event may use it.
+    /// The kind a pause of a flow run this node started reads as, other than a wait-for-external-event step's own
+    /// pause, which an external event resumes; no external event may use it.
     /// </summary>
     public const string AttentionKind = "attention";
 

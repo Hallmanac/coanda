@@ -32,8 +32,8 @@ namespace Coanda.Daemon.Triggers;
 /// starts, on its parcel, every published flow whose follow it matches and which accepts the
 /// parcel's type, as the next link of the ended flow run's chain, and every published trigger on a flow
 /// run's end that it matches creates a parcel derived from the ended flow run's parcel and flow run and starts
-/// the trigger's flow there. A pause of a flow run this node recorded, other than one at a wait-for-external-event
-/// step, reads as attention (<see cref="TriggerEvent.Attention"/>), and every published trigger on attention that it
+/// the trigger's flow there. A pause of a flow run this node recorded, other than a wait-for-external-event step's
+/// own pause, reads as attention (<see cref="TriggerEvent.Attention"/>), and every published trigger on attention that it
 /// matches creates a parcel derived from the paused flow run's parcel and flow run and starts the trigger's flow there;
 /// a pause another node recorded is that node's attention and fires nothing here. An external event matching a published trigger whose target creates a parcel
 /// creates that parcel and starts the target's flow on it; one matching a trigger whose target acts on the
@@ -960,8 +960,10 @@ public sealed class TriggerLoop(
     /// project and matches it creates a parcel of its target's type, derived from the paused flow run's parcel and the
     /// paused flow run, and starts its target's flow on it, whether or not the flow run is still paused. Only a pause this
     /// node recorded is attention here: a node writes only to the flow runs it started, so such a pause is of a flow run
-    /// this node started, and an imported pause is the attention of the node that recorded it. A pause recorded while the
-    /// flow run was on a wait-for-external-event step is not attention: that flow run waits on a system, not a person. No
+    /// this node started, and an imported pause is the attention of the node that recorded it. A wait-for-external-event
+    /// step's own pause (<see cref="AwaitedEvent.IsWaitPause"/>) is not attention: that flow run waits on a system, not a
+    /// person. Any other pause at such a step is, since only a person clears it: the step refusing its arguments, a
+    /// dispatch failure, a person's pause, or a wait on a kind no external event may be recorded under. No
     /// claim is weighed, since the parcel a trigger creates is a new one, and no trigger acts on the paused flow run's own
     /// parcel, which still holds that flow run. A trigger refused, or failing for any other reason, is logged and the next
     /// one goes on.
@@ -982,7 +984,7 @@ public sealed class TriggerLoop(
         FlowRun atPause = await flowRuns.ShowAtAsync(LoopPrincipal, project, paused.FlowRunId, entry.Version, cancellationToken)
             ?? throw new DomainException($"No flow run {Ids.Short(paused.FlowRunId)} in project '{project}'.");
         Flow flow = await flowRuns.FlowOfAsync(LoopPrincipal, project, atPause, cancellationToken);
-        if (flow.Step(atPause.CurrentStep) is { SystemStep: CoreSystemSteps.WaitForExternalEvent })
+        if (AwaitedEvent.IsWaitPause(flow, atPause, paused))
         {
             return;
         }

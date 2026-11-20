@@ -2,6 +2,7 @@ using System.Text.Json;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.FlowRuns.Events;
 using Coanda.Core.Flows;
+using Coanda.Core.Triggers;
 using Coanda.Daemon.SystemSteps;
 using JasperFx.Events;
 
@@ -35,6 +36,24 @@ public static class AwaitedEvent
             && pause.Sequence < sequence
             && !stream.Any(e => e.Data is FlowRunResumed resumed && string.Equals(resumed.ResumedBy, resumedBy, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Whether <paramref name="paused"/> is a wait-for-external-event step's own pause, the one an external event can
+    /// resume: <paramref name="atPause"/>, the flow run as its stream stood at the pause, is on a visit to such a step;
+    /// the pause is the outcome of that visit's dispatch; and the step's <c>event</c> argument is a kind an external
+    /// event may be recorded under. A pause the step's refusal of its own arguments answered, a dispatch failure, a
+    /// person's pause, and a pause waiting on a kind no external event may use are none of these: nothing but a person
+    /// clears them.
+    /// </summary>
+    public static bool IsWaitPause(Flow flow, FlowRun atPause, FlowRunPaused paused) =>
+        atPause.Current is { Kind: StepKind.SystemStep, DispatchId: Guid dispatchId } current
+        && paused.DispatchId == dispatchId
+        && flow.Step(current.Step) is { SystemStep: CoreSystemSteps.WaitForExternalEvent } step
+        && step.Arguments.TryGetValue(WaitForExternalEventSystemStep.EventArgument, out JsonElement awaited)
+        && awaited.ValueKind == JsonValueKind.String
+        && awaited.GetString() is { } kind
+        && !string.IsNullOrWhiteSpace(kind)
+        && TriggerDecider.MayBeRecorded(kind);
 
     private static bool Awaits(FlowStep step, string kind) =>
         step.Arguments.TryGetValue(WaitForExternalEventSystemStep.EventArgument, out JsonElement awaited)
