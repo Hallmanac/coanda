@@ -232,7 +232,10 @@ wildcard is judged by the highest directory it may reach: the part before its fi
 once for each `..` after it (and each `.*` or `.?`, which some shells match to `..`) beyond the
 levels its other components descend, where `**` counts as descending none. On Windows it also reads a Git Bash drive path such as
 `/c/Users/me` as `C:\Users\me`. It resolves symbolic links before it compares, and on macOS and
-Windows it ignores case. A refused call reaches the session as an error saying why.
+Windows it ignores case. A file tool's path is resolved both ways in every session, confined or not:
+with `.` and `..` collapsed by name before any link is followed, as Claude Code opens it, and, on
+macOS and Linux, with each link followed before a later `..`, as a shell hands a path to a program.
+A refused call reaches the session as an error saying why.
 
 The guard also refuses a command that may change where a later `cd` goes in a way it does not
 follow:
