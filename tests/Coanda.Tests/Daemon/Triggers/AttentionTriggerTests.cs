@@ -25,8 +25,8 @@ using static Coanda.Tests.Daemon.Triggers.TriggerFiring;
 namespace Coanda.Tests.Daemon.Triggers;
 
 /// <summary>
-/// A published trigger on <c>attention</c>: each pause this node records of a flow run, other than one at a
-/// wait-for-external-event step, creates a parcel derived from the paused flow run's parcel and flow run and starts
+/// A published trigger on <c>attention</c>: each pause this node records of a flow run, other than a
+/// wait-for-external-event step's own pause, creates a parcel derived from the paused flow run's parcel and flow run and starts
 /// the trigger's flow there, within the trigger's hourly cap. An imported pause and an external event of the kind
 /// fire nothing. Every pause here is seeded before the daemon starts, and the marker event recorded after them
 /// says the loop has handled every one.
@@ -66,6 +66,13 @@ public sealed class AttentionTriggerTests
                 Transitions = [new FlowTransition { Field = "verdict", Value = FlowValue.Of("done"), VisitCap = 1, Target = Flow.End }],
             },
         ],
+    };
+
+    /// <summary>A flow like <see cref="Deploy"/> named <paramref name="name"/> whose wait step's <c>event</c> argument is <paramref name="awaited"/>.</summary>
+    private static Flow Waiting(string name, string awaited) => Deploy with
+    {
+        Name = name,
+        Steps = [Deploy.Steps[0] with { Arguments = new Dictionary<string, JsonElement> { [WaitForExternalEventSystemStep.EventArgument] = FlowValue.Of(awaited) } }],
     };
 
     /// <summary>A trigger on attention creating a task titled by the paused parcel's title and starting <see cref="TriggerFiring.Hold"/> on it.</summary>
@@ -174,6 +181,52 @@ public sealed class AttentionTriggerTests
         await AssertCreatedAsync(daemon, client, "triaged", system.Pause, system.Parcel, system.FlowRun, "Paused by its step");
         Assert.Equal(3, (await ByTriggerAsync(client, "triaged")).Count);
         Assert.Empty(await ByTriggerAsync(client, "deploying"));
+        await daemon.StopAsync(None);
+    }
+
+    [Fact]
+    public async Task A_pause_at_a_wait_for_external_event_step_that_only_a_person_clears_fires()
+    {
+        using var temp = new TemporaryHome();
+        (Guid Parcel, Guid FlowRun, Guid Pause) blank = default;
+        (Guid Parcel, Guid FlowRun, Guid Pause) reserved = default;
+        (Guid Parcel, Guid FlowRun, Guid Pause) person = default;
+        await SeedAsync(temp, async seeded =>
+        {
+            await FlowAsync(seeded.Store, Deploy);
+            await FlowAsync(seeded.Store, Waiting("deploy-blank", " "));
+            await FlowAsync(seeded.Store, Waiting("deploy-reserved", TriggerEvent.AttentionKind));
+            await TriggerAsync(seeded.Store, OnAttention("waits", Fields(("step", "wait"))));
+
+            async Task<(Guid, Guid)> StartAsync(string title, string flow)
+            {
+                Guid parcel = await TaskAsync(seeded.Store, title);
+                return (parcel, (await seeded.FlowRuns.StartAsync(Principal.LocalOwner, Project, parcel, flow, None)).Id);
+            }
+
+            // The step refuses a blank argument with a paused answer, which carries its dispatch as its own pause does.
+            (Guid parcel, Guid flowRun) = await StartAsync("Waits on nothing", "deploy-blank");
+            blank = (parcel, flowRun, (await SystemPauseAsync(seeded, flowRun, "wait")).Id);
+
+            (parcel, flowRun) = await StartAsync("Waits on a reserved kind", "deploy-reserved");
+            reserved = (parcel, flowRun, (await SystemPauseAsync(seeded, flowRun, "wait")).Id);
+
+            (parcel, flowRun) = await StartAsync("Paused by a person while waiting", Deploy.Name);
+            person = (parcel, flowRun, (await PersonPauseAsync(seeded, flowRun)).Id);
+
+            (_, flowRun) = await StartAsync("Waits on a deploy", Deploy.Name);
+            await SystemPauseAsync(seeded, flowRun, "wait");
+            await MarkAsync(seeded.Store, "Marker");
+        });
+
+        await using RunningDaemon daemon = await Daemons.StartAsync(temp.Home, None);
+        using var client = new DaemonClient(temp.Home);
+        await ParcelTitledAsync(client, "Marker");
+
+        await AssertCreatedAsync(daemon, client, "waits", blank.Pause, blank.Parcel, blank.FlowRun, "Waits on nothing");
+        await AssertCreatedAsync(daemon, client, "waits", reserved.Pause, reserved.Parcel, reserved.FlowRun, "Waits on a reserved kind");
+        await AssertCreatedAsync(daemon, client, "waits", person.Pause, person.Parcel, person.FlowRun, "Paused by a person while waiting");
+        Assert.Equal(3, (await ByTriggerAsync(client, "waits")).Count);
         await daemon.StopAsync(None);
     }
 

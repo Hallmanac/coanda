@@ -25,6 +25,15 @@ public static class TriggerDecider
     public const string ExternalIdRule = "An external event needs the id the outside world gives it, which recording it again matches on";
 
     /// <summary>
+    /// Whether some recorder may record an external event of <paramref name="kind"/>: it is a plain name or a
+    /// module-prefixed one, and none of the kinds the daemon's own record reads as. Who may record a
+    /// module-prefixed kind is the recorder's question, which this leaves to <see cref="RecordExternalEvent"/>.
+    /// </summary>
+    public static bool MayBeRecorded(string kind) =>
+        (Flow.IsPlainName(kind) || ModuleNames.IsPrefixed(kind))
+        && kind is not (TriggerEvent.ParcelEnteredKind or TriggerEvent.FlowRunEndedKind or TriggerEvent.AttentionKind);
+
+    /// <summary>
     /// Records an external event of <paramref name="kind"/> whose id in the outside world is
     /// <paramref name="externalId"/>, kept exactly as given, and which concerns <paramref name="parcelId"/>
     /// when the recorder names one. Whether an event with the same project, kind, and external id is

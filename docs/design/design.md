@@ -552,8 +552,11 @@ its stream stood then; `type`, the type of the flow run's parcel; and `title`, t
 pause's reason and lever are free text, not fields, and a consumer that needs them reads the attention
 query. A trigger on `attention` fires only on the pauses the node itself recorded, which, since a node
 writes only to the flow runs it started, are pauses of its own flow runs; an imported pause is the attention
-of the node that recorded it. It never fires on a pause recorded while the flow run was on a
-wait-for-external-event step, since that flow run waits on a system and resumes on its own. It only creates
+of the node that recorded it. It never fires on a wait-for-external-event step's own pause, the outcome of
+the step's dispatch while its `event` argument names a kind an external event may use, since that flow run
+waits on a system and resumes on its own. It does fire on any other pause at such a step, which only a person
+clears: the step refusing a missing or blank `event` argument, a dispatch failure, a person's pause, or a wait
+on a kind no external event may use. It only creates
 a parcel, since the paused flow run's parcel still holds that live flow run and no flow can start on it, and
 it counts toward its hourly cap like any other trigger that creates parcels, which is what bounds a trigger
 whose own flow runs pause. No external event may use the kind `attention`. The parcel a trigger creates
@@ -562,8 +565,8 @@ scope (its module, its project, or the word owner) and its name, and the cause b
 the ended flow run's id, or the pause's event id, which every node gives them alike; a parcel a trigger
 creates records the same name as its origin, so the same cause creates it once on any node, and one created
 on a flow run's end or on a pause also records a derived-from relation to that flow run's parcel and that
-flow run. Subscriptions, the per-project records that created a parcel from an external event before triggers were definitions, stay in force: one already in the store, recorded on
-this node or imported, is still listed and still fires on an external event this node recorded, but no new
+flow run. Subscriptions, the per-project records that created a parcel from an external event before
+triggers were definitions, stay in force: one already in the store, recorded on this node or imported, is still listed and still fires on an external event this node recorded, but no new
 subscription can be recorded. If matching needs judgment, the flow starts with an agent step that
 may answer "not for me".
 
