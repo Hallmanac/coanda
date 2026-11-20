@@ -7,17 +7,17 @@ namespace Coanda.Core.Triggers;
 /// creates its parcel and starts its flow run, and the origin of a parcel it creates. A trigger is
 /// named by its scope, by its module in module scope, its project in project scope, or the word
 /// <c>owner</c> in owner scope, and by its name in lower case, since definition names compare without
-/// regard to case. A firing adds its cause, the external event's id or the ended flow run's id. None of
-/// these is a definition's id or version number, which differ between versions and, for owner-scope and
-/// module-scope definitions, between nodes, and none is a value of an event field, so every node names
-/// one firing alike and nothing an event carries reaches the ledger through the name.
+/// regard to case. A firing adds its cause, the external event's id, the ended flow run's id, or the id of
+/// the pause it fired on. None of these is a definition's id or version number, which differ between
+/// versions and, for owner-scope and module-scope definitions, between nodes, and none is a value of an
+/// event field, so every node names one firing alike and nothing an event carries reaches the ledger through the name.
 /// </summary>
 public static class TriggerKey
 {
     /// <summary>What every trigger's name in what it records begins with.</summary>
     public const string Prefix = "trigger:";
 
-    private static readonly string[] Causes = [":event:", ":flow-run:"];
+    private static readonly string[] Causes = [":event:", ":flow-run:", ":pause:"];
 
     /// <summary>The trigger's own name: <c>trigger:project:&lt;project&gt;/&lt;name&gt;</c>, <c>trigger:owner/&lt;name&gt;</c>, or <c>trigger:module:&lt;module&gt;/&lt;name&gt;</c>.</summary>
     public static string Of(Definition definition) => definition.Scope switch
@@ -33,6 +33,9 @@ public static class TriggerKey
 
     /// <summary>The trigger's firing on the end of the flow run <paramref name="flowRunId"/>.</summary>
     public static string ForFlowRunEnd(string trigger, Guid flowRunId) => $"{trigger}:flow-run:{flowRunId}";
+
+    /// <summary>The trigger's firing on the pause recorded under the event id <paramref name="pauseEventId"/>, on the node that started the paused flow run.</summary>
+    public static string ForPause(string trigger, Guid pauseEventId) => $"{trigger}:pause:{pauseEventId}";
 
     /// <summary>
     /// The trigger name in <paramref name="origin"/>, a parcel's origin in <paramref name="project"/>, when a trigger's

@@ -19,7 +19,8 @@ public sealed record TriggerDefinition
 
     /// <summary>
     /// A plain name or a module-prefixed name (<c>&lt;module&gt;/&lt;name&gt;</c>), as an external
-    /// event's kind is, or <see cref="TriggerEvent.FlowRunEndedKind"/>.
+    /// event's kind is, or <see cref="TriggerEvent.FlowRunEndedKind"/>. <see cref="TriggerEvent.AttentionKind"/>
+    /// is a plain name, and a trigger naming it fires on pauses of flow runs this node started.
     /// </summary>
     public required string EventKind { get; init; }
 
@@ -70,6 +71,12 @@ public sealed record TriggerDefinition
         if (string.Equals(EventKind, TriggerEvent.FlowRunEndedKind, StringComparison.Ordinal))
         {
             RequireFlowRunEnd();
+        }
+
+        if (string.Equals(EventKind, TriggerEvent.AttentionKind, StringComparison.Ordinal) && Target.CreateParcel is null)
+        {
+            throw new DomainException(
+                $"Trigger '{Name}' triggers on '{TriggerEvent.AttentionKind}' and acts on the paused flow run's parcel; a pause's parcel still holds its paused flow run, so no flow can start on it, and a trigger on '{TriggerEvent.AttentionKind}' creates a parcel.");
         }
 
         RequireCap();

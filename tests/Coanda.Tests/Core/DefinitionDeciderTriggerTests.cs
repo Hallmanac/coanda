@@ -109,6 +109,24 @@ public sealed class DefinitionDeciderTriggerTests
     }
 
     [Fact]
+    public void A_trigger_on_attention_acting_on_the_events_parcel_is_refused_when_drafted_and_when_imported()
+    {
+        TriggerDefinition chase = new()
+        {
+            Name = "chase",
+            EventKind = TriggerEvent.AttentionKind,
+            Target = new TriggerTarget { EventParcel = new EventParcelTarget { Flow = "judge" } },
+        };
+
+        DomainException drafted = Assert.Throws<DomainException>(() => Draft(chase, DefinitionScope.Project, "alpha"));
+        DomainException imported = Assert.Throws<DomainException>(() =>
+            DefinitionDecider.Import(ModuleDefinition.FromTrigger(chase), "tracker", "1.0.0", [], "import", Now));
+
+        Assert.Contains("a pause's parcel still holds its paused flow run, so no flow can start on it", drafted.Message, StringComparison.Ordinal);
+        Assert.Equal(drafted.Message, imported.Message);
+    }
+
+    [Fact]
     public void A_content_hash_that_differs_from_the_triggers_hash_is_refused()
     {
         TriggerDefinition trigger = SampleTriggers.IssueOpened;

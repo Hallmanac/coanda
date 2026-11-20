@@ -145,6 +145,24 @@ public sealed class TriggerDeciderTests
     }
 
     [Fact]
+    public void An_external_event_of_the_attention_kind_is_refused_whoever_records_it()
+    {
+        foreach (Principal recorder in new[] { Owner, Member, Principal.ForModule("software") })
+        {
+            DomainException exception = Assert.Throws<DomainException>(() => Record("attention", new Dictionary<string, string> { ["flow"] = "build" }, recorder));
+            Assert.Equal("The kind 'attention' is what a flow run's pause reads as; an external event cannot use it.", exception.Message);
+        }
+    }
+
+    [Fact]
+    public void An_external_event_of_a_module_prefixed_attention_kind_is_recorded()
+    {
+        ExternalEventRecorded recorded = Record("software/attention", recordedBy: Principal.ForModule("software"));
+
+        Assert.Equal("software/attention", recorded.Kind);
+    }
+
+    [Fact]
     public void An_external_event_with_a_field_name_that_is_not_plain_is_refused()
     {
         DomainException exception = Assert.Throws<DomainException>(() => Record("pr-assigned", new Dictionary<string, string> { ["assigned to"] = "brian" }));

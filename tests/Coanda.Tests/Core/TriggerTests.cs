@@ -97,6 +97,22 @@ public sealed class TriggerTests
     }
 
     [Fact]
+    public void A_trigger_definition_on_attention_matches_its_flow_without_regard_to_case_and_every_other_field_exactly()
+    {
+        TriggerDefinition chase = SampleTriggers.EvaluateBuild with
+        {
+            EventKind = TriggerEvent.AttentionKind,
+            Filters = SampleTriggers.Filters(("flow", "triage"), ("step", "draft")),
+        };
+        Trigger matcher = Trigger.ForDefinition(chase);
+
+        Assert.True(matcher.Matches(TriggerEvent.Attention("Triage", "draft", "task", "A title")));
+        Assert.False(matcher.Matches(TriggerEvent.Attention("Triage", "Draft", "task", "A title")), "a step compares exactly");
+        Assert.False(matcher.Matches(TriggerEvent.FlowRunEnded("Triage", "draft", "task", "A title")), "a flow run's end is another kind");
+        Assert.Equal(["flow", "step", "title", "type"], TriggerEvent.Attention("Triage", "draft", "task", "A title").Fields.Keys.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void A_trigger_definition_on_an_external_event_compares_every_filter_exactly_as_written()
     {
         TriggerDefinition opened = SampleTriggers.IssueOpened with { Filters = SampleTriggers.Filters(("flow", "Triage")) };

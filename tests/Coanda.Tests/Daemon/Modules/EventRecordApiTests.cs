@@ -190,6 +190,27 @@ public sealed class EventRecordApiTests
     }
 
     [Fact]
+    public async Task The_attention_kind_is_refused_through_the_route_and_the_client_and_a_module_prefixed_attention_is_recorded()
+    {
+        await using ModuleNode node = await ModuleNode.StartAsync();
+        using var owner = new DaemonClient(node.Home);
+        using var http = new HttpClient();
+        CoreApiClient client = await ClientAsync(node, http);
+        var fields = new Dictionary<string, string> { ["flow"] = "build" };
+
+        DomainException byOwner = await Assert.ThrowsAsync<DomainException>(
+            () => owner.PostAsync<ExternalEventView>(EventEndpoints.Path, new RecordedEvent(On, "attention", "pause-1", fields), None));
+        CoreApiException byModule = await Assert.ThrowsAsync<CoreApiException>(
+            () => client.RecordEventAsync(new RecordedEvent(On, "attention", "pause-1", fields), None));
+        CoreExternalEvent prefixed = await client.RecordEventAsync(new RecordedEvent(On, "test/attention", "pause-1", fields), None);
+
+        Assert.Equal("The kind 'attention' is what a flow run's pause reads as; an external event cannot use it.", byOwner.Message);
+        Assert.Equal(422, byModule.Status);
+        Assert.Equal("test/attention", prefixed.Kind);
+        AssertHolds(prefixed, Assert.Single(await RecordAsync(node, On)));
+    }
+
+    [Fact]
     public async Task A_session_token_is_refused_because_event_record_is_not_open_to_the_agent_role()
     {
         using var temp = new TemporaryHome();
