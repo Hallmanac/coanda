@@ -1,0 +1,8 @@
+{
+  "name": "harbor",
+  "version": "1.0.0",
+  "moduleApiVersion": 1,
+  "start": ["harbor"],
+  "sourceUrl": "https://example.com/harbor",
+  "sourceCommit": "0000000"
+}

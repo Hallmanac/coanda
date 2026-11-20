@@ -1,0 +1,16 @@
+{
+  "Name": "crate",
+  "Stages": ["stacked", "unloading", "paused", "closed"],
+  "EntryStages": ["stacked"],
+  "TerminalStage": "closed",
+  "Resolutions": ["unloaded", "lost"],
+  "PausedStage": "paused",
+  "Moves": {
+    "stacked": ["unloading"]
+  },
+  "FlowBindings": [
+    { "Stage": "unloading", "Flow": "unload" }
+  ],
+  "GateBindings": [],
+  "Fields": []
+}

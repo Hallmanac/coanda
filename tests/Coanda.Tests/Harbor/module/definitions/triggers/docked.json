@@ -1,0 +1,9 @@
+{
+  "Name": "docked",
+  "EventKind": "flow-run-ended",
+  "Filters": { "flow": "dock" },
+  "Target": {
+    "CreateParcel": { "ParcelType": "logbook", "TitleField": "title", "Flow": "recount" }
+  },
+  "HourlyCap": 10
+}

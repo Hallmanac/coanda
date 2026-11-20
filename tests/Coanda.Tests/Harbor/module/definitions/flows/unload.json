@@ -1,0 +1,21 @@
+{
+  "Name": "unload",
+  "Accepts": ["crate"],
+  "Outcome": "unloaded",
+  "Budget": 1,
+  "SpawnCap": 1,
+  "Steps": [
+    {
+      "Name": "weigh",
+      "Agent": null,
+      "AnswerSchema": null,
+      "SystemStep": "harbor/weigh",
+      "Arguments": { "scale": "west" },
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "end" }
+      ],
+      "Fields": [],
+      "Sources": []
+    }
+  ]
+}

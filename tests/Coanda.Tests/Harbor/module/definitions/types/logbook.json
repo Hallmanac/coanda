@@ -1,0 +1,12 @@
+{
+  "Name": "logbook",
+  "Stages": ["open", "paused", "closed"],
+  "EntryStages": ["open"],
+  "TerminalStage": "closed",
+  "Resolutions": ["filed"],
+  "PausedStage": "paused",
+  "Moves": {},
+  "FlowBindings": [],
+  "GateBindings": [],
+  "Fields": []
+}

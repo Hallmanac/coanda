@@ -1,0 +1,29 @@
+{
+  "Name": "clerk",
+  "Persona": {
+    "Role": "You are a harbor clerk who keeps the count of what each vessel brought in.",
+    "Purpose": "Read what the surveyor recorded for the vessel and write down the count it comes to.",
+    "Output": "End your reply with exactly one JSON document and nothing after it. The document is an object with a \"verdict\" field whose value is \"done\" and a \"summary\" field giving the count.",
+    "Rules": "Count from what the surveyor recorded, and say where a number came from.",
+    "Prohibitions": "Do not change what the surveyor recorded."
+  },
+  "Model": {
+    "Vendor": "claude-code",
+    "Model": "claude-sonnet-5-5",
+    "Effort": "low"
+  },
+  "Tools": ["read"],
+  "Skills": [],
+  "McpServers": [],
+  "AnswerSchema": "count",
+  "AnswerSchemaContent": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "The answer of a count step",
+    "type": "object",
+    "required": ["verdict", "summary"],
+    "properties": {
+      "verdict": { "type": "string", "enum": ["done"] },
+      "summary": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "Name": "recount",
+  "Accepts": ["logbook"],
+  "Outcome": "recounted",
+  "Budget": 5,
+  "SpawnCap": 1,
+  "Steps": [
+    {
+      "Name": "recount",
+      "Agent": "clerk",
+      "AnswerSchema": "count",
+      "SystemStep": null,
+      "Arguments": {},
+      "Transitions": [
+        { "Field": "verdict", "Value": "done", "VisitCap": 1, "Target": "end" }
+      ],
+      "Fields": [],
+      "Sources": [
+        { "Origin": true }
+      ]
+    }
+  ]
+}
