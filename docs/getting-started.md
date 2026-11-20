@@ -189,6 +189,18 @@ none it can work out from the host), the rebase pauses before it changes anythin
 user with `git config --global user.name "<name>"` and `git config --global user.email "<email>"`,
 then resume the flow run, and the rebase is performed again.
 
+The rebase flow does the same rebase on its own: it rebases a task's branch onto its repo's primary
+branch and pushes it, and nothing else. Start it with `coa flow start rebase --parcel <id>` once the
+parcel has no live flow run. A paused flow run counts as live, so to rebase a task whose merge has
+paused, for example, stop the merge flow run first. A rebase flow run is a chain of its own, which
+has recorded no push of its own yet, so it rebases from the head the parcel's flow runs last
+recorded as pushed, whichever flow run recorded it, and pushes with a lease that expects that head
+on the remote. It pauses rather than overwrites
+when the branch or the remote holds a commit nobody recorded, as the merge's rebase does, and when no
+flow run on the parcel has recorded a pushed head at all. It does not start a merge, and it leaves the
+task open. A merge flow run you start by hand afterwards pauses at its gated merge, because its own
+chain recorded no head for the gated merge to hold the pull request to.
+
 The lifecycle needs no configuring. The software engineering lifecycle is installed by default.
 
 Agent steps run on Claude Code. With no configuration at all, the daemon runs each agent step as a

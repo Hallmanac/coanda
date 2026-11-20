@@ -56,6 +56,22 @@ behind the base it goes through the worktree and rebase steps and then waits. It
 A change to one of these values changes what the others mean: the pending cap is the twenty minutes
 of waiting plus the rebase cap, and the merged cap is the pending cap plus the resumes.
 
+## The rebase flow's ending
+
+`definitions/flows/rebase.json` runs the worktree step and then the rebase step, and ends with
+`rebased`. It names no `Closes`, so its parcel stays open: a rebased branch is still a pull request
+waiting to merge, and only the merge closes a task as completed, in the same decision that merges it.
+It names no `Follow`, so it never starts because another flow ended: a rebase is wanted when the
+primary branch has moved, which no flow's outcome says, so a person starts it, and a trigger on that
+move will. Following the build's `pr-opened` would rebase a branch the build had only just pushed,
+and would queue behind the merge, which follows the same outcome, or ahead of it. Nothing follows
+`rebased` either, so no merge starts when a rebase flow run ends. A flow run that followed one would
+run in the rebase's chain, where the gated merge would find the rebase's head and merge on it, so a
+person who asked only for a rebase would get a merge, and once a trigger starts rebases on every move
+of the primary branch, every move would merge every rebased task with nobody having asked. The visit
+caps of 3 on both transitions match the merge flow's rebase lap, and leave room to resume either step
+after a pause that performing it again fixes.
+
 ## The project guidance sentence
 
 Every agent persona's rules in `definitions/agents/` open with the same sentence:
