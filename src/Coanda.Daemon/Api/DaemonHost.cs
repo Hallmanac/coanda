@@ -124,6 +124,7 @@ public sealed class DaemonHost
             services.GetRequiredService<FlowSystemSteps>().NamesAsync,
             services.GetRequiredService<FlowSystemSteps>().ArgumentCheckAsync));
         builder.Services.AddSingleton(new CredentialProfiles(options.Profiles));
+        builder.Services.AddSingleton<ModuleSkills>();
         builder.Services.AddSingleton<RepoClones>();
         builder.Services.AddSingleton(new DefaultModules(options.DefaultModules ?? []));
         builder.Services.AddSingleton(new WatchedProjects(options.WatchedProjects));
@@ -284,7 +285,8 @@ public sealed class DaemonHost
             // Types come from the store, so the modules' ones are in it before anything is served
             // or advertised: the address file is written only after this returns. Until install exists,
             // the start stands in for it, reading each module's definitions folder from its directory.
-            await ImportModulesAsync(app.Services.GetRequiredService<DefinitionService>(), options, cancellationToken);
+            await ImportModulesAsync(
+                app.Services.GetRequiredService<DefinitionService>(), app.Services.GetRequiredService<ModuleSkills>(), options, cancellationToken);
 
             // Each hosted module is handed the watches its projects' triggers compile to, once the triggers
             // its own definitions ship are imported and before the address is advertised. The position the
@@ -363,9 +365,10 @@ public sealed class DaemonHost
     /// <summary>
     /// Imports the definitions of each composed module, whose manifest must name it by the name it is
     /// hosted as, the name its steps are prefixed with and projects switch it on by, then those of each
-    /// module in <see cref="DaemonOptions.ModulePaths"/>, each module in one save.
+    /// module in <see cref="DaemonOptions.ModulePaths"/>, each module in one save. The skills each
+    /// directory's skills folder ships are held under the module name its manifest gives.
     /// </summary>
-    private static async Task ImportModulesAsync(DefinitionService definitions, DaemonOptions options, CancellationToken cancellationToken)
+    private static async Task ImportModulesAsync(DefinitionService definitions, ModuleSkills skills, DaemonOptions options, CancellationToken cancellationToken)
     {
         foreach (ComposedModule module in options.ComposedModules)
         {
@@ -377,11 +380,14 @@ public sealed class DaemonHost
             }
 
             await definitions.ImportAsync(artifact, cancellationToken);
+            skills.Hold(artifact);
         }
 
         foreach (string path in options.ModulePaths)
         {
-            await definitions.ImportAsync(await ModuleArtifact.ReadAsync(path, cancellationToken), cancellationToken);
+            ModuleArtifact artifact = await ModuleArtifact.ReadAsync(path, cancellationToken);
+            await definitions.ImportAsync(artifact, cancellationToken);
+            skills.Hold(artifact);
         }
     }
 

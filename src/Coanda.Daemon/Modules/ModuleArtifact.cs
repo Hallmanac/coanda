@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Coanda.Core;
 using Coanda.Core.Definitions;
 using Coanda.Sdk.Contract;
@@ -12,14 +13,25 @@ namespace Coanda.Daemon.Modules;
 /// <c>module.json</c>, and the definitions in its definitions folder, each with the file it was read
 /// from. The folder holds a <c>types</c>, a <c>flows</c>, an <c>agents</c>, and a <c>triggers</c> folder,
 /// any of which may be absent, each holding one JSON file per definition named for it; an entry whose
-/// name starts with a dot is passed over. Install will read the same layout from the module's
-/// artifact; until it exists the daemon reads it at start.
+/// name starts with a dot is passed over. Beside the definitions folder the directory may hold a
+/// <c>skills</c> folder, one folder per skill named for the skill and holding a <c>SKILL.md</c>, which
+/// an agent step whose agent names the skill gives its session (<see cref="Skills"/>). Install will
+/// read the same layout from the module's artifact; until it exists the daemon reads it at start.
 /// </summary>
-public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList<ModuleArtifactDefinition> Definitions)
+public sealed partial record ModuleArtifact(string Module, string Version, IReadOnlyList<ModuleArtifactDefinition> Definitions)
 {
     public const string ManifestFile = "module.json";
 
     public const string DefinitionsFolder = "definitions";
+
+    /// <summary>The folder beside the definitions folder that holds the module's skills, one folder per skill.</summary>
+    public const string SkillsFolder = "skills";
+
+    /// <summary>The file every skill's folder holds, which a session is told to read before work the skill covers.</summary>
+    public const string SkillFile = "SKILL.md";
+
+    /// <summary>The skills the module's skills folder ships, in ordinal order of name; none when it has no skills folder.</summary>
+    public IReadOnlyList<ModuleSkill> Skills { get; init; } = [];
 
     /// <summary>The folder each kind of definition is read from, in the order they are imported.</summary>
     public static IReadOnlyList<(string Folder, DefinitionKind Kind)> KindFolders { get; } =
@@ -41,7 +53,8 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
     /// manifest schema, and every definition file, each read through its kind's canonical read. Refuses,
     /// naming the path, a missing manifest or definitions folder, a manifest the schema refuses, an entry
     /// of the folder that is not a definition file, a file its kind's read refuses, a file not named for
-    /// the definition it holds, and two files holding one kind and name.
+    /// the definition it holds, and two files holding one kind and name. Reads the skills folder too,
+    /// when there is one, and refuses what <see cref="ReadSkills"/> refuses.
     /// </summary>
     public static async Task<ModuleArtifact> ReadAsync(string directory, CancellationToken cancellationToken)
     {
@@ -82,7 +95,10 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
             }
         }
 
-        var artifact = new ModuleArtifact(manifest.Name, manifest.Version, definitions);
+        var artifact = new ModuleArtifact(manifest.Name, manifest.Version, definitions)
+        {
+            Skills = ReadSkills(Path.Combine(directory, SkillsFolder)),
+        };
         artifact.RequireOnePerName();
         return artifact;
     }
@@ -176,6 +192,74 @@ public sealed record ModuleArtifact(string Module, string Version, IReadOnlyList
             throw NotADefinitionFile(folder);
         }
     }
+
+    /// <summary>
+    /// The skills in the skills folder at <paramref name="skillsPath"/>, or none when there is no such
+    /// folder. Refuses, naming the path, a skills folder that is, or holds anywhere inside it, a
+    /// symbolic link or other reparse point, and, among the entries whose names do not start with a
+    /// dot, a file directly in it, a folder whose name is not a plain name (ASCII letters, digits,
+    /// hyphens, and underscores), and a folder holding no <c>SKILL.md</c>. A skill is only ever held as
+    /// the folder read here, so a name an agent gives is looked up among these and never joined onto a path.
+    /// </summary>
+    public static IReadOnlyList<ModuleSkill> ReadSkills(string skillsPath)
+    {
+        var folder = new DirectoryInfo(skillsPath);
+        if (FileEntries.IsLink(folder))
+        {
+            throw NotASkillsFolder(skillsPath, "is a symbolic link or other reparse point");
+        }
+
+        if (!folder.Exists)
+        {
+            return [];
+        }
+
+        RefuseLinksWithin(folder);
+        List<ModuleSkill> skills = [];
+        foreach (FileSystemInfo entry in folder.EnumerateFileSystemInfos("*", FileEntries.Everything).Where(e => !e.Name.StartsWith('.')).OrderBy(e => e.Name, StringComparer.Ordinal))
+        {
+            if (entry is not DirectoryInfo skill)
+            {
+                throw NotASkillsFolder(entry.FullName, "is a file directly in a skills folder, which holds only one folder per skill");
+            }
+
+            if (!PlainName().IsMatch(skill.Name))
+            {
+                throw NotASkillsFolder(entry.FullName, "is a skill folder whose name is not a plain name (ASCII letters, digits, hyphens, and underscores)");
+            }
+
+            if (!skill.EnumerateFiles("*", FileEntries.Everything).Any(f => string.Equals(f.Name, SkillFile, StringComparison.Ordinal)))
+            {
+                throw NotASkillsFolder(entry.FullName, $"is a skill folder that holds no {SkillFile}");
+            }
+
+            skills.Add(new ModuleSkill(skill.Name, skill.FullName));
+        }
+
+        return skills;
+    }
+
+    private static void RefuseLinksWithin(DirectoryInfo directory)
+    {
+        foreach (FileSystemInfo entry in directory.EnumerateFileSystemInfos("*", FileEntries.Everything))
+        {
+            if (FileEntries.IsLink(entry))
+            {
+                throw NotASkillsFolder(entry.FullName, "is a symbolic link or other reparse point inside a skills folder");
+            }
+
+            if (entry is DirectoryInfo inner)
+            {
+                RefuseLinksWithin(inner);
+            }
+        }
+    }
+
+    private static DomainException NotASkillsFolder(string path, string what) =>
+        new($"'{path}' {what}; a module's {SkillsFolder} folder holds one folder per skill, named for the skill with a plain name and holding a {SkillFile}, and no link anywhere inside it.");
+
+    [GeneratedRegex(@"\A[A-Za-z0-9_-]+\z")]
+    private static partial Regex PlainName();
 
     /// <summary>The entries whose names do not start with a dot, so a file a file manager leaves behind, such as <c>.DS_Store</c>, is passed over.</summary>
     private static IEnumerable<string> Visible(IEnumerable<string> entries) =>
