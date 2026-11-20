@@ -563,6 +563,21 @@ public sealed class FlowRunService(IDocumentStore store, TimeProvider clock, IFl
     }
 
     /// <summary>
+    /// The flow run as it stood at <paramref name="version"/> of its stream, folded from its events up to and
+    /// including that version, or null when the project holds no such flow run.
+    /// </summary>
+    public async Task<FlowRun?> ShowAtAsync(Principal principal, string project, Guid flowRunId, long version, CancellationToken cancellationToken)
+    {
+        CommandRegistry.Require("flow-run.show", principal);
+        string tenant = Tenants.RequireProject(project);
+        SessionScope.RequireBoundProject(principal, tenant);
+        await ModuleScope.RequireSwitchedOnAsync(store, principal, tenant, cancellationToken);
+
+        await using IQuerySession session = store.QuerySession(tenant);
+        return await session.Events.AggregateStreamAsync<FlowRun>(flowRunId, version, token: cancellationToken);
+    }
+
+    /// <summary>
     /// Every flow run of <paramref name="member"/>'s chain, the root and the member included, oldest
     /// first. A chain runs on one parcel, so it is read from that parcel's flow runs.
     /// </summary>
