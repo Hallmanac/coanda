@@ -545,13 +545,24 @@ trigger that acts on the event's parcel carries no cap, and neither does a subsc
 flow run's end names the flow whose end it follows with a filter on the event's `flow` field, and may name the outcome
 with one on its `outcome` field; it creates a parcel of the type it names, starting a flow other than
 the one it follows, and never acts on the parcel whose flow run ended, since starting a flow on that
-parcel is a flow's follow, below. The parcel a trigger creates and the flow run it starts are created
-by a principal of the Member role whose id names the trigger by its scope (its module, its project, or the
-word owner) and its name, and the cause by the external event's id or the ended flow run's id, which every
-node gives them alike; a parcel a trigger creates records the same name as its origin, so the same cause
-creates it once on any node, and one created on a flow run's end also records a derived-from relation to
-the ended flow run's parcel and flow run. Subscriptions, the per-project records that created a parcel from
-an external event before triggers were definitions, stay in force: one already in the store, recorded on
+parcel is a flow's follow, below. A trigger may also name the kind `attention`, which a pause of a flow
+run reads as, with exactly four fields: `flow`, the paused flow run's flow, which a filter matches without
+regard to case; `step`, the step the flow run was on when the pause was recorded, read from the flow run as
+its stream stood then; `type`, the type of the flow run's parcel; and `title`, that parcel's title. The
+pause's reason and lever are free text, not fields, and a consumer that needs them reads the attention
+query. A trigger on `attention` fires only on the pauses the node itself recorded, which, since a node
+writes only to the flow runs it started, are pauses of its own flow runs; an imported pause is the attention
+of the node that recorded it. It never fires on a pause recorded while the flow run was on a
+wait-for-external-event step, since that flow run waits on a system and resumes on its own. It only creates
+a parcel, since the paused flow run's parcel still holds that live flow run and no flow can start on it, and
+it counts toward its hourly cap like any other trigger that creates parcels, which is what bounds a trigger
+whose own flow runs pause. No external event may use the kind `attention`. The parcel a trigger creates
+and the flow run it starts are created by a principal of the Member role whose id names the trigger by its
+scope (its module, its project, or the word owner) and its name, and the cause by the external event's id,
+the ended flow run's id, or the pause's event id, which every node gives them alike; a parcel a trigger
+creates records the same name as its origin, so the same cause creates it once on any node, and one created
+on a flow run's end or on a pause also records a derived-from relation to that flow run's parcel and that
+flow run. Subscriptions, the per-project records that created a parcel from an external event before triggers were definitions, stay in force: one already in the store, recorded on
 this node or imported, is still listed and still fires on an external event this node recorded, but no new
 subscription can be recorded. If matching needs judgment, the flow starts with an agent step that
 may answer "not for me".
