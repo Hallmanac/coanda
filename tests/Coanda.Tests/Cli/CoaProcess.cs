@@ -15,7 +15,16 @@ public static class CoaProcess
     private static readonly string Coa = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "coa.exe" : "coa");
 
     /// <summary>Runs <c>coa</c> with <paramref name="arguments"/> against <paramref name="home"/> until it exits.</summary>
-    public static async Task<Ran> RunAsync(NodeHome home, CancellationToken cancellationToken, params string[] arguments)
+    public static Task<Ran> RunAsync(NodeHome home, CancellationToken cancellationToken, params string[] arguments) =>
+        RunAsync(home, project: null, workingDirectory: null, cancellationToken, arguments);
+
+    /// <summary>
+    /// Runs <c>coa</c> with <paramref name="arguments"/> against <paramref name="home"/> until it exits, with
+    /// <c>COANDA_PROJECT</c> set to <paramref name="project"/> when it is given, and in
+    /// <paramref name="workingDirectory"/> when it is given.
+    /// </summary>
+    public static async Task<Ran> RunAsync(
+        NodeHome home, string? project, string? workingDirectory, CancellationToken cancellationToken, params string[] arguments)
     {
         var start = new ProcessStartInfo(Coa) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (string argument in arguments)
@@ -26,7 +35,16 @@ public static class CoaProcess
         start.Environment[NodeHome.EnvironmentVariable] = home.Path;
         start.Environment.Remove(SessionAccess.TokenVariable);
         start.Environment.Remove(SessionAccess.HomeVariable);
-        start.Environment.Remove("COANDA_PROJECT");
+        start.Environment.Remove(SessionAccess.ProjectVariable);
+        if (project is not null)
+        {
+            start.Environment[SessionAccess.ProjectVariable] = project;
+        }
+
+        if (workingDirectory is not null)
+        {
+            start.WorkingDirectory = workingDirectory;
+        }
 
         using Process process = Process.Start(start) ?? throw new XunitException($"{Coa} did not start.");
         Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
