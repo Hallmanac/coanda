@@ -130,6 +130,14 @@ app.Configure(config =>
         flowRun.AddCommand<FlowRunStopCommand>("stop").WithDescription("Stop a live flow run, releasing its parcel.").WithExample("flow-run", "stop", "0192a3b4", "--reason", "\"Taking this by hand\"");
         flowRun.AddCommand<FlowRunResumeCommand>("resume").WithDescription("Resume a paused flow run; the daemon advances it from there.").WithExample("flow-run", "resume", "0192a3b4");
     });
+
+    config.AddBranch("attention", attention =>
+    {
+        attention.SetDescription("What needs a person on this node: the paused flow runs this node started, with the lever that resumes each.");
+        attention.AddCommand<AttentionListCommand>("list").WithDescription("List the paused flow runs this node started, in every project the node holds or in the one --project names, oldest pause first.")
+            .WithExample("attention", "list")
+            .WithExample("attention", "list", "--project", "coanda");
+    });
 });
 
 return await app.RunAsync(args);
