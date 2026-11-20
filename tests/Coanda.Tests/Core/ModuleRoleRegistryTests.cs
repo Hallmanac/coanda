@@ -19,6 +19,7 @@ public sealed class ModuleRoleRegistryTests
         "parcel.list", "parcel.show", "parcel.set-field",
         "type.list", "flow.list", "agent.list",
         "flow-run.list", "flow-run.show", "flow-run.outcome",
+        "attention.list",
         "event.record", "subscription.list",
     ];
 
@@ -49,6 +50,7 @@ public sealed class ModuleRoleRegistryTests
         ["agent.list"] = Everyone,
         ["flow-run.list"] = Everyone,
         ["flow-run.show"] = Everyone,
+        ["attention.list"] = Everyone,
         ["flow-run.start"] = Everyone,
         ["flow-run.step"] = Everyone,
         ["flow-run.respawn"] = Everyone,

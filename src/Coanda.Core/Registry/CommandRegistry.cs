@@ -37,6 +37,7 @@ public static class CommandRegistry
         new("agent.list", EntryKind.Query, "List the agents that resolution returns for a project.", EveryoneAndModules),
         new("flow-run.list", EntryKind.Query, "List the flow runs of a project or of one parcel.", EveryoneAndModules),
         new("flow-run.show", EntryKind.Query, "Show one flow run with its steps.", EveryoneAndModules),
+        new("attention.list", EntryKind.Query, "List the paused flow runs this node started, in every project the node holds or in one.", EveryoneAndModules),
         new("flow-run.start", EntryKind.Command, "Start a flow run of a flow on a parcel.", Everyone),
         new("flow-run.step", EntryKind.Command, "Record a flow run entering a step.", Everyone),
         new("flow-run.respawn", EntryKind.Command, "Record a resumed agent step spawning its agent again on the same visit.", Everyone),

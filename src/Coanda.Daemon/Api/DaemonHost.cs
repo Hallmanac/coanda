@@ -5,6 +5,7 @@ using Coanda.Core.Parcels;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Api.Endpoints;
 using Coanda.Daemon.Api.Middleware;
+using Coanda.Daemon.Attention;
 using Coanda.Sdk.Commands;
 using Coanda.Daemon.Flows;
 using Coanda.Daemon.Identity;
@@ -180,6 +181,7 @@ public sealed class DaemonHost
         builder.Services.AddSingleton<IFlowRunAdvancer>(services => services.GetRequiredService<FlowRunAdvancer>());
         builder.Services.AddHostedService(services => services.GetRequiredService<FlowRunAdvancer>());
         builder.Services.AddSingleton<FlowRunService>();
+        builder.Services.AddSingleton<AttentionService>();
         builder.Services.AddSingleton<LostClaims>();
         builder.Services.AddSingleton<ParcelClaimant>();
         builder.Services.AddSingleton<NodeVoucher>();
@@ -231,6 +233,7 @@ public sealed class DaemonHost
         app.MapFlowEndpoints();
         app.MapAgentEndpoints();
         app.MapFlowRunEndpoints();
+        app.MapAttentionEndpoints();
         app.MapProjectEndpoints();
         app.MapProjectModuleEndpoints();
         app.MapParcelEndpoints();
