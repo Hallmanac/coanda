@@ -52,7 +52,7 @@ public static class DefinitionEndpoints
         group.MapPost("/publish", async (HttpContext context, DefinitionService definitions, DefinitionIdRequest request, CancellationToken cancellationToken) =>
             {
                 Definition published = await definitions.PublishInProjectAsync(
-                    RequestPrincipal.PrincipalOf(context), request.Project, request.DefinitionId, cancellationToken);
+                    RequestPrincipal.PrincipalOf(context), request.Project ?? string.Empty, request.DefinitionId, cancellationToken);
                 return Results.Ok(DefinitionView.From(published));
             })
             .Produces<DefinitionView>();
@@ -60,7 +60,7 @@ public static class DefinitionEndpoints
         group.MapPost("/retire", async (HttpContext context, DefinitionService definitions, DefinitionIdRequest request, CancellationToken cancellationToken) =>
             {
                 Definition retired = await definitions.RetireInProjectAsync(
-                    RequestPrincipal.PrincipalOf(context), request.Project, request.DefinitionId, cancellationToken);
+                    RequestPrincipal.PrincipalOf(context), request.Project ?? string.Empty, request.DefinitionId, cancellationToken);
                 return Results.Ok(DefinitionView.From(retired));
             })
             .Produces<DefinitionView>();
