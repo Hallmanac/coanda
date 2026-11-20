@@ -50,6 +50,15 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// (<see cref="ShellWords.HighestReach"/>). Files a
 /// process the command starts reads on its own are not paths a call names, and stay allowed. The
 /// reason never quotes a file's contents: it names the path, the directory it reaches, and nothing else.
+/// <para>
+/// In every session, confined or not, a file tool's path is judged as the Claude Code CLI opens it,
+/// as well as with its variables expanded, and a call either reading refuses is refused. The CLI,
+/// as confirmed against version 2.1.329, trims the white space around the path, expands only a
+/// leading <c>~</c> or <c>~/</c> to the home directory, takes <c>$NAME</c>, <c>${NAME}</c>, and
+/// <c>~NAME</c> as written, and collapses <c>.</c> and <c>..</c> by name before it follows any link.
+/// Variable expansion is the reading of a Bash command's words alone; for a file tool's path it is
+/// kept only beside the CLI's reading, so no call refused for it before is allowed now.
+/// </para>
 /// </remarks>
 public static class ToolGuard
 {
@@ -145,11 +154,9 @@ public static class ToolGuard
             return Unreadable($"it names the tool '{tool}' without the input the guard judges");
         }
 
-        // A confined session's path is also judged as the CLI itself opens it, which no shell reads first.
-        if (rules.Confined)
-        {
-            named = [.. named, .. Opened()];
-        }
+        // A file tool's path is also judged as the CLI itself opens it, which no shell reads first; a
+        // Bash command has no such reading, since its shell does expand its words.
+        named = [.. named, .. Opened()];
 
         if (unknowable is not null)
         {
@@ -169,13 +176,37 @@ public static class ToolGuard
 
         string Expanded(string text) => ShellWords.Expand(text, Value, home, UserHome);
 
-        // The CLI expands only a leading ~ or ~/ in a path, takes $NAME as written, and collapses . and
-        // .. by name before it opens the path, so a link a .. follows is never followed. A ~ it may leave
-        // as written is judged both ways.
-        IReadOnlyList<string> AsOpened(string text) =>
-            text == "~" || text.StartsWith("~/", StringComparison.Ordinal) || (OperatingSystem.IsWindows() && text.StartsWith("~\\", StringComparison.Ordinal))
-                ? [home + text[1..], text]
-                : [text];
+        // The CLI trims the white space around a path, expands only a leading ~ or ~/, takes $NAME and
+        // ${NAME} as written, and collapses . and .. by name before it opens the path, so a link a .. follows
+        // is never followed. The path as written, and a ~ it may leave as written, are judged too.
+        IReadOnlyList<string> AsOpened(string text)
+        {
+            string trimmed = Trimmed(text);
+            IReadOnlyList<string> readings = trimmed == "~" || trimmed.StartsWith("~/", StringComparison.Ordinal) || (OperatingSystem.IsWindows() && trimmed.StartsWith("~\\", StringComparison.Ordinal))
+                ? [home + trimmed[1..], trimmed]
+                : [trimmed];
+            return [.. readings.Append(text).Distinct(StringComparer.Ordinal)];
+        }
+
+        // JavaScript's trim, which also removes the byte order mark that .NET does not count as white space.
+        static string Trimmed(string text)
+        {
+            int start = 0;
+            int end = text.Length;
+            while (start < end && IsSpace(text[start]))
+            {
+                start++;
+            }
+
+            while (end > start && IsSpace(text[end - 1]))
+            {
+                end--;
+            }
+
+            return text[start..end];
+
+            static bool IsSpace(char c) => char.IsWhiteSpace(c) || c == '\uFEFF';
+        }
 
         List<Named> Opened()
         {
