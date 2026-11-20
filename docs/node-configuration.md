@@ -195,11 +195,18 @@ a path the call names is one of these directories, is inside one, or contains on
 Two directories inside those stay open: the session's own work directory, and the directory Claude
 Code keeps for the session's own conversation (`projects/<encoded work directory>/<session id>` in
 the config directory the session runs under, beside its transcript). The guard reads the file path of
-a Read, Edit, or Write; the path of a Glob or Grep and the pattern of a Glob; and every word of a
-Bash command that looks like a path, after expanding `~` and the session's variables as its shell
-would (`$PWD` is the directory the shell is in at that point, and a variable the session does not define is
-empty). A relative word in a command is judged against each directory a `cd` or `pushd` earlier in
-the command may have moved the shell to, and against the directory the call runs in as well, unless
+a Read, Edit, or Write, the path of a Glob or Grep, and the pattern of a Glob as Claude Code itself
+opens them, in every session, confined or not. Claude Code 2.1.329, the version this was confirmed
+against, trims the white space around such a path, expands only a leading `~` or `~/` to your home
+directory, takes `$NAME`, `${NAME}`, and `~NAME` as written rather than as a variable or a user's
+home, and collapses `.` and `..` by name before it follows any link. So `$PWD/../..` climbs out of
+the work directory as written, and so does `link/../..` for a link pointing deeper inside it. The
+guard also judges each such path with `~` and the session's variables expanded, and refuses the call
+when either reading reaches a protected place. Expanding variables is otherwise only how the guard
+reads a Bash command: it reads every word of one that looks like a path after expanding `~` and the
+session's variables as its shell would (`$PWD` is the directory the shell is in at that point, and a
+variable the session does not define is empty). A relative word in a command is judged against each
+directory a `cd` or `pushd` earlier in the command may have moved the shell to, and against the directory the call runs in as well, unless
 the word's command is joined to the `cd` by `&&`; the destination of a `cd` is judged too, and a bare
 `cd` goes to your home directory, which holds the node home. A `cd`, or zsh's `chdir`, is recognised
 behind shell keywords such as `then` or `{` and behind `builtin`, `command`, and `eval`; its options
@@ -272,10 +279,8 @@ daemon restart, which reads the confinement back from the session's record:
 - Every path a Read, Edit, Write, Glob, or Grep call names, once links are resolved as above, must
   lie inside the session's work directory or inside its own conversation's directory. Anything
   else is refused, wherever it is, not only the node home and the config directories.
-- Each such path is also judged the way Claude Code itself opens it, and must pass both ways.
-  Claude Code expands only a leading `~`, takes a `$NAME` as written rather than as a variable, and
-  collapses `.` and `..` by name before it follows any link. So `$PWD/../..` climbs out of the work
-  directory as written, and so does `link/../..` for a link pointing deeper inside it.
+- Both readings of such a path described above, the one Claude Code opens and the one with its
+  variables expanded, must lie inside one of those two directories.
 - Its environment holds only the inherited variables on a short allowed list (the Claude Code
   adapter's `ConfinedEnvironmentVariables`): the path, the home directory, the user's name, the
   temporary directory, the locale, `CLAUDE_CONFIG_DIR`, the credential variables, the proxy
