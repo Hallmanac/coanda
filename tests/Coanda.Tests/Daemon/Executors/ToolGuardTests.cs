@@ -1157,6 +1157,50 @@ public sealed class ToolGuardTests : IDisposable
         Assert.Contains("arguments are malformed", outcome.Reason, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("ls /tmp/cc-socks")]
+    [InlineData("nc -U /tmp/cc-socks/4242.sock")]
+    [InlineData("python3 post.py /tmp/cc-socks/*.sock")]
+    public void A_command_naming_the_directory_claude_code_binds_inboxes_in_is_refused(string command)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        RefusedInInbox(Guard(Call("Bash", new { command })));
+    }
+
+    [Fact]
+    public void A_read_in_the_inbox_directory_under_an_inherited_run_time_directory_or_a_listing_of_the_directory_holding_it_is_refused_and_a_read_beside_it_is_not()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string runtime = Path.Combine(root, "run");
+        ToolGuardRules rules = ClaudeCodeInvocation.Guard(home, work, null, Environment(("XDG_RUNTIME_DIR", runtime)), []);
+
+        Assert.Contains(Path.Combine(runtime, "cc-socks"), rules.InboxDirectories ?? []);
+        Assert.Contains("/tmp/cc-socks", rules.InboxDirectories ?? []);
+        Assert.Single(rules.InboxDirectories ?? [], directory => directory.StartsWith("/tmp/cc-socks-", StringComparison.Ordinal));
+        RefusedInInbox(ToolGuard.Run(rules.Arguments, new StringReader(Call("Read", new { file_path = Path.Combine(runtime, "cc-socks", "7.sock") })), Environment()));
+        Allowed(ToolGuard.Run(rules.Arguments, new StringReader(Call("Read", new { file_path = Path.Combine(runtime, "notes.txt") })), Environment()));
+        RefusedInInbox(ToolGuard.Run(rules.Arguments, new StringReader(Call("Bash", new { command = $"ls {runtime}" })), Environment()));
+    }
+
+    [Fact]
+    public void On_windows_no_inbox_directory_is_guarded_because_an_inbox_there_is_a_named_pipe()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Assert.Empty(ClaudeCodeInvocation.InboxDirectories(Environment(("XDG_RUNTIME_DIR", root))));
+    }
+
     private ToolGuardOutcome Confined(string input) =>
         ToolGuard.Run((Rules(null, Environment()) with { Confined = true }).Arguments, new StringReader(input), Environment());
 
@@ -1176,6 +1220,12 @@ public sealed class ToolGuardTests : IDisposable
     {
         Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
         Assert.Contains("is in a Claude Code config directory", outcome.Reason, StringComparison.Ordinal);
+    }
+
+    private static void RefusedInInbox(ToolGuardOutcome outcome)
+    {
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("is in a directory Claude Code binds sessions' inboxes in", outcome.Reason, StringComparison.Ordinal);
     }
 
     private static void RefusedUnknowable(ToolGuardOutcome outcome)

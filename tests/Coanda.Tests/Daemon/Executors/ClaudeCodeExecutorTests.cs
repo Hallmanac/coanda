@@ -44,7 +44,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         // directory is matched by its flow-run-specific tail and by holding the persona file the spawn wrote.
         Assert.EndsWith(Path.Combine("work", Project, flowRunId.ToString()), start.WorkingDirectory, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(start.WorkingDirectory, ".coanda", "persona.md")));
-        Assert.Equal(["--print", "--output-format", "stream-json", "--verbose", "--session-id", handle.Id.ToString(), "--append-system-prompt-file", ".coanda/persona.md", "--model", "claude-sonnet-5-5", "--effort", "high", "--tools", "Read,Glob,Grep,Edit,Write,Bash", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--strict-mcp-config", "--setting-sources", "", "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""", "--max-budget-usd", "2.5"], WithoutGuard(start.Arguments));
+        Assert.Equal(["--print", "--output-format", "stream-json", "--verbose", "--session-id", handle.Id.ToString(), "--append-system-prompt-file", ".coanda/persona.md", "--model", "claude-sonnet-5-5", "--effort", "high", "--tools", "Read,Glob,Grep,Edit,Write,Bash", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--strict-mcp-config", "--setting-sources", "", "--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"crossSessionInbound":"refuse","permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}""", "--max-budget-usd", "2.5"], WithoutGuard(start.Arguments));
         Assert.DoesNotContain("--mcp-config", start.Arguments);
         Assert.DoesNotContain("--append-system-prompt", start.Arguments);
         // the tools are approved inside the settings document, so a CLI that skips it approves none
@@ -157,7 +157,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         Assert.Contains("ANTHROPIC_AUTH_TOKEN", ClaudeCodeInvocation.CredentialVariables);
         Assert.Contains("CLAUDE_CODE_OAUTH_TOKEN", ClaudeCodeInvocation.CredentialVariables);
         SequenceAssert.ContainsConsecutively(
-            ["--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}"""],
+            ["--settings", """{"autoMemoryEnabled":false,"attribution":{"commit":"","pr":""},"crossSessionInbound":"refuse","permissions":{"allow":["Read","Glob","Grep","Edit","Write","Bash"]}}"""],
             WithoutGuard(start.Arguments));
     }
 
@@ -524,8 +524,8 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         Assert.False(File.Exists(prompt), "a stopped session's prompt is kept only compressed");
         Assert.Equal(hashes.Transcript, FileHash.Of(Decompressed(answered.TranscriptPath)));
         Assert.Equal(sent, Decompressed(prompt + ".gz"));
-        // the inputs the processes read are scratch, removed with the session's record
-        Assert.Empty(Directory.GetFiles(temp.Home.SessionsPath));
+        // the inputs the processes read are scratch, removed with the session's record; every session's script stays
+        Assert.Equal([executor.InboxVariablesScriptPath], Directory.GetFiles(temp.Home.SessionsPath));
     }
 
     [Fact]
@@ -1044,6 +1044,42 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task The_spawn_and_its_retry_refuse_every_message_another_session_posts_and_their_shells_carry_no_inbox_variable()
+    {
+        using var fake = new FakeClaude(FakeClaude.Answering("no answer", 0.1m, 0.1m), FakeClaude.Answering(ValidBuild, 0.1m, 0.2m));
+        (string, string)[] inherited = [.. ClaudeCodeInvocation.InboxVariables.Select(name => (name, "from-the-enclosing-session")), ("CLAUDE_ENV_FILE", "/enclosing/env.sh")];
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home, fake.Environment(inherited));
+
+        await AgentStep.RunAsync(executor, Request(), None);
+
+        Assert.Equal(["CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN"], ClaudeCodeInvocation.InboxVariables);
+        Assert.Equal(2, fake.Starts.Count);
+        foreach (FakeClaude.Start start in fake.Starts)
+        {
+            JsonElement settings = JsonDocument.Parse(start.After("--settings") ?? string.Empty).RootElement;
+            Assert.Equal("refuse", settings.GetProperty("crossSessionInbound").GetString());
+            Assert.DoesNotContain(start.Environment.Keys, key => ClaudeCodeInvocation.InboxVariables.Contains(key));
+            Assert.Equal(executor.InboxVariablesScriptPath, Assert.Contains("CLAUDE_ENV_FILE", start.Environment));
+        }
+
+        Assert.Equal("unset CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN\n", await File.ReadAllTextAsync(executor.InboxVariablesScriptPath));
+        if (!OperatingSystem.IsWindows())
+        {
+            // A Bash command the CLI runs after sourcing the script, the CLI having exported its own inbox's variables.
+            var shell = new ProcessStartInfo("bash", ["-c", "source \"$CLAUDE_ENV_FILE\"; env"]) { RedirectStandardOutput = true };
+            shell.Environment["CLAUDE_ENV_FILE"] = executor.InboxVariablesScriptPath;
+            shell.Environment["CLAUDE_CODE_MESSAGING_SOCKET"] = "/tmp/cc-socks/42.sock";
+            shell.Environment["CLAUDE_CODE_MESSAGING_TOKEN"] = "exported-token";
+            using Process bash = Process.Start(shell) ?? throw new InvalidOperationException("bash did not start.");
+            string printed = await bash.StandardOutput.ReadToEndAsync(None);
+            await bash.WaitForExitAsync(None);
+            Assert.Equal(0, bash.ExitCode);
+            Assert.Contains("CLAUDE_ENV_FILE=", printed, StringComparison.Ordinal);
+            Assert.DoesNotContain("CLAUDE_CODE_MESSAGING", printed, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task Sending_into_a_session_is_refused()
     {
         using var fake = new FakeClaude(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
@@ -1075,8 +1111,9 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         // the session's transcript and its prompt
         Assert.Equal(2, kept.Length);
         string[] recorded = Directory.GetFiles(temp.Home.SessionsPath);
-        // the session's record, and its process's input and error files
-        Assert.Equal(3, recorded.Length);
+        // the session's record, its process's input and error files, and the script that removes the inbox variables
+        Assert.Equal(4, recorded.Length);
+        Assert.Contains(executor.InboxVariablesScriptPath, recorded);
         foreach (string file in kept.Concat(recorded))
         {
             Assert.True(File.GetUnixFileMode(file) == (UnixFileMode.UserRead | UnixFileMode.UserWrite), $"{file} has mode {File.GetUnixFileMode(file)}, not owner read and write.");

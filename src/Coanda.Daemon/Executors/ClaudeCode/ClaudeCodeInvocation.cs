@@ -36,6 +36,22 @@ namespace Coanda.Daemon.Executors.ClaudeCode;
 /// Managed settings rank above the document here too, so an operator's managed policy can turn
 /// attribution back on. The document also registers the <see cref="SettingsEvidence"/> hook, whose
 /// output on the process's stream shows that the CLI applied it.
+/// <para>
+/// The inbox behaviours below are confirmed against Claude Code 2.1.329, not 2.1.318, which could not
+/// be run (<see cref="ClaudeInbox"/> says how a message is posted into an inbox). Every session that
+/// is not in bare mode, print mode included, binds an inbox other local sessions can post messages
+/// into. The settings document sets <c>crossSessionInbound</c> to <c>refuse</c>, so a session drops
+/// every message posted into its inbox without delivering it; managed settings outrank the value the
+/// document sets, so an operator's managed policy can let those messages in again. The CLI exports
+/// its own inbox's socket path and token to its hooks and Bash commands
+/// (<see cref="InboxVariables"/>), whatever the environment it was started with, and a session's
+/// shell could otherwise find another session's inbox beside its own and post into it, which needs
+/// no token on macOS or Linux. So every process of a session is started with
+/// <see cref="EnvironmentFileVariable"/> naming a script that removes those variables before each of
+/// its Bash commands (<see cref="InboxVariablesScript"/>), and its tool guard refuses a path in a
+/// directory the CLI binds inboxes in (<see cref="InboxDirectories"/>). A command that builds such a
+/// path at run time, which the guard cannot see, still reaches it; a confined session has no shell.
+/// </para>
 /// </remarks>
 public static partial class ClaudeCodeInvocation
 {
@@ -56,6 +72,27 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>The setting that names the attribution added to a session's commits and pull requests; the settings document hides both.</summary>
     public const string AttributionSetting = "attribution";
+
+    /// <summary>The setting that says what a session does with a message another local session posts into its inbox.</summary>
+    public const string CrossSessionInboundSetting = "crossSessionInbound";
+
+    /// <summary>The <see cref="CrossSessionInboundSetting"/> value that drops every such message without delivering it, which the settings document sets.</summary>
+    public const string RefuseInbound = "refuse";
+
+    /// <summary>The variable naming a script the CLI sources before each Bash command a session runs.</summary>
+    public const string EnvironmentFileVariable = "CLAUDE_ENV_FILE";
+
+    /// <summary>The name, under the node home's sessions directory, of the script <see cref="EnvironmentFileVariable"/> names for every session.</summary>
+    public const string InboxVariablesScriptName = "inbox-variables.sh";
+
+    /// <summary>The variables the CLI exports to a session's hooks and Bash commands naming the session's own inbox: its socket path and its token.</summary>
+    public static IReadOnlyList<string> InboxVariables { get; } = ["CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN"];
+
+    /// <summary>The script every session's Bash commands are preceded by: it removes each of <see cref="InboxVariables"/>.</summary>
+    public static string InboxVariablesScript => $"unset {string.Join(' ', InboxVariables)}\n";
+
+    /// <summary>The name of the directory Claude Code binds sessions' inboxes in, under the run-time or temporary directory it picks.</summary>
+    public const string InboxDirectoryName = "cc-socks";
 
     /// <summary>The setting whose <c>allow</c> rules pre-approve the session's tools.</summary>
     public const string PermissionsSetting = "permissions";
@@ -136,7 +173,7 @@ public static partial class ClaudeCodeInvocation
     /// <summary>
     /// The variables a confined session's environment may carry from the one the daemon inherited;
     /// every other inherited variable is left out. The spawn still sets the profile's config
-    /// directory and puts the <c>coa</c> directory first on the PATH, and the credential variables
+    /// directory and <see cref="EnvironmentFileVariable"/>, and puts the <c>coa</c> directory first on the PATH, and the credential variables
     /// are removed when the spawn carries a profile, as for any session. Names are matched without
     /// regard to case on Windows.
     /// </summary>
@@ -250,7 +287,8 @@ public static partial class ClaudeCodeInvocation
 
     /// <summary>
     /// The settings document every process of a session receives through <c>--settings</c>: automatic
-    /// memory off, no attribution on commits or pull requests, a helper profile's API key helper,
+    /// memory off, no attribution on commits or pull requests, every message another local session
+    /// posts into its inbox refused, a helper profile's API key helper,
     /// permission rules that pre-approve each of <paramref name="tools"/> (none when it is empty),
     /// hooks left on, the <see cref="SettingsEvidence"/> hook registered for every session start, and
     /// the tool guard registered before every call to the six tools it judges, or before every call
@@ -266,6 +304,7 @@ public static partial class ClaudeCodeInvocation
         {
             [AutoMemorySetting] = false,
             [AttributionSetting] = new JsonObject { ["commit"] = string.Empty, ["pr"] = string.Empty },
+            [CrossSessionInboundSetting] = RefuseInbound,
         };
         if (profile?.ApiKeyHelper is { } helper)
         {
@@ -351,7 +390,8 @@ public static partial class ClaudeCodeInvocation
     /// directory it runs under (its profile's, or the default one), and every other config directory
     /// it may not reach: the default one, whatever profile the spawn carries, the files the CLI keeps
     /// beside the default one in the home directory (<see cref="DefaultConfigFiles"/>), and each of
-    /// <paramref name="profileDirectories"/>, the config directories of the node's profiles. With
+    /// <paramref name="profileDirectories"/>, the config directories of the node's profiles, and every
+    /// directory the CLI may bind sessions' inboxes in (<see cref="InboxDirectories"/>). With
     /// <paramref name="confined"/>, they are a confined session's rules.
     /// </summary>
     public static ToolGuardRules Guard(
@@ -374,7 +414,35 @@ public static partial class ClaudeCodeInvocation
             .Concat(profileDirectories.Select(d => Path.GetFullPath(d)))
             .Where(d => !string.Equals(d, session, StringComparison.Ordinal))
             .Distinct(StringComparer.Ordinal)];
-        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others, confined);
+        return new ToolGuardRules(Path.GetFullPath(home.Path), work, session, others, confined, InboxDirectories(inherited));
+    }
+
+    /// <summary>
+    /// The directories the CLI binds a session's inbox socket in on macOS and Linux, wherever a session
+    /// started with <paramref name="inherited"/> or with none of its variables would bind it:
+    /// <see cref="InboxDirectoryName"/> under <c>XDG_RUNTIME_DIR</c> when it is set, under
+    /// <c>CLAUDE_CODE_TMPDIR</c> when it is set, and under <c>/tmp</c>, and <c>/tmp/cc-socks-</c> followed
+    /// by the daemon's user id, where the CLI binds when the first would make too long a socket path.
+    /// None on Windows, where an inbox is a named pipe and not a file.
+    /// </summary>
+    public static IReadOnlyList<string> InboxDirectories(IReadOnlyDictionary<string, string> inherited)
+    {
+        ArgumentNullException.ThrowIfNull(inherited);
+        if (OperatingSystem.IsWindows())
+        {
+            return [];
+        }
+
+        string fallback = $"/tmp/{InboxDirectoryName}-{DetachedProcess.Posix.UserId().ToString(CultureInfo.InvariantCulture)}";
+        return [.. new[] { "XDG_RUNTIME_DIR", "CLAUDE_CODE_TMPDIR" }
+            .Select(name => inherited.GetValueOrDefault(name))
+            .OfType<string>()
+            .Where(directory => directory.Trim().Length > 0 && Path.IsPathFullyQualified(directory))
+            .Select(directory => Path.Combine(directory, InboxDirectoryName))
+            .Append(Path.Combine("/tmp", InboxDirectoryName))
+            .Append(fallback)
+            .Select(directory => Path.GetFullPath(directory))
+            .Distinct(StringComparer.Ordinal)];
     }
 
     /// <summary>
@@ -432,19 +500,22 @@ public static partial class ClaudeCodeInvocation
     /// matched without regard to case on Windows. A <paramref name="confined"/> session's environment
     /// starts from only the inherited variables <see cref="ConfinedEnvironmentVariables"/> names, and
     /// carries no <paramref name="access"/>: it has no shell to run <c>coa</c> in, and both hooks read
-    /// only their arguments.
+    /// only their arguments. An inherited <see cref="EnvironmentFileVariable"/> never reaches a
+    /// session; an <paramref name="environmentFile"/>, when given, is set in its place, and is the
+    /// script holding <see cref="InboxVariablesScript"/>.
     /// </summary>
     public static IReadOnlyDictionary<string, string> Environment(
         IReadOnlyDictionary<string, string> inherited,
         CredentialProfile? profile,
         SessionAccess? access = null,
         string? coaDirectory = null,
-        bool confined = false)
+        bool confined = false,
+        string? environmentFile = null)
     {
         ArgumentNullException.ThrowIfNull(inherited);
         StringComparer names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         HashSet<string>? allowed = confined ? new HashSet<string>(ConfinedEnvironmentVariables, names) : null;
-        var removed = new HashSet<string>([.. EnclosingSessionVariables, .. HookSkippingVariables, SessionAccess.TokenVariable, SessionAccess.HomeVariable], names);
+        var removed = new HashSet<string>([.. EnclosingSessionVariables, .. HookSkippingVariables, EnvironmentFileVariable, SessionAccess.TokenVariable, SessionAccess.HomeVariable], names);
         if (profile is not null)
         {
             removed.UnionWith(CredentialVariables);
@@ -467,6 +538,11 @@ public static partial class ClaudeCodeInvocation
         foreach ((string name, string value) in (confined ? null : access)?.Variables ?? new Dictionary<string, string>())
         {
             environment[name] = value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(environmentFile))
+        {
+            environment[EnvironmentFileVariable] = environmentFile;
         }
 
         if (!string.IsNullOrWhiteSpace(coaDirectory))

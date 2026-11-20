@@ -115,6 +115,13 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     public string Executable { get; }
 
     /// <summary>
+    /// The script every session's processes are started with <see cref="ClaudeCodeInvocation.EnvironmentFileVariable"/>
+    /// naming, which removes the CLI's inbox variables before each Bash command: in the node home's
+    /// sessions directory, which the session's tool guard keeps out of its reach.
+    /// </summary>
+    public string InboxVariablesScriptPath => Path.Combine(home.SessionsPath, ClaudeCodeInvocation.InboxVariablesScriptName);
+
+    /// <summary>
     /// Where a session whose transcript is at <paramref name="transcriptPath"/> keeps its prompt
     /// while it runs: beside the transcript, named for the session with the extension <c>.prompt</c>.
     /// </summary>
@@ -157,7 +164,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         cancellationToken.ThrowIfCancellationRequested();
         ClaudeCodeInvocation.Require(agent);
         string prompt = ClaudeCodeInvocation.Prompt(context, answerSchema);
-        IReadOnlyDictionary<string, string> processEnvironment = ClaudeCodeInvocation.Environment(environment, credentialProfile, access, coaDirectory, agent.Confined);
+        IReadOnlyDictionary<string, string> processEnvironment = ClaudeCodeInvocation.Environment(environment, credentialProfile, access, coaDirectory, agent.Confined, InboxVariablesScriptPath);
         string executable = ClaudeExecutable.Resolve(Executable, processEnvironment);
         if (caps.CostCeilingUsd <= 0m)
         {
@@ -529,7 +536,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         {
             if (access is not null)
             {
-                session.Environment = ClaudeCodeInvocation.Environment(environment, session.Profile, access, coaDirectory, session.Confined);
+                session.Environment = ClaudeCodeInvocation.Environment(environment, session.Profile, access, coaDirectory, session.Confined, InboxVariablesScriptPath);
             }
 
             return session.Current is { } attempt
@@ -620,7 +627,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
             record.Arguments,
             record.Profile,
             record.Confined,
-            ClaudeCodeInvocation.Environment(environment, record.Profile, access: null, coaDirectory, record.Confined),
+            ClaudeCodeInvocation.Environment(environment, record.Profile, access: null, coaDirectory, record.Confined, InboxVariablesScriptPath),
             record.CeilingUsd,
             record.TranscriptPath)
         {
@@ -667,6 +674,7 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
     private Attempt Start(Session session, int ordinal, IReadOnlyList<string> arguments, string prompt)
     {
         OwnerOnly.EnsureDirectory(home.SessionsPath);
+        WriteInboxVariablesScript();
         string stem = Path.Combine(home.SessionsPath, $"{session.Handle.Id}.{ordinal.ToString(CultureInfo.InvariantCulture)}");
         string inputPath = stem + ".in";
         string errorPath = stem + ".err";
@@ -698,6 +706,42 @@ public sealed class ClaudeCodeExecutor : IAgentExecutor
         {
             Truncate(promptPath, promptLength);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes <see cref="ClaudeCodeInvocation.InboxVariablesScript"/> to <see cref="InboxVariablesScriptPath"/>
+    /// unless the file already holds exactly it: owner-only, and whole before it takes that name, so a
+    /// process of another session never reads it partly written.
+    /// </summary>
+    private void WriteInboxVariablesScript()
+    {
+        byte[] script = Utf8.GetBytes(ClaudeCodeInvocation.InboxVariablesScript);
+        string path = InboxVariablesScriptPath;
+        try
+        {
+            if (File.ReadAllBytes(path).AsSpan().SequenceEqual(script))
+            {
+                return;
+            }
+        }
+        catch (Exception absent) when (absent is FileNotFoundException or DirectoryNotFoundException)
+        {
+        }
+
+        string written = $"{path}.{Ids.New()}.tmp";
+        try
+        {
+            using (FileStream file = OwnerOnly.Open(written, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                file.Write(script);
+            }
+
+            File.Move(written, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(written);
         }
     }
 

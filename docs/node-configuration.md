@@ -190,7 +190,9 @@ a path the call names is one of these directories, is inside one, or contains on
 - when the daemon inherited no `CLAUDE_CONFIG_DIR`, Claude Code's global config file `~/.claude.json`
   and its backup `~/.claude.json.backup`, which sit beside `~/.claude` rather than inside it and hold
   your account details, your user-scope MCP servers, and any API key stored there. With the variable
-  set, that file lives inside the config directory and is covered by it.
+  set, that file lives inside the config directory and is covered by it;
+- on macOS and Linux, the directories Claude Code binds sessions' inboxes in, described under
+  messages between Claude Code sessions below.
 
 Two directories inside those stay open: the session's own work directory, and the directory Claude
 Code keeps for the session's own conversation (`projects/<encoded work directory>/<session id>` in
@@ -269,6 +271,36 @@ described under how a Claude Code session runs. Managed settings that disable ho
 everything else, so they switch off the guard and the session-start hook alike; the daemon then
 sees no marker and stops every session rather than letting one run unguarded.
 
+### Messages between Claude Code sessions
+
+Claude Code gives every session that is not in bare mode an inbox that other local sessions can
+post messages into. The daemon uses it in one direction only. Its executor can post a message into
+the inbox of a live session it did not start, such as a window you opened, through a send-only
+handle that names the socket path and token that session exports. It never reads from, continues,
+or ends a session through such a handle, and never lists one. It writes the message and closes the
+connection, and Claude Code tells a sender that is not itself a session nothing more, so the daemon
+counts a message as sent once it is written whole and does not learn whether the session delivered,
+held, or refused it. A send fails, and is not retried, when nothing listens at the socket, when the
+inbox closes the connection before the whole message is written, or when the message is longer than
+the 1,048,576 characters the inbox reads. On Windows, where the inbox is a named pipe, such a send is
+refused.
+
+Every session the daemon spawns refuses those messages: its settings document sets
+`crossSessionInbound` to `refuse`, so a message another session posts into its inbox is dropped
+without reaching it. A managed settings file outranks that value, as it does the rest of the document.
+
+A spawned session's shell is also kept from posting into another session's inbox, as far as the tool
+guard can keep it. Claude Code exports its own inbox's socket path and token to every Bash command,
+and the directory that socket sits in holds every other session's socket, which takes no token on
+macOS and Linux. So every process of a session starts with `CLAUDE_ENV_FILE` naming
+`sessions/inbox-variables.sh` under the node home, a script Claude Code sources before each Bash
+command and which unsets both variables, and the tool guard refuses a path in each directory Claude
+Code binds inboxes in: `cc-socks` under `$XDG_RUNTIME_DIR` or `$CLAUDE_CODE_TMPDIR` when the daemon
+inherited either, `/tmp/cc-socks`, and `/tmp/cc-socks-` followed by your user id. Since the guard
+also refuses a path that contains one of them, a command naming `/tmp` itself, such as `ls /tmp`, is
+refused too. As with the rest of the guard, a command that builds such a path while it runs still
+reaches it; a confined session has no shell. All of this was confirmed against Claude Code 2.1.329.
+
 ### What a confined session may reach
 
 An agent definition may declare itself confined (`"Confined": true`). A confined agent's session
@@ -293,7 +325,8 @@ daemon restart, which reads the confinement back from the session's record:
   Windows system variables a process needs, and `CLAUDE_CODE_GIT_BASH_PATH`. A token such as
   `GH_TOKEN` in the daemon's environment does not reach it, and neither does a variable that
   chooses another API provider or endpoint, such as `ANTHROPIC_BASE_URL`. The spawn still sets a
-  profile's config directory and puts the directory holding `coa` first on the path. It sets no
+  profile's config directory and `CLAUDE_ENV_FILE` (described under messages between Claude Code
+  sessions), and puts the directory holding `coa` first on the path. It sets no
   session token, node home, or project, since a confined session has no shell to run `coa` in.
 
 A Glob or Grep walk does not follow symbolic links in Claude Code 2.1.328, the version this was

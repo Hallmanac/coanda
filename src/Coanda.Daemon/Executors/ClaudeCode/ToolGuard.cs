@@ -21,7 +21,8 @@ public sealed record ToolGuardOutcome(int ExitCode, string? Reason)
 /// <summary>
 /// The pre-tool-use hook every Claude Code session carries, run as the hidden <c>coa tool-guard</c>
 /// subcommand. It reads the call the CLI is about to make from standard input and refuses it when a
-/// path the call names is the node home or a Claude Code config directory, is inside one, or
+/// path the call names is the node home, a Claude Code config directory, or a directory Claude Code
+/// binds sessions' inboxes in (<see cref="ToolGuardRules.InboxDirectories"/>), is inside one, or
 /// contains one, unless the path is the session's own work directory or inside it, or inside the
 /// directory the CLI keeps for this session's own conversation. In a confined session
 /// (<see cref="ToolGuardRules.Confined"/>) it also refuses a call to any tool but those in
@@ -485,6 +486,7 @@ public static class ToolGuard
     {
         private readonly string home = GuardPath.Resolve(string.Empty, rules.NodeHome);
         private readonly IReadOnlyList<string> configs = [.. rules.ProtectedConfigDirectories.Select(d => GuardPath.Resolve(string.Empty, d))];
+        private readonly IReadOnlyList<string> inboxes = [.. (rules.InboxDirectories ?? []).Select(d => GuardPath.Resolve(string.Empty, d))];
         private readonly bool confined = rules.Confined;
 
         public string? Refusal(Named named)
@@ -522,6 +524,11 @@ public static class ToolGuard
             if (configs.FirstOrDefault(config => Reaches(path, config)) is { } reached)
             {
                 return $"coa refused this call: the path '{path}' is in a Claude Code config directory or file ({reached}) or contains it, and a session may reach only its own conversation's directory there.";
+            }
+
+            if (inboxes.FirstOrDefault(inbox => Reaches(path, inbox)) is { } bound)
+            {
+                return $"coa refused this call: the path '{path}' is in a directory Claude Code binds sessions' inboxes in ({bound}) or contains it, and a session may not reach another session's inbox.";
             }
 
             return confined
