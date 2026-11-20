@@ -6,6 +6,7 @@ using Coanda.Core.Agents;
 using Coanda.Daemon;
 using Coanda.Daemon.Executors;
 using Coanda.Daemon.Executors.ClaudeCode;
+using Coanda.Tests.Daemon.Modules;
 
 namespace Coanda.Tests.Daemon.Executors;
 
@@ -262,6 +263,80 @@ public sealed class ConfinedSessionTests : IDisposable
         }
 
         Assert.True(process.ExitCode == ToolGuardOutcome.AllowCode, $"coa exited {process.ExitCode}: {error}{output}");
+    }
+
+    [Fact]
+    public async Task A_confined_session_naming_a_skill_gets_the_same_tools_and_confinement_with_its_skills_root_guarded()
+    {
+        using StandInModuleDirectory docs = StandInModuleDirectory.Write("docs", "1.0.0");
+        IReadOnlyList<SessionSkill> skills = [new SessionSkill("greet", "docs", docs.WriteSkill("greet", "Say hello."))];
+        using FakeClaude fake = Fake(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m), FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home, Inherited(fake));
+
+        SessionHandle skilled = await executor.SpawnAsync(Confined with { Skills = ["greet"] }, "context", WorkDirectory, Caps, BuildAnswers, null, null, skills, None);
+        await executor.CollectAsync(skilled, None);
+        SessionHandle plain = await executor.SpawnAsync(Confined, "context", WorkDirectory, Caps, BuildAnswers, null, null, None);
+        await executor.CollectAsync(plain, None);
+
+        FakeClaude.Start start = fake.Starts[0];
+        Assert.Equal("Read,Glob,Grep,Edit,Write", start.After("--tools"));
+        Assert.Equal(fake.Starts[1].After("--tools"), start.After("--tools"));
+        Assert.Equal("*", Settings(start).GetProperty("hooks").GetProperty("PreToolUse")[0].GetProperty("matcher").GetString());
+        ToolGuardRules rules = GuardOf(start);
+        Assert.True(rules.Confined);
+        Assert.Equal(Path.Combine(Path.GetFullPath(WorkDirectory), ".coanda", "skills"), rules.SkillsRoot);
+        Assert.Equivalent(GuardOf(fake.Starts[1]), rules with { SkillsRoot = null }, strict: true);
+        Assert.Equal("Say hello.", File.ReadAllText(Path.Combine(WorkDirectory, ".coanda", "skills", "greet", "SKILL.md")));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_guard_a_skill_session_is_spawned_with_reads_its_skills_and_refuses_three_writes_into_its_skills_root(bool confined)
+    {
+        using StandInModuleDirectory docs = StandInModuleDirectory.Write("docs", "1.0.0");
+        IReadOnlyList<SessionSkill> skills = [new SessionSkill("greet", "docs", docs.WriteSkill("greet", "Say hello."))];
+        using FakeClaude fake = Fake(FakeClaude.Answering(ValidBuild, 0.1m, 0.1m));
+        ClaudeCodeExecutor executor = fake.Executor(temp.Home, Inherited(fake));
+        AgentDefinition agent = (confined ? Confined : SoftwareAgents.Build) with { Skills = ["greet"] };
+
+        SessionHandle handle = await executor.SpawnAsync(agent, "context", WorkDirectory, Caps, BuildAnswers, null, null, skills, None);
+        await executor.CollectAsync(handle, None);
+
+        ToolGuardRules rules = GuardOf(Assert.Single(fake.Starts));
+        Assert.Equal(confined, rules.Confined);
+        string root = Path.Combine(WorkDirectory, ".coanda", "skills");
+        Assert.True(Decide(rules, "Read", new { file_path = Path.Combine(root, "greet", "SKILL.md") }).IsAllowed);
+        Assert.True(Decide(rules, "Write", new { file_path = Path.Combine(WorkDirectory, "notes.md"), content = "x" }).IsAllowed);
+        RefusedInSkills(Decide(rules, "Edit", new { file_path = Path.Combine(root, "greet", "SKILL.md"), old_string = "Say", new_string = "Shout" }));
+        RefusedInSkills(Decide(rules, "Write", new { file_path = Path.Combine(root, "planted", "SKILL.md"), content = "A skill of its own." }));
+        if (!OperatingSystem.IsWindows())
+        {
+            string deep = Path.Combine(WorkDirectory, "src", "deep");
+            Directory.CreateDirectory(deep);
+            Directory.CreateSymbolicLink(Path.Combine(WorkDirectory, "link"), deep);
+            RefusedInSkills(Decide(rules, "Write", new { file_path = "link/../.coanda/skills/greet/SKILL.md", content = "x" }));
+        }
+    }
+
+    private ToolGuardOutcome Decide(ToolGuardRules rules, string tool, object input)
+    {
+        using JsonDocument call = JsonDocument.Parse(JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["session_id"] = "3f6c1b2a-0000-4000-8000-000000000001",
+            ["transcript_path"] = Path.Combine(temp.Home.Path, "config", "projects", "-work", "3f6c1b2a-0000-4000-8000-000000000001.jsonl"),
+            ["cwd"] = WorkDirectory,
+            ["hook_event_name"] = "PreToolUse",
+            ["tool_name"] = tool,
+            ["tool_input"] = input,
+        }));
+        return ToolGuard.Decide(rules, call.RootElement, new Dictionary<string, string> { [HomeVariable] = temp.Home.Path });
+    }
+
+    private static void RefusedInSkills(ToolGuardOutcome outcome)
+    {
+        Assert.Equal(ToolGuardOutcome.DenyCode, outcome.ExitCode);
+        Assert.Contains("is in this session's skills root", outcome.Reason, StringComparison.Ordinal);
     }
 
     private FakeClaude Fake(params object[] script)

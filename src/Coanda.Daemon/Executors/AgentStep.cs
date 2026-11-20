@@ -68,6 +68,7 @@ public static class AgentStep
             schema,
             request.CredentialProfile,
             request.Access,
+            request.Skills,
             cancellationToken);
 
         bool handedOver = false;

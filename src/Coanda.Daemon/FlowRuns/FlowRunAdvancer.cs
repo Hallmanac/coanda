@@ -6,11 +6,13 @@ using Coanda.Core.Definitions;
 using Coanda.Core.FlowRuns;
 using Coanda.Core.Flows;
 using Coanda.Core.Parcels;
+using Coanda.Core.Projects;
 using Coanda.Core.Registry;
 using Coanda.Core.Types;
 using Coanda.Daemon.SystemSteps;
 using Coanda.Daemon.Definitions;
 using Coanda.Daemon.Executors;
+using Coanda.Daemon.Modules;
 using Coanda.Daemon.Parcels;
 using Coanda.Daemon.Projects;
 using Coanda.Daemon.Transport;
@@ -86,6 +88,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     private readonly FlowSystemSteps systemSteps;
     private readonly IAgentExecutor executor;
     private readonly CredentialProfiles profiles;
+    private readonly ModuleSkills skills;
     private readonly NodeHome home;
     private readonly SessionTokens sessionTokens;
     private readonly TimeProvider clock;
@@ -115,6 +118,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         FlowSystemSteps systemSteps,
         IAgentExecutor executor,
         CredentialProfiles profiles,
+        ModuleSkills skills,
         NodeHome home,
         SessionTokens sessionTokens,
         TimeProvider clock,
@@ -134,6 +138,7 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
         this.systemSteps = systemSteps;
         this.executor = executor;
         this.profiles = profiles;
+        this.skills = skills;
         this.home = home;
         this.sessionTokens = sessionTokens;
         this.clock = clock;
@@ -688,8 +693,9 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     /// without an answer, so one more spawn is counted on that visit once the budget checks have
     /// passed. The launch itself is recorded just before the agent runs, with the agent's hash and
     /// model spec, so a pause after the count and before the launch (an agent that does not resolve,
-    /// a credential profile the project names that the node does not hold, a parcel that does not
-    /// load) leaves that spawn unused, and the next resume uses it rather than counting another. The
+    /// a credential profile the project names that the node does not hold, a skill the agent names
+    /// that no module switched on for the project ships or that two of them do, a parcel that does
+    /// not load) leaves that spawn unused, and the next resume uses it rather than counting another. The
     /// session the spawn returns is recorded before its first collect.
     /// </summary>
     private async Task<Recording?> LaunchAgentStepAsync(
@@ -741,6 +747,23 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             return null;
         }
 
+        IReadOnlyList<SessionSkill> given = [];
+        if (agent.Skills.Count > 0)
+        {
+            Project? owner = await projects.ShowAsync(principal, project, cancellationToken);
+            if (skills.Resolve(agent.Name, agent.Skills, project, owner?.Modules ?? [], out string? unresolved) is not { } resolved)
+            {
+                await PauseAsync(
+                    principal, project, flowRun.Id,
+                    $"Step '{step.Name}' cannot give its session the skills its agent names: {unresolved}",
+                    FlowRunLevers.PerformAgain(step.Name),
+                    cancellationToken);
+                return null;
+            }
+
+            given = resolved;
+        }
+
         Parcel parcel = await parcels.ShowAsync(principal, project, flowRun.ParcelId, cancellationToken)
             ?? throw new DomainException($"No parcel {Ids.Short(flowRun.ParcelId)} in project '{project}'.");
         ParcelType type = await parcels.TypeVersionAsync(principal, project, parcel.TypeHash, cancellationToken)
@@ -768,7 +791,10 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             workingDirectory,
             new SpawnCaps(budget.Ceiling, agentStepLimit),
             step.AnswerSchema ?? string.Empty,
-            profile);
+            profile)
+        {
+            Skills = given,
+        };
 
         // Watched before the launch is recorded, so a person's pause or stop saved after that record
         // ends the agent step even before its spawn returns, and one saved before it refuses the record.

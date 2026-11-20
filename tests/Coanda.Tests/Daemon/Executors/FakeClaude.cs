@@ -216,6 +216,12 @@ public sealed class FakeClaude : IDisposable
     /// <summary>One start's record: its arguments, environment, working directory, standard input, and the persona file it found, or null when there was none.</summary>
     public sealed record Start(int Pid, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment, string WorkingDirectory, string Input, string? Persona)
     {
+        /// <summary>
+        /// Every entry the start found under the skills root, by its path relative to the root with
+        /// forward slashes: a file's text, <c>&lt;folder&gt;</c>, or <c>&lt;link&gt;</c>; null when there was no root.
+        /// </summary>
+        public IReadOnlyDictionary<string, string>? Skills { get; init; }
+
         /// <summary>The value after <paramref name="flag"/>, or null when the arguments do not hold it.</summary>
         public string? After(string flag)
         {
@@ -251,7 +257,10 @@ public sealed class FakeClaude : IDisposable
                 (record["environment"]?.AsObject() ?? []).ToDictionary(e => e.Key, e => (string?)e.Value ?? string.Empty),
                 (string?)record["workingDirectory"] ?? string.Empty,
                 (string?)record["input"] ?? string.Empty,
-                (string?)record["persona"]);
+                (string?)record["persona"])
+            {
+                Skills = record["skills"]?.AsObject().ToDictionary(e => e.Key, e => (string?)e.Value ?? string.Empty, StringComparer.Ordinal),
+            };
         }
     }
 }

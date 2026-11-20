@@ -13,7 +13,10 @@ public interface IAgentExecutor
     /// Starts a session for the agent and returns its handle. <paramref name="answerSchema"/> is the
     /// agent's own (<see cref="AgentDefinition.ResolveAnswerSchema"/>), the one its reply must end in.
     /// When <paramref name="access"/> is given, every process of the session, a resume's included,
-    /// runs with its variables set.
+    /// runs with its variables set. <paramref name="skills"/> are the skills the agent names, resolved
+    /// from the modules switched on for the parcel's project; every process of the session, a
+    /// resume's included, is given each of them and told it has them, and a process whose skills
+    /// cannot all be given is not started.
     /// </summary>
     ValueTask<SessionHandle> SpawnAsync(
         AgentDefinition agent,
@@ -23,6 +26,7 @@ public interface IAgentExecutor
         AnswerSchema answerSchema,
         CredentialProfile? credentialProfile,
         SessionAccess? access,
+        IReadOnlyList<SessionSkill> skills,
         CancellationToken cancellationToken);
 
     /// <summary>

@@ -17,6 +17,8 @@ internal sealed class StandInModuleDirectory : IDisposable
 
     public string DefinitionsPath => System.IO.Path.Combine(Path, ModuleArtifact.DefinitionsFolder);
 
+    public string SkillsPath => System.IO.Path.Combine(Path, ModuleArtifact.SkillsFolder);
+
     public static StandInModuleDirectory Write(string module, string version, params ModuleDefinition[] definitions)
     {
         var directory = new StandInModuleDirectory(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "coanda-tests", $"module-{Guid.NewGuid():N}"));
@@ -57,6 +59,26 @@ internal sealed class StandInModuleDirectory : IDisposable
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path) ?? DefinitionsPath);
         File.WriteAllText(path, text);
         return path;
+    }
+
+    /// <summary>
+    /// Writes the skill <paramref name="name"/> into the skills folder: its <c>SKILL.md</c> holding
+    /// <paramref name="instructions"/>, and each of <paramref name="files"/>, a path inside the skill's
+    /// folder and its text. Returns the skill's folder.
+    /// </summary>
+    public string WriteSkill(string name, string instructions, params (string Relative, string Text)[] files)
+    {
+        string folder = System.IO.Path.Combine(SkillsPath, name);
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(System.IO.Path.Combine(folder, ModuleArtifact.SkillFile), instructions);
+        foreach ((string relative, string text) in files)
+        {
+            string path = System.IO.Path.Combine([folder, .. relative.Split('/')]);
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path) ?? folder);
+            File.WriteAllText(path, text);
+        }
+
+        return folder;
     }
 
     public void Dispose()

@@ -10,7 +10,8 @@ namespace Coanda.Testing.FakeClaude;
 /// unset, as a confined session's environment leaves it, from the file <see cref="ControlFile"/> in
 /// the directory it starts in. Every start
 /// appends one record to <c>records.jsonl</c> there, holding its arguments, environment, working
-/// directory, standard input, and the persona file as it found it, then plays the entry of
+/// directory, standard input, the persona file as it found it, and every entry under
+/// <c>.coanda/skills/</c> as it found them, then plays the entry of
 /// <c>script.json</c> whose position is the number of starts before it (the last entry once they
 /// run out): a system init event, a rate-limit event, the entry's assistant events, and its result,
 /// printed the way Claude Code 2.1.318 prints them in print mode with stream-json output. An entry
@@ -177,6 +178,44 @@ public static class Program
         return 0;
     }
 
+    /// <summary>
+    /// Every entry under the skills root, keyed by its path relative to the root with forward slashes:
+    /// a file's text, <c>&lt;folder&gt;</c> for a folder, and <c>&lt;link&gt;</c> for a link, which is
+    /// never followed. Null when there is no skills root.
+    /// </summary>
+    private static JsonObject? Skills(string root)
+    {
+        if (!Directory.Exists(root))
+        {
+            return null;
+        }
+
+        var entries = new JsonObject();
+        Walk(new DirectoryInfo(root));
+        return entries;
+
+        void Walk(DirectoryInfo folder)
+        {
+            foreach (FileSystemInfo entry in folder.EnumerateFileSystemInfos("*", new EnumerationOptions { AttributesToSkip = 0 }).OrderBy(e => e.Name, StringComparer.Ordinal))
+            {
+                string key = Path.GetRelativePath(root, entry.FullName).Replace('\\', '/');
+                if (entry.LinkTarget is not null)
+                {
+                    entries[key] = "<link>";
+                }
+                else if (entry is DirectoryInfo inner)
+                {
+                    entries[key] = "<folder>";
+                    Walk(inner);
+                }
+                else
+                {
+                    entries[key] = File.ReadAllText(entry.FullName);
+                }
+            }
+        }
+    }
+
     /// <summary>Appends this start's record and returns how many starts came before it.</summary>
     private static int Record(string control, string[] args, string input)
     {
@@ -195,6 +234,7 @@ public static class Program
             ["workingDirectory"] = Directory.GetCurrentDirectory(),
             ["input"] = input,
             ["persona"] = File.Exists(persona) ? File.ReadAllText(persona) : null,
+            ["skills"] = Skills(Path.Combine(Directory.GetCurrentDirectory(), ".coanda", "skills")),
         };
         string path = Path.Combine(control, "records.jsonl");
         for (int attempt = 0; ; attempt++)
