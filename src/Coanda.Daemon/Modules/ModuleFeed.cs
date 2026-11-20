@@ -34,8 +34,12 @@ namespace Coanda.Daemon.Modules;
 /// Each module's position is a document in the node tenant (<see cref="FeedPosition"/>), written only
 /// after the module has handled the delivery it covers, so delivery is at least once and a module reacts
 /// to an event it has seen before as it did the first time. On a node where a module's feed has never
-/// run, its position is fixed at the end of the existing record before the daemon advances any live flow
-/// run or advertises its address, so it is delivered nothing recorded before that and everything after.
+/// run, its position is fixed before the daemon advances any live flow run or advertises its address: at
+/// the end of the existing record, so it is delivered nothing recorded before that and everything after,
+/// or, for a module whose describe answer asks for its feed from the beginning (<see cref="FeedStart.Beginning"/>),
+/// at the beginning of the record, so it is delivered every event of a subscribed kind the record already
+/// held, in sequence order, and then everything after. The ask counts only where the module's position
+/// has never been written: on a node that holds one, the feed reads past it whatever the module asks.
 /// </para>
 /// <para>
 /// A flow run's ended or stopped delivery is held until no worker advances that flow run and no person's
@@ -75,8 +79,10 @@ public sealed class ModuleFeed(
 
     /// <summary>
     /// Reads each subscribing module's position, or, for a module whose feed has never run on this node,
-    /// writes the end of the existing record as its position. The daemon calls this once its hosted
-    /// modules have described themselves, and before it advances any live flow run or writes its address file.
+    /// writes its first position: the end of the existing record, or the beginning of the record for a
+    /// module whose describe answer asks for its feed from the beginning. A module's ask counts only here,
+    /// where no position has been written. The daemon calls this once its hosted modules have described
+    /// themselves, and before it advances any live flow run or writes its address file.
     /// </summary>
     public async Task SettlePositionsAsync(CancellationToken cancellationToken)
     {
@@ -96,7 +102,9 @@ public sealed class ModuleFeed(
             }
             else
             {
-                position = await store.Database.FetchHighestEventSequenceNumber(cancellationToken);
+                position = answer.FeedFrom is FeedStart.Beginning
+                    ? 0
+                    : await store.Database.FetchHighestEventSequenceNumber(cancellationToken);
                 session.Store(new FeedPosition { Id = FeedPosition.IdOf(module), Module = module, Sequence = position });
                 await session.SaveChangesAsync(cancellationToken);
             }

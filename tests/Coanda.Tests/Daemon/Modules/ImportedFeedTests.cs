@@ -75,6 +75,53 @@ public sealed class ImportedFeedTests
         await daemon.StopAsync(None);
     }
 
+    [Fact]
+    public async Task A_module_that_asks_from_the_beginning_is_delivered_a_peers_pause_from_the_history_and_not_its_end_or_stop()
+    {
+        using var temp = new TemporaryHome();
+        // No module is hosted here, so the module's position is first written on the start below.
+        await using (RunningDaemon first = await Daemons.StartAsync(
+            temp.Home, new DaemonOptions { Modules = new Dictionary<string, IModule>(), SystemSteps = [new RunningSystemStep()] }, None))
+        {
+            await RegisteredProjects.AddAsync(first, Project, None);
+            await Publishing.FlowAsync(first, Project, RunningSystemStep.FlowNamed());
+            await first.Services.GetRequiredService<ProjectService>().SetModulesAsync(Principal.LocalOwner, Project, [Watcher], None);
+            await first.StopAsync(None);
+        }
+
+        Guid ended;
+        Guid stopped;
+        Guid paused;
+        Guid own;
+        await using (IDocumentStore store = StoreConfiguration.Open(temp.Home.DatabasePath))
+        {
+            var parcels = new ParcelService(store, TimeProvider.System);
+            var flowRuns = new FlowRunService(store, TimeProvider.System);
+            string flow = RunningSystemStep.FlowNamed().Name;
+            async Task<FlowRun> StartAsync(string title) =>
+                await flowRuns.StartAsync(Principal.LocalOwner, Project, (await parcels.AddAsync(Principal.LocalOwner, Project, "task", title, null, None)).Id, flow, None);
+
+            ended = (await flowRuns.EndAsync(Principal.LocalOwner, Project, (await StartAsync("Ended by a peer")).Id, "dispatched", None)).Id;
+            stopped = (await flowRuns.StopAsync(Principal.LocalOwner, Project, (await StartAsync("Stopped by a peer")).Id, "Not needed.", None)).Id;
+            paused = (await flowRuns.PauseAsync(Principal.LocalOwner, Project, (await StartAsync("Paused by a peer")).Id, "Look first.", "resume", None)).Id;
+            await MarkImportedAsync(store, Ids.New(), ended, stopped, paused);
+            own = (await flowRuns.StopAsync(Principal.LocalOwner, Project, (await StartAsync("Stopped here")).Id, "Not needed.", None)).Id;
+        }
+
+        var watcher = new FeedModule(Kinds, feedFrom: FeedStart.Beginning);
+        await using RunningDaemon daemon = await StartAsync(temp, watcher);
+        await FlowRunDriver.UntilAsync(
+            () => watcher.Events.Any(e => e is FeedEvent.FlowRunStopped s && s.FlowRunId == own), "this node's own stop is delivered");
+
+        Assert.Collection(
+            watcher.Events,
+            e => Assert.Equal(paused, Assert.IsType<FeedEvent.FlowRunPaused>(e).FlowRunId),
+            e => Assert.Equal(own, Assert.IsType<FeedEvent.FlowRunStopped>(e).FlowRunId));
+        Assert.DoesNotContain(watcher.Events, e => e is FeedEvent.FlowRunEnded end && end.FlowRunId == ended);
+        Assert.DoesNotContain(watcher.Events, e => e is FeedEvent.FlowRunStopped stop && stop.FlowRunId == stopped);
+        await daemon.StopAsync(None);
+    }
+
     private static Task<RunningDaemon> StartAsync(TemporaryHome temp, FeedModule watcher) =>
         Daemons.StartAsync(temp.Home, new DaemonOptions { Modules = new Dictionary<string, IModule> { [Watcher] = watcher }, SystemSteps = [new RunningSystemStep()] }, None);
 
