@@ -36,6 +36,11 @@
     "settingsSchema": {
       "description": "The settings the module declares for each project it is switched on for.",
       "$ref": "#/definitions/settingsSchema"
+    },
+    "feedFrom": {
+      "description": "Where the module's feed starts on a node where its position has never been written: head, the end of the record as it stands when the feed first runs, or beginning, the start of the record, so that every event of a subscribed kind recorded before is delivered first. Absent means head. On a node that already holds the module's position, the feed reads past that position whichever the module asks.",
+      "type": "string",
+      "enum": ["head", "beginning"]
     }
   },
   "definitions": {

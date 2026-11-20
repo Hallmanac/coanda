@@ -31,6 +31,16 @@ public sealed class SoftwareDescribeTests
     }
 
     [Fact]
+    public void The_written_describe_answer_carries_no_member_for_where_the_feed_starts()
+    {
+        string written = JsonSerializer.Serialize(SoftwareDescribe.Answer, ModuleJson.Options);
+
+        using JsonDocument document = JsonDocument.Parse(written);
+        Assert.False(document.RootElement.TryGetProperty("feedFrom", out _));
+        Assert.Null(SoftwareDescribe.Answer.FeedFrom);
+    }
+
+    [Fact]
     public void The_answer_lists_the_six_steps_each_with_an_argument_and_a_result_schema_and_the_settings_schema()
     {
         DescribeAnswer answer = SoftwareDescribe.Answer;
