@@ -1051,7 +1051,7 @@ public sealed class ClaudeCodeExecutorTests : IDisposable
         SessionHandle handle = await executor.SpawnAsync(SoftwareAgents.Build, "context", WorkDirectory, Caps, BuildAnswers, null, null, None);
 
         NotSupportedException exception = await Assert.ThrowsAsync<NotSupportedException>(() => executor.SendAsync(handle, "hello", None).AsTask());
-        Assert.Equal("The claude-code executor does not support sending into a live session yet.", exception.Message);
+        Assert.Equal($"The claude-code executor sends only to an inbox handle, which names the inbox of a live session it did not start; session {handle.Id} is not one, so nothing was sent to it.", exception.Message);
 
         await executor.CollectAsync(handle, None);
         Assert.DoesNotContain("hello", Assert.Single(fake.Starts).Input, StringComparison.Ordinal);
