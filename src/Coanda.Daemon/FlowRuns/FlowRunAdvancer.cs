@@ -585,6 +585,45 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
     }
 
     /// <summary>
+    /// What the step's sources of a named flow, a type, or the origin read, each only when the step
+    /// declares one, all from the step's own project: the parcel's flow runs, with this flow run as the
+    /// advancer holds it; whether each named type resolves, and the project's parcels when one does; and
+    /// the parcel and flow run the parcel's derived-from relation names.
+    /// </summary>
+    private async Task<SourceReads> ReadSourcesAsync(
+        Principal principal, string project, Parcel parcel, FlowRun flowRun, FlowStep step, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<FlowRun> onParcel = step.Sources.Any(source => source.Flow is not null)
+            ? [.. (await flowRuns.ListAsync(principal, project, parcel.Id, cancellationToken)).Select(listed => listed.Id == flowRun.Id ? flowRun : listed)]
+            : [];
+
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string type in step.Sources.Select(source => source.Type).OfType<string>())
+        {
+            if (!resolved.Contains(type) && await parcels.ResolveTypeAsync(principal, project, type, cancellationToken) is not null)
+            {
+                resolved.Add(type);
+            }
+        }
+
+        IReadOnlyList<Parcel> listedParcels = resolved.Count > 0
+            ? await parcels.ListAsync(principal, project, cancellationToken)
+            : [];
+
+        ParcelRelation? origin = step.Sources.Any(source => source.Origin is true)
+            ? ContextAssembler.OriginOf(parcel)
+            : null;
+        Parcel? originParcel = origin is null
+            ? null
+            : await parcels.ShowAsync(principal, project, origin.RelatedParcelId, cancellationToken);
+        FlowRun? originFlowRun = origin?.FlowRunId is { } causedBy
+            ? await flowRuns.ShowAsync(principal, project, causedBy, cancellationToken)
+            : null;
+
+        return new SourceReads(onParcel, listedParcels, resolved, originParcel, originFlowRun);
+    }
+
+    /// <summary>
     /// Stops the session the start-up sweep left running for a flow run that a person paused or stopped
     /// before the flow run's first advance read it, so no reattach's watch was there for that pause or
     /// stop to end, and records what the session reported spending. A session the executor no
@@ -706,7 +745,8 @@ public sealed class FlowRunAdvancer : IFlowRunAdvancer, IHostedService, IDisposa
             ?? throw new DomainException($"No parcel {Ids.Short(flowRun.ParcelId)} in project '{project}'.");
         ParcelType type = await parcels.TypeVersionAsync(principal, project, parcel.TypeHash, cancellationToken)
             ?? throw new DomainException($"Parcel {Ids.Short(parcel.Id)} names a version of type '{parcel.TypeName}' that project '{project}' does not hold.");
-        string context = ContextAssembler.Assemble(parcel, step, flowRun.Steps);
+        SourceReads reads = await ReadSourcesAsync(principal, project, parcel, flowRun, step, cancellationToken);
+        string context = ContextAssembler.Assemble(parcel, step, flowRun.Steps, reads);
         string workingDirectory = home.FlowRunWorkPath(project, flowRun.Id);
         try
         {
